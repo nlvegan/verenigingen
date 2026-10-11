@@ -291,23 +291,30 @@ class MijnRoodSyncSettings(Document):
 
     def _validate_mapped_role_profiles(self):
         """A Verenigingen Administrator edits this table; the sync hands the profile to
-        the Account Creation Request it queues (#1618)."""
-        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+        the Account Creation Request it queues, and adds verenigingen_role to the user
+        directly (#1618, #1633). Only what is new in this save is checked."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import (
+            validate_editor_holds_roles,
+            validate_mapped_profiles,
+        )
 
-        previous = {
-            (row.mijnrood_role, row.role_profile)
-            for row in frappe.get_all(
-                "MijnRood Role Mapping",
-                filters={"parenttype": self.doctype, "parent": self.name},
-                fields=["mijnrood_role", "role_profile"],
-            )
-        }
+        previous = frappe.get_all(
+            "MijnRood Role Mapping",
+            filters={"parenttype": self.doctype, "parent": self.name},
+            fields=["mijnrood_role", "role_profile", "verenigingen_role"],
+        )
+        system_mapping = bool(self.flags.get("system_profile_mapping"))
         validate_mapped_profiles(
             {(row.mijnrood_role, row.role_profile) for row in self.role_mapping or []},
-            previous,
+            {(row.mijnrood_role, row.role_profile) for row in previous},
             national_allowed=False,
-            system_mapping=bool(self.flags.get("system_profile_mapping")),
+            system_mapping=system_mapping,
         )
+        if not system_mapping:
+            validate_editor_holds_roles(
+                {(row.mijnrood_role, row.verenigingen_role) for row in self.role_mapping or []},
+                {(row.mijnrood_role, row.verenigingen_role) for row in previous},
+            )
 
     def _validate_role_mapping(self):
         """Validate role mapping child table entries."""

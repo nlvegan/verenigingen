@@ -55,6 +55,20 @@ def validate_mapped_profiles(mappings, previous_mappings, *, national_allowed, s
         _validate_editor_holds_roles({p for _slot, p in mappings - previous_mappings})
 
 
+def validate_editor_holds_roles(mapped_roles, previous_roles):
+    """Nobody maps a bare Role they do not hold themselves (#1633).
+
+    Like validate_mapped_profiles, for (slot, Role) pairs: only a pair that is new
+    in this save is checked.
+    """
+    new_roles = {r for _slot, r in {(s, r) for s, r in mapped_roles if r} - set(previous_roles)}
+    own_roles = set(frappe.get_roles())
+    if own_roles & _UNRESTRICTED_ROLES:
+        return
+    for role in sorted(new_roles - own_roles - {"All", "Guest"}):
+        frappe.throw(_("You cannot map Role '{0}': you do not hold it yourself.").format(role))
+
+
 def _validate_editor_holds_roles(new_profiles):
     """Nobody maps a profile granting roles they do not hold themselves."""
     own_roles = set(frappe.get_roles())

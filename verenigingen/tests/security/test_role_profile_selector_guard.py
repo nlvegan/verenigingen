@@ -210,17 +210,18 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
         settings.save()
         frappe.cache.delete_value("mijnrood_role_mapping")
 
-    def _save_mapping(self, profile, user=None):
+    def _save_mapping(self, profile, user=None, mijnrood_role="ROLE_DIVISION_CONTACT", role=None):
         def save():
             settings = frappe.get_doc("MijnRood Sync Settings")
             settings.set("role_mapping", [])
             settings.append(
                 "role_mapping",
                 {
-                    "mijnrood_role": "ROLE_DIVISION_CONTACT",
+                    "mijnrood_role": mijnrood_role,
                     "label": "Selector probe",
                     "create_volunteer": 1,
                     "role_profile": profile,
+                    "verenigingen_role": role,
                 },
             )
             settings.save()
@@ -278,3 +279,75 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
             self._save_mapping(None)
 
         self.assertEqual(len(frappe.get_doc("MijnRood Sync Settings").role_mapping), 1)
+
+    def test_moving_a_system_profile_to_another_mijnrood_role_is_a_new_mapping(self):
+        """An administrator mapped it on ROLE_ADMIN; moving the row to another MijnRood
+        role hands it to a different set of people, so it counts as new."""
+        self._save_mapping(SYSTEM_PROFILE, mijnrood_role="ROLE_ADMIN")  # set by Administrator
+
+        with self.as_user(self.vadmin):
+            self.assertNotIn("System Manager", frappe.get_roles())
+            with self.assertRaisesRegex(frappe.ValidationError, "System Manager"):
+                self._save_mapping(SYSTEM_PROFILE, mijnrood_role="ROLE_DIVISION_CONTACT")
+
+        self.assertEqual(frappe.get_doc("MijnRood Sync Settings").role_mapping[0].mijnrood_role, "ROLE_ADMIN")
+
+    def test_administrator_cannot_map_a_role_they_do_not_hold(self):
+        with self.as_user(self.vadmin):
+            self.assertNotIn("System Manager", frappe.get_roles())
+            with self.assertRaisesRegex(frappe.ValidationError, "System Manager"):
+                self._save_mapping(None, role="System Manager")
+        self.assertFalse(frappe.get_doc("MijnRood Sync Settings").role_mapping)
+
+    def test_administrator_may_map_a_role_they_hold(self):
+        with self.as_user(self.vadmin):
+            self._save_mapping(None, role="Verenigingen Administrator")
+
+        self.assertEqual(
+            frappe.get_doc("MijnRood Sync Settings").role_mapping[0].verenigingen_role, "Verenigingen Administrator"
+        )
+
+    def test_existing_privileged_role_does_not_block_an_unrelated_save(self):
+        self._save_mapping(None, role="System Manager")  # set by Administrator
+
+        with self.as_user(self.vadmin):
+            settings = frappe.get_doc("MijnRood Sync Settings")
+            settings.poll_interval_minutes = 9
+            settings.save()
+
+        self.assertEqual(frappe.get_doc("MijnRood Sync Settings").role_mapping[0].verenigingen_role, "System Manager")
+
+    def test_moving_a_privileged_role_to_another_mijnrood_role_is_a_new_mapping(self):
+        self._save_mapping(None, mijnrood_role="ROLE_ADMIN", role="System Manager")
+
+        with self.as_user(self.vadmin):
+            with self.assertRaisesRegex(frappe.ValidationError, "System Manager"):
+                self._save_mapping(None, mijnrood_role="ROLE_DIVISION_CONTACT", role="System Manager")
+
+    def test_the_refused_role_is_never_granted_by_the_volunteer_sync(self):
+        """Outcome, through _ensure_volunteer. Member.user is set with db.set_value to
+        stand in for the account creation that would have linked it."""
+        from verenigingen.mijnrood_sync.field_mapping import _load_role_mapping
+        from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+            get_volunteer_sync_service,
+        )
+
+        def sync_grants_system_manager():
+            member = self.create_test_member()
+            self.create_test_volunteer(member.name)
+            user = self._selector_user(["Verenigingen Member"])
+            frappe.db.set_value("Member", member.name, "user", user)
+            frappe.cache.delete_value("mijnrood_role_mapping")
+            config = _load_role_mapping()["ROLE_DIVISION_CONTACT"]
+            get_volunteer_sync_service()._ensure_volunteer(member.name, config)
+            return "System Manager" in frappe.get_roles(user)
+
+        self._save_mapping(None, role="System Manager")  # control: an administrator's mapping lands
+        self.assertTrue(sync_grants_system_manager())
+
+        self._save_mapping(None)
+        with self.as_user(self.vadmin):
+            with self.assertRaises(frappe.ValidationError):
+                self._save_mapping(None, role="System Manager")
+        frappe.cache.delete_value("mijnrood_role_mapping")
+        self.assertFalse(sync_grants_system_manager())
