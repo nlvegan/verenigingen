@@ -54,7 +54,7 @@ its JSON permissions (`frappe/model/meta.py:640-653`). Three things put rows the
    ESS role `select` on each of them, through `add_permission`, which runs `copy_perms` first. That
    froze all four DocTypes on veg11 at 2026-09-25 23:31.
 3. **Our own `public_document_creator_setup.py`**, which deliberately calls `add_permission` on Member,
-   Donor and Donation. It has not run on veg11.
+   Donor, Donation, Address and Contact. It has not run on veg11.
 
 "Frozen" is the session's word for case 2 and case 3: the full set of rows has been copied into
 `Custom DocPerm`, so later JSON changes stop reaching that site. The maintainer asked what it means,
@@ -68,7 +68,7 @@ decision, despite what its "Suggested direction" said.
 
 | PR | Closes | Merge | What |
 |---|---|---|---|
-| #1624 | #1588, #1589 | `debd00ca3` | Removed the narrower duplicate `Verenigingen Staff` row from Membership, Membership Type and Contribution Amendment Request. Those were all the duplicates in 142 own DocType JSONs. Added a test that forbids duplicate (role, permlevel, if_owner) rows. Deleted the dead service and its shim, its whitelist, fixture and baseline entries, and only the tests that called it. Added JSON controls for the CBM grants. Added patch `v2_2.remove_dead_chapter_board_permission_critical_operation_rules`, which deletes the 2 stale COR rows on existing sites. |
+| #1624 | #1588, #1589 | `debd00ca3` | Removed the narrower duplicate `Verenigingen Staff` row from Membership, Membership Type and Contribution Amendment Request. Those were all the duplicates in 142 own DocType JSONs. Added a test that forbids duplicate (role, permlevel, if_owner) rows. Deleted the dead service and its shim, its whitelist, fixture and baseline entries, and only the tests that called it. Added JSON controls for the CBM grants. Added patch `verenigingen.patches.v2_2.remove_dead_chapter_board_permission_critical_operation_rules`, which deletes the 2 stale COR rows on existing sites. |
 | #1625 | #1621, #1622 | `708e63ee5` | Retired the Custom DocPerm fixture. New `setup/custom_docperm_setup.py::apply_custom_permissions` runs on `after_install` and `after_migrate`. It repairs truncated core sets, but only when every role in the set is ours or a User Type role. It applies 37 core grants additively through `add_permission`. It reconciles frozen own DocTypes to their JSON, keeping undeclared rows such as the ESS `select` row and the public-creator grants. |
 
 ## Review rounds
@@ -117,7 +117,8 @@ decision, despite what its "Suggested direction" said.
 - **Closed by merge:** #1588, #1589, #1621, #1622.
 - **veg11:**
   - The tree is on develop `708e63ee5`, clean.
-  - Backup `20261012_000306` (database 910 MiB) taken before migrate.
+  - Backup `20261012_000306` (database 910 MiB) was taken immediately before migrate. An earlier
+    `20261012_000056` backup is also on disk; it is not from this session's migrate step.
   - `migrate` OK:
     - the new patch is in Patch Log;
     - one Staff row each on the three de-duplicated DocTypes;
@@ -126,9 +127,10 @@ decision, despite what its "Suggested direction" said.
       Volunteer, Expense Category and DocType are unchanged, so the new step was a no-op there, as
       predicted.
   - `supervisorctl restart` OK at 00:08; `ping` returns `pong`.
-- **Agents:** none running.
-- **Worktrees:** this session's issue worktrees are removed and their branches deleted. The
-  coordinator's detached check tree is removed. `handoff-1011b` holds this handoff.
+- **Agents:** none of this session's agents are running.
+- **Worktrees:** at the end of this session, its issue worktrees were removed and their branches deleted. The
+  coordinator's detached check tree is removed. `handoff-1011b` holds this handoff. The `worktrees/issue-<n>` trees created
+  on 2026-10-12 belong to session frappe-aa (see the ledger), not to this one.
 - **Stash stack:** its 2 old entries, untouched.
 - **Open for the maintainer:**
   - merge this handoff PR, and the earlier ones (#1448, #1527, #1538, #1556, #1581, #1620);
