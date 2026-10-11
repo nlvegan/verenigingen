@@ -342,7 +342,6 @@
  "verenigingen.tests.chapter.test_chapter_board_permissions": 19,
  "verenigingen.tests.chapter.test_chapter_board_permissions_comprehensive": 27,
  "verenigingen.tests.chapter.test_chapter_board_permissions_fixed": 6,
- "verenigingen.tests.chapter.test_chapter_board_permissions_service": 5,
  "verenigingen.tests.chapter.test_chapter_controller": 30,
  "verenigingen.tests.chapter.test_chapter_join_request": 7,
  "verenigingen.tests.chapter.test_chapter_members_enhanced": 4,

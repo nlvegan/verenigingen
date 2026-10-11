@@ -12,7 +12,6 @@ The chapter service layer contains 16 specialized modules:
 
 - `chapter_assignment_service.py` -- Assigns members to chapters based on postal code
 - `chapter_board_service.py` -- Board member management, appointment, and removal
-- `chapter_board_permissions.py` -- Permission logic for board-level operations
 - `chapter_event_service.py` -- Chapter event handling
 - `chapter_finance_service.py` -- Cost center creation and financial tracking
 - `chapter_matching_service.py` -- Matches postal codes to chapters
@@ -117,7 +116,6 @@ Managed by `chapter_role_profile_manager.py` and `chapter_role_profile_hooks.py`
 #### Chapter Security Services
 
 - `chapter_permission_service.py` -- Enforces chapter-level permission rules
-- `chapter_board_permissions.py` -- Board-specific permission logic
 - `chapter_security.py` -- Security enforcement for chapter operations
 
 ### Document Event Hooks
