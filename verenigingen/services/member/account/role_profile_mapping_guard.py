@@ -61,7 +61,7 @@ def _validate_editor_holds_roles(new_profiles):
     if own_roles & _UNRESTRICTED_ROLES:
         return
     for profile in sorted(new_profiles):
-        missing = _profile_roles(profile) - own_roles - {"All", "Guest"}
+        missing = _roles_granted_by(profile) - own_roles - {"All", "Guest"}
         if missing:
             frappe.throw(
                 _("You cannot map Role Profile '{0}': it grants roles you do not hold ({1}).").format(
@@ -70,7 +70,7 @@ def _validate_editor_holds_roles(new_profiles):
             )
 
 
-def _profile_roles(profile):
+def _roles_granted_by(profile):
     return set(
         frappe.get_all("Has Role", filters={"parenttype": "Role Profile", "parent": profile}, pluck="role")
     )
