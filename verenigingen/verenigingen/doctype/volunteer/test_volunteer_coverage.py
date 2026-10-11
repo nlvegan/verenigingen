@@ -553,6 +553,104 @@ class TestCreateVolunteerFromMember(EnhancedTestCase):
         # Bad JSON is treated as a single literal skill.
         self.assertEqual(skill_names, ["Not valid json [["])
 
+    # ------------------------------------------------------------------
+    # Full activation (create_user_account=1) must never fail silently.
+    # Before this, every refusal from queue_account_creation_for_member was
+    # dropped: the volunteer was created, no ACR and no Error Log existed, and
+    # the dialog said "Volunteer profile created successfully".
+    # ------------------------------------------------------------------
+    def _member_without_email(self):
+        member = self.create_test_member()
+        frappe.db.set_value("Member", member.name, "email", None, update_modified=False)
+        return member.name
+
+    def _acrs_for(self, member_name):
+        return frappe.get_all(
+            "Account Creation Request", filters={"source_record": member_name}, pluck="name"
+        )
+
+    def test_full_activation_without_email_is_refused_before_creating_volunteer(self):
+        member_name = self._member_without_email()
+
+        result = self.create_volunteer_from_member(member_name, create_user_account=1)
+
+        self._track_created_volunteer(result)
+        self.assertFalse(result["success"], result)
+        self.assertIn("email", result["error"].lower())
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member_name}))
+        self.assertEqual(self._acrs_for(member_name), [])
+
+    def test_profile_only_without_email_is_still_created(self):
+        """Control: the email requirement belongs to activation, not to the profile."""
+        member_name = self._member_without_email()
+
+        result = self.create_volunteer_from_member(member_name, create_user_account=0)
+
+        self._track_created_volunteer(result)
+        self.assertTrue(result["success"], result)
+        self.assertTrue(frappe.db.exists("Volunteer", {"member": member_name}))
+
+    def test_unticked_activation_sent_as_string_zero_queues_nothing(self):
+        """frappe.call delivers form args as strings, so the unticked box arrives as "0"."""
+        member = self.create_test_member()
+
+        result = self.create_volunteer_from_member(member.name, create_user_account="0")
+
+        self._track_created_volunteer(result)
+        self.assertTrue(result["success"], result)
+        self.assertNotIn("account_creation_queued", result)
+        self.assertEqual(self._acrs_for(member.name), [])
+
+    def test_full_activation_refused_queueing_is_reported_and_logged(self):
+        member = self.create_test_member()
+        # An unfinished earlier request blocks a new one (the dedup guard).
+        blocking = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email,
+                "full_name": member.full_name,
+                "role_profile": "Verenigingen Member",
+            }
+        ).insert()
+        self.track_doc("Account Creation Request", blocking.name)
+        self.expectErrorLog("Volunteer Account Creation Queue Error")
+        log_start = frappe.utils.now()
+
+        result = self.create_volunteer_from_member(member.name, create_user_account=1)
+
+        self._track_created_volunteer(result)
+        self.assertTrue(result["success"], result)
+        self.assertTrue(frappe.db.exists("Volunteer", result["volunteer_name"]))
+        self.assertFalse(result["account_creation_queued"], result)
+        self.assertIn("already exists", result["account_creation_error"])
+        self.assertEqual(self._acrs_for(member.name), [blocking.name])
+        # Title in the title slot, reason in the body (not the swapped shape).
+        logs = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", log_start], "method": "Volunteer Account Creation Queue Error"},
+            fields=["error"],
+        )
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(result["volunteer_name"], logs[0].error)
+        self.assertIn("already exists", logs[0].error)
+
+    def test_full_activation_queued_is_reported_as_queued(self):
+        """Control: a request that does get queued is not reported as refused."""
+        member = self.create_test_member()
+
+        with self.assertNoErrorLog():
+            result = self.create_volunteer_from_member(member.name, create_user_account=1)
+
+        self._track_created_volunteer(result)
+        for acr in self._acrs_for(member.name):
+            self.track_doc("Account Creation Request", acr)
+        self.assertTrue(result["success"], result)
+        self.assertTrue(result["account_creation_queued"], result)
+        self.assertNotIn("account_creation_error", result)
+        self.assertEqual(self._acrs_for(member.name), [result["account_request"]])
+
 
 class TestVolunteerSkillSearchHelpers(EnhancedTestCase):
     """Coverage for module-level skill search / insight whitelisted helpers."""

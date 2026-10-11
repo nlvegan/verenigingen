@@ -239,22 +239,32 @@ function create_volunteer_from_member(frm) {
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data && data.success) {
-						let message = __('Volunteer profile created successfully');
-
-						// Add activation info if queued
-						if (data.account_creation_queued) {
-							message += `<br><small>${__('Volunteer activation queued')}: ${data.account_request}</small>`;
-						}
-
-						frappe.show_alert(
-							{
-								message,
-								indicator: 'green'
-							},
-							7
-						);
-
 						d.hide();
+
+						if (data.account_creation_queued === false) {
+							// The profile exists but activation was refused: say so
+							// rather than reporting plain success.
+							frappe.msgprint({
+								title: __('Volunteer Not Activated'),
+								message: `${__('The volunteer profile was created, but activation was not queued:')}<br>${frappe.utils.escape_html(data.account_creation_error || __('Unknown error'))}`,
+								indicator: 'orange'
+							});
+						} else {
+							let message = __('Volunteer profile created successfully');
+
+							// Add activation info if queued
+							if (data.account_creation_queued) {
+								message += `<br><small>${__('Volunteer activation queued')}: ${data.account_request}</small>`;
+							}
+
+							frappe.show_alert(
+								{
+									message,
+									indicator: 'green'
+								},
+								7
+							);
+						}
 
 						// Reload from DB to show volunteer_record field
 						frm.reload_doc();
@@ -296,6 +306,15 @@ function show_volunteer_assignments(member_name) {
  * @param {Function} options.on_success - Callback on successful activation
  */
 function show_volunteer_activation_dialog(options) {
+	// Offer only real roles this user may grant (never more than their own);
+	// on any error, offer none rather than guessing.
+	frappe
+		.xcall('verenigingen.services.member.account.account_creation_api.get_requestable_volunteer_roles')
+		.then((roles) => build_volunteer_activation_dialog(options, roles || []))
+		.catch(() => build_volunteer_activation_dialog(options, []));
+}
+
+function build_volunteer_activation_dialog(options, requestable_roles) {
 	const { member_name, display_name, on_success } = options;
 
 	const d = new frappe.ui.Dialog({
@@ -312,10 +331,12 @@ function show_volunteer_activation_dialog(options) {
 				</ul>`
 			},
 			{
-				fieldtype: 'MultiSelect',
+				fieldtype: 'MultiSelectList',
 				fieldname: 'additional_roles',
 				label: __('Additional Roles'),
-				options: ['Volunteer Team Member', 'Volunteer Team Leader'],
+				get_data: (txt) =>
+					requestable_roles.filter((role) => !txt || role.toLowerCase().includes(txt.toLowerCase())),
+				hidden: requestable_roles.length ? 0 : 1,
 				description: __('Optional additional roles to assign')
 			}
 		],

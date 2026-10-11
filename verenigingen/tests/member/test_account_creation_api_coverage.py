@@ -19,6 +19,9 @@ decorators serialise the returned ``OperationResult`` into a nested response
 dict, so the helpers below read that shape.
 """
 
+from contextlib import contextmanager
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.services.member.account import account_creation_api as api
@@ -192,3 +195,169 @@ class TestAccountCreationApiCoverage(VereningingenTestCase):
         # Our capped request must not appear in retried set.
         retried_names = [r["name"] for r in data.get("retried_requests", [])]
         self.assertNotIn(request.name, retried_names)
+
+
+class TestRequestableVolunteerRoles(VereningingenTestCase):
+    """The Activate Volunteer dialog's "Additional Roles" options.
+
+    It used to offer two hardcoded names ("Volunteer Team Member" / "Volunteer
+    Team Leader") that are not Roles at all, so picking one failed the request.
+    Board and team roles are granted only through the chapter or team itself,
+    so they are never offered here either.
+    """
+
+    # Never offered: automatic or system-level roles, and the base role the
+    # dialog always adds.
+    NEVER_OFFERED = {"Administrator", "Guest", "All", "Desk User", "System Manager", "Verenigingen Volunteer"}
+
+    def _profile_roles(self, *profiles):
+        return set(
+            frappe.get_all(
+                "Has Role", filters={"parenttype": "Role Profile", "parent": ["in", profiles]}, pluck="role"
+            )
+        )
+
+    def _position_and_volunteer_roles(self):
+        """Roles the board / team leader / national board profiles grant, plus the
+        base volunteer profile's (activation grants those already)."""
+        return self._profile_roles(
+            "Verenigingen Chapter Board Member",
+            "Verenigingen Team Leader",
+            "Verenigingen National Board Member",
+            "Verenigingen Treasurer",
+            "Verenigingen Volunteer",
+        )
+
+    def _deskless_roles(self):
+        return set(frappe.get_all("Role", filters={"desk_access": 0}, pluck="name"))
+
+    def _user_with_profile(self, role_profile):
+        """A user whose roles come from a real Role Profile, as an activator's do."""
+        email = f"req-roles-{frappe.generate_hash(length=8)}@example.com"
+        user = self.create_test_user(email)
+        user.append("role_profiles", {"role_profile": role_profile})
+        user.save(ignore_permissions=True)
+        return user.name
+
+    def test_administrator_is_offered_real_roles_only(self):
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertIn("Verenigingen Auditor", roles)
+        self.assertNotIn("Volunteer Team Member", roles)
+        self.assertNotIn("Volunteer Team Leader", roles)
+        self.assertFalse(self.NEVER_OFFERED & set(roles), roles)
+        for role in roles:
+            self.assertFalse(frappe.db.get_value("Role", role, "disabled"), role)
+
+    def test_board_team_and_base_volunteer_roles_are_never_offered(self):
+        excluded = self._position_and_volunteer_roles()
+        # Control: the fixture really carries the roles this test is about.
+        self.assertTrue(
+            {"Verenigingen Chapter Board Member", "Expense Approver", "Employee"} <= excluded, excluded
+        )
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertFalse(excluded & set(roles), excluded & set(roles))
+
+    def test_national_board_and_treasurer_roles_are_never_offered(self):
+        """Granted only by a seat on the national chapter's board, never from here."""
+        national = self._profile_roles("Verenigingen National Board Member", "Verenigingen Treasurer")
+        self.assertTrue(
+            {"Verenigingen National Board Member", "Verenigingen Treasurer"} <= national, national
+        )
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertFalse(national & set(roles), national & set(roles))
+
+    def test_roles_without_desk_access_are_never_offered(self):
+        deskless = self._deskless_roles()
+        # Control: a service role really sits in a Verenigingen profile.
+        self.assertIn("Verenigingen Webhook User", deskless)
+        self.assertIn("Verenigingen Webhook User", self._profile_roles("Verenigingen Webhook User"))
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertFalse(deskless & set(roles), deskless & set(roles))
+
+    def test_a_profile_mapped_onto_a_chapter_stops_being_offered(self):
+        self.assertIn("Verenigingen Auditor", api.get_requestable_volunteer_roles())
+        chapter = self.create_test_chapter()
+        # Board configuration, not a flow state: this is how an admin maps it.
+        frappe.db.set_value(
+            "Chapter", chapter.name, "default_board_role_profile", "Verenigingen Auditor", update_modified=False
+        )
+
+        roles = api.get_requestable_volunteer_roles()
+
+        self.assertNotIn("Verenigingen Auditor", roles)
+        self.assertTrue(roles)
+
+    def test_offer_does_not_exceed_the_activating_users_own_roles(self):
+        user = self._user_with_profile("Verenigingen Administrator")
+        with self.as_user(user):
+            # What the user actually holds, which is not the whole profile: ERPNext
+            # drops "Employee" from a user with no Employee record.
+            held = self._profile_roles("Verenigingen Administrator") & set(frappe.get_roles())
+            roles = api.get_requestable_volunteer_roles()
+
+        self.assertTrue(roles)
+        self.assertEqual(
+            set(roles),
+            held - self.NEVER_OFFERED - self._position_and_volunteer_roles() - self._deskless_roles(),
+        )
+        # Offered to Administrator, but not part of this user's profile.
+        self.assertNotIn("Verenigingen Auditor", roles)
+
+    def test_user_who_cannot_create_users_is_offered_nothing(self):
+        user = self._user_with_profile("Verenigingen Staff")
+
+        with self.as_user(user):
+            self.assertFalse(frappe.has_permission("User", "create"))
+            roles = api.get_requestable_volunteer_roles()
+
+        self.assertEqual(roles, [])
+
+    def test_non_system_manager_with_user_create_is_offered_only_what_the_acr_accepts(self):
+        """Only System Manager creates Users on a stock site, so the ACR's own role
+        gates are otherwise unreachable here. Grant User create to Staff to reach them.
+        Of the Staff profile's roles only "Support Team" survives the position-profile
+        exclusion ("Verenigingen Staff" sits in the national board profiles), so this
+        exercises the gates through "Support Team", which the ACR does not let a
+        non-System Manager request."""
+        user = self._user_with_profile("Verenigingen Staff")
+
+        with self._user_create_granted("Verenigingen Staff"), self.as_user(user):
+            self.assertIn("Support Team", frappe.get_roles())
+            self.assertTrue(frappe.has_permission("User", "create"))
+            roles = api.get_requestable_volunteer_roles()
+
+        self.assertEqual(roles, [])
+
+    @contextmanager
+    def _user_create_granted(self, role):
+        """Grant User read+create to ``role`` via a transaction-scoped Custom DocPerm,
+        and pin ``frappe.get_meta("User")`` to a Meta built here. Same reasoning as
+        test_payment_entry_creation_service._payment_entry_create_granted: the shared
+        meta cache can be rebuilt without an uncommitted grant."""
+        from frappe.model.meta import load_meta
+        from frappe.permissions import add_permission, update_permission_property
+
+        add_permission("User", role, 0)
+        update_permission_property("User", role, 0, "create", 1)
+        meta = load_meta("User")
+        self.assertTrue([p for p in meta.permissions if p.role == role and p.get("create")])
+
+        real_get_meta = frappe.get_meta
+
+        def pinned_get_meta(doctype, *args, **kwargs):
+            if doctype == "User":
+                return meta
+            return real_get_meta(doctype, *args, **kwargs)
+
+        with patch("frappe.get_meta", pinned_get_meta):
+            yield
