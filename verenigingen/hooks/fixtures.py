@@ -18,8 +18,9 @@ fixtures = [
     # =========================================================================
     # Property Setters (customize ERPNext DocTypes)
     "Property Setter",
-    # Custom DocPerms (permissions for core DocTypes)
-    "Custom DocPerm",
+    # NOTE: "Custom DocPerm" is deliberately NOT a fixture. A raw insert of Custom DocPerm
+    # rows hides every stock DocPerm row of that DocType (#1622). Our grants on core DocTypes
+    # live in setup/custom_docperm_setup.py and are applied on install/migrate.
     # =========================================================================
     # NOTIFICATIONS
     # =========================================================================
