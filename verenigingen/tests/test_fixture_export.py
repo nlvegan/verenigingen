@@ -273,13 +273,35 @@ class TestRoleProfileFixture(unittest.TestCase):
             f"export filter in hooks/fixtures.py (the next export drops them): {undeclared}",
         )
 
-    def test_hr_roles_are_granted_by_the_admin_treasurer_staff_and_national_board_profiles(self):
+    def test_only_the_treasurer_profile_grants_hr_roles(self):
+        """Maintainer rulings 2026-10-12 (#1606): HR User / HR Manager open payroll (salary
+        slips, structures, gratuity ...), so no profile grants them except the Treasurer's HR
+        Manager. Staff gets Expense Approver instead."""
         profiles = _shipped_role_profiles()
+        hr_roles = {"HR User", "HR Manager"}
 
-        self.assertIn("HR Manager", profiles["Verenigingen Administrator"])
-        for profile in ("Verenigingen Treasurer", "Verenigingen Staff", "Verenigingen National Board Member"):
+        # Control: the Treasurer profile really does carry one, so a scan that finds nothing
+        # elsewhere is not just a scan that finds nothing anywhere.
+        self.assertIn("HR Manager", profiles["Verenigingen Treasurer"])
+        self.assertNotIn("HR User", profiles["Verenigingen Treasurer"])
+
+        for name, roles in profiles.items():
+            if name == "Verenigingen Treasurer":
+                continue
+            with self.subTest(profile=name):
+                self.assertFalse(roles & hr_roles, f"{name} grants payroll access: {roles & hr_roles}")
+
+    def test_staff_and_the_other_approver_profiles_hold_expense_approver(self):
+        profiles = _shipped_role_profiles()
+        for profile in (
+            "Verenigingen Staff",
+            "Verenigingen Treasurer",
+            "Verenigingen National Board Member",
+        ):
             with self.subTest(profile=profile):
-                self.assertIn("HR User", profiles[profile])
+                self.assertIn("Expense Approver", profiles[profile])
+        # Control: a profile that is not an approver does not carry it.
+        self.assertNotIn("Expense Approver", profiles["Verenigingen Member"])
 
 
 if __name__ == "__main__":

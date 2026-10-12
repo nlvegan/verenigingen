@@ -8,6 +8,7 @@ from frappe import _
 
 from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 from verenigingen.utils.account_group_project_framework import account_group_framework
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -71,8 +72,57 @@ def validate_journal_entry(doc, method):
                 apply_defaults_to_account_row(account, account_group)
 
 
+# Roles that make a Staff member more than "plain" Staff: they approve any claim, scoped
+# by their own role rather than by the Staff rule below. Treasurer, National Board Member
+# and Administrator profiles all carry Verenigingen Staff as well.
+_STAFF_APPROVAL_EXEMPT_ROLES = frozenset(
+    {
+        Roles.TREASURER,
+        Roles.NATIONAL_BOARD_MEMBER,
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.SYSTEM_MANAGER,
+        Roles.HR_MANAGER,
+    }
+)
+
+
+def validate_expense_claim_approval(doc):
+    """Refuse the approval decisions the maintainer ruled out (#1606).
+
+    Runs from the Expense Claim ``validate`` hook, which covers both save and submit
+    (``approval_status`` is not allow-on-submit, so no later path can change it; Frappe
+    refuses with UpdateAfterSubmitError). Two rules, both on a
+    decision (Approved or Rejected) that is new in this save:
+
+    - Nobody decides their own claim, except the Treasurer role. HRMS's
+      ``prevent_self_expense_approval`` has no role exemption and is switched off by any
+      Expense Claim Workflow, so the exemption cannot be expressed there.
+    - Plain Staff may not decide the claim of an employee who is also Staff.
+    """
+    if doc.approval_status not in ("Approved", "Rejected") or not doc.has_value_changed("approval_status"):
+        return
+
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user)
+    claimant = frappe.db.get_value("Employee", doc.employee, "user_id")
+
+    if claimant and claimant == user and Roles.TREASURER not in user_roles:
+        frappe.throw(_("You cannot approve or reject your own expense claim."), frappe.PermissionError)
+
+    is_plain_staff = Roles.VERENIGINGEN_STAFF in user_roles and not _STAFF_APPROVAL_EXEMPT_ROLES.intersection(
+        user_roles
+    )
+    if is_plain_staff and claimant and Roles.VERENIGINGEN_STAFF in frappe.get_roles(claimant):
+        frappe.throw(
+            _("Staff cannot approve or reject the expense claim of another Staff member."),
+            frappe.PermissionError,
+        )
+
+
 def validate_expense_claim(doc, method):
     """Validate expense claim against account group mappings and chapter access"""
+    validate_expense_claim_approval(doc)
+
     # Auto-populate department from custom_chapter for ERPNext native filtering
     if doc.custom_chapter and not doc.department:  # ast-skip: Custom Field
         # Try to find a matching department

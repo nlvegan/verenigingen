@@ -28,6 +28,8 @@ class Roles:
     EXPENSE_APPROVER = "Expense Approver"
     HR_MANAGER = "HR Manager"
     HR_USER = "HR User"
+    TREASURER = "Verenigingen Treasurer"
+    NATIONAL_BOARD_MEMBER = "Verenigingen National Board Member"
     TEAM_LEADER = "Team Leader"
     # The role members actually hold. There is no bare "Member" role on the site,
     # so never reintroduce a Roles.MEMBER = "Member" constant — it silently never
@@ -56,6 +58,14 @@ class Roles:
             VERENIGINGEN_STAFF,
             HR_MANAGER,
         }
+    )
+
+    # Who sees every Expense Claim. HR_ADMIN_ROLES minus plain Staff: Staff may approve claims
+    # (Expense Approver) but is scoped like any other approver (#1606). Treasurer and National
+    # Board Member keep org-wide access; both profiles also carry Verenigingen Staff, which is
+    # how they had it before. HR_ADMIN_ROLES itself stays as is: Employee permissions use it too.
+    EXPENSE_CLAIM_FULL_ACCESS_ROLES: FrozenSet[str] = frozenset(
+        {SYSTEM_MANAGER, VERENIGINGEN_ADMIN, HR_MANAGER, TREASURER, NATIONAL_BOARD_MEMBER}
     )
 
     ALL_PRIVILEGED_ROLES: FrozenSet[str] = frozenset(

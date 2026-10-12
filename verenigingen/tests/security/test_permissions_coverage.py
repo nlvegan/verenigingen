@@ -1280,8 +1280,13 @@ class TestExpenseClaimPermissions(PermissionsCoverageBase):
     def test_query_admin_employee_approver_and_deny(self):
         from verenigingen.permissions import get_expense_claim_permission_query
 
-        # Staff is in HR_ADMIN_ROLES -> no filter.
-        self.assertEqual(get_expense_claim_permission_query(self.staff_user.name), "")
+        # Treasurer sees everything. Plain Staff does NOT (#1606): without the Expense
+        # Approver role, a board seat or an Employee record it sees nothing.
+        treasurer = self.create_test_user(
+            email=f"perm-treasurer-{self.token}@test.com", roles=[Roles.TREASURER]
+        )
+        self.assertEqual(get_expense_claim_permission_query(treasurer.name), "")
+        self.assertEqual(get_expense_claim_permission_query(self.staff_user.name), "1=0")
 
         # Employee can see own claims.
         self._make_employee_for_user(self.regular_user.name)
@@ -1306,8 +1311,16 @@ class TestExpenseClaimPermissions(PermissionsCoverageBase):
 
         emp = self._make_employee_for_user(self.regular_user.name)
 
-        # Staff/HR admin: always.
+        # Treasurer: always. Plain Staff: no longer (#1606).
+        treasurer = self.create_test_user(
+            email=f"perm-treasurer-{self.token}@test.com", roles=[Roles.TREASURER]
+        )
         self.assertTrue(
+            has_expense_claim_permission(
+                frappe._dict(employee=emp.name, custom_chapter=None), treasurer.name
+            )
+        )
+        self.assertFalse(
             has_expense_claim_permission(
                 frappe._dict(employee=emp.name, custom_chapter=None), self.staff_user.name
             )
