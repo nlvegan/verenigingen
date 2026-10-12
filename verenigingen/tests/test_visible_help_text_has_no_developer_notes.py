@@ -2,7 +2,10 @@
 
 Field descriptions on DocType forms and the ``description`` of shipped Critical
 Operation Rule rows are shown to association admins. Issue numbers and source
-file names mean nothing to them. Hidden fields are never shown, so developer
+file names mean nothing to them. SCOPE: the guard catches issue refs (#NN) and
+``.py`` file names ONLY. It does NOT catch snake_case or function names (a
+description saying ``pause_until`` stays green); a generic snake_case regex would
+flag legitimate examples such as ``chapter_assignment``. Hidden fields are never shown, so developer
 notes on them are left alone. The walk is over the shipped JSON, not a site's DB.
 """
 
@@ -13,7 +16,7 @@ from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 DEVELOPER_NOTE = re.compile(r"#\d{2,5}\b|\b\w+\.py\b")
-COR_FIXTURE = APP_ROOT / "fixtures" / "critical_operation_rule.json"
+COR_FIXTURES = sorted((APP_ROOT / "fixtures").glob("critical_operation_rule*.json"))
 DONATION_JSON = APP_ROOT / "verenigingen" / "doctype" / "donation" / "donation.json"
 
 
@@ -41,8 +44,9 @@ class TestVisibleHelpTextHasNoDeveloperNotes(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_critical_operation_rule_fixture_descriptions_have_no_issue_refs(self):
-        rows = json.loads(COR_FIXTURE.read_text(encoding="utf-8"))
-        self.assertGreater(len(rows), 100, "fixture unexpectedly small; scan would prove nothing")
+        self.assertGreaterEqual(len(COR_FIXTURES), 4, "fixture glob found too few files")
+        rows = [r for p in COR_FIXTURES for r in json.loads(p.read_text(encoding="utf-8"))]
+        self.assertGreater(len(rows), 100, "fixtures unexpectedly small; scan would prove nothing")
         offenders = [
             f"{r.get('name')}: {r['description']}"
             for r in rows
