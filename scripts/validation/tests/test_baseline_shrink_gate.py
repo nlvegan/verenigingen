@@ -746,7 +746,6 @@ class TestShrinkOnPullRequest(unittest.TestCase):
         with_base = self._gate("--base-sha", base)
         self.assertEqual(with_base.returncode, 1, with_base.stdout + with_base.stderr)
         self.assertIn("  - a.py  (removed entirely", with_base.stdout)
-        self.assertIn("removed entirely", with_base.stdout)
         self.assertIn("census.py", with_base.stdout)  # prints the regenerate command
 
     def test_pr_that_regenerates_the_shrunk_baseline_passes(self):
@@ -805,13 +804,51 @@ class TestShrinkOnPullRequest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("out of sync", result.stdout)
 
-    def test_unresolvable_base_warns_and_self_heals(self):
+    def test_unresolvable_base_is_a_hard_error(self):
+        """With fetch-depth 0 the PR base always resolves, so failing to resolve it is
+        a broken checkout, not a reason to wave the PR through."""
         base = self._base_with(**{"a.py": 1, "b.py": 1})
         self._pr_merge(base, lambda: self._write("a.py", 0))
         result = self._gate("--base-sha", "0" * 40)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("does not resolve", result.stdout)
+
+    def test_validator_absent_at_base_warns_and_self_heals(self):
+        """A validator introduced by the PR has no base census; that is the one
+        legitimate reason to fall back to self-healing."""
+        (self.repo / "README").write_text("x\n")
+        base = self._commit_all("base without the validator")
+
+        def edit():
+            (self.repo / "census.py").write_text(self.CENSUS, encoding="utf-8")
+            self._write("a.py", 1)
+            self._write("b.py", 1)
+            subprocess.run([sys.executable, "census.py"], cwd=str(self.repo), check=True)
+
+        self._pr_merge(base, edit)
+        self._write("a.py", 0)  # uncommitted: the regenerate step sees a shrink
+        result = self._gate("--base-sha", base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("::warning", result.stdout)
-        self.assertIn("self-healing", result.stdout)
+        self.assertIn("absent at the base", result.stdout)
+
+    def test_validator_that_fails_at_base_fails_and_shows_its_stderr(self):
+        """A validator that exists at the base but exits non-zero there cannot be
+        attributed; failing closed (with its stderr) beats a silent pass."""
+        self._base_with(**{"a.py": 1, "b.py": 1})
+        (self.repo / "census.py").write_text(
+            "import sys\nsys.stderr.write('boom from base validator')\nsys.exit(3)\n", encoding="utf-8"
+        )
+        broken_base = self._commit_all("base validator broken")
+
+        def edit():
+            (self.repo / "census.py").write_text(self.CENSUS, encoding="utf-8")
+            self._write("a.py", 0)
+
+        self._pr_merge(broken_base, edit)
+        result = self._gate("--base-sha", broken_base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("boom from base validator", result.stdout)
 
     def test_fail_on_shrink_takes_precedence_over_base_sha(self):
         base = self._base_with(**{"a.py": 1})

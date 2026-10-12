@@ -104,9 +104,18 @@ A key already stale at the base (``new[k] == base[k] < committed[k]``) is drift
 the PR did not cause, and still self-heals. This is exact per key and does not
 depend on the key's shape (path, helper name, orphan name), unlike attributing
 by changed file. The base census costs one extra validator run, only in this
-branch. If the base census cannot be produced (the validator did not exist at
-the base, the command failed) the gate warns and self-heals, i.e. the old
-behaviour: an infrastructure problem must not redden a PR.
+branch. If the baseline did not exist at the base (a validator introduced by the
+PR) there is nothing to attribute against: warn and self-heal. A base SHA that
+does not resolve, or a base-tree validator that exits non-zero, FAILS with its
+stderr: CI fetches full history and a validator that passes at HEAD should run
+at the base, so either means a broken checkout and a silent pass would reopen
+the very gap this closes.
+
+Known limit: ``github.event.pull_request.base.sha`` is the base tip when the run
+was triggered, and can be older than the first parent of the test-merge commit
+if the base branch moved since. A shrink that landed on the base in between,
+un-regenerated, is then blamed on the PR. Rare, and the base push run is
+already red in that case.
 
 THE ONE CASE THAT MUST NOT SELF-HEAL
 --------------------------------------
@@ -328,8 +337,15 @@ def classify(old: dict[str, int], new: dict[str, int]):
     return grown, appeared, shrunk
 
 
-def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> dict[str, int] | None:
-    """The census of the tree at `base_sha`, or None if it cannot be produced.
+def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> tuple[dict[str, int] | None, str, str]:
+    """``(census, kind, detail)`` for the tree at `base_sha`.
+
+    `kind` is "ok" (census is the dict), or why there is none: "unresolvable"
+    (the SHA is not a commit here -- a broken checkout, since CI fetches full
+    history), "absent" (the baseline did not exist at the base, i.e. the
+    validator is new in this PR -- the one legitimate reason to give up), or
+    "failed" (the base tree's validator exists but could not produce a census;
+    `detail` carries its stderr).
 
     Runs `regenerate_cmd` (relative paths, as every CI caller passes it) with
     cwd set to a throwaway detached worktree of `base_sha`, then reads the
@@ -343,9 +359,17 @@ def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> dict[str,
         ["git", "rev-parse", "--show-toplevel"], cwd=resolved.parent, capture_output=True, text=True
     )
     if top.returncode != 0:
-        return None
+        return None, "failed", top.stderr.strip()
     toplevel = Path(top.stdout.strip()).resolve()
     rel = resolved.relative_to(toplevel)
+    if subprocess.run(
+        ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"], cwd=toplevel, capture_output=True
+    ).returncode != 0:
+        return None, "unresolvable", ""
+    if subprocess.run(
+        ["git", "cat-file", "-e", f"{base_sha}:{rel.as_posix()}"], cwd=toplevel, capture_output=True
+    ).returncode != 0:
+        return None, "absent", ""
     with tempfile.TemporaryDirectory() as tmp:
         wt = Path(tmp) / "base_tree"
         add = subprocess.run(
@@ -353,18 +377,17 @@ def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> dict[str,
             cwd=toplevel, capture_output=True, text=True,
         )
         if add.returncode != 0:
-            return None
+            return None, "failed", add.stderr.strip()
         try:
             try:
                 run = subprocess.run(shlex.split(regenerate_cmd), cwd=wt, capture_output=True, text=True)
-            except OSError:
-                return None
-            census_file = wt / rel
-            if run.returncode != 0 or not census_file.exists():
-                return None
+            except OSError as exc:
+                return None, "failed", str(exc)
+            if run.returncode != 0:
+                return None, "failed", (run.stderr or run.stdout).strip()
             # Unfiltered on purpose: `shrunk` is already scoped by --require-marker, and
             # a key that is not in it is never looked up here.
-            return parse_baseline(census_file.read_text(encoding="utf-8"))
+            return parse_baseline((wt / rel).read_text(encoding="utf-8")), "ok", ""
         finally:
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(wt)],
@@ -589,11 +612,20 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.base_sha:
-        base = base_census(args.baseline, args.regenerate_cmd, args.base_sha)
-        if base is None:
+        base, kind, detail = base_census(args.baseline, args.regenerate_cmd, args.base_sha)
+        if kind == "unresolvable" or kind == "failed":
             print(
-                f"::warning file={args.baseline}::Could not compute the census at base {args.base_sha}; "
-                "cannot tell whether this PR caused the shrink, so it self-heals."
+                f"::error file={args.baseline}::Cannot compute the census at base {args.base_sha} "
+                f"({'base commit does not resolve in this checkout' if kind == 'unresolvable' else 'its validator failed'}); "
+                "refusing to guess whether this PR caused the shrink."
+            )
+            if detail:
+                print(detail)
+            return 1
+        if kind == "absent":
+            print(
+                f"::warning file={args.baseline}::The baseline is absent at the base {args.base_sha} "
+                "(new validator in this PR), so there is no base census; the shrink self-heals."
             )
         else:
             caused = {k: v for k, v in shrunk.items() if new.get(k, 0) < base.get(k, 0)}

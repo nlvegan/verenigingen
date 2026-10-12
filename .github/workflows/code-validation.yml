@@ -889,10 +889,22 @@ jobs:
         fi
         # #1641: on a PR, fail only what THIS PR removed (present in the BASE tree's census,
         # absent now); entries already stale at the base are drift it did not cause.
-        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
-        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE"); then
-          echo "::warning file=$BASELINE::Could not compute the census at the base; cannot attribute the shrink -- self-healing."
+        # Same policy as baseline_shrink_gate.py --base-sha: an unresolvable base or a base
+        # validator that fails is a hard error (with stderr); only a baseline that did not
+        # exist at the base (validator new in this PR) self-heals.
+        if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+          echo "::error file=$BASELINE::Base commit $BASE_SHA does not resolve in this checkout; refusing to guess."
+          exit 1
+        fi
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "::warning file=$BASELINE::Baseline absent at the base (new validator in this PR); the shrink self-heals."
           exit 0
+        fi
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE") 2> "$RUNNER_TEMP/base_err.txt"; then
+          echo "::error file=$BASELINE::The base tree's validator failed; refusing to guess whether this PR caused the shrink:"
+          cat "$RUNNER_TEMP/base_err.txt"
+          exit 1
         fi
         grep -v -e '^#' -e '^$' "$RUNNER_TEMP/base_tree/$BASELINE" | sort -u > "$RUNNER_TEMP/base_census.txt"
         caused=$(comm -23 "$RUNNER_TEMP/base_census.txt" "$RUNNER_TEMP/new.txt")
@@ -1001,10 +1013,22 @@ jobs:
         fi
         # #1641: on a PR, fail only what THIS PR removed (present in the BASE tree's census,
         # absent now); entries already stale at the base are drift it did not cause.
-        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
-        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE"); then
-          echo "::warning file=$BASELINE::Could not compute the census at the base; cannot attribute the shrink -- self-healing."
+        # Same policy as baseline_shrink_gate.py --base-sha: an unresolvable base or a base
+        # validator that fails is a hard error (with stderr); only a baseline that did not
+        # exist at the base (validator new in this PR) self-heals.
+        if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+          echo "::error file=$BASELINE::Base commit $BASE_SHA does not resolve in this checkout; refusing to guess."
+          exit 1
+        fi
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "::warning file=$BASELINE::Baseline absent at the base (new validator in this PR); the shrink self-heals."
           exit 0
+        fi
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE") 2> "$RUNNER_TEMP/base_err.txt"; then
+          echo "::error file=$BASELINE::The base tree's validator failed; refusing to guess whether this PR caused the shrink:"
+          cat "$RUNNER_TEMP/base_err.txt"
+          exit 1
         fi
         grep -v -e '^#' -e '^$' "$RUNNER_TEMP/base_tree/$BASELINE" | sort -u > "$RUNNER_TEMP/base_census.txt"
         caused=$(comm -23 "$RUNNER_TEMP/base_census.txt" "$RUNNER_TEMP/new.txt")
