@@ -29,6 +29,7 @@ from frappe.utils import now_datetime
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
 from verenigingen.services.member.account.role_profile_mapping_guard import (
     NATIONAL_BOARD_MEMBER_PROFILE,
+    NATIONAL_PROFILES,
     NATIONAL_TREASURER_PROFILE,
 )
 from verenigingen.utils.constants import Roles
@@ -287,6 +288,33 @@ def calculate_user_role_profile(user: str) -> Optional[str]:
     return PROFILE_MEMBER
 
 
+def calculate_user_role_profile_set(user: str) -> list:
+    """The profiles a user SHOULD hold: their own profile plus any national seat profiles.
+
+    A seat on the national chapter's board is ADDED to the user's own profile and
+    never displaces it (maintainer ruling on #1615, 2026-10-13): a staffer who joins
+    the national board keeps Staff/Administrator. So the national profiles are taken
+    out of the priority contest, and the winner of the rest comes first.
+
+    Returns [] when the user is not a member. Without multi-profile support (v15) a
+    User holds one profile, so the headline profile of calculate_user_role_profile()
+    is returned alone.
+    """
+    headline = calculate_user_role_profile(user)
+    if headline is None:
+        return []
+    if not _has_multi_profile_support():
+        return [headline]
+
+    candidates = calculate_all_user_role_profiles(user)
+    national = sorted(
+        {name for _prio, name in candidates if name in NATIONAL_PROFILES},
+        key=lambda name: name != NATIONAL_TREASURER_PROFILE,
+    )
+    own = [name for _prio, name in candidates if name not in NATIONAL_PROFILES]
+    return [own[0], *national] if own else national
+
+
 def get_board_member_profiles(user: str, member: str) -> list:
     """
     Get all role profiles from user's board positions.
@@ -328,6 +356,9 @@ def get_board_member_profiles(user: str, member: str) -> list:
                     # Look up role-specific profile
                     role_profile = chapter_config["specific_profiles"].get(position.chapter_role)
 
+                    if role_profile and _refuses_national_mapping(position.parent, role_profile):
+                        role_profile = None
+
                     if role_profile:
                         # Validate role profile exists
                         if not frappe.db.exists("Role Profile", role_profile):
@@ -343,7 +374,9 @@ def get_board_member_profiles(user: str, member: str) -> list:
                             continue
 
                 # Fall back to default board role profile
-                if chapter_config["default_profile"]:
+                if chapter_config["default_profile"] and not _refuses_national_mapping(
+                    position.parent, chapter_config["default_profile"]
+                ):
                     # Validate default profile exists
                     if not frappe.db.exists("Role Profile", chapter_config["default_profile"]):
                         frappe.log_error(
@@ -385,6 +418,19 @@ def get_board_member_profiles(user: str, member: str) -> list:
         )
 
     return profiles
+
+
+def _refuses_national_mapping(chapter_name: str, profile: str) -> bool:
+    """True when a stored mapping hands a national profile to a chapter that is not national.
+
+    The mapping guard only checks at save time, so a mapping stored while the chapter
+    WAS the national one survives a change of national_board_chapter and would keep
+    granting the national profile to that chapter's seat holders (#1660). Refuse it here.
+    """
+    if profile not in NATIONAL_PROFILES:
+        return False
+    national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    return not national_chapter or national_chapter != chapter_name
 
 
 _NATIONAL_TREASURER_ROLE_NAMES = frozenset({"treasurer", "penningmeester"})
@@ -853,8 +899,11 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
         existing_profiles = get_user_role_profiles(user)
         old_profile = user_doc.role_profile_name or (existing_profiles[0] if existing_profiles else None)
 
-        # Calculate correct profile
+        # Calculate correct profile. new_profile is the headline (it drives the module
+        # profile); new_profiles is what the user actually holds: their own profile
+        # plus any national seat profiles added on top (#1615).
         new_profile = calculate_user_role_profile(user)
+        new_profiles = calculate_user_role_profile_set(user) if new_profile else []
 
         if new_profile is None:
             return {
@@ -880,7 +929,10 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
         old_module_profile = user_doc.module_profile
 
         # Check if change needed
-        role_changed = old_profile != new_profile
+        if _has_multi_profile_support():
+            role_changed = set(existing_profiles) != set(new_profiles)
+        else:
+            role_changed = old_profile != new_profile
         module_changed = new_module_profile is not None and old_module_profile != new_module_profile
         changed = role_changed or module_changed
 
@@ -900,7 +952,8 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             # then silently stripped by ERPNext's own validate_employee_role()
             # hook instead, which is the safe outcome for a disabled account.
             if role_changed and user_enabled:
-                _ensure_employee_for_profile(user, new_profile)
+                for profile in new_profiles:
+                    _ensure_employee_for_profile(user, profile)
                 # Inserting Employee triggers ERPNext hooks that modify the
                 # User doc (notably adding the Employee role). Without a
                 # reload, the next save raises TimestampMismatchError ("has
@@ -916,12 +969,17 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             # support; keep the legacy field for v15 sites.
             if role_changed:
                 if _has_multi_profile_support():
-                    user_doc.set("role_profiles", [{"role_profile": new_profile}])
-                user_doc.role_profile_name = new_profile
+                    user_doc.set("role_profiles", [{"role_profile": name} for name in new_profiles])
+                user_doc.role_profile_name = new_profiles[0] if new_profiles else new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile
 
-            user_doc.save()
+            # Security: ignore_permissions: the profiles written are derived by this function from
+            # organisational records (seats, teams, volunteer status), never taken from
+            # the caller, and the caller is often an actor with no User write access, e.g.
+            # a National Board Member seating a new volunteer (#1615). Without it the sync
+            # raised PermissionError, was swallowed, and the new seat holder got no profile.
+            user_doc.save(ignore_permissions=True)
 
             log_msg = f"Updated profiles for {user}:"
             if role_changed:
@@ -968,6 +1026,26 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             title="Role Profile Sync Failed",
         )
         return {"success": False, "error": str(e), "user": user}
+
+
+def resync_chapter_seat_holders(chapter_name: str) -> list:
+    """Recalculate the role profiles of everyone holding an active seat on a chapter's board.
+
+    Returns the users that could not be synced; one failure never stops the rest.
+    """
+    seats = frappe.db.get_all(
+        "Chapter Board Member", filters={"parent": chapter_name, "is_active": 1}, pluck="volunteer"
+    )
+    failed = []
+    for volunteer in set(seats):
+        member = frappe.db.get_value("Volunteer", volunteer, "member")
+        user = frappe.db.get_value("Member", member, "user") if member else None
+        if not user:
+            continue
+        result = sync_user_role_profile(user)
+        if not result.get("success"):
+            failed.append(user)
+    return failed
 
 
 @frappe.whitelist()

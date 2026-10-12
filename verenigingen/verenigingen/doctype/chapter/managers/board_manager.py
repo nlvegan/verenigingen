@@ -7,7 +7,7 @@ from frappe import STANDARD_USERS, _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import can_use_bypass_validations, secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 from .base_manager import BaseManager
@@ -39,13 +39,17 @@ class BoardManager(BaseManager):
         Returns:
             bool: True if successful, False otherwise
         """
+        # secure_document_operation REFUSES bypass_validations to anyone but a
+        # System Manager, so asking for it unconditionally made every board change
+        # raise PermissionError for any other actor, including an existing National
+        # Board Member seating a new volunteer (#1615). Ask only when it will be granted.
         result = secure_document_operation(
             operation="update_child_table",
             doc=self.chapter_doc,
             justification=f"Board member operation: {operation_description}",
             required_permissions=["Chapter:write"],
             allow_system_user=True,  # Allow system user for automated board operations
-            bypass_validations=["link_validation"],  # Allow bypass of problematic references
+            bypass_validations=["link_validation"] if can_use_bypass_validations() else None,
         )
 
         if not result.success:

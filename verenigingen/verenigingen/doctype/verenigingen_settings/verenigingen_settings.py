@@ -21,6 +21,23 @@ class VerenigingenSettings(Document):
         from verenigingen.utils.document_categories import sync_category_options_to_doctypes
 
         sync_category_options_to_doctypes()
+        self._resync_national_board_seat_holders()
+
+    def _resync_national_board_seat_holders(self):
+        """A new national_board_chapter changes what seats on BOTH chapters confer (#1660)."""
+        if not self.has_value_changed("national_board_chapter"):
+            return
+        previous = self.get_doc_before_save()
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            resync_chapter_seat_holders,
+        )
+
+        for chapter in {
+            previous.get("national_board_chapter") if previous else None,
+            self.national_board_chapter,
+        }:
+            if chapter:
+                resync_chapter_seat_holders(chapter)
 
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
