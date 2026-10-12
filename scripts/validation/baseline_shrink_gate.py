@@ -328,9 +328,7 @@ def classify(old: dict[str, int], new: dict[str, int]):
     return grown, appeared, shrunk
 
 
-def base_census(
-    baseline: Path, regenerate_cmd: str, base_sha: str, require_marker: str | None
-) -> dict[str, int] | None:
+def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> dict[str, int] | None:
     """The census of the tree at `base_sha`, or None if it cannot be produced.
 
     Runs `regenerate_cmd` (relative paths, as every CI caller passes it) with
@@ -364,10 +362,9 @@ def base_census(
             census_file = wt / rel
             if run.returncode != 0 or not census_file.exists():
                 return None
-            text = census_file.read_text(encoding="utf-8")
-            if require_marker:
-                text = "\n".join(ln for ln in data_lines(text) if require_marker in ln)
-            return parse_baseline(text)
+            # Unfiltered on purpose: `shrunk` is already scoped by --require-marker, and
+            # a key that is not in it is never looked up here.
+            return parse_baseline(census_file.read_text(encoding="utf-8"))
         finally:
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(wt)],
@@ -592,7 +589,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.base_sha:
-        base = base_census(args.baseline, args.regenerate_cmd, args.base_sha, args.require_marker)
+        base = base_census(args.baseline, args.regenerate_cmd, args.base_sha)
         if base is None:
             print(
                 f"::warning file={args.baseline}::Could not compute the census at base {args.base_sha}; "

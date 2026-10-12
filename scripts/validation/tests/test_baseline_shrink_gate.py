@@ -821,9 +821,9 @@ class TestShrinkOnPullRequest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("Baseline census shrank", result.stdout)
 
-    def test_base_census_honours_require_marker(self):
-        """Marked baseline lines only: the base census must be filtered the same
-        way, or an unmarked-only difference would count as the PR's shrink."""
+    def test_unmarked_shrink_is_still_out_of_scope_with_require_marker(self):
+        """Control: --require-marker scoping (#769) is unchanged by --base-sha, so a
+        PR that only shrinks an UNMARKED entry is not asked to regenerate."""
         script = (
             "import pathlib\n"
             "root = pathlib.Path(__file__).resolve().parent\n"
@@ -837,6 +837,23 @@ class TestShrinkOnPullRequest(unittest.TestCase):
         self._pr_merge(base, lambda: self._write("b.py", 0))  # only the UNMARKED key shrinks
         result = self._gate("--base-sha", base, "--require-marker", "# clone family")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+    def test_marked_shrink_is_blamed_with_require_marker(self):
+        """Pair of the control above: the MARKED key shrinking is the PR's to commit."""
+        script = (
+            "import pathlib\n"
+            "root = pathlib.Path(__file__).resolve().parent\n"
+            "lines = ['marked_fn::' + str((root/'a.py').read_text().count('SWALLOW')) + '  # clone family',"
+            " 'plain::' + str((root/'b.py').read_text().count('SWALLOW'))]\n"
+            "(root / 'census_baseline.txt').write_text('\\n'.join(lines) + '\\n')\n"
+        )
+        (self.repo / "census.py").write_text(script, encoding="utf-8")
+        base = self._base_with(**{"a.py": 2, "b.py": 1})
+        self._pr_merge(base, lambda: self._write("a.py", 1))
+        result = self._gate("--base-sha", base, "--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("marked_fn  (2 -> 1", result.stdout)
 
 
 class TestWorkflowWiresBaseShaOnPullRequests(unittest.TestCase):
@@ -863,7 +880,7 @@ class TestWorkflowWiresBaseShaOnPullRequests(unittest.TestCase):
         self.assertGreaterEqual(len(steps), 8, "expected the 8 shared-gate callers")
         for step in steps:
             with self.subTest(step=step.splitlines()[0] + " / " + step.split("baseline_shrink_gate.py")[1][:80]):
-                self.assertIn("BASE_SHA_ARG", step)
+                self.assertIn("$BASE_SHA_ARG", step)  # used in the command, not just declared
                 self.assertIn("github.event.pull_request.base.sha", step)
                 self.assertIn("--base-sha", step)
 
