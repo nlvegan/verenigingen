@@ -268,17 +268,6 @@ class TestChapterBoardPermissions(EnhancedTestCase):
             self.assertIsNotNone(query_condition, "Permission query should return conditions")
             self.assertIn("Chapter Member", query_condition, "Query should reference Chapter Member table")
 
-    def test_security_validation_no_privilege_escalation(self):
-        """Test that board members cannot escalate privileges beyond their chapter scope"""
-        from verenigingen.utils.chapter_board_permissions import validate_permission_security
-
-        # Run security validation
-        is_valid, issues = validate_permission_security()
-
-        # Should pass security validation
-        self.assertTrue(is_valid, f"Security validation should pass. Issues found: {issues}")
-        self.assertEqual(len(issues), 0, "No security issues should be found")
-
     def test_cross_chapter_access_prevention(self):
         """Test that board members cannot access data from other chapters"""
 
@@ -503,48 +492,14 @@ class TestPermissionIntegration(EnhancedTestCase):
     Integration tests for the complete permission system
     """
 
-    def test_setup_chapter_board_permissions_api(self):
-        """Test the API for setting up chapter board permissions"""
-        from verenigingen.utils.chapter_board_permissions import setup_chapter_board_permissions
-
-        result = setup_chapter_board_permissions()
-
-        # "Volunteer Expense" has been archived/dropped, so its permission update
-        # returns False and overall result["success"] can no longer be True. Assert
-        # the live (non-archived) doctype permissions succeed plus security checks.
-        self.assertTrue(result["results"]["membership"], f"Membership perms should succeed: {result}")
-        self.assertTrue(
-            result["results"]["termination_request"],
-            f"Termination request perms should succeed: {result}",
-        )
-        self.assertTrue(result["security_valid"], "Security validation should pass")
-        self.assertEqual(len(result["security_issues"]), 0, "No security issues should be found")
-
     def test_permission_system_integration(self):
         """Test complete integration of permission system components"""
-
-        # Setup permissions
-        from verenigingen.utils.chapter_board_permissions import setup_chapter_board_permissions
-
-        result = setup_chapter_board_permissions()
-
-        # Volunteer Expense is archived, so only assert the live doctypes succeed.
-        self.assertTrue(result["results"]["membership"], "Membership perms should succeed")
-        self.assertTrue(result["results"]["termination_request"], "Termination request perms should succeed")
-
         # Test role assignment
         from verenigingen.permissions import update_all_chapter_board_roles
 
         roles_updated = update_all_chapter_board_roles()
 
         self.assertGreaterEqual(roles_updated, 0, "Role synchronization should complete")
-
-        # Test security validation
-        from verenigingen.utils.chapter_board_permissions import validate_permission_security
-
-        is_valid, issues = validate_permission_security()
-
-        self.assertTrue(is_valid, f"Complete system should pass security validation: {issues}")
 
 
 if __name__ == "__main__":

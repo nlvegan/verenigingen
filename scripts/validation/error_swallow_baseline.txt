@@ -136,9 +136,6 @@ verenigingen/services/approval/contribution_amendment_approval_service.py::Contr
 verenigingen/services/approval/termination_approval_service.py::TerminationApprovalService.get_eligible_approvers::1
 verenigingen/services/billing/dues_schedule_creation_service.py::DuesScheduleCreationService._should_circuit_break::1
 verenigingen/services/billing/invoice_matcher.py::_find_invoice_by_calculated_coverage::1
-verenigingen/services/chapter/chapter_board_permissions.py::update_membership_permissions::1
-verenigingen/services/chapter/chapter_board_permissions.py::update_membership_termination_request_permissions::1
-verenigingen/services/chapter/chapter_board_permissions.py::update_volunteer_expense_permissions::1
 verenigingen/services/chapter/chapter_board_service.py::ChapterBoardService.update_chapter_head::1
 verenigingen/services/chapter/chapter_provisioning_service.py::ensure_chapter::1
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::2
@@ -367,7 +364,6 @@ verenigingen/verenigingen/doctype/mt940_import/mt940_import.py::MT940Import.get_
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_chapters::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_statistics::1
 verenigingen/verenigingen/doctype/system_alert/system_alert.py::SystemAlert.create_alert::1
-verenigingen/verenigingen/doctype/volunteer/volunteer.py::_queue_volunteer_account_creation::1
 verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::calculate_projected_revenue::1
 verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py::get_data::1
 verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py::validate_doctype_fields::1
@@ -422,7 +418,6 @@ verenigingen/verenigingen_payments/mollie/utils/unified_payment_entry_creator.py
 verenigingen/verenigingen_payments/ponto/api/webhook.py::_update_account_sync_status::1
 verenigingen/verenigingen_payments/ponto/clients/sync_client.py::PontoSyncClient.get_latest_synchronization::1
 verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service.is_authorized::1
-verenigingen/verenigingen_payments/ponto/services/payment_entry_service.py::create_ponto_payment_entry::1
 verenigingen/verenigingen_payments/ponto/utils/bank_account_creator.py::get_parent_bank_account_group::1
 verenigingen/verenigingen_payments/ponto/utils/secure_cert_manager.py::SecureCertManager.setup_from_pem::1
 verenigingen/verenigingen_payments/ponto/utils/secure_cert_manager.py::SecureCertManager.setup_from_settings::1

@@ -771,7 +771,7 @@ class TestEmployeeDocLevelPermissions(PermissionsCoverageBase):
     frappe.has_permission WITHOUT a doc, while frappe.client.get calls
     doc.check_permission() (frappe/client.py:104), which never consults the query.
     With no has_permission registered for Employee, doc-level access fell entirely
-    to DocPerms -- and fixtures/custom_docperm.json grants the ERPNext `Employee`
+    to DocPerms -- and setup/custom_docperm_setup.py (formerly a fixture) grants the ERPNext `Employee`
     role read with no if_owner, while 8 of 11 role profiles hand out that role.
 
     Net effect before this fix, MEASURED against real config: a plain volunteer got

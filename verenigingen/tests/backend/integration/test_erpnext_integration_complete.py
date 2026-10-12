@@ -42,6 +42,15 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         
         # Create test accounts
         cls.test_accounts = cls._create_test_accounts()
+
+        # The company's own Bank LEDGER. Looking one up by account_type alone
+        # answers with the "Bank Accounts" group, which also carries
+        # account_type Bank and which ERPNext (#59687) rejects on Journal Entry
+        # save. Measured on test_site_4: the group was this company's only
+        # Bank-type account, so the old lookup had nothing else to return.
+        from verenigingen.tests.support.sepa_test_company import ensure_default_gl_bank_account
+
+        cls.bank_account = ensure_default_gl_bank_account(cls.company.name)
         
         # Create test cost centers
         cls.cost_centers = cls._create_test_cost_centers()
@@ -314,11 +323,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             {"account_type": "Receivable", "company": self.company.name},
             "name"
         )
-        bank_account = frappe.db.get_value(
-            "Account",
-            {"account_type": "Bank", "company": self.company.name},
-            "name"
-        )
+        bank_account = self.bank_account
 
         if not receivable_account or not bank_account:
             self.skipTest("Required accounts (Receivable/Bank) not available")
@@ -370,11 +375,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
     def test_journal_entry_workflows(self):
         """Test journal entry creation (draft mode - submission requires GL setup)"""
         # Get required accounts
-        bank_account = frappe.db.get_value(
-            "Account",
-            {"account_type": "Bank", "company": self.company.name},
-            "name"
-        )
+        bank_account = self.bank_account
         income_account = self.test_accounts.get("donation_income")
 
         if not bank_account or not income_account:

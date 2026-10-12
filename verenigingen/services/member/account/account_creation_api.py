@@ -89,6 +89,116 @@ def process_account_creation_request(request_name: str) -> OperationResult[Dict[
         )
 
 
+# Never offered as an additional volunteer role: automatic or system-level roles,
+# and the base role every activation already requests.
+_NEVER_OFFERED_ROLES = {"Administrator", "Guest", "All", "Desk User", Roles.SYSTEM_MANAGER, Roles.VOLUNTEER}
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def get_requestable_volunteer_roles() -> list[str]:
+    """Roles the current user may add when activating a volunteer.
+
+    Candidates are the roles the association's own ("Verenigingen ...") Role
+    Profiles grant, minus every role a board or team position grants: those are
+    assigned only through that chapter or team. The offer never exceeds the
+    caller's own roles, and keeps only roles the Account Creation Request would
+    accept from this caller, so nothing offered can fail the request on permissions.
+    """
+    if not frappe.has_permission("User", "create"):
+        return []
+
+    candidates = set(
+        frappe.get_all(
+            "Has Role",
+            filters={"parenttype": "Role Profile", "parent": ["like", "Verenigingen %"]},
+            pluck="role",
+        )
+    )
+    # Desk access excludes service roles (webhook, background) nobody should hold as a volunteer.
+    enabled = set(
+        frappe.get_all(
+            "Role", filters={"disabled": 0, "desk_access": 1, "name": ["in", list(candidates)]}, pluck="name"
+        )
+    )
+    own_roles = set(frappe.get_roles())
+    excluded = _NEVER_OFFERED_ROLES | _position_and_volunteer_profile_roles()
+
+    request = frappe.new_doc("Account Creation Request")
+    manager = AccountCreationManager(None)
+    return sorted(
+        role
+        for role in (candidates & enabled & own_roles) - excluded
+        if request.can_request_role(role) and manager.can_assign_role(role)
+    )
+
+
+def _position_and_volunteer_profile_roles() -> set[str]:
+    """Roles granted by any profile a chapter board or team can assign (the
+    configured ones and the calculator's defaults), the national board and
+    treasurer profiles (a seat on the national chapter's board grants those, never
+    activation), plus the base volunteer profile's, which every activation
+    already grants."""
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        PROFILE_BOARD_MEMBER,
+        PROFILE_TEAM_LEADER,
+        PROFILE_VOLUNTEER,
+    )
+
+    profiles = {
+        PROFILE_BOARD_MEMBER,
+        PROFILE_TEAM_LEADER,
+        PROFILE_VOLUNTEER,
+        "Verenigingen National Board Member",
+        "Verenigingen Treasurer",
+    }
+    for doctype, field in (
+        ("Chapter", "default_board_role_profile"),
+        ("Chapter Role Profile Mapping", "role_profile"),
+        ("Team", "default_role_profile"),
+        ("Team Role Profile Assignment", "role_profile"),
+    ):
+        profiles.update(frappe.get_all(doctype, filters={field: ["is", "set"]}, pluck=field, distinct=True))
+
+    return set(
+        frappe.get_all(
+            "Has Role", filters={"parenttype": "Role Profile", "parent": ["in", list(profiles)]}, pluck="role"
+        )
+    )
+
+
+def _find_blocking_request(source_record: str):
+    """Name of an Account Creation Request that should block a new one, or None.
+
+    Open requests block. So does a Failed request that can still be retried
+    (``retry_failed_request`` is its recovery path). A Failed request whose retries
+    are spent (``retry_count`` >= ``MAX_RETRIES``) is a dead end for the interactive
+    paths: ``retry_processing`` refuses it and ``retry_all_failed_requests`` filters it
+    out, so blocking on it would leave the member permanently un-activatable (#1614).
+    Not unreachable for every ACR: one linked to a Bulk Operation Tracker is still
+    re-run by the hourly ``bulk_retry_processor`` with no retry_count cap. That is
+    harmless here, since the pipeline links to an existing User rather than duplicating.
+    """
+    from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+        AccountCreationRequest,
+    )
+
+    candidates = frappe.get_all(
+        "Account Creation Request",
+        filters={"source_record": source_record, "status": ["not in", ["Completed", "Cancelled"]]},
+        fields=["name", "status", "retry_count"],
+        order_by="creation asc",
+    )
+    for candidate in candidates:
+        spent = (
+            candidate.status == "Failed"
+            and (candidate.retry_count or 0) >= AccountCreationRequest.MAX_RETRIES
+        )
+        if not spent:
+            return candidate.name
+    return None
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def queue_account_creation_for_member(
@@ -134,10 +244,7 @@ def queue_account_creation_for_member(
         # The AccountCreationManager will detect the existing user and link it to the member
 
         # Check if request already exists
-        existing_request = frappe.db.exists(
-            "Account Creation Request",
-            {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
-        )
+        existing_request = _find_blocking_request(member_name)
 
         if existing_request:
             return OperationResult.fail(
@@ -286,10 +393,7 @@ def queue_account_creation_for_volunteer(
             )
 
         # Check if request already exists
-        existing_request = frappe.db.exists(
-            "Account Creation Request",
-            {"source_record": volunteer_name, "status": ["not in", ["Completed", "Cancelled"]]},
-        )
+        existing_request = _find_blocking_request(volunteer_name)
 
         if existing_request:
             return OperationResult.fail(
