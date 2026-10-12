@@ -245,13 +245,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/submittability_drift_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/submittability_drift_baseline.txt \
           "python scripts/validation/submittability_drift_validator.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the abuse that actually defeats this gate:
     # regenerating the baseline so a NEW violation is recorded rather than fixed.
@@ -361,13 +364,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/error_swallow_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/error_swallow_baseline.txt \
           "python scripts/validation/error_swallow_validator.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the one abuse that actually defeats this gate:
     # regenerating the baseline so a NEW finding is recorded rather than fixed.
@@ -595,13 +601,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/log_error_arg_order_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/log_error_arg_order_baseline.txt \
           "python scripts/validation/log_error_arg_order_validator.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the one abuse that actually defeats this gate:
     # regenerating the baseline so a NEW finding is recorded rather than fixed. That
@@ -703,13 +712,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/db_clock_date_window_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/db_clock_date_window_baseline.txt \
           "python scripts/validation/db_clock_date_window_validator.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the abuse that actually defeats this gate:
     # regenerating the baseline so a NEW finding is recorded rather than fixed.
@@ -846,7 +858,10 @@ jobs:
     # trigger -- that is real, unfixed debt, not staleness.
     - name: Baseline is in sync with the tree
       env:
-        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}
+        # NOT a bare boolean `FAIL_ON_SHRINK`: `[ -n "false" ]` is true, so the old form failed
+        # any shrink on a PR as well (drift included). #1641.
+        IS_PR: ${{ github.event_name == 'pull_request' }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
         BASELINE=scripts/validation/harness_super_skip_baseline.txt
         VALIDATOR=scripts/validation/harness_super_skip_validator.py
@@ -865,14 +880,30 @@ jobs:
           echo "Fix the violation(s), or commit the regenerated baseline deliberately (state before/after counts in the PR)."
           exit 1
         fi
-        if [ -n "$FAIL_ON_SHRINK" ]; then
+        if [ "$IS_PR" != "true" ]; then
           echo "::error file=$BASELINE::Baseline is stale -- these finding(s) were fixed but the file was never regenerated:"
           comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt"
           echo "Regenerate and commit:"
           echo "    python $VALIDATOR --update-baseline $BASELINE"
           exit 1
         fi
-        echo "Baseline shrank (fixed finding(s)) -- self-healing without failing this PR."
+        # #1641: on a PR, fail only what THIS PR removed (present in the BASE tree's census,
+        # absent now); entries already stale at the base are drift it did not cause.
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE"); then
+          echo "::warning file=$BASELINE::Could not compute the census at the base; cannot attribute the shrink -- self-healing."
+          exit 0
+        fi
+        grep -v -e '^#' -e '^$' "$RUNNER_TEMP/base_tree/$BASELINE" | sort -u > "$RUNNER_TEMP/base_census.txt"
+        caused=$(comm -23 "$RUNNER_TEMP/base_census.txt" "$RUNNER_TEMP/new.txt")
+        if [ -n "$caused" ]; then
+          echo "::error file=$BASELINE::This PR fixes finding(s) but does not commit the shrunk baseline:"
+          echo "$caused"
+          echo "Regenerate and commit:"
+          echo "    python $VALIDATOR --update-baseline $BASELINE"
+          exit 1
+        fi
+        echo "Baseline shrank, but every entry was already stale at the base -- not caused by this PR."
 
     # The step above cannot catch the abuse that actually defeats this gate: adding
     # a NEW violation and ALSO committing it straight into the baseline in the same
@@ -939,7 +970,10 @@ jobs:
 
     - name: Baseline is in sync with the tree
       env:
-        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}
+        # NOT a bare boolean `FAIL_ON_SHRINK`: `[ -n "false" ]` is true, so the old form failed
+        # any shrink on a PR as well (drift included). #1641.
+        IS_PR: ${{ github.event_name == 'pull_request' }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
         BASELINE=scripts/validation/harness_factory_shadow_baseline.txt
         VALIDATOR=scripts/validation/harness_factory_shadow_validator.py
@@ -958,14 +992,30 @@ jobs:
           echo "Fix the violation(s), or commit the regenerated baseline deliberately (state before/after counts in the PR)."
           exit 1
         fi
-        if [ -n "$FAIL_ON_SHRINK" ]; then
+        if [ "$IS_PR" != "true" ]; then
           echo "::error file=$BASELINE::Baseline is stale -- these finding(s) were fixed but the file was never regenerated:"
           comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt"
           echo "Regenerate and commit:"
           echo "    python $VALIDATOR --update-baseline $BASELINE"
           exit 1
         fi
-        echo "Baseline shrank (fixed finding(s)) -- self-healing without failing this PR."
+        # #1641: on a PR, fail only what THIS PR removed (present in the BASE tree's census,
+        # absent now); entries already stale at the base are drift it did not cause.
+        git worktree add --detach "$RUNNER_TEMP/base_tree" "$BASE_SHA" >/dev/null
+        if ! (cd "$RUNNER_TEMP/base_tree" && python "$VALIDATOR" --update-baseline "$BASELINE"); then
+          echo "::warning file=$BASELINE::Could not compute the census at the base; cannot attribute the shrink -- self-healing."
+          exit 0
+        fi
+        grep -v -e '^#' -e '^$' "$RUNNER_TEMP/base_tree/$BASELINE" | sort -u > "$RUNNER_TEMP/base_census.txt"
+        caused=$(comm -23 "$RUNNER_TEMP/base_census.txt" "$RUNNER_TEMP/new.txt")
+        if [ -n "$caused" ]; then
+          echo "::error file=$BASELINE::This PR fixes finding(s) but does not commit the shrunk baseline:"
+          echo "$caused"
+          echo "Regenerate and commit:"
+          echo "    python $VALIDATOR --update-baseline $BASELINE"
+          exit 1
+        fi
+        echo "Baseline shrank, but every entry was already stale at the base -- not caused by this PR."
 
     - name: Baseline did not grow
       if: github.event_name == 'pull_request'
@@ -1104,13 +1154,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/critical_operation_rule_orphan_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/critical_operation_rule_orphan_baseline.txt \
           "python scripts/validation/critical_operation_rule_orphan_validator.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the abuse that actually defeats this gate:
     # regenerating the baseline so a NEW orphan is recorded rather than fixed. That
@@ -1193,13 +1246,16 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/test_quality_enforcer.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
           scripts/validation/test_quality_baseline.txt \
           "python scripts/validation/test_quality_enforcer.py --update-baseline" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the abuse that actually defeats this gate:
     # regenerating the baseline so a NEW violation is recorded rather than fixed.
@@ -1281,6 +1337,8 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         python scripts/validation/duplicate_helper_validator.py --update-baseline
         python scripts/validation/baseline_shrink_gate.py \
@@ -1288,7 +1346,8 @@ jobs:
           "python scripts/validation/duplicate_helper_validator.py --update-baseline" \
           --require-marker "# clone family" \
           --already-regenerated \
-          $FAIL_ON_SHRINK
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
 
     # The step above cannot catch the abuse that defeats this gate: regenerating the
     # baseline so a new copy is recorded rather than removed. That leaves baseline
@@ -1369,11 +1428,13 @@ jobs:
     - name: Baseline is in sync with the tree
       env:
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
       run: |
         BASELINE=scripts/validation/order_dependence_baseline.txt
         REGEN="python scripts/testing/scan_order_dependence.py --update-baseline $BASELINE"
         $REGEN
-        python scripts/validation/baseline_shrink_gate.py "$BASELINE" "$REGEN" --already-regenerated $FAIL_ON_SHRINK
+        python scripts/validation/baseline_shrink_gate.py "$BASELINE" "$REGEN" --already-regenerated $FAIL_ON_SHRINK $BASE_SHA_ARG
 
     # The step above CANNOT catch the one abuse that defeats this gate: regenerating the
     # baseline in the same PR so a new finding is recorded rather than fixed. It compares
