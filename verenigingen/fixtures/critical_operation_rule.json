@@ -31174,7 +31174,9 @@
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
   "audit_level": "minimal",
-  "alert_on_execution": 0
+  "alert_on_execution": 0,
+  "batch_rate_limit_calls": 100000,
+  "batch_rate_limit_period_seconds": 3600
  },
  {
   "doctype": "Critical Operation Rule",
@@ -31190,7 +31192,9 @@
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
   "audit_level": "minimal",
-  "alert_on_execution": 0
+  "alert_on_execution": 0,
+  "batch_rate_limit_calls": 100000,
+  "batch_rate_limit_period_seconds": 3600
  },
  {
   "doctype": "Critical Operation Rule",
@@ -31206,7 +31210,9 @@
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
   "audit_level": "standard",
-  "alert_on_execution": 0
+  "alert_on_execution": 0,
+  "batch_rate_limit_calls": 100000,
+  "batch_rate_limit_period_seconds": 3600
  },
  {
   "doctype": "Critical Operation Rule",
