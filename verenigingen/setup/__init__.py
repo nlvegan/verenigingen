@@ -519,7 +519,18 @@ def ensure_default_verenigingen_settings():
     """
     if frappe.db.get_singles_dict("Verenigingen Settings") or not _resolve_install_company():
         return
-    create_default_verenigingen_settings()
+    if create_default_verenigingen_settings() is None:
+        return
+    # The install-time public-creator step could not configure creation_user (no Settings
+    # then); wire an existing creator now. Existing Settings are never touched (returned above).
+    from verenigingen.setup.public_document_creator_setup import (
+        configure_creation_user_in_settings,
+        find_existing_public_creator,
+    )
+
+    creator = find_existing_public_creator()
+    if creator:
+        configure_creation_user_in_settings(creator)
 
 
 def _seed_default_document_categories(settings):

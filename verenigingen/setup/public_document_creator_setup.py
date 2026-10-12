@@ -79,7 +79,12 @@ def setup_public_document_creator():
 
 
 def find_existing_public_creator():
-    """Email of an existing enabled public-creator user that holds the creator role, else None."""
+    """Email of an existing enabled public-creator user that may be reused, else None.
+
+    The `public-creator` name prefix is the only identifier, so it is not trusted alone: the
+    user must hold the creator role and NO other role (a user that also holds e.g. System
+    Manager is never silently adopted as the least-privilege creation user).
+    """
     rows = frappe.get_all(
         "User",
         filters={"name": ["like", "public-creator%"], "enabled": 1},
@@ -87,7 +92,8 @@ def find_existing_public_creator():
         order_by="name asc",
     )
     for email in rows:
-        if frappe.db.exists("Has Role", {"parent": email, "role": PUBLIC_CREATOR_ROLE}):
+        roles = set(frappe.get_all("Has Role", filters={"parent": email}, pluck="role"))
+        if roles == {PUBLIC_CREATOR_ROLE}:
             return email
     return None
 

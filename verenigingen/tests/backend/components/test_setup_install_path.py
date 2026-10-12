@@ -260,6 +260,9 @@ class TestSettingsCreatedFromARealCompany(FrappeTestCase):
 
     @staticmethod
     def _cleanup_restore_singles(rows):
+        # Restores the Single's own rows only; child-table rows (tab<Child DocType>) the
+        # create may have written, such as the seeded board_document_categories, are NOT
+        # restored.
         frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
         for field, value in rows:
             frappe.db.sql(
@@ -293,8 +296,81 @@ class TestSettingsCreatedFromARealCompany(FrappeTestCase):
         # The hook cannot know every install step ran, so it must not claim so.
         self.assertFalse(int(saved.get("initial_setup_complete") or 0))
 
+    def test_after_migrate_hook_wires_an_existing_public_creator(self):
+        creator = _make_creator_user(self, "public-creator-n1@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        frappe.clear_cache(doctype="Verenigingen Settings")
+
+        setup_mod.ensure_default_verenigingen_settings()
+
+        saved = frappe.db.get_singles_dict("Verenigingen Settings")
+        self.assertEqual(saved.get("creation_user"), creator)
+
+    def test_after_migrate_hook_leaves_existing_settings_alone(self):
+        _make_creator_user(self, "public-creator-n1b@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        before = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+            setup_mod.ensure_default_verenigingen_settings()
+            before = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+            frappe.db.set_single_value("Verenigingen Settings", "creation_user", before)
+
+        setup_mod.ensure_default_verenigingen_settings()
+
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "creation_user"), before)
+
     def test_after_migrate_hook_is_registered(self):
         self.assertIn("verenigingen.setup.ensure_default_verenigingen_settings", frappe.get_hooks("after_migrate"))
+
+
+PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
+
+
+def _make_creator_user(test, email, roles, enabled=1):
+    """Insert a real System User with exactly `roles`; deleted again at test cleanup."""
+    from verenigingen.setup.public_document_creator_setup import ensure_public_creator_role_exists
+
+    ensure_public_creator_role_exists()
+    user = frappe.get_doc(
+        {
+            "doctype": "User",
+            "email": email,
+            "first_name": "Creator",
+            "enabled": enabled,
+            "user_type": "System User",
+            "send_welcome_email": 0,
+            "roles": [{"role": r} for r in roles],
+        }
+    ).insert(ignore_permissions=True)
+    test.addCleanup(lambda: frappe.delete_doc("User", email, force=True, ignore_permissions=True))
+    return user.name
+
+
+class TestFindExistingPublicCreator(FrappeTestCase):
+    """The name prefix is the only identifier, so the role/enabled/no-extra-role rules are the guard."""
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.setup.public_document_creator_setup import find_existing_public_creator
+
+        self.find = find_existing_public_creator
+        if self.find():
+            self.skipTest("site already has a reusable public creator")
+
+    def test_a_valid_creator_is_found(self):
+        email = _make_creator_user(self, "public-creator-ok@example.com", [PUBLIC_CREATOR_ROLE])
+        self.assertEqual(self.find(), email)
+
+    def test_a_prefixed_user_without_the_role_is_not_reused(self):
+        _make_creator_user(self, "public-creator-norole@example.com", ["Accounts User"])
+        self.assertIsNone(self.find())
+
+    def test_a_disabled_creator_is_not_reused(self):
+        _make_creator_user(self, "public-creator-off@example.com", [PUBLIC_CREATOR_ROLE], enabled=0)
+        self.assertIsNone(self.find())
+
+    def test_a_creator_that_also_holds_system_manager_is_not_reused(self):
+        _make_creator_user(self, "public-creator-sm@example.com", [PUBLIC_CREATOR_ROLE, "System Manager"])
+        self.assertIsNone(self.find())
 
 
 class TestSettingsWithoutACompany(FrappeTestCase):
