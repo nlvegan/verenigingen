@@ -324,11 +324,12 @@ def execute_after_install():
     This function is idempotent - it checks initial_setup_complete flag
     and skips reference data creation if already run.
 
-    Every step runs independently (#1645): a failing step is reported and recorded,
-    and the steps after it still run, because one step's failure used to silently skip
-    all the rest. The install itself is never aborted, but the initial-setup flag is
-    set only when EVERY step succeeded, so a half-done install is not marked done.
-    Returns the list of failed step names (empty when everything succeeded).
+    Every step runs independently (#1645): a step that RAISES is reported (printed and
+    written to Error Log), the steps after it still run, and the initial-setup flag is not
+    set. The install itself is never aborted. Not every step raises on failure: several
+    swallow their own errors internally (#1662), so a clean return
+    does not prove every step succeeded.
+    Returns the list of failed step names (empty when no step raised).
     """
     if _is_initial_setup_complete():
         print("✅ Initial setup already complete - skipping reference data creation")
@@ -361,7 +362,6 @@ def execute_after_install():
     if failed:
         message = "Verenigingen setup INCOMPLETE - failed steps: " + ", ".join(failed)
         print(f"⚠️ {message}. Fix the cause and re-run `execute_after_install`.")
-        frappe.logger().error(message)
         return failed
 
     # Mark initial setup as complete to prevent re-running on future migrations
@@ -370,7 +370,6 @@ def execute_after_install():
         # No Verenigingen Settings to hold the flag yet (no Company, #1647).
         print("Verenigingen setup steps ran; initial-setup flag deferred until Verenigingen Settings exist")
         return failed
-    frappe.logger().info("Verenigingen setup completed successfully")
     print("Verenigingen app setup completed successfully")
     return failed
 
@@ -391,7 +390,7 @@ def _run_install_step(label, step, failed):
 def _require_settings_created():
     # None with no Company on the site is the expected "deferred" state (#1647), not a
     # failure; None with a Company present means the create itself failed.
-    if create_default_verenigingen_settings() is None and frappe.db.count("Company"):
+    if create_default_verenigingen_settings() is None and _resolve_install_company():
         raise RuntimeError("Verenigingen Settings were not created")
 
 
@@ -435,20 +434,18 @@ def create_default_verenigingen_settings():
         # frappe.db.exists(dt, dt) is unconditionally truthy for a Single (#889), so it made
         # this create branch dead code; check whether the singleton was ever saved instead.
         if not frappe.db.get_singles_dict("Verenigingen Settings"):
-            # Get default company if exists using standardized query approach
-            from verenigingen.utils.validation_utilities import get_all_active_records
-
-            companies = get_all_active_records("Company", fields=["name"], limit=1, order_by="name")
-            if not companies:
+            default_company = _resolve_install_company()
+            if not default_company:
                 # `company` is mandatory and a fresh site has none yet (#1647). Do not invent
-                # a placeholder (a Link to a non-existent Company cannot be saved); the
-                # settings are created on demand (settings_utils) once a Company exists.
+                # a placeholder (a Link to a non-existent Company cannot be saved). The
+                # after_migrate hook `ensure_default_verenigingen_settings` creates the
+                # settings on the first migrate after a Company exists.
                 print(
-                    "⚠️ Verenigingen Settings not created: no Company exists yet. "
-                    "Create a Company, then re-run `execute_after_install`."
+                    "⚠️ Verenigingen Settings not created: no Company exists yet. Create a Company; "
+                    "the settings are then created by the next `bench migrate` "
+                    "(or by re-running `execute_after_install`)."
                 )
                 return None
-            default_company = companies[0].name
 
             settings = frappe.get_doc(
                 {
@@ -497,6 +494,32 @@ def create_default_verenigingen_settings():
         print(f"⚠️ Failed to create Verenigingen Settings: {str(e)}")
         # Don't fail installation if settings creation fails
         return None
+
+
+def _resolve_install_company():
+    """The global default Company, else the first Company by name, else None.
+
+    Company is not submittable, so QueryBuilder.get_all_active_records("Company")
+    (which falls back to docstatus=1) always returned [] and hid every real Company.
+    """
+    default = frappe.defaults.get_global_default("company")
+    if default and frappe.db.exists("Company", default):
+        return default
+    companies = frappe.get_all("Company", pluck="name", order_by="name asc", limit=1)
+    return companies[0] if companies else None
+
+
+def ensure_default_verenigingen_settings():
+    """after_migrate: create Verenigingen Settings once a Company exists (#1647).
+
+    A fresh install has no Company, so execute_after_install cannot create the
+    Settings. Silent no-op while the Single is saved or there is still no Company.
+    Deliberately does NOT set initial_setup_complete: that flag means "every
+    install step ran", which this hook cannot establish.
+    """
+    if frappe.db.get_singles_dict("Verenigingen Settings") or not _resolve_install_company():
+        return
+    create_default_verenigingen_settings()
 
 
 def _seed_default_document_categories(settings):
