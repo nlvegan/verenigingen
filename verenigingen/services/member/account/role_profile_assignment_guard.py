@@ -38,4 +38,22 @@ def validate_may_assign_profile(profile):
             ).format(profile),
             frappe.PermissionError,
         )
-    _validate_editor_holds_roles({profile})
+    _validate_actor_holds_roles(profile)
+
+
+def _validate_actor_holds_roles(profile):
+    """The mapping guard's roles-held rule, refused as a PermissionError with assignment wording.
+
+    The rule itself is shared with the mapping guard (so exemptions added there apply
+    here); only its ValidationError("You cannot map ...") is translated, and the message
+    frappe.throw() queued for the user is dropped so the client sees one message.
+    """
+    queued = len(frappe.local.message_log)
+    try:
+        _validate_editor_holds_roles({profile})
+    except frappe.ValidationError:
+        del frappe.local.message_log[queued:]
+        frappe.throw(
+            _("You cannot assign Role Profile '{0}': it grants roles you do not hold.").format(profile),
+            frappe.PermissionError,
+        )
