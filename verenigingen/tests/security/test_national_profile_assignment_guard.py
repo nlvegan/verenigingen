@@ -31,7 +31,7 @@ ADMIN_PROFILE = "Verenigingen Administrator"
 
 
 class TestNationalProfileAssignmentGuard(VereningingenTestCase):
-    def _user_with_profile(self, profile, extra_roles=()):
+    def _make_user_holding_profile(self, profile, extra_roles=()):
         email = f"np1654-{frappe.generate_hash(length=8)}@example.com"
         user = frappe.get_doc(
             {
@@ -59,10 +59,11 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         finally:
             frappe.set_user(previous)
 
-    def _assert_refused(self, actor, fn, *args, **kwargs):
-        with self.assertRaises(frappe.PermissionError) as ctx:
+    def _assert_assignment_refused(self, actor, fn, *args, **kwargs):
+        with self.assertRaises((frappe.PermissionError, frappe.ValidationError)) as ctx:
             self._call_as(actor, fn, *args, **kwargs)
-        self.assertIn("administrator", str(ctx.exception).lower())
+        message = str(ctx.exception).lower()
+        self.assertTrue("administrator" in message or "do not hold" in message, message)
 
     # -- the heuristic ------------------------------------------------------
 
@@ -105,36 +106,84 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
     def test_a_treasurer_holder_cannot_assign_a_privileged_profile(self):
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
-        actor = self._user_with_profile(TREASURER)
+        actor = self._make_user_holding_profile(TREASURER)
         for target_profile in (ADMIN_PROFILE, "Verenigingen System Administrator", NBM, TREASURER):
-            victim = self._user_with_profile(None)
-            self._assert_refused(actor, assign_role_profile_to_user, victim, target_profile)
+            victim = self._make_user_holding_profile(None)
+            self._assert_assignment_refused(actor, assign_role_profile_to_user, victim, target_profile)
             self.assertNotIn(target_profile, self._profiles_of(victim), target_profile)
 
     def test_a_national_board_member_cannot_assign_a_privileged_profile(self):
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
-        actor = self._user_with_profile(NBM)
-        victim = self._user_with_profile(None)
-        self._assert_refused(actor, assign_role_profile_to_user, victim, TREASURER)
+        actor = self._make_user_holding_profile(NBM)
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, assign_role_profile_to_user, victim, TREASURER)
         self.assertNotIn(TREASURER, self._profiles_of(victim))
 
     def test_an_ordinary_profile_can_still_be_assigned_by_the_same_actor(self):
         """Control: the guard refuses privileged profiles, not the whole endpoint."""
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
-        actor = self._user_with_profile(TREASURER)
-        victim = self._user_with_profile(None)
+        actor = self._make_user_holding_profile(TREASURER)
+        victim = self._make_user_holding_profile(None)
         self._call_as(actor, assign_role_profile_to_user, victim, "Verenigingen Member")
         self.assertIn("Verenigingen Member", self._profiles_of(victim))
 
     def test_an_administrator_can_deliberately_assign_the_treasurer_profile(self):
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
-        for actor in ("Administrator", self._user_with_profile(ADMIN_PROFILE)):
-            victim = self._user_with_profile(None)
+        for actor in ("Administrator", self._make_user_holding_profile(ADMIN_PROFILE)):
+            victim = self._make_user_holding_profile(None)
             self._call_as(actor, assign_role_profile_to_user, victim, TREASURER)
             self.assertIn(TREASURER, self._profiles_of(victim), actor)
+
+    def _profile_granting(self, *roles):
+        name = f"NP1654 {frappe.generate_hash(length=6)}"
+        frappe.get_doc(
+            {"doctype": "Role Profile", "role_profile": name, "roles": [{"role": r} for r in roles]}
+        ).insert()
+        self.track_doc("Role Profile", name)
+        return name
+
+    def test_a_profile_granting_roles_the_actor_lacks_is_refused(self):
+        """HR Manager is Treasurer-only (#1606 ruling) and the stock "HR" / "Accounts" profiles
+        grant it / Accounts Manager. Neither actor holds the role, so neither may hand it out."""
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        hr = self._profile_granting("HR Manager")
+        accounts = self._profile_granting("Accounts Manager")
+        for actor_profile, target in ((NBM, hr), (TREASURER, hr), (NBM, accounts)):
+            actor_roles = set(frappe.get_all("Has Role", filters={"parent": actor_profile}, pluck="role"))
+            self.assertNotIn(frappe.db.get_value("Has Role", {"parent": target}, "role"), actor_roles)
+            actor = self._make_user_holding_profile(actor_profile)
+            victim = self._make_user_holding_profile(None)
+            self._assert_assignment_refused(actor, assign_role_profile_to_user, victim, target)
+            self.assertNotIn(target, self._profiles_of(victim), (actor_profile, target))
+
+    def test_a_profile_whose_roles_the_actor_all_holds_can_be_assigned(self):
+        """Control for the test above, with a real profile built from roles NBM holds."""
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        held = self._profile_granting("Projects User", "Expense Approver")
+        actor = self._make_user_holding_profile(NBM)
+        victim = self._make_user_holding_profile(None)
+        self._call_as(actor, assign_role_profile_to_user, victim, held)
+        self.assertIn(held, self._profiles_of(victim))
+
+    def test_the_chapter_and_team_endpoints_refuse_a_mapped_profile_the_actor_cannot_hold(self):
+        from verenigingen.utils.team_role_profile_manager import assign_team_role_profile
+
+        hr = self._profile_granting("HR Manager")
+        team = self.factory.create_test_team()
+        self.track_doc("Team", team.name)
+        doc = frappe.get_doc("Team", team.name)
+        doc.enable_role_profiles = 1
+        doc.default_role_profile = hr
+        doc.save()
+        actor = self._make_user_holding_profile(NBM)
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, assign_team_role_profile, victim, team.name)
+        self.assertNotIn(hr, self._profiles_of(victim))
 
     # -- chapter / team assignment endpoints -------------------------------
 
@@ -150,15 +199,15 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         doc.save()
         return chapter.name
 
-    def test_a_treasurer_holder_cannot_hand_out_the_national_profile_via_the_chapter_endpoint(self):
+    def test_a_national_board_member_cannot_hand_out_the_national_profile_via_the_chapter_endpoint(self):
         from verenigingen.services.chapter.chapter_role_profile_manager import (
             assign_chapter_board_role_profile,
         )
 
         chapter = self._national_chapter_mapped_to(TREASURER)
-        actor = self._user_with_profile(NBM)
-        victim = self._user_with_profile(None)
-        self._assert_refused(actor, assign_chapter_board_role_profile, victim, chapter)
+        actor = self._make_user_holding_profile(NBM)
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, assign_chapter_board_role_profile, victim, chapter)
         self.assertNotIn(TREASURER, self._profiles_of(victim))
 
     def test_an_administrator_can_use_the_chapter_endpoint(self):
@@ -167,7 +216,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         )
 
         chapter = self._national_chapter_mapped_to(TREASURER)
-        victim = self._user_with_profile(None)
+        victim = self._make_user_holding_profile(None)
         result = self._call_as("Administrator", assign_chapter_board_role_profile, victim, chapter)
         self.assertTrue(result.get("success"), result)
         self.assertIn(TREASURER, self._profiles_of(victim))
@@ -181,7 +230,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         doc.enable_role_profiles = 1
         doc.default_role_profile = ADMIN_PROFILE
         doc.save()
-        actor = self._user_with_profile(TREASURER)
-        victim = self._user_with_profile(None)
-        self._assert_refused(actor, assign_team_role_profile, victim, team.name)
+        actor = self._make_user_holding_profile(TREASURER)
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, assign_team_role_profile, victim, team.name)
         self.assertNotIn(ADMIN_PROFILE, self._profiles_of(victim))
