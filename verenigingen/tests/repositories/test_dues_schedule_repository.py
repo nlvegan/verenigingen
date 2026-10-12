@@ -32,7 +32,7 @@ def _ensure_named_membership_type(type_name):
     if frappe.db.exists("Membership Type", type_name):
         return type_name
     role_profile = frappe.db.get_value(
-        "Role Profile", {"name": ["like", "%Member%"]}, "name"
+        "Role Profile", "Verenigingen Member", "name"
     ) or frappe.db.get_value("Role Profile", {}, "name")
     doc = frappe.get_doc(
         {

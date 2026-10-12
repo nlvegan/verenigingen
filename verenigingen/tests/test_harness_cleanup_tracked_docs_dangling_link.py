@@ -188,7 +188,7 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
                 frappe.db.set_value("Membership Type", name, "minimum_amount", 5.0, update_modified=False)
             return name
         role_profile = (
-            frappe.db.get_value("Role Profile", {"name": ["like", "%Member%"]}, "name")
+            frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
             or frappe.db.get_value("Role Profile", {}, "name")
         )
         frappe.get_doc(
