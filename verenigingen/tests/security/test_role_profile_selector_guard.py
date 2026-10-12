@@ -114,7 +114,8 @@ class TestMembershipTypeProfile(SelectorGuardCase):
         mapped = self._selector_type(SYSTEM_PROFILE)
         result = update_membership_type_role_profile(user, "", mapped.name)
         self.assertTrue(result.get("success"), result)
-        self.assertIn("System Manager", frappe.get_roles(user))
+        # Read Has Role directly: frappe.get_roles goes through the per-user role cache.
+        self.assertTrue(frappe.db.exists("Has Role", {"parent": user, "role": "System Manager"}))
 
         victim = self._selector_user([DEFAULT_PROFILE])
         mt = self._selector_type(DEFAULT_PROFILE)
