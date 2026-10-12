@@ -213,10 +213,29 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._freeze_via_user_type_path("Team")
         role = self._a_declared_role("Team")
         self.assertIn(role, _roles("Team"), "precondition: the frozen set carries the role")
+        kept = set(frappe.get_all("DocPerm", filters={"parent": "Team"}, pluck="role")) - {role}
+        self.assertTrue(kept, "control: other declared roles must exist to be wrongly pruned")
         self._migrate_with_json_revocation("Team", role)
         self.assertNotIn(role, _roles("Team"), "a role the JSON revoked must stop granting")
+        self.assertTrue(kept <= _roles("Team"), f"still-declared roles pruned: {kept - _roles('Team')}")
         ess = [p for p in _effective("Team") if p.role == "Employee Self Service"]
         self.assertEqual([cint(p.select) for p in ess], [1], "ESS select row must survive")
+
+    def test_revoking_a_permlevel_row_keeps_the_roles_level_0_row(self):
+        # The key is (role, permlevel, if_owner), not the role. Probe shortcut: the extra
+        # stock row stands in for a JSON that declared Team Lead at permlevel 1 as well.
+        role = "Team Lead"
+        frappe.get_doc({"doctype": "DocPerm", "parent": "Team", "parenttype": "DocType",
+                        "parentfield": "permissions", "role": role, "permlevel": 1,
+                        "read": 1}).db_insert()
+        self._freeze_via_user_type_path("Team")
+        from verenigingen.setup.custom_docperm_setup import snapshot_own_declared_permissions
+
+        snapshot_own_declared_permissions()
+        frappe.db.delete("DocPerm", {"parent": "Team", "role": role, "permlevel": 1})
+        _run_permission_sync()
+        levels = sorted(cint(p.permlevel) for p in _effective("Team") if p.role == role)
+        self.assertEqual(levels, [0], "only the dropped (role, permlevel) key goes")
 
     def test_admin_edited_row_for_a_revoked_key_survives(self):
         # A row whose flags no longer match what the old JSON declared was changed by

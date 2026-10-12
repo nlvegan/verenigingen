@@ -25,7 +25,11 @@ does, does not. Three things follow, handled here in this order by
    before ``sync_all`` replaces the stock rows) and a frozen row is deleted only when its
    key was dropped AND its flags still equal what the old JSON declared. A row someone edited
    since is theirs and stays. Without a snapshot (``after_install``, or a migrate that skipped
-   the hook) nothing is pruned.
+   the hook) nothing is pruned. Known limits, all failing toward KEEPING a grant:
+   a duplicate Custom row for the revoked key whose flags differ survives (Frappe ORs it);
+   a Check field added to DocPerm in the same migrate makes every flag comparison miss;
+   stock rows rewritten outside migrate (``reload-doctype``, a developer_mode save) leave no
+   snapshot of the old JSON, so that revocation needs a patch. Core DocTypes are not covered.
 
 No commit here: both hooks run inside migrate / install-app, which commit themselves.
 """
