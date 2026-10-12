@@ -9,8 +9,8 @@
 # These tests cover:
 #   * get_custom_fields() as *installable* definitions (anchors, Link targets)
 #     and the fields a fresh site must have without any patch having run.
-#   * The abort behaviour of execute_after_install() and the step that currently
-#     triggers it (setup_verenigingen -> missing "Verenigingen" Domain record).
+#   * That execute_after_install() runs every step and does not mark a failed
+#     run complete (#1645), and the no-Company settings case (#1647).
 #   * Install-time invariants for the service user, E-Boekhouden Settings, the
 #     after_migrate payment-mode top-up and the always-failing dependency
 #     verifier.
@@ -118,77 +118,124 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
         self.assertEqual("Donation" in self.custom_fields, bool(frappe.db.exists("DocType", "Donation")))
 
 
-class TestExecuteAfterInstallAborts(FrappeTestCase):
-    """execute_after_install() wraps every step in one try/except.
+class TestExecuteAfterInstallRunsEveryStep(FrappeTestCase):
+    """execute_after_install() must neither abort at one failing step (#1645) nor
+    mark a half-done install complete.
 
-    KNOWN PRODUCTION BUG: setup_verenigingen() appends "Verenigingen" to
-    Domain Settings.active_domains, but the app ships no `Domain` fixture and
-    nothing creates that record, so the save fails link validation. The blanket
-    handler swallows it, which means everything AFTER setup_verenigingen() in
-    execute_after_install() never runs on a brand-new site:
-    create_all_reference_data(), setup_membership_application_system(),
-    setup_tax_exemption_on_install(), setup_termination_system_integration(),
-    setup_workspace(), load_application_fixtures(), the security/webhook/
-    public-document-creator setup, and _mark_initial_setup_complete().
+    History: setup_verenigingen() activated a Domain "Verenigingen" that nothing
+    ships (and no `domains` hook declares), so it raised on every fresh install
+    (CI included) and the blanket handler swallowed it, skipping every later step.
+    These tests drive the REAL execute_after_install(); the spies use `wraps=` so
+    the real steps still run, and the one injected failure is a step raising.
     """
 
-    def test_domain_record_is_not_shipped(self):
+    LATE_STEPS = (
+        "create_all_reference_data",
+        "setup_membership_application_system",
+        "setup_tax_exemption_on_install",
+        "setup_termination_system_integration",
+        "setup_workspace",
+        "load_application_fixtures",
+    )
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: the idempotency gate. A warm site (and these very tests, which
+        # run the real steps and so mark the site complete) would otherwise make every
+        # later test a no-op that passes vacuously.
+        from unittest import mock
+
+        gate = mock.patch.object(setup_mod, "_is_initial_setup_complete", return_value=False)
+        gate.start()
+        self.addCleanup(gate.stop)
+
+    def _spy_on(self, stack, names):
+        from unittest import mock
+
+        return {
+            name: stack.enter_context(mock.patch.object(setup_mod, name, wraps=getattr(setup_mod, name)))
+            for name in names
+        }
+
+    def test_setup_verenigingen_no_longer_needs_a_domain_record(self):
+        self.assertFalse(frappe.db.exists("Domain", "Verenigingen"), "premise: no Domain is shipped")
+        setup_mod.setup_verenigingen()  # raised LinkValidationError before #1645
+
+    def test_every_step_after_setup_verenigingen_runs(self):
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            spies = self._spy_on(stack, self.LATE_STEPS)
+            failed = setup_mod.execute_after_install()
+        for name, spy in spies.items():
+            self.assertTrue(spy.called, f"{name} was skipped by an earlier step's failure")
+        self.assertNotIn("setup_verenigingen", failed)
+
+    def test_a_failing_step_does_not_skip_later_steps_and_is_not_marked_done(self):
+        import contextlib
+        from unittest import mock
+
+        with contextlib.ExitStack() as stack:
+            spies = self._spy_on(stack, ("setup_workspace", "_mark_initial_setup_complete"))
+            stack.enter_context(
+                mock.patch.object(setup_mod, "create_all_reference_data", side_effect=RuntimeError("boom"))
+            )
+            failed = setup_mod.execute_after_install()
+        self.assertIn("create reference data", failed)
+        self.assertTrue(spies["setup_workspace"].called, "a later step was skipped after a failure")
         self.assertFalse(
-            frappe.db.exists("Domain", "Verenigingen"),
-            "If the Domain record now exists the upstream bug was fixed - update " "these tests",
+            spies["_mark_initial_setup_complete"].called,
+            "a run with a failed step was marked initial_setup_complete",
         )
 
-    def test_setup_verenigingen_raises_without_the_domain_record(self):
-        with self.assertRaises(frappe.LinkValidationError):
-            setup_mod.setup_verenigingen()
+    def test_a_webhook_step_reporting_failure_counts_as_failed(self):
+        """The webhook / public-creator steps return {"success": False} instead of raising."""
+        from unittest import mock
 
-    def test_execute_after_install_swallows_the_failure(self):
-        """It must not propagate (that would abort `bench install-app`), but it
-        also reports nothing to the caller - hence the silent half-install.
+        with mock.patch(
+            "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+            return_value={"success": False, "message": "nope"},
+        ):
+            failed = setup_mod.execute_after_install()
+        self.assertIn("set up webhook user", failed)
 
-        Asserts an OBSERVABLE post-condition, not the return value: an earlier
-        version did `assertIsNone(execute_after_install())`, which cannot fail
-        because the function has no `return <value>` on any path. It was also
-        non-deterministic — `execute_after_install` early-returns when
-        `_is_initial_setup_complete()`, so on a seeded site it was a pure no-op
-        that still went green.
-        """
-        if setup_mod._is_initial_setup_complete():
-            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+    def test_run_complete_setup_reports_failed_steps(self):
+        from unittest import mock
 
-        setup_mod.execute_after_install()
+        with mock.patch.object(setup_mod, "setup_workspace", side_effect=RuntimeError("boom")):
+            result = setup_mod.run_complete_setup()
+        self.assertFalse(result["success"])
+        self.assertIn("set up workspace", result["message"])
 
-        # It aborted on the Domain step, so it never reached
-        # _mark_initial_setup_complete() at the end of the sequence.
-        self.assertFalse(
-            setup_mod._is_initial_setup_complete(),
-            "execute_after_install() completed despite the Domain abort - the "
-            "silent half-install this test documents no longer happens, so "
-            "re-verify the rest of this class.",
-        )
 
-    def test_run_complete_setup_reports_success_despite_the_abort(self):
-        """The whitelisted wrapper only sees "no exception" and reports success,
-        so an operator re-running setup gets a green result for a run that
-        stopped at step four.
+class TestSettingsWithoutACompany(FrappeTestCase):
+    """#1647: on a site with no Company the mandatory `company` cannot be met."""
 
-        `assertTrue(result["success"])` alone would be a test of a literal —
-        run_complete_setup() returns {"success": True} unconditionally because
-        execute_after_install() has its own blanket except. So the point is the
-        CONTRADICTION: success is reported while setup demonstrably did not
-        complete.
-        """
-        if setup_mod._is_initial_setup_complete():
-            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+    def _empty_settings_single(self):
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"))
 
-        result = setup_mod.run_complete_setup()
+    def test_creation_is_skipped_with_a_clear_message(self):
+        import contextlib
+        import io
+        from unittest import mock
 
+        self._empty_settings_single()
+        out = io.StringIO()
+        with mock.patch("verenigingen.utils.validation_utilities.get_all_active_records", return_value=[]):
+            with contextlib.redirect_stdout(out):
+                result = setup_mod.create_default_verenigingen_settings()
+        self.assertIsNone(result)
+        self.assertIn("no Company exists yet", out.getvalue())
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"), "no placeholder was saved")
+
+    def test_public_creator_config_skips_when_settings_are_unsaved(self):
+        from verenigingen.setup.public_document_creator_setup import configure_creation_user_in_settings
+
+        self._empty_settings_single()
+        result = configure_creation_user_in_settings("someone@example.com")
         self.assertTrue(result["success"])
-        self.assertFalse(
-            setup_mod._is_initial_setup_complete(),
-            "run_complete_setup() reported success AND setup actually completed - "
-            "the misreporting this test documents is gone.",
-        )
+        self.assertIn("skipped", result["message"])
 
 
 class TestVerifyAppDependencies(FrappeTestCase):
