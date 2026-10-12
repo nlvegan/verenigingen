@@ -162,6 +162,38 @@ def _position_and_volunteer_profile_roles() -> set[str]:
     )
 
 
+def _find_blocking_request(source_record: str):
+    """Name of an Account Creation Request that should block a new one, or None.
+
+    Open requests block. So does a Failed request that can still be retried
+    (``retry_failed_request`` is its recovery path). A Failed request whose retries
+    are spent (``retry_count`` >= ``MAX_RETRIES``) is a dead end for the interactive
+    paths: ``retry_processing`` refuses it and ``retry_all_failed_requests`` filters it
+    out, so blocking on it would leave the member permanently un-activatable (#1614).
+    Not unreachable for every ACR: one linked to a Bulk Operation Tracker is still
+    re-run by the hourly ``bulk_retry_processor`` with no retry_count cap. That is
+    harmless here, since the pipeline links to an existing User rather than duplicating.
+    """
+    from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+        AccountCreationRequest,
+    )
+
+    candidates = frappe.get_all(
+        "Account Creation Request",
+        filters={"source_record": source_record, "status": ["not in", ["Completed", "Cancelled"]]},
+        fields=["name", "status", "retry_count"],
+        order_by="creation asc",
+    )
+    for candidate in candidates:
+        spent = (
+            candidate.status == "Failed"
+            and (candidate.retry_count or 0) >= AccountCreationRequest.MAX_RETRIES
+        )
+        if not spent:
+            return candidate.name
+    return None
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def queue_account_creation_for_member(
@@ -207,10 +239,7 @@ def queue_account_creation_for_member(
         # The AccountCreationManager will detect the existing user and link it to the member
 
         # Check if request already exists
-        existing_request = frappe.db.exists(
-            "Account Creation Request",
-            {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
-        )
+        existing_request = _find_blocking_request(member_name)
 
         if existing_request:
             return OperationResult.fail(
@@ -359,10 +388,7 @@ def queue_account_creation_for_volunteer(
             )
 
         # Check if request already exists
-        existing_request = frappe.db.exists(
-            "Account Creation Request",
-            {"source_record": volunteer_name, "status": ["not in", ["Completed", "Cancelled"]]},
-        )
+        existing_request = _find_blocking_request(volunteer_name)
 
         if existing_request:
             return OperationResult.fail(
