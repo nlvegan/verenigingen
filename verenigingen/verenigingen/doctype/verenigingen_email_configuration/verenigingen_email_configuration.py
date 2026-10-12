@@ -376,7 +376,7 @@ def _discover_notification_keys() -> dict:
                         "file_path": file_path,
                         "category": _infer_category_from_path(file_path),
                         "label": _make_label_from_key(key),
-                        "description": "(Not documented - add to notification_registry.py)",
+                        "description": "No description yet",
                         "priority": "Medium",
                         "recipient_policy": "Document-Field",
                         "in_registry": False,
