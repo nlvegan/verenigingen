@@ -35,6 +35,10 @@ def _roles_shipped_for_profile(profile):
 class StaffExpenseBase(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        if not frappe.get_meta("Expense Claim").has_field("custom_chapter"):
+            # Shipped as fixtures/expense_claim_custom_fields.json: a fresh install (CI) has it,
+            # a site restored from an older snapshot only gets it from `bench migrate`.
+            self.skipTest("Expense Claim Custom Fields missing on this site: run bench migrate")
         self.token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
         self.company = get_eur_test_company()
         self.expense_account = frappe.db.get_value(
@@ -367,3 +371,52 @@ class TestApprovalRules(StaffExpenseBase):
 
         self.act_as(self.volunteer_user, edit)
         self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "remark"), "unrelated edit")
+
+    # ---- two-save bypass: decide a stranger's claim, then re-point it at a Staff employee
+    def _decide_then_reassign(self, actor, new_employee, submit=False):
+        claim = self.claim(self.volunteer_emp, chapter=self.chapter_a)
+        self.decide(actor, claim.name, "Approved")
+
+        def reassign():
+            doc = frappe.get_doc("Expense Claim", claim.name)
+            doc.employee = new_employee.name
+            doc.submit() if submit else doc.save()
+
+        try:
+            self.act_as(actor, reassign)
+        finally:
+            self.reassigned_to = frappe.db.get_value("Expense Claim", claim.name, "employee")
+        return claim
+
+    def test_two_saves_cannot_turn_an_approval_into_a_self_approval(self):
+        for submit in (False, True):
+            with self.subTest(submit=submit):
+                with self.assertRaises(frappe.PermissionError) as ctx:
+                    self._decide_then_reassign(self.staff, self.staff_emp, submit=submit)
+                self.assertIn("your own expense claim", str(ctx.exception))
+                self.assertEqual(self.reassigned_to, self.volunteer_emp.name)
+
+    def test_two_saves_cannot_move_an_approval_to_another_staff_member(self):
+        for submit in (False, True):
+            with self.subTest(submit=submit):
+                with self.assertRaises(frappe.PermissionError) as ctx:
+                    self._decide_then_reassign(self.staff, self.other_staff_emp, submit=submit)
+                self.assertIn("another Staff member", str(ctx.exception))
+                self.assertEqual(self.reassigned_to, self.volunteer_emp.name)
+
+    def test_treasurer_may_reassign_a_decided_claim_to_a_staff_member(self):
+        # control: the rule bites plain Staff, not every actor who re-points a decided claim
+        self._decide_then_reassign(self.treasurer, self.other_staff_emp)
+        self.assertEqual(self.reassigned_to, self.other_staff_emp.name)
+
+    def test_plain_staff_may_still_edit_a_decided_claim_without_changing_its_employee(self):
+        claim = self.claim(self.volunteer_emp, chapter=self.chapter_a)
+        self.decide(self.staff, claim.name, "Approved")
+
+        def edit():
+            doc = frappe.get_doc("Expense Claim", claim.name)
+            doc.remark = "staff note"
+            doc.save()
+
+        self.act_as(self.staff, edit)
+        self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "remark"), "staff note")

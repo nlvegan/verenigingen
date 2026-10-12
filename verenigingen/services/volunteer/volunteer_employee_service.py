@@ -28,13 +28,18 @@ def create_employee_for_volunteer(volunteer: str) -> dict:
         frappe.throw(_("Volunteer not found."), frappe.DoesNotExistError)
 
     member = frappe.get_doc("Member", record.member) if record.member else None
-    existing = _existing_employee(record, member)
-    if existing:
-        _link_employee(record, existing)
-        return {"employee": existing, "created": False}
+    linked = _linked_employee(record, member)
+    if linked:
+        return {"employee": linked, "created": False}
 
     if not member or not member.user:
         frappe.throw(_("The volunteer needs a linked member with a user account first."))
+    _refuse_unsuitable_user(member)
+
+    existing = frappe.db.get_value("Employee", {"user_id": member.user}, "name")
+    if existing:
+        _link_employee(record, existing)
+        return {"employee": existing, "created": False}
 
     manager = AccountCreationManager(None)
     manager.created_user = member.user
@@ -47,12 +52,39 @@ def create_employee_for_volunteer(volunteer: str) -> dict:
     return {"employee": manager.created_employee, "created": True}
 
 
-def _existing_employee(record, member):
-    if record.employee_id and frappe.db.exists("Employee", record.employee_id):
-        return record.employee_id
-    if member and member.user:
-        return frappe.db.get_value("Employee", {"user_id": member.user}, "name")
-    return None
+# Profiles whose holders an Employee may be created for. Staff can edit Member.user, so without
+# this they could hand the Employee role, Employee/Company User Permissions and Member PII
+# propagation to ANY user, a System Manager's included.
+_MEMBER_TIER_PROFILES = (
+    "Verenigingen Member",
+    "Verenigingen Volunteer",
+    "Verenigingen Team Leader",
+    "Verenigingen Chapter Board Member",
+)
+_AUTOMATIC_ROLES = {"All", "Guest", "Desk User"}
+
+
+def _refuse_unsuitable_user(member):
+    allowed = _AUTOMATIC_ROLES | set(
+        frappe.get_all(
+            "Has Role",
+            filters={"parenttype": "Role Profile", "parent": ["in", list(_MEMBER_TIER_PROFILES)]},
+            pluck="role",
+        )
+    )
+    if set(frappe.get_roles(member.user)) - allowed:
+        frappe.throw(_("The user account holds roles above the member and volunteer level."))
+
+
+def _linked_employee(record, member):
+    """The Employee the volunteer already points at, if it is the member user's own."""
+    if not (record.employee_id and frappe.db.exists("Employee", record.employee_id)):
+        return None
+    employee_user = frappe.db.get_value("Employee", record.employee_id, "user_id")
+    if employee_user and employee_user != (member.user if member else None):
+        # Never link, or name, somebody else's Employee
+        frappe.throw(_("The Employee linked to this volunteer belongs to a different user."))
+    return record.employee_id
 
 
 def _link_employee(record, employee):

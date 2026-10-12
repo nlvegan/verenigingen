@@ -92,14 +92,20 @@ def validate_expense_claim_approval(doc):
     Runs from the Expense Claim ``validate`` hook, which covers both save and submit
     (``approval_status`` is not allow-on-submit, so no later path can change it; Frappe
     refuses with UpdateAfterSubmitError). Two rules, both on a
-    decision (Approved or Rejected) that is new in this save:
+    decision (Approved or Rejected) that is new in this save or is carried over to a different
+    employee:
 
     - Nobody decides their own claim, except the Treasurer role. HRMS's
       ``prevent_self_expense_approval`` has no role exemption and is switched off by any
       Expense Claim Workflow, so the exemption cannot be expressed there.
     - Plain Staff may not decide the claim of an employee who is also Staff.
     """
-    if doc.approval_status not in ("Approved", "Rejected") or not doc.has_value_changed("approval_status"):
+    if doc.approval_status not in ("Approved", "Rejected"):
+        return
+    # Re-pointing a decided claim at another employee is a decision about that employee's
+    # claim: approve a stranger's claim, then change ``employee`` to your own (or to another
+    # Staff member's), and a guard keyed on approval_status alone never sees it.
+    if not (doc.has_value_changed("approval_status") or doc.has_value_changed("employee")):
         return
 
     user = frappe.session.user

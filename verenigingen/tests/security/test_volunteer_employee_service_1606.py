@@ -150,6 +150,71 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         self.assertTrue(real[1], "control: the refusal does put a message in message_log")
         self.assertEqual(real, unknown)
 
+    def _point_member_at(self, user):
+        frappe.db.set_value("Member", self.member.name, "user", user.name, update_modified=False)
+
+    def test_staff_cannot_hand_the_employee_role_to_a_higher_tier_user(self):
+        # Staff can edit Member.user; the action must not turn that into Employee-role and
+        # User Permission grants for a System Manager, Staff or Treasurer account.
+        for profile in ("Verenigingen Staff", "Verenigingen Treasurer", "Verenigingen Administrator"):
+            with self.subTest(profile=profile):
+                target = self._employee_svc_user(profile, f"hi{profile[-5:]}".lower())
+                self._point_member_at(target)
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    self._call_as(self.staff, self.volunteer.name)
+                self.assertIn("above the member and volunteer level", str(ctx.exception))
+                self.assertFalse(frappe.db.exists("Employee", {"user_id": target.name}))
+                self.assertFalse(frappe.db.exists("User Permission", {"user": target.name}))
+
+    def test_an_employee_of_another_user_is_neither_linked_nor_named(self):
+        stranger_user = self._employee_svc_user("Verenigingen Volunteer", "stranger")
+        stranger = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": "Stranger",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": frappe.get_single("Verenigingen Settings").company,
+                "user_id": stranger_user.name,
+                "create_user_permission": 0,
+            }
+        ).insert()
+        self._track_test_document("Employee", stranger.name, priority=2)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", stranger.name, update_modified=False)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._call_as(self.staff, self.volunteer.name)
+
+        self.assertNotIn(stranger.name, str(ctx.exception))
+        self.assertEqual(frappe.db.get_value("Volunteer", self.volunteer.name, "employee_id"), stranger.name)
+        self.assertEqual(self._employees(), [])
+
+    def test_an_existing_employee_of_a_higher_tier_user_is_not_linked_either(self):
+        target = self._employee_svc_user("Verenigingen Staff", "hiexist")
+        existing = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": "Boss",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": frappe.get_single("Verenigingen Settings").company,
+                "user_id": target.name,
+                "create_user_permission": 0,
+            }
+        ).insert()
+        self._track_test_document("Employee", existing.name, priority=2)
+        self._point_member_at(target)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._call_as(self.staff, self.volunteer.name)
+
+        self.assertNotIn(existing.name, str(ctx.exception))
+        self.assertFalse(frappe.db.get_value("Volunteer", self.volunteer.name, "employee_id"))
+
     def test_staff_still_holds_no_employee_permission(self):
         # The reason this action exists: no DocPerm grant (and none in CORE_GRANTS, which never
         # revokes -- #1642) may give Staff the doctype.
