@@ -190,3 +190,84 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._drop_custom("Membership Type")
         _run_permission_sync()
         self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": "Membership Type"}), 0)
+
+    # ---- #1629: a JSON revocation reaches a frozen own DocType ----------------
+
+    def _migrate_with_json_revocation(self, doctype, revoked_role):
+        """Run the real before/after migrate steps around a JSON change.
+
+        Probe shortcut (see module doc): deleting the stock DocPerm row stands in for a
+        release whose JSON no longer declares ``revoked_role``; sync_all would do the same.
+        """
+        from verenigingen.setup.custom_docperm_setup import snapshot_own_declared_permissions
+
+        snapshot_own_declared_permissions()
+        frappe.db.delete("DocPerm", {"parent": doctype, "role": revoked_role})
+        _run_permission_sync()
+
+    def _a_declared_role(self, doctype):
+        roles = frappe.get_all("DocPerm", filters={"parent": doctype, "permlevel": 0}, pluck="role")
+        return sorted(set(roles) - {"System Manager", "Administrator"})[0]
+
+    def test_json_revocation_removes_the_frozen_row(self):
+        self._freeze_via_user_type_path("Team")
+        role = self._a_declared_role("Team")
+        self.assertIn(role, _roles("Team"), "precondition: the frozen set carries the role")
+        self._migrate_with_json_revocation("Team", role)
+        self.assertNotIn(role, _roles("Team"), "a role the JSON revoked must stop granting")
+        ess = [p for p in _effective("Team") if p.role == "Employee Self Service"]
+        self.assertEqual([cint(p.select) for p in ess], [1], "ESS select row must survive")
+
+    def test_admin_edited_row_for_a_revoked_key_survives(self):
+        # A row whose flags no longer match what the old JSON declared was changed by
+        # someone else after we wrote it, so it is theirs now.
+        self._freeze_via_user_type_path("Team")
+        role = self._a_declared_role("Team")
+        name = frappe.db.get_value("Custom DocPerm", {"parent": "Team", "role": role, "permlevel": 0})
+        row = frappe.db.get_value("Custom DocPerm", name, ["export"], as_dict=True)
+        frappe.db.set_value("Custom DocPerm", name, "export", 0 if cint(row.export) else 1)
+        self._migrate_with_json_revocation("Team", role)
+        self.assertIn(role, _roles("Team"))
+
+    def test_role_never_declared_survives_a_revocation_migrate(self):
+        role = frappe.get_doc({"doctype": "Role", "role_name": TEST_ROLE}).insert()
+        from frappe.permissions import add_permission
+
+        self._drop_custom("Member")
+        add_permission("Member", role.name, 0)
+        revoked = self._a_declared_role("Member")
+        self._migrate_with_json_revocation("Member", revoked)
+        self.assertIn(role.name, _roles("Member"))
+        self.assertNotIn(revoked, _roles("Member"))
+
+    def test_without_a_snapshot_nothing_is_pruned(self):
+        # after_install, or a migrate whose before_migrate never ran: no record of the old
+        # JSON, so an undeclared row cannot be told apart from an admin's and is kept.
+        self._freeze_via_user_type_path("Team")
+        role = self._a_declared_role("Team")
+        frappe.db.delete("DocPerm", {"parent": "Team", "role": role})
+        _run_permission_sync()
+        self.assertIn(role, _roles("Team"))
+
+    def test_snapshot_is_consumed_and_a_pending_one_is_not_overwritten(self):
+        from verenigingen.setup import custom_docperm_setup as setup
+
+        self._freeze_via_user_type_path("Team")
+        role = self._a_declared_role("Team")
+        setup.snapshot_own_declared_permissions()
+        frappe.db.delete("DocPerm", {"parent": "Team", "role": role})
+        # A migrate that died after sync_all: the next before_migrate must keep the OLD
+        # snapshot, or the revocation is forgotten.
+        setup.snapshot_own_declared_permissions()
+        _run_permission_sync()
+        self.assertNotIn(role, _roles("Team"))
+        self.assertFalse(frappe.db.get_global(setup.SNAPSHOT_KEY))
+
+    def test_snapshot_runs_before_migrate(self):
+        # The tests above call the snapshot directly; without the hook a real migrate prunes
+        # nothing. hooks/__init__.py re-exports lifecycle names one by one, so check what
+        # Frappe resolves, not the lifecycle list.
+        self.assertIn(
+            "verenigingen.setup.custom_docperm_setup.snapshot_own_declared_permissions",
+            frappe.get_hooks("before_migrate", app_name="verenigingen"),
+        )

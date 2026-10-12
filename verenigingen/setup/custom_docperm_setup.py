@@ -18,10 +18,14 @@ does, does not. Three things follow, handled here in this order by
    (role, permlevel, if_owner) combinations it declares. Rows the JSON does not declare
    are kept.
 
-Stale-role tradeoff (own DocTypes): a role the JSON used to declare and no longer does
-keeps its Custom DocPerm row. We cannot tell it apart from an admin's deliberate addition
-or from the User Type / public-creator rows we must keep, and deleting an admin's grant
-silently is the worse failure. A JSON REVOCATION therefore needs an explicit patch.
+4. ``_prune_revoked_keys`` (#1629): a (role, permlevel, if_owner) the JSON used to declare
+   and no longer does. Undeclared rows are otherwise indistinguishable from an admin's
+   deliberate addition or the User Type / public-creator rows we must keep, so the OLD
+   declaration is recorded by :func:`snapshot_own_declared_permissions` (``before_migrate``,
+   before ``sync_all`` replaces the stock rows) and a frozen row is deleted only when its
+   key was dropped AND its flags still equal what the old JSON declared. A row someone edited
+   since is theirs and stays. Without a snapshot (``after_install``, or a migrate that skipped
+   the hook) nothing is pruned.
 
 No commit here: both hooks run inside migrate / install-app, which commit themselves.
 """
@@ -32,6 +36,9 @@ from frappe.permissions import add_permission, setup_custom_perms
 from frappe.utils import cint
 
 APP = "verenigingen"
+# tabDefaultValue key for the before_migrate snapshot; set_global commits with the atomic
+# pre_schema_updates phase, so it survives a migrate that dies before after_migrate.
+SNAPSHOT_KEY = "verenigingen_own_docperm_snapshot"
 
 # (doctype, role, ptypes granted). All at permlevel 0, not if_owner. Lifted verbatim from the
 # retired fixtures/custom_docperm.json, minus its DocType row (meta.py skips custom perms for
@@ -230,6 +237,24 @@ def apply_custom_permissions():
     _repair_truncated_sets()
     _apply_core_grants()
     _reconcile_own_doctypes()
+    _prune_revoked_keys()
+
+
+def snapshot_own_declared_permissions():
+    """``before_migrate``: record what the JSON declares for each frozen own DocType.
+
+    A pending snapshot is kept, not overwritten: if the previous migrate died after
+    ``sync_all``, the stock rows already show the NEW JSON and only the pending snapshot
+    still knows the old one.
+    """
+    if frappe.db.get_global(SNAPSHOT_KEY):
+        return
+    checks = _check_fields()
+    snapshot = {
+        doctype: [[*_key(row), _granted_flags(row, checks)] for row in _stock_rows(doctype)]
+        for doctype in _own_doctypes_with_custom_perms()
+    }
+    frappe.db.set_global(SNAPSHOT_KEY, frappe.as_json(snapshot, indent=None))
 
 
 def _declared_roles(doctype):
@@ -331,3 +356,26 @@ def _reconcile_own_doctypes():
                 if changed:
                     update_custom_docperm(row.name, changed)
         frappe.clear_cache(doctype=doctype)
+
+
+def _granted_flags(row, checks):
+    return sorted(f for f in checks if cint(row.get(f)))
+
+
+def _prune_revoked_keys():
+    raw = frappe.db.get_global(SNAPSHOT_KEY)
+    if not raw:
+        return
+    checks = _check_fields()
+    for doctype, old_rows in frappe.parse_json(raw).items():
+        declared_now = {_key(row) for row in _stock_rows(doctype)}
+        revoked = {
+            (role, permlevel, if_owner): flags
+            for role, permlevel, if_owner, flags in old_rows
+            if (role, permlevel, if_owner) not in declared_now
+        }
+        for row in _custom_rows(doctype):
+            if revoked.get(_key(row)) == _granted_flags(row, checks):
+                frappe.delete_doc("Custom DocPerm", row.name, ignore_permissions=True)
+        frappe.clear_cache(doctype=doctype)
+    frappe.defaults.clear_default(key=SNAPSHOT_KEY, parent="__global")
