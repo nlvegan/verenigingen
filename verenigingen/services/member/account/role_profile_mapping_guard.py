@@ -20,6 +20,13 @@ from verenigingen.utils.constants import Roles
 # Granted only by a seat on the national chapter's board.
 NATIONAL_PROFILES = frozenset({"Verenigingen National Board Member", "Verenigingen Treasurer"})
 
+# erpnext's validate_employee_role (a User validate hook) strips these two from every
+# user without an Employee record, so an editor without one can never hold them and
+# requiring them refused nearly every non-System-Manager editor (#1649). They are
+# effective only for a user an HR user has given an Employee record; the mapping alone
+# grants nothing to anyone without one. Every other role is still required.
+_EMPLOYEE_RECORD_ROLES = frozenset({"Employee", "Employee Self Service"})
+
 # Holders of these may map any profile; they could grant themselves anything anyway.
 _UNRESTRICTED_ROLES = frozenset({Roles.SYSTEM_MANAGER, "Administrator"})
 
@@ -61,7 +68,7 @@ def _validate_editor_holds_roles(new_profiles):
     if own_roles & _UNRESTRICTED_ROLES:
         return
     for profile in sorted(new_profiles):
-        missing = _roles_granted_by(profile) - own_roles - {"All", "Guest"}
+        missing = _roles_granted_by(profile) - own_roles - {"All", "Guest"} - _EMPLOYEE_RECORD_ROLES
         if missing:
             frappe.throw(
                 _("You cannot map Role Profile '{0}': it grants roles you do not hold ({1}).").format(

@@ -115,6 +115,51 @@ class TestChapterBoardProfileMapping(EnhancedTestCase):
             "Verenigingen Chapter Board Member",
         )
 
+    def _editor_holding_all_but_employee_roles(self, profile):
+        """A board member holding every role of `profile` except the two that
+        erpnext's validate_employee_role strips from a user with no Employee record
+        (measured: this editor has none, so the roles cannot be kept on them)."""
+        seat = self.create_test_board_member(self.chapter.name)
+        stripped = {"Employee", "Employee Self Service"}
+        granted = set(
+            frappe.get_all("Has Role", filters={"parent": profile, "parenttype": "Role Profile"}, pluck="role")
+        )
+        self.assertTrue(stripped <= granted, "control: the profile must grant both stripped roles")
+        # Probe shortcut: the fixture's volunteer flow creates an Employee for the seat
+        # holder; unlinking it with db.set_value stands in for "a board member who was
+        # never given an Employee record".
+        frappe.db.set_value("Employee", {"user_id": seat.user}, "user_id", None)
+        user = frappe.get_doc("User", seat.user)
+        user.add_roles(*sorted(granted - stripped - {"All"}))
+        user.remove_roles(*stripped)
+        self.assertFalse(frappe.db.get_value("Employee", {"user_id": seat.user}), "control: no Employee record")
+        return seat
+
+    def test_employee_roles_stripped_from_users_without_an_employee_record_do_not_block_mapping(self):
+        """#1649: Employee / Employee Self Service can never be held by an editor with
+        no Employee record, so requiring them refused every non-System-Manager editor."""
+        profile = "Verenigingen Chapter Board Member"
+        seat = self._editor_holding_all_but_employee_roles(profile)
+
+        with self.as_user(seat.user):
+            self.assertNotIn("Employee", frappe.get_roles())
+            self._save_default(profile)
+
+        self.assertEqual(frappe.db.get_value("Chapter", self.chapter.name, "default_board_role_profile"), profile)
+
+    def test_employee_role_exemption_does_not_hide_a_real_missing_role(self):
+        """PLAIN_PROFILE grants Employee AND Auditor. Only Auditor is a real gap."""
+        seat = self.create_test_board_member(self.chapter.name)
+
+        with self.as_user(seat.user):
+            self.assertNotIn("Auditor", frappe.get_roles())
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self._save_default(PLAIN_PROFILE)
+
+        self.assertIn("Auditor", str(ctx.exception))
+        self.assertNotIn("Employee", str(ctx.exception))
+        self.assertFalse(frappe.db.get_value("Chapter", self.chapter.name, "default_board_role_profile"))
+
     def test_existing_mapping_does_not_block_a_board_members_unrelated_save(self):
         seat = self.create_test_board_member(self.chapter.name)
         self._save_default(PLAIN_PROFILE)  # set by Administrator
