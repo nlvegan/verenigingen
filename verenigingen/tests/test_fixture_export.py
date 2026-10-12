@@ -313,5 +313,21 @@ class TestRoleProfileFixture(unittest.TestCase):
         self.assertNotIn("Verenigingen National Board Member", profiles["Verenigingen Staff"])
 
 
+class TestExpenseClaimCustomFieldsInstalled(unittest.TestCase):
+    """Canary for the expense-approval modules (#1606): they skip when the Expense Claim Custom
+    Fields are missing, which would silently drop ~30 tests. A fresh install (CI) must have them.
+    A site restored from an old snapshot only gets them from `bench migrate`."""
+
+    def test_expense_claim_has_the_shipped_custom_fields(self):
+        path = frappe.get_app_path("verenigingen", "fixtures", "expense_claim_custom_fields.json")
+        with open(path) as f:
+            shipped = {d["fieldname"] for d in json.load(f)}
+        self.assertIn("custom_chapter", shipped, "control: the fixture ships the field")
+
+        meta = frappe.get_meta("Expense Claim")
+        missing = {fieldname for fieldname in shipped if not meta.has_field(fieldname)}
+        self.assertFalse(missing, f"Expense Claim lacks shipped Custom Fields {missing}: run bench migrate")
+
+
 if __name__ == "__main__":
     unittest.main()
