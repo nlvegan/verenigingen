@@ -303,6 +303,15 @@ class TestRoleProfileFixture(unittest.TestCase):
         # Control: a profile that is not an approver does not carry it.
         self.assertNotIn("Expense Approver", profiles["Verenigingen Member"])
 
+    def test_national_board_member_profile_grants_the_role_of_the_same_name(self):
+        """#1512: the profile named for the role did not carry it, so nothing role-based could
+        tell a national board member from plain Staff."""
+        profiles = _shipped_role_profiles()
+        self.assertIn("Verenigingen National Board Member", profiles["Verenigingen National Board Member"])
+        # Control: the Treasurer profile already carried it; plain Staff must not.
+        self.assertIn("Verenigingen National Board Member", profiles["Verenigingen Treasurer"])
+        self.assertNotIn("Verenigingen National Board Member", profiles["Verenigingen Staff"])
+
 
 if __name__ == "__main__":
     unittest.main()

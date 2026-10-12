@@ -250,11 +250,9 @@ class TestStaffSeesOnlyScopedClaims(StaffExpenseBase):
 
     def test_wide_roles_still_see_everything(self):
         # control for the split: these carry Verenigingen Staff too and must keep org-wide access.
-        # (The National Board Member PROFILE grants no role that sets it apart from Staff, so it
-        # is not in this list; see the PR body.)
         claim = self.claim(self.volunteer_emp, chapter=self.chapter_b)
         self.set_national(None)
-        for user in (self.treasurer, self.admin, self.hr_staff):
+        for user in (self.treasurer, self.nbm, self.admin, self.hr_staff):
             with self.subTest(user=user.name):
                 self.assertEqual(get_expense_claim_permission_query(user.name), "")
                 self.assertTrue(self.can_read(user, claim))
@@ -311,8 +309,8 @@ class TestApprovalRules(StaffExpenseBase):
             self.decide(self.treasurer, claim.name, "Rejected")
 
     def test_wide_roles_may_decide_a_staff_claim(self):
-        # control: Treasurer / Administrator / Staff+HR Manager carry Staff but are not plain Staff
-        for actor in (self.treasurer, self.admin, self.hr_staff):
+        # control: Treasurer / NBM / Administrator / Staff+HR Manager carry Staff but are not plain Staff
+        for actor in (self.treasurer, self.nbm, self.admin, self.hr_staff):
             with self.subTest(actor=actor.name):
                 claim = self.claim(self.other_staff_emp, chapter=self.chapter_a)
                 self.decide(actor, claim.name, "Approved")
@@ -369,38 +367,3 @@ class TestApprovalRules(StaffExpenseBase):
 
         self.act_as(self.volunteer_user, edit)
         self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "remark"), "unrelated edit")
-
-
-class TestStaffEmployeeAccess(StaffExpenseBase):
-    """Staff create Employee records by hand when the automated flow fails; no delete."""
-
-    def _new_employee(self):
-        return frappe.get_doc(
-            {
-                "doctype": "Employee",
-                "first_name": f"Hand{frappe.generate_hash(length=5)}",
-                "gender": "Other",
-                "date_of_birth": "1990-01-01",
-                "date_of_joining": "2020-01-01",
-                "status": "Active",
-                "company": self.company,
-                "create_user_permission": 0,
-            }
-        )
-
-    def test_staff_can_create_and_edit_an_employee_but_not_delete(self):
-        def create():
-            doc = self._new_employee().insert()
-            self._track_test_document("Employee", doc.name, priority=2)
-            return doc
-
-        doc = self.act_as(self.staff, create)
-        self.assertTrue(frappe.db.exists("Employee", doc.name))
-        self.assertTrue(frappe.has_permission("Employee", "write", doc=doc.name, user=self.staff.name))
-        self.assertFalse(frappe.has_permission("Employee", "delete", doc=doc.name, user=self.staff.name))
-
-    def test_a_volunteer_cannot_create_an_employee(self):
-        # control: a profile that holds Employee / Employee Self Service but not the Staff grant
-        self.assertFalse(frappe.has_permission("Employee", "create", user=self.volunteer_user.name))
-        with self.assertRaises(frappe.PermissionError):
-            self.act_as(self.volunteer_user, lambda: self._new_employee().insert())

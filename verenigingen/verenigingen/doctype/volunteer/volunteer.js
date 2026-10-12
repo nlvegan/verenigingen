@@ -153,6 +153,21 @@ frappe.ui.form.on('Volunteer', {
 					},
 					__('Actions')
 				);
+
+				// Staff have no Employee permission; this runs the account pipeline's own
+				// Employee insert server-side when the automated flow left a volunteer without one.
+				frm.add_custom_button(
+					__('Create Employee Record'),
+					() => {
+						frappe.call({
+							method: 'verenigingen.services.volunteer.volunteer_employee_service.create_employee_for_volunteer',
+							args: { volunteer: frm.doc.name },
+							freeze: true,
+							callback: () => frm.reload_doc()
+						});
+					},
+					__('Actions')
+				);
 			}
 		} else {
 			frappe.contacts.clear_address_and_contact(frm);

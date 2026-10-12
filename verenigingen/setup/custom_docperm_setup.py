@@ -99,8 +99,6 @@ CORE_GRANTS = (
         ("read", "write", "create", "delete", "report", "export", "import", "share", "print", "email"),
     ),
     ("Employee", "Verenigingen Chapter Board Member", ("read", "report", "export", "print", "email")),
-    # Staff create Employee records by hand when the automated flow fails (#1606). No delete.
-    ("Employee", "Verenigingen Staff", ("read", "write", "create")),
     ("Contact", "Verenigingen Chapter Board Member", ("read", "write", "export", "print", "email")),
     (
         "Contact",
