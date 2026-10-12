@@ -22,13 +22,14 @@ NATIONAL_PROFILES = frozenset({"Verenigingen National Board Member", "Vereniging
 
 # erpnext's validate_employee_role (a User validate hook) strips these two from every
 # user without an Employee record, so an editor without one can never hold them and
-# requiring them refused nearly every non-System-Manager editor (#1649). Mapping a
-# profile does not itself create an Employee record (chapter/team mapping code never
-# queues an Account Creation Request), but the volunteer account pipeline does create
-# one for every volunteer with an account. So an editor CAN indirectly hand
-# Employee / Employee Self Service (self-service HR documents, read on Company and
-# Customer) to seat holders who are such volunteers. Accepted: no escalation to
-# administrative roles. Every other role is still required.
+# requiring them refused every editor with no Employee record (#1649; typical seat
+# holders have one, see below). Mapping a profile CAN create the record:
+# user_role_profile_calculator._ensure_employee_for_profile runs from
+# sync_user_role_profile (reached by board seating) for any enabled user with a linked
+# Member when the target profile contains Employee. So an editor can indirectly hand
+# Employee / Employee Self Service (own-record HR self-service, read on Company and
+# Employee) to seat holders. Accepted: no administrative role, and the Volunteer
+# profile already carries both. Every other role is still required.
 _EMPLOYEE_RECORD_ROLES = frozenset({"Employee", "Employee Self Service"})
 
 # Holders of these may map any profile; they could grant themselves anything anyway.
