@@ -227,6 +227,47 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         self._assert_assignment_refused(actor, hr, assign_role_profile_to_user, victim, hr)
         self.assertNotIn(hr, self._profiles_of(victim))
 
+    def test_hr_user_is_a_payroll_role_too(self):
+        """A profile granting only HR User, to an actor who holds HR User, is refused for
+        assignment AND mapping (a guard covering only HR Manager would let it through)."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        payroll = self._profile_granting("HR User")
+        # Direct roles are stripped by the profile sync, so the HR User holder gets it through a
+        # second profile alongside NBM (which keeps the actor in an ADMIN-capable tier).
+        actor = self._make_user_holding_profile(NBM)
+        holder = frappe.get_doc("User", actor)
+        holder.append("role_profiles", {"role_profile": self._profile_granting("HR User")})
+        holder.save()
+        self.assertIn("HR User", frappe.get_roles(actor))  # control: roles-held would allow it
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, payroll, assign_role_profile_to_user, victim, payroll)
+        previous = frappe.session.user
+        frappe.set_user(actor)
+        try:
+            with self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
+                validate_mapped_profiles({("default", payroll)}, set(), national_allowed=False)
+        finally:
+            frappe.set_user(previous)
+
+    def test_a_bare_payroll_role_cannot_be_mapped_by_a_holder_of_it(self):
+        """MijnRood's bare-role mapping (#1633): the Treasurer holds HR Manager, so the
+        roles-held rule alone would pass it."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_editor_holds_roles
+
+        actor = self._make_user_holding_profile(TREASURER)
+        previous = frappe.session.user
+        frappe.set_user(actor)
+        try:
+            self.assertIn("HR Manager", frappe.get_roles())  # control
+            for role in ("HR Manager", "HR User"):
+                with self.subTest(role=role), self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
+                    validate_editor_holds_roles({("default", role)}, set())
+            validate_editor_holds_roles({("default", "Projects Manager")}, set())  # control: not payroll
+        finally:
+            frappe.set_user(previous)
+
     def test_a_profile_whose_roles_the_actor_all_holds_can_be_assigned(self):
         """Control for the test above, with a real profile built from roles NBM holds."""
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user

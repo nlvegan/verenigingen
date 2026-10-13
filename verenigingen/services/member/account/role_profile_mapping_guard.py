@@ -95,6 +95,15 @@ def validate_editor_holds_roles(mapped_roles, previous_roles):
     """
     new_roles = {r for _slot, r in {(s, r) for s, r in mapped_roles if r} - set(previous_roles)}
     own_roles = set(frappe.get_roles())
+    if not own_roles & (_UNRESTRICTED_ROLES | {Roles.VERENIGINGEN_ADMIN}):
+        for role in sorted(new_roles & Roles.PAYROLL_ROLES):
+            # Holding HR Manager (the Treasurer does, #1606) is not enough to hand it out.
+            frappe.throw(
+                _(
+                    "Role '{0}' grants payroll access and can only be mapped by a System Manager or a "
+                    "Verenigingen Administrator."
+                ).format(role)
+            )
     if own_roles & _UNRESTRICTED_ROLES:
         return
     for role in sorted(new_roles - own_roles - {"All", "Guest"}):
