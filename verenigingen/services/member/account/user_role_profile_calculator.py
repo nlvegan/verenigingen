@@ -19,6 +19,7 @@ Author: Verenigingen Development Team
 Last Updated: 2025-10-09
 """
 
+import json
 from datetime import timedelta
 from typing import Optional
 
@@ -27,6 +28,11 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.services.member.account.role_profile_mapping_guard import (
+    NATIONAL_BOARD_MEMBER_PROFILE,
+    NATIONAL_PROFILES,
+    NATIONAL_TREASURER_PROFILE,
+)
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -283,6 +289,85 @@ def calculate_user_role_profile(user: str) -> Optional[str]:
     return PROFILE_MEMBER
 
 
+def calculate_user_role_profile_set(user: str) -> list:
+    """The profiles a user SHOULD hold: their own profile plus any national seat profiles.
+
+    A seat on the national chapter's board is ADDED to the user's own profile and
+    never displaces it (maintainer ruling on #1615, 2026-10-13): a staffer who joins
+    the national board keeps Staff/Administrator. So the national profiles are taken
+    out of the priority contest, and the winner of the rest comes first.
+
+    Returns [] when the user is not a member. Without multi-profile support (v15) a
+    User holds one profile, so the headline profile of calculate_user_role_profile()
+    is returned alone.
+    """
+    headline = calculate_user_role_profile(user)
+    if headline is None:
+        return []
+    if not _has_multi_profile_support():
+        return [headline]
+
+    candidates = calculate_all_user_role_profiles(user)
+    # The national slot is filled ONLY by a seat on the current national chapter's board
+    # (get_board_member_profiles refuses national mappings anywhere else). A team whose
+    # stored default is a national profile must not confer it (#1660).
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    national = sorted(
+        {name for _prio, name in get_board_member_profiles(user, member) if name in NATIONAL_PROFILES},
+        key=lambda name: name != NATIONAL_TREASURER_PROFILE,
+    )
+    own = [name for _prio, name in candidates if name not in NATIONAL_PROFILES]
+    return [own[0], *national] if own else national
+
+
+SYNC_GRANTED_FIELD = "custom_sync_granted_profiles"
+
+
+def read_sync_granted_profiles(user: str):
+    """The profiles the sync itself granted this user, or None when it never recorded any.
+
+    The sync removes ONLY profiles named here. Inferring "ours" from a user's seat/team
+    rows fails both ways: a deleted row loses the provenance (a withdrawn profile is kept),
+    and a row anyone can create (a team lead's own team) makes a manual profile look
+    derived. None (no record yet) is the bootstrap case, see sync_user_role_profile.
+    """
+    if not frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD):
+        return []
+    raw = frappe.db.get_value("User", user, SYNC_GRANTED_FIELD)
+    if not raw:
+        return None
+    try:
+        return [str(name) for name in json.loads(raw)]
+    except (TypeError, ValueError):
+        return None
+
+
+def record_sync_granted_profiles(user_doc, profiles) -> None:
+    """Store ``profiles`` as sync-granted on an in-memory User doc (saved by the caller)."""
+    if frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD):
+        user_doc.set(SYNC_GRANTED_FIELD, json.dumps(sorted(set(profiles))))
+
+
+BUILTIN_PROFILES = frozenset(
+    {PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER, *NATIONAL_PROFILES}
+)
+
+
+def record_requested_profile(user_doc, profile: str, keep_existing: bool = True) -> None:
+    """Record a profile an Account Creation Request asked for, when it is a built-in one.
+
+    A built-in profile is one the calculator derives, so it must be withdrawable once it
+    stops being derived (the volunteer goes inactive, the seat ends); recording it as the
+    sync's own keeps that. A genuinely custom profile is an explicit grant and stays out.
+    """
+    if profile not in BUILTIN_PROFILES:
+        if not keep_existing:
+            record_sync_granted_profiles(user_doc, [])
+        return
+    current = (read_sync_granted_profiles(user_doc.name) or []) if keep_existing else []
+    record_sync_granted_profiles(user_doc, [*current, profile])
+
+
 def get_board_member_profiles(user: str, member: str) -> list:
     """
     Get all role profiles from user's board positions.
@@ -324,6 +409,9 @@ def get_board_member_profiles(user: str, member: str) -> list:
                     # Look up role-specific profile
                     role_profile = chapter_config["specific_profiles"].get(position.chapter_role)
 
+                    if role_profile and _refuses_national_mapping(position.parent, role_profile):
+                        role_profile = None
+
                     if role_profile:
                         # Validate role profile exists
                         if not frappe.db.exists("Role Profile", role_profile):
@@ -339,7 +427,9 @@ def get_board_member_profiles(user: str, member: str) -> list:
                             continue
 
                 # Fall back to default board role profile
-                if chapter_config["default_profile"]:
+                if chapter_config["default_profile"] and not _refuses_national_mapping(
+                    position.parent, chapter_config["default_profile"]
+                ):
                     # Validate default profile exists
                     if not frappe.db.exists("Role Profile", chapter_config["default_profile"]):
                         frappe.log_error(
@@ -350,6 +440,12 @@ def get_board_member_profiles(user: str, member: str) -> list:
                     else:
                         profiles.append((PRIORITY_BOARD_DEFAULT, chapter_config["default_profile"]))
                         continue
+
+                # No explicit mapping: a seat on the national chapter's board is national (#1615)
+                national = _national_board_profile(position.parent, position.chapter_role)
+                if national and frappe.db.exists("Role Profile", national[1]):
+                    profiles.append(national)
+                    continue
 
                 # Ultimate fallback to hardcoded default (validate it exists)
                 if frappe.db.exists("Role Profile", PROFILE_BOARD_MEMBER):
@@ -375,6 +471,39 @@ def get_board_member_profiles(user: str, member: str) -> list:
         )
 
     return profiles
+
+
+def _refuses_national_mapping(chapter_name: str, profile: str) -> bool:
+    """True when a stored mapping hands a national profile to a chapter that is not national.
+
+    The mapping guard only checks at save time, so a mapping stored while the chapter
+    WAS the national one survives a change of national_board_chapter and would keep
+    granting the national profile to that chapter's seat holders (#1660). Refuse it here.
+    """
+    if profile not in NATIONAL_PROFILES:
+        return False
+    national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    return not national_chapter or national_chapter != chapter_name
+
+
+_NATIONAL_TREASURER_ROLE_NAMES = frozenset({"treasurer", "penningmeester"})
+
+
+def _national_board_profile(chapter_name: str, chapter_role: str):
+    """(priority, profile) a seat gets for sitting on the national chapter's board, else None.
+
+    The treasurer seat is recognised by its exact Chapter Role name (Chapter Role has
+    no treasurer flag). The substring keyword rule of get_profile_priority_for_role()
+    is not used: it only orders profiles, and would hand the accounting profile to
+    "Finance Officer" or "Controller" seats. Every other seat is a plain national
+    board member.
+    """
+    national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    if not national_chapter or national_chapter != chapter_name:
+        return None
+    if (chapter_role or "").strip().casefold() in _NATIONAL_TREASURER_ROLE_NAMES:
+        return (PRIORITY_SPECIAL_ACCOUNTING, NATIONAL_TREASURER_PROFILE)
+    return (PRIORITY_BOARD_ROLE_SPECIFIC, NATIONAL_BOARD_MEMBER_PROFILE)
 
 
 def get_team_profiles(user: str, member: str) -> list:
@@ -754,7 +883,9 @@ def get_user_role_profiles(user_name: str) -> list[str]:
     return [single] if single else []
 
 
-def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: bool = False) -> dict:
+def sync_user_role_profile(
+    user: str, dry_run: bool = False, allow_disabled: bool = False, withdraw: tuple = ()
+) -> dict:
     """
     Calculate and apply the correct role profile to a user.
 
@@ -768,6 +899,9 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             what forces the account back on, see the note below). Callers that
             pass this must be downgrading access (e.g. a termination pipeline),
             not restoring it.
+        withdraw: Profiles a caller must revoke although the sync did not grant them
+            (a MijnRood direct grant). Internal callers should not need it: the sync
+            removes the profiles it recorded as its own and no longer derives.
 
     Returns:
         dict: {
@@ -823,8 +957,11 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
         existing_profiles = get_user_role_profiles(user)
         old_profile = user_doc.role_profile_name or (existing_profiles[0] if existing_profiles else None)
 
-        # Calculate correct profile
+        # Calculate correct profile. new_profile is the headline (it drives the module
+        # profile); new_profiles is what the user actually holds: their own profile
+        # plus any national seat profiles added on top (#1615).
         new_profile = calculate_user_role_profile(user)
+        new_profiles = calculate_user_role_profile_set(user) if new_profile else []
 
         if new_profile is None:
             return {
@@ -850,7 +987,38 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
         old_module_profile = user_doc.module_profile
 
         # Check if change needed
-        role_changed = old_profile != new_profile
+        if _has_multi_profile_support():
+            # Non-destructive: remove ONLY profiles this sync recorded as its own and no
+            # longer derives; never touch one it did not grant (manual admin profiles, HR,
+            # System Administrator...). A profile the user already held is not recorded
+            # as ours when it is derived, so it stays theirs.
+            derived = list(new_profiles)
+            recorded = read_sync_granted_profiles(user)
+            if recorded is None:
+                # Bootstrap (no record yet, e.g. data from before the record existed): only
+                # a currently-derived profile the user holds counts as ours. A manual
+                # profile that coincides with a derived one is indistinguishable here.
+                currently_derived = {name for _prio, name in calculate_all_user_role_profiles(user)}
+                # The built-in seat/team profiles also count: a legacy user who left a board or
+                # the volunteers would otherwise keep a stale one for ever (#692 revocation).
+                currently_derived |= BUILTIN_PROFILES
+                recorded = [name for name in existing_profiles if name in currently_derived]
+            removable = (set(recorded) - set(derived)) | set(withdraw)
+            kept = [name for name in existing_profiles if name not in removable]
+            added = [name for name in derived if name not in kept]
+            new_profiles = kept + added
+            granted_now = [name for name in new_profiles if name in added or name in recorded]
+            # None (never recorded) counts as a change even when the new record is empty, so an
+            # explicit "[]" is written and the bootstrap rule runs once, not for ever.
+            stored = read_sync_granted_profiles(user)
+            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and (
+                stored is None or sorted(set(granted_now)) != sorted(set(stored))
+            )
+            role_changed = set(existing_profiles) != set(new_profiles)
+        else:
+            marker_changed = False
+            derived = [new_profile]
+            role_changed = old_profile != new_profile
         module_changed = new_module_profile is not None and old_module_profile != new_module_profile
         changed = role_changed or module_changed
 
@@ -870,7 +1038,8 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             # then silently stripped by ERPNext's own validate_employee_role()
             # hook instead, which is the safe outcome for a disabled account.
             if role_changed and user_enabled:
-                _ensure_employee_for_profile(user, new_profile)
+                for profile in derived:
+                    _ensure_employee_for_profile(user, profile)
                 # Inserting Employee triggers ERPNext hooks that modify the
                 # User doc (notably adding the Employee role). Without a
                 # reload, the next save raises TimestampMismatchError ("has
@@ -886,12 +1055,19 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             # support; keep the legacy field for v15 sites.
             if role_changed:
                 if _has_multi_profile_support():
-                    user_doc.set("role_profiles", [{"role_profile": new_profile}])
-                user_doc.role_profile_name = new_profile
+                    user_doc.set("role_profiles", [{"role_profile": name} for name in new_profiles])
+                user_doc.role_profile_name = new_profiles[0] if new_profiles else new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile
+            if _has_multi_profile_support():
+                record_sync_granted_profiles(user_doc, granted_now)
 
-            user_doc.save()
+            # Security: ignore_permissions: the profiles written are derived by this function from
+            # organisational records (seats, teams, volunteer status), never taken from
+            # the caller, and the caller is often an actor with no User write access, e.g.
+            # a National Board Member seating a new volunteer (#1615). Without it the sync
+            # raised PermissionError, was swallowed, and the new seat holder got no profile.
+            user_doc.save(ignore_permissions=True)
 
             log_msg = f"Updated profiles for {user}:"
             if role_changed:
@@ -907,6 +1083,12 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
                 new_profile=new_profile,
                 old_module=old_module_profile,
                 new_module=new_module_profile,
+            )
+
+        if marker_changed and not changed and not dry_run:
+            # Only the record moved (first sync of this user): no hooks, no profile change.
+            frappe.db.set_value(
+                "User", user, SYNC_GRANTED_FIELD, json.dumps(sorted(set(granted_now))), update_modified=False
             )
 
         return {
@@ -938,6 +1120,26 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             title="Role Profile Sync Failed",
         )
         return {"success": False, "error": str(e), "user": user}
+
+
+def resync_chapter_seat_holders(chapter_name: str) -> list:
+    """Recalculate the role profiles of everyone holding an active seat on a chapter's board.
+
+    Returns the users that could not be synced; one failure never stops the rest.
+    """
+    seats = frappe.db.get_all(
+        "Chapter Board Member", filters={"parent": chapter_name, "is_active": 1}, pluck="volunteer"
+    )
+    failed = []
+    for volunteer in set(seats):
+        member = frappe.db.get_value("Volunteer", volunteer, "member")
+        user = frappe.db.get_value("Member", member, "user") if member else None
+        if not user:
+            continue
+        result = sync_user_role_profile(user)
+        if not result.get("success"):
+            failed.append(user)
+    return failed
 
 
 @frappe.whitelist()

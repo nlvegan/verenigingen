@@ -83,6 +83,13 @@ def _set_single_role_profile(user_doc, role_profile: str) -> None:
     """
     if _has_multi_profile_support():
         user_doc.set("role_profiles", [{"role_profile": role_profile}])
+        # This manager grants the profile as a system action: record it as sync-granted so
+        # a later removal may take it back, and so nothing else becomes removable.
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            record_sync_granted_profiles,
+        )
+
+        record_sync_granted_profiles(user_doc, [role_profile])
     user_doc.role_profile_name = role_profile
 
 
@@ -508,7 +515,15 @@ class BaseRoleProfileManager(ABC):
             # in the role_profiles child table (role_profile_name is deprecated/cleared on
             # save), so check both for backwards compatibility.
             current_profiles = _read_role_profiles(user_doc)
-            if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                read_sync_granted_profiles,
+            )
+
+            # Only a profile the sync/this manager granted may be taken back; a manually
+            # assigned one (Administrator, Staff...) is not this endpoint's to strip.
+            if (role_profile == user_doc.role_profile_name or role_profile in current_profiles) and (
+                role_profile in (read_sync_granted_profiles(user) or [])
+            ):
                 previous_role_profile = role_profile
 
                 # Commit the transaction first (entity membership changes are already committed).
@@ -558,6 +573,15 @@ class BaseRoleProfileManager(ABC):
                     )
             else:
                 frappe.db.release_savepoint(save_point)
+                if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
+                    # Held, but not recorded as granted by the system (assigned by hand, or
+                    # before the record existed): not this endpoint's to strip.
+                    return self._create_response(
+                        success=True,
+                        message=f"Role profile '{role_profile}' is held but was not granted by the "
+                        "system, so it was left in place",
+                        action="not_recorded",
+                    )
                 return self._create_response(
                     success=True,
                     message=f"User does not have role profile '{role_profile}'",

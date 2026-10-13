@@ -674,6 +674,26 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
         self.assertIn("Verenigingen Member", get_user_role_profiles(user.name))
 
+    def test_terminating_a_member_with_an_onboarding_volunteer_ends_it_and_withdraws_the_profile(self):
+        """#1612: full activation leaves an Onboarding volunteer that holds the Volunteer profile."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+        )
+
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        # Labelled shortcut: the status write stands in for the activation pipeline's own.
+        frappe.db.set_value("Volunteer", volunteer.name, "status", "Onboarding")
+        self._grant_volunteer_role_profile(user.name)
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(user.name), "fixture")
+
+        result = ti.terminate_volunteer_records_safe(member.name, "Voluntary", today(), "left")
+
+        self.assertEqual(result["volunteers_terminated"], 1)
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
+
     # ==================================================================
     # terminate_employee_records_safe
     # ==================================================================

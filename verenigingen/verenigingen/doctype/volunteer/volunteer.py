@@ -757,6 +757,12 @@ def create_volunteer_from_member(
         # which is truthy.
         create_user_account = cint(create_user_account)
 
+        # Explicit full activation: a volunteer left at "New" is not derived the Volunteer
+        # profile (is_active_volunteer counts Active/Onboarding), so the activation's own
+        # profile sync would undo it (#1612, maintainer ruling: Onboarding).
+        if create_user_account and status == "New":
+            status = "Onboarding"
+
         # Refuse activation up front: the ACR needs an email, and a volunteer created
         # first would leave the caller retrying against "already exists".
         if create_user_account and not member.email:

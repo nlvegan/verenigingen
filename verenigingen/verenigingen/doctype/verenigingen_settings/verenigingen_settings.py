@@ -6,11 +6,13 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class VerenigingenSettings(Document):
     def validate(self):
+        self.validate_national_board_chapter_change()
         self.validate_donation_accounts()
         self.validate_grace_period_settings()  # Moved from hooks.py
         self.validate_chapter_dues_accounts()
@@ -21,6 +23,56 @@ class VerenigingenSettings(Document):
         from verenigingen.utils.document_categories import sync_category_options_to_doctypes
 
         sync_category_options_to_doctypes()
+        self._resync_national_board_seat_holders()
+
+    def validate_national_board_chapter_change(self):
+        """Choosing the national chapter decides whose seats grant the national profiles.
+
+        Financial Manager can write this Single, so without a role check repointing it
+        at an ordinary chapter would hand that chapter's seat holders the National Board
+        Member profile (#1626). Only roles that could grant it anyway may change it.
+        """
+        if self.is_new() or frappe.flags.in_install or frappe.flags.in_patch or frappe.flags.in_migrate:
+            return
+        if not self.has_value_changed("national_board_chapter"):
+            return
+        allowed = {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN}
+        if frappe.session.user == "Administrator" or allowed & set(frappe.get_roles()):
+            return
+        frappe.throw(
+            _("Only a System Manager or Verenigingen Administrator can change the national board chapter."),
+            frappe.PermissionError,
+        )
+
+    def _resync_national_board_seat_holders(self):
+        """A new national_board_chapter changes what seats on BOTH chapters confer (#1660)."""
+        if not self.has_value_changed("national_board_chapter"):
+            return
+        previous = self.get_doc_before_save()
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            resync_chapter_seat_holders,
+        )
+
+        for chapter in {
+            previous.get("national_board_chapter") if previous else None,
+            self.national_board_chapter,
+        }:
+            if chapter:
+                failed = resync_chapter_seat_holders(chapter)
+                if failed:
+                    self._report_failed_resync(chapter, failed)
+
+    def _report_failed_resync(self, chapter, failed):
+        users = ", ".join(failed)
+        frappe.log_error(
+            title="National board chapter change: role profile resync failed",
+            message=f"Seat holders of {chapter} whose role profiles could not be recalculated: {users}",
+        )
+        frappe.msgprint(
+            _("Role profiles could not be recalculated for: {0}. They may keep stale access.").format(users),
+            indicator="red",
+            alert=True,
+        )
 
     def validate_donation_accounts(self):
         """Validate donation account configuration"""

@@ -27,6 +27,7 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     safe_hook_execution,
 )
 from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
+from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 # Public API surface. `_chapter_manager` is included despite the
@@ -209,6 +210,7 @@ def remove_chapter_board_role_profile(user: str, chapter_name: str, board_role=N
     Returns:
         dict: Success/failure result
     """
+    require_may_remove_profile_for("Chapter", chapter_name, user)
     return _chapter_manager.remove_role_profile(user, chapter_name, board_role)
 
 

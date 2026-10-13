@@ -123,7 +123,10 @@ def validate_termination_readiness(member_name: str):
 
         # Check volunteer records
         volunteer_records = frappe.db.count(
-            "Volunteer", {"member": member_name, "status": ["in", ["Active", "On Leave"]]}
+            "Volunteer",
+            # New/Onboarding count too: full activation creates an Onboarding volunteer (#1612)
+            # that holds the Volunteer profile, and termination ends every volunteer record.
+            {"member": member_name, "status": ["in", ["New", "Onboarding", "Active", "On Leave"]]},
         )
         readiness["impact"]["volunteer_records"] = volunteer_records
 

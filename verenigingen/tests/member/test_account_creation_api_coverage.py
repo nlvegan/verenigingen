@@ -273,6 +273,27 @@ class TestRequestableVolunteerRoles(VereningingenTestCase):
         self.assertTrue(roles)
         self.assertFalse(national & set(roles), national & set(roles))
 
+    def test_every_profile_in_national_profiles_is_excluded_from_the_picker(self):
+        """#1627: the picker takes its exclusions from role_profile_mapping_guard.NATIONAL_PROFILES.
+
+        Patches the constant to ALSO hold "Verenigingen Auditor" (a profile that is
+        not mapped anywhere in this test), so a picker that spells the two national
+        names out instead of reading the constant keeps offering the Auditor roles.
+        """
+        from verenigingen.services.member.account import role_profile_mapping_guard as guard
+
+        auditor_roles = self._profile_roles("Verenigingen Auditor")
+        # Control: the Auditor profile really grants a role the picker offers today.
+        offered_before = set(api.get_requestable_volunteer_roles())
+        self.assertTrue(auditor_roles & offered_before, (auditor_roles, offered_before))
+
+        # Mock justified: the constant is the boundary under test; patching it stands
+        # in for "a national profile was added to NATIONAL_PROFILES".
+        with patch.object(guard, "NATIONAL_PROFILES", guard.NATIONAL_PROFILES | {"Verenigingen Auditor"}):
+            offered_after = set(api.get_requestable_volunteer_roles())
+
+        self.assertFalse(auditor_roles & offered_after, auditor_roles & offered_after)
+
     def test_roles_without_desk_access_are_never_offered(self):
         deskless = self._deskless_roles()
         # Control: a service role really sits in a Verenigingen profile.

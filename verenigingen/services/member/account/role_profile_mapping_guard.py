@@ -18,7 +18,9 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 
 # Granted only by a seat on the national chapter's board.
-NATIONAL_PROFILES = frozenset({"Verenigingen National Board Member", "Verenigingen Treasurer"})
+NATIONAL_BOARD_MEMBER_PROFILE = "Verenigingen National Board Member"
+NATIONAL_TREASURER_PROFILE = "Verenigingen Treasurer"
+NATIONAL_PROFILES = frozenset({NATIONAL_BOARD_MEMBER_PROFILE, NATIONAL_TREASURER_PROFILE})
 
 # erpnext's validate_employee_role (a User validate hook) strips these two from every
 # user without an Employee record, so an editor without one can never hold them and
@@ -129,3 +131,36 @@ def _roles_granted_by(profile):
     return set(
         frappe.get_all("Has Role", filters={"parenttype": "Role Profile", "parent": profile}, pluck="role")
     )
+
+
+def require_may_remove_profile_for(doctype: str, entity: str, user: str) -> None:
+    """Gate the whitelisted remove_*_role_profile endpoints (#1615 review).
+
+    They were gated only by the security tier, so any Staff-profile caller could name any
+    user. Now the caller needs System Manager / Verenigingen Administrator, or write
+    permission on that Team/Chapter AND the target must have (or have had) a row there.
+    An unknown entity, a forbidden one and an unrelated target are refused identically.
+    """
+    if frappe.session.user == "Administrator" or {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(
+        frappe.get_roles()
+    ):
+        return
+    if not (
+        isinstance(entity, str)
+        and frappe.db.exists(doctype, entity)
+        and frappe.has_permission(doctype, "write", doc=entity)
+        and _target_has_a_row(doctype, entity, user)
+    ):
+        frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
+
+
+def _target_has_a_row(doctype: str, entity: str, user: str) -> bool:
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+    if doctype == "Team":
+        if frappe.db.get_value("Team", entity, "team_lead") == user:
+            return True
+        row = "Team Member"
+    else:
+        row = "Chapter Board Member"
+    return bool(volunteer and frappe.db.exists(row, {"parent": entity, "volunteer": volunteer}))

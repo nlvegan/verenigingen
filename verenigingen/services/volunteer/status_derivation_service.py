@@ -62,7 +62,8 @@ class VolunteerStatusDerivationService:
             Active    at least one CURRENT assignment     derived
             Inactive  had assignments, none current now   derived, and termination
             Retired   manual only -- never written here
-            Onboarding no writer exists -- left alone
+            Onboarding left alone here; written only by explicit full activation (#1612):
+                       create_volunteer_from_member(create_user_account=1) and the ACR pipeline
 
         EVENT-DRIVEN, not a recompute-from-scratch: a volunteer with no assignment
         evidence in either direction keeps the status they were given. That is

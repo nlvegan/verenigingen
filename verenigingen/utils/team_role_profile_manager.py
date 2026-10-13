@@ -27,6 +27,7 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     safe_hook_execution,
 )
 from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
+from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Team-specific configuration
@@ -186,6 +187,7 @@ def remove_team_role_profile(user: str, team_name: str, team_role=None):
     Returns:
         dict: Success/failure result
     """
+    require_may_remove_profile_for("Team", team_name, user)
     return _team_manager.remove_role_profile(user, team_name, team_role)
 
 

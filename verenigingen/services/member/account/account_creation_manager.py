@@ -54,6 +54,11 @@ from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resy
 _STUB_EMPLOYEE_GENDER = "Prefer not to say"
 _STUB_EMPLOYEE_DOB = "1990-01-01"
 
+# A member in one of these statuses must not be given volunteer access by an activation request.
+_NO_VOLUNTEER_ACCESS_MEMBER_STATUSES = frozenset(
+    {"Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"}
+)
+
 
 class AccountCreationManager:
     """Secure account creation manager with proper permission validation"""
@@ -747,6 +752,61 @@ class AccountCreationManager:
                 return None  # Signal: user already existed
             raise
 
+    def _ensure_volunteer_onboarding(self):
+        """An explicit volunteer activation leaves a Volunteer in Onboarding (#1612).
+
+        The role-profile sync derives the Volunteer profile only for an Active/Onboarding
+        volunteer, so a request for that profile on a member with no volunteer (or a "New"
+        one) was undone by its own Phase 3 sync. Creates the volunteer when absent; a "New"
+        one becomes Onboarding; any other status is an operator decision and is left alone.
+        """
+        if self.request.role_profile != "Verenigingen Volunteer":
+            return
+        from verenigingen.utils.member_utils import get_volunteer_for_member
+
+        if self.request.request_type == "Volunteer":
+            volunteer = self.request.source_record
+            member = frappe.db.get_value("Volunteer", volunteer, "member")
+        else:
+            member = self.request.source_record
+            volunteer = get_volunteer_for_member(member)
+
+        member_status = frappe.db.get_value("Member", member, "status") if member else None
+        if member_status in _NO_VOLUNTEER_ACCESS_MEMBER_STATUSES:
+            # Skip, do not raise: the rest of the role assignment must still run. The sync will not
+            # derive the Volunteer profile for this member, so nothing is granted.
+            frappe.log_error(
+                title="ACR volunteer activation skipped",
+                message=f"{self.request_name}: member {member} has status {member_status}; "
+                "no volunteer record was created or moved to Onboarding.",
+            )
+            return
+
+        if volunteer:
+            if frappe.db.get_value("Volunteer", volunteer, "status") == "New":
+                # db.set_value on purpose: it skips the Volunteer hooks (a New -> * save would run
+                # _check_auto_activation and queue a second ACR), and so writes no Version row either.
+                frappe.db.set_value("Volunteer", volunteer, "status", "Onboarding")
+        elif member:
+            member_doc = frappe.get_doc("Member", member)
+            new_volunteer = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": member_doc.full_name or member_doc.email or member,
+                    "member": member,
+                    "status": "Onboarding",
+                    "start_date": member_doc.member_since or frappe.utils.today(),
+                    "user": member_doc.user or None,
+                }
+            )
+            # Security: gated upstream by @high_security_api + validate_processing_permissions; the
+            # public create_volunteer_from_member endpoint is itself tier-gated and refuses the
+            # Staff actor this pipeline legitimately runs as.
+            new_volunteer.insert(ignore_permissions=True)
+            frappe.db.set_value(
+                "Member", member, "volunteer_record", new_volunteer.name, update_modified=False
+            )
+
     def assign_roles_and_profile(self):
         """Assign roles and role profile with proper permission validation
 
@@ -770,6 +830,7 @@ class AccountCreationManager:
         )
 
         try:
+            self._ensure_volunteer_onboarding()
             user_doc = frappe.get_doc("User", self.created_user)
             existing_roles = [r.role for r in user_doc.roles]
             frappe.logger().info(f"[ACR PIPELINE] User {self.created_user} existing roles: {existing_roles}")
@@ -806,6 +867,12 @@ class AccountCreationManager:
                     existing_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
                     if self.request.role_profile not in existing_profiles:
                         user_doc.append("role_profiles", {"role_profile": self.request.role_profile})
+                    # Built-in profiles are the calculator's to withdraw later, even if already held.
+                    from verenigingen.services.member.account.user_role_profile_calculator import (
+                        record_requested_profile,
+                    )
+
+                    record_requested_profile(user_doc, self.request.role_profile)
                 else:
                     user_doc.role_profile_name = self.request.role_profile
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
