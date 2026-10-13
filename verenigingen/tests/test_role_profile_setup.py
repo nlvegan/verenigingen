@@ -178,13 +178,15 @@ class TestRoleProfileSetup(VereningingenTestCase):
         self._make_member_for_user(email)
         self.assertEqual(get_recommended_role_profile(email), "Verenigingen Staff")
 
-    def test_recommend_treasurer_for_staff_with_accounts_user(self):
-        """A staff member who is also an Accounts User is recommended
-        "Verenigingen Treasurer" (the treasurer check precedes the plain-staff
-        branch)."""
+    def test_staff_with_accounts_user_is_not_recommended_treasurer(self):
+        """Treasurer is national only (maintainer, 2026-10-12, #1654). The shipped Staff
+        profile itself carries Accounts User, so this role test matched every Staff user;
+        the earlier assertion here encoded that false premise. The control that keeps this
+        honest is test_the_staff_profile_really_carries_accounts_user in
+        security/test_national_profile_assignment_guard.py."""
         email = self._make_user(roles=[Roles.VERENIGINGEN_STAFF, "Accounts User"])
         self._make_member_for_user(email)
-        self.assertEqual(get_recommended_role_profile(email), "Verenigingen Treasurer")
+        self.assertEqual(get_recommended_role_profile(email), "Verenigingen Staff")
 
     def test_recommend_staff_without_accounts_user_is_not_treasurer(self):
         """Plain staff (no Accounts User) stays "Verenigingen Staff"."""
@@ -402,7 +404,7 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
 
         expected = {
             admin_email: "Verenigingen System Administrator",
-            treasurer_email: "Verenigingen Treasurer",
+            treasurer_email: "Verenigingen Staff",  # not Treasurer: national only (#1654)
             staff_email: "Verenigingen Staff",
             auditor_email: "Verenigingen Auditor",
             board_email: "Verenigingen Chapter Board Member",
