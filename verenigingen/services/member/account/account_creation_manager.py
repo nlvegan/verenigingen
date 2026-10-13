@@ -924,6 +924,19 @@ class AccountCreationManager:
             raise frappe.ValidationError("Cannot create employee - no user account exists")
 
         self.request.mark_processing("Employee Creation")
+        self._insert_employee_for_created_user()
+
+    def _insert_employee_for_created_user(self):
+        """Insert (or reuse) the Employee of ``self.created_user``.
+
+        Needs ``created_user``, ``source_doc`` and a request-like object carrying
+        ``full_name``, ``email``, ``request_type`` and ``created_employee``. Split out of
+        create_employee_record so the Staff "create the Employee for this volunteer"
+        action (services/volunteer/volunteer_employee_service.py) runs the very same
+        insert instead of a copy (#1606).
+        """
+        if not self.created_user:
+            raise frappe.ValidationError("Cannot create employee - no user account exists")
 
         frappe.logger().info(
             f"[ACR PIPELINE] Employee Creation - Starting for {self.request_name} | "

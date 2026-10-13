@@ -64,11 +64,12 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         is refused as such, any other as a roles-held refusal. Both name the profile."""
         with self.assertRaises(frappe.PermissionError) as ctx:
             self._call_as(actor, fn, *args)
-        reason = (
-            "can only be assigned by a system manager"
-            if profile in (TREASURER, NBM)
-            else "grants roles you do not hold"
-        )
+        if profile in (TREASURER, NBM):
+            reason = "can only be assigned by a system manager"
+        elif set(frappe.get_all("Has Role", filters={"parent": profile}, pluck="role")) & Roles.PAYROLL_ROLES:
+            reason = "grants payroll access"
+        else:
+            reason = "grants roles you do not hold"
         message = str(ctx.exception).lower()
         self.assertIn(f"'{profile}'".lower(), message)
         self.assertIn(reason, message)
@@ -155,14 +156,19 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
 
     def test_a_profile_granting_roles_the_actor_lacks_is_refused(self):
         """HR Manager is Treasurer-only (#1606 ruling) and the stock "HR" / "Accounts" profiles
-        grant it / Accounts Manager. Neither actor holds the role, so neither may hand it out."""
+        grant it / Accounts Manager. The NBM lacks HR Manager and is refused by the roles-held
+        rule; the Treasurer HOLDS it and is refused by the payroll rule (holding is not enough)."""
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
         hr = self._profile_granting("HR Manager")
         accounts = self._profile_granting("Accounts Manager")
         for actor_profile, target in ((NBM, hr), (TREASURER, hr), (NBM, accounts)):
             actor_roles = set(frappe.get_all("Has Role", filters={"parent": actor_profile}, pluck="role"))
-            self.assertNotIn(frappe.db.get_value("Has Role", {"parent": target}, "role"), actor_roles)
+            granted_role = frappe.db.get_value("Has Role", {"parent": target}, "role")
+            if actor_profile == TREASURER:
+                self.assertIn(granted_role, actor_roles)  # control: the actor really holds it
+            else:
+                self.assertNotIn(granted_role, actor_roles)
             actor = self._make_user_holding_profile(actor_profile)
             victim = self._make_user_holding_profile(None)
             self._assert_assignment_refused(actor, target, assign_role_profile_to_user, victim, target)
@@ -170,10 +176,10 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
 
     def test_the_unheld_role_need_not_be_the_first_one_in_the_profile(self):
         """Mutant guard: only the first granted role is compared. Projects User (held by NBM)
-        comes first, HR Manager (not held) second."""
+        comes first, Accounts Manager (not held) second."""
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
-        mixed = self._profile_granting("Projects User", "HR Manager")
+        mixed = self._profile_granting("Projects User", "Accounts Manager")
         actor = self._make_user_holding_profile(NBM)
         victim = self._make_user_holding_profile(None)
         self._assert_assignment_refused(actor, mixed, assign_role_profile_to_user, victim, mixed)
@@ -208,6 +214,59 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         actor = self._make_user_holding_profile(NBM)
         victim = self._make_user_holding_profile(None)
         self._assert_assignment_refused(actor, "HR", assign_role_profile_to_user, victim, "HR")
+
+    def test_the_treasurer_holds_hr_manager_yet_cannot_assign_a_profile_granting_it(self):
+        """#1606: the roles-held rule alone lets the Treasurer (who HOLDS HR Manager) hand the
+        payroll role to anybody. The payroll rule refuses it, with its own message."""
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        hr = self._profile_granting("HR Manager")
+        actor = self._make_user_holding_profile(TREASURER)
+        self.assertIn("HR Manager", frappe.get_roles(actor))  # control: roles-held would allow it
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, hr, assign_role_profile_to_user, victim, hr)
+        self.assertNotIn(hr, self._profiles_of(victim))
+
+    def test_hr_user_is_a_payroll_role_too(self):
+        """A profile granting only HR User, to an actor who holds HR User, is refused for
+        assignment AND mapping (a guard covering only HR Manager would let it through)."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        payroll = self._profile_granting("HR User")
+        # Direct roles are stripped by the profile sync, so the HR User holder gets it through a
+        # second profile alongside NBM (which keeps the actor in an ADMIN-capable tier).
+        actor = self._make_user_holding_profile(NBM)
+        holder = frappe.get_doc("User", actor)
+        holder.append("role_profiles", {"role_profile": self._profile_granting("HR User")})
+        holder.save()
+        victim = self._make_user_holding_profile(None)
+        self._assert_assignment_refused(actor, payroll, assign_role_profile_to_user, victim, payroll)
+        previous = frappe.session.user
+        frappe.set_user(actor)
+        try:
+            self.assertIn("HR User", frappe.get_roles())  # control: roles-held would allow it
+            with self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
+                validate_mapped_profiles({("default", payroll)}, set(), national_allowed=False)
+        finally:
+            frappe.set_user(previous)
+
+    def test_a_bare_payroll_role_cannot_be_mapped_by_a_holder_of_it(self):
+        """MijnRood's bare-role mapping (#1633): the Treasurer holds HR Manager, so the
+        roles-held rule alone would pass it."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_editor_holds_roles
+
+        actor = self._make_user_holding_profile(TREASURER)
+        previous = frappe.session.user
+        frappe.set_user(actor)
+        try:
+            self.assertIn("HR Manager", frappe.get_roles())  # control
+            for role in ("HR Manager", "HR User"):
+                with self.subTest(role=role), self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
+                    validate_editor_holds_roles({("default", role)}, set())
+            validate_editor_holds_roles({("default", "Projects Manager")}, set())  # control: not payroll
+        finally:
+            frappe.set_user(previous)
 
     def test_a_profile_whose_roles_the_actor_all_holds_can_be_assigned(self):
         """Control for the test above, with a real profile built from roles NBM holds."""

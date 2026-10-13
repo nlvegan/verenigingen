@@ -245,5 +245,89 @@ class TestExportFixturesDoesNotClobberCustomFields(unittest.TestCase):
         )
 
 
+def _shipped_role_profiles():
+    path = frappe.get_app_path("verenigingen", "fixtures", "role_profile.json")
+    with open(path) as f:
+        return {p["name"]: {r["role"] for r in p.get("roles", [])} for p in json.load(f)}
+
+
+class TestRoleProfileFixture(unittest.TestCase):
+    """fixtures/role_profile.json is imported whole on migrate, but
+    `bench export-fixtures` rewrites it from the filter in hooks/fixtures.py.
+    A profile the filter does not name is silently dropped by the next export,
+    along with any role changes made to it.
+    """
+
+    def test_every_shipped_role_profile_is_declared_for_export(self):
+        declared = set()
+        for entry in frappe.get_hooks("fixtures", app_name="verenigingen"):
+            if isinstance(entry, dict) and entry.get("doctype") == "Role Profile":
+                for field, operator, names in entry["filters"]:
+                    if field == "name" and operator == "in":
+                        declared |= set(names)
+
+        undeclared = set(_shipped_role_profiles()) - declared
+        self.assertFalse(
+            undeclared,
+            f"Role Profiles shipped in fixtures/role_profile.json but missing from the "
+            f"export filter in hooks/fixtures.py (the next export drops them): {undeclared}",
+        )
+
+    def test_only_the_treasurer_profile_grants_hr_roles(self):
+        """Maintainer rulings 2026-10-12 (#1606): HR User / HR Manager open payroll (salary
+        slips, structures, gratuity ...), so no profile grants them except the Treasurer's HR
+        Manager. Staff gets Expense Approver instead."""
+        profiles = _shipped_role_profiles()
+        hr_roles = {"HR User", "HR Manager"}
+
+        # Control: the Treasurer profile really does carry one, so a scan that finds nothing
+        # elsewhere is not just a scan that finds nothing anywhere.
+        self.assertIn("HR Manager", profiles["Verenigingen Treasurer"])
+        self.assertNotIn("HR User", profiles["Verenigingen Treasurer"])
+
+        for name, roles in profiles.items():
+            if name == "Verenigingen Treasurer":
+                continue
+            with self.subTest(profile=name):
+                self.assertFalse(roles & hr_roles, f"{name} grants payroll access: {roles & hr_roles}")
+
+    def test_staff_and_the_other_approver_profiles_hold_expense_approver(self):
+        profiles = _shipped_role_profiles()
+        for profile in (
+            "Verenigingen Staff",
+            "Verenigingen Treasurer",
+            "Verenigingen National Board Member",
+        ):
+            with self.subTest(profile=profile):
+                self.assertIn("Expense Approver", profiles[profile])
+        # Control: a profile that is not an approver does not carry it.
+        self.assertNotIn("Expense Approver", profiles["Verenigingen Member"])
+
+    def test_national_board_member_profile_grants_the_role_of_the_same_name(self):
+        """#1512: the profile named for the role did not carry it, so nothing role-based could
+        tell a national board member from plain Staff."""
+        profiles = _shipped_role_profiles()
+        self.assertIn("Verenigingen National Board Member", profiles["Verenigingen National Board Member"])
+        # Control: the Treasurer profile already carried it; plain Staff must not.
+        self.assertIn("Verenigingen National Board Member", profiles["Verenigingen Treasurer"])
+        self.assertNotIn("Verenigingen National Board Member", profiles["Verenigingen Staff"])
+
+
+class TestExpenseClaimCustomFieldsInstalled(unittest.TestCase):
+    """Canary for the expense-approval modules (#1606): they skip when the Expense Claim Custom
+    Fields are missing, which would silently drop ~30 tests. A fresh install (CI) must have them.
+    A site restored from an old snapshot only gets them from `bench migrate`."""
+
+    def test_expense_claim_has_the_shipped_custom_fields(self):
+        path = frappe.get_app_path("verenigingen", "fixtures", "expense_claim_custom_fields.json")
+        with open(path) as f:
+            shipped = {d["fieldname"] for d in json.load(f)}
+        self.assertIn("custom_chapter", shipped, "control: the fixture ships the field")
+
+        meta = frappe.get_meta("Expense Claim")
+        missing = {fieldname for fieldname in shipped if not meta.has_field(fieldname)}
+        self.assertFalse(missing, f"Expense Claim lacks shipped Custom Fields {missing}: run bench migrate")
+
+
 if __name__ == "__main__":
     unittest.main()

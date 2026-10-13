@@ -236,12 +236,43 @@ CORE_GRANTS = (
 _ROW_META = ("name", "doctype", "creation", "modified", "modified_by", "owner", "docstatus")
 
 
+# Script reports that read EVERY Expense Claim with no permission filter and are open to Expense
+# Approver. Approvers are scoped to their chapters by has_expense_claim_permission /
+# get_expense_claim_permission_query, which a raw frappe.qb report never consults (#1606), so the
+# role is taken off the report. HR Manager (Treasurer) and System Manager keep it.
+REPORT_ROLE_REMOVALS = {"Unpaid Expense Claim": ("Expense Approver",)}
+REPORT_ROLE_ADDITIONS = {"Unpaid Expense Claim": ("System Manager",)}
+
+
 def apply_custom_permissions():
     """Entry point for ``after_install`` and ``after_migrate``. Idempotent."""
     _repair_truncated_sets()
     _apply_core_grants()
     _reconcile_own_doctypes()
     _prune_revoked_keys()
+    _restrict_report_roles()
+
+
+def _restrict_report_roles():
+    """Custom Role on a Report REPLACES its stock roles, so start from whatever applies now."""
+    for report, removed in REPORT_ROLE_REMOVALS.items():
+        if not frappe.db.exists("Report", report):
+            continue
+        name = frappe.db.get_value("Custom Role", {"report": report}, "name")
+        doc = frappe.get_doc("Custom Role", name) if name else frappe.new_doc("Custom Role")
+        current = [r.role for r in doc.roles] if name else _stock_report_roles(report)
+        wanted = [r for r in current if r not in removed]
+        wanted += [r for r in REPORT_ROLE_ADDITIONS.get(report, ()) if r not in wanted]
+        if name and wanted == current:
+            continue
+        doc.report = report
+        doc.set("roles", [{"role": r} for r in wanted])
+        # Security: install/migrate hook; no session user to hold Custom Role permission.
+        doc.save(ignore_permissions=True)
+
+
+def _stock_report_roles(report):
+    return frappe.get_all("Has Role", filters={"parenttype": "Report", "parent": report}, pluck="role")
 
 
 def snapshot_own_declared_permissions():

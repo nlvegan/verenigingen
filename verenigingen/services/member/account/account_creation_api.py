@@ -274,6 +274,9 @@ def queue_account_creation_for_member(
         # Volunteers need Employee records for expense functionality
         create_employee = role_profile == "Verenigingen Volunteer"
 
+        # `role_profile` is caller-supplied and NOT checked with validate_may_assign_profile (#1654):
+        # safe only because the User-create permission gate above is System Manager only, so no
+        # Treasurer / Staff caller reaches this line. Add the call if that gate ever widens.
         # Create request
         request = frappe.get_doc(
             {

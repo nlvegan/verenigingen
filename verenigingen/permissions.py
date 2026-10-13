@@ -2156,7 +2156,9 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
     """Permission check for Expense Claim doctype
 
     Grants access to:
-    - Admins (System Manager, HR Manager, Verenigingen Staff, Verenigingen Administrator)
+    - Admins (System Manager, HR Manager, Verenigingen Administrator, Treasurer, National Board Member).
+      Plain Verenigingen Staff is NOT one: Staff approves as an Expense Approver, scoped to the
+      chapters they sit on the board of, claims they are the designated approver of, and their own (#1606)
     - Expense Approvers: Can see expense claims for chapters they are board members of
     - Employees: Can see their own expense claims
     """
@@ -2166,7 +2168,7 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
     user_roles = frappe.get_roles(user)
 
     # Admin roles can see all
-    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES):
+    if _has_admin_access(user_roles, Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES):
         return True
 
     # Get expense claim chapter
@@ -2196,7 +2198,9 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
             effective_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
 
         if effective_chapter:
-            accessible_chapters = get_user_accessible_chapters(user)
+            accessible_chapters = get_user_accessible_chapters(
+                user, admin_roles=Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES
+            )
 
             # None means admin access (already handled above)
             if accessible_chapters is None:
@@ -2223,7 +2227,7 @@ def get_expense_claim_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles see all
-    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES):
+    if _has_admin_access(user_roles, Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES):
         return ""
 
     conditions = []
@@ -2237,7 +2241,9 @@ def get_expense_claim_permission_query(user):
     if Roles.EXPENSE_APPROVER in user_roles:
         from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
-        accessible_chapters = get_user_accessible_chapters(user)
+        accessible_chapters = get_user_accessible_chapters(
+            user, admin_roles=Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES
+        )
 
         # None means admin access (already handled above)
         if accessible_chapters is None:
