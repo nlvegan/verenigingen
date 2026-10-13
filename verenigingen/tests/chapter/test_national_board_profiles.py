@@ -407,3 +407,160 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         chapter.save()
 
         self.assertIn(NATIONAL_MEMBER, get_user_role_profiles(new.user))
+
+    # ---- security review of 44a00a7eb: the sync must be non-destructive
+
+    def _assign_profiles_directly(self, user, profiles):
+        """Hand-assign profiles as an administrator would (User Role Profile rows)."""
+        doc = frappe.get_doc("User", user)
+        doc.set("role_profiles", [{"role_profile": name} for name in profiles])
+        doc.save()
+
+    def test_a_board_member_seating_an_admin_user_changes_nothing_but_the_seat_derived_profiles(self):
+        """CRITICAL-1: a plain chapter board member's Chapter save must not rewrite another user's profiles."""
+        actor = self._hold_a_board_seat(self.other, "Secretary")
+        victim = self._new_volunteer()
+        manual = ["HR", "Verenigingen System Administrator"]
+        self._assign_profiles_directly(victim.user, manual)
+        frappe.get_doc("User", victim.user).add_roles("System Manager")
+        roles_before = set(frappe.get_roles(victim.user))
+        role = self._chapter_role_labelled("Chair")
+
+        frappe.set_user(actor.user)
+        self.addCleanup(frappe.set_user, "Administrator")
+        chapter = frappe.get_doc("Chapter", self.other.name)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": victim.volunteer,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+                "email": victim.email,
+            },
+        )
+        chapter.save()
+
+        profiles = set(get_user_role_profiles(victim.user))
+        self.assertTrue(set(manual) <= profiles, f"manual profiles were stripped: {profiles}")
+        self.assertIn(PROFILE_BOARD_MEMBER, profiles, "the seat-derived addition is still made")
+        frappe.clear_cache(user=victim.user)
+        self.assertIn("System Manager", frappe.get_roles(victim.user))
+        self.assertTrue(roles_before <= set(frappe.get_roles(victim.user)))
+
+    def test_a_resync_never_drops_a_manually_assigned_profile(self):
+        user = self._hold_a_board_seat(self.national, "Secretary").user
+        manual = ["Verenigingen Administrator", "Verenigingen Auditor"]
+        self._assign_profiles_directly(user, manual + [NATIONAL_MEMBER])
+
+        sync_user_role_profile(user)
+
+        profiles = set(get_user_role_profiles(user))
+        self.assertTrue(set(manual) <= profiles, profiles)
+        self.assertIn(NATIONAL_MEMBER, profiles)
+
+    def test_a_stale_derived_profile_is_still_withdrawn_next_to_manual_ones(self):
+        """Control for the above: non-destructive must not mean never-removing."""
+        seat = self._hold_a_board_seat(self.national, "Secretary")
+        self._assign_profiles_directly(seat.user, ["HR", NATIONAL_MEMBER, NATIONAL_TREASURER])
+
+        sync_user_role_profile(seat.user)
+
+        profiles = set(get_user_role_profiles(seat.user))
+        self.assertIn("HR", profiles)
+        self.assertIn(NATIONAL_MEMBER, profiles)
+        self.assertNotIn(NATIONAL_TREASURER, profiles, "a treasurer profile without a treasurer seat is stale")
+
+    # ---- MEDIUM-3: a team cannot fill the national slot
+
+    def test_a_team_whose_stored_default_is_a_national_profile_confers_nothing_national(self):
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+        seat = self._hold_a_board_seat(self.other, "Secretary")  # not national, so no national seat
+        team = frappe.get_doc(
+            {
+                "doctype": "Team",
+                "team_name": f"NBP Legacy {frappe.generate_hash(length=6)}",
+                "status": "Active",
+                "team_type": "Project Team",
+                "start_date": frappe.utils.today(),
+            }
+        )
+        team.insert()
+        self.track_doc("Team", team.name)
+        team.append(
+            "team_members",
+            {
+                "volunteer": seat.volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        team.save()
+        # Probe shortcut, stated: the mapping guard now refuses this value on a Team, so a
+        # row stored before the guard existed (legacy data) is simulated with a direct write.
+        frappe.db.set_value("Team", team.name, "default_role_profile", NATIONAL_MEMBER)
+        frappe.clear_document_cache("Team", team.name)
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            invalidate_profile_config_cache,
+        )
+
+        invalidate_profile_config_cache("team", team.name)
+
+        sync_user_role_profile(seat.user)
+
+        self.assertNotIn(NATIONAL_MEMBER, get_user_role_profiles(seat.user))
+
+    # ---- HIGH-2 / #1626: who may repoint the national chapter
+
+    def _settings_change_as(self, roles):
+        email = f"setting.{frappe.generate_hash(length=8)}@test.invalid"
+        self.create_test_user(email, roles=roles)
+        frappe.set_user(email)
+        self.addCleanup(frappe.set_user, "Administrator")
+        settings = frappe.get_doc("Verenigingen Settings")
+        settings.national_board_chapter = self.other.name
+        settings.save()
+
+    def test_a_financial_manager_cannot_repoint_the_national_chapter(self):
+        with self.assertRaisesRegex(frappe.PermissionError, "national board chapter"):
+            self._settings_change_as(["Verenigingen Financial Manager"])
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.national.name
+        )
+
+    def test_a_verenigingen_administrator_can_repoint_the_national_chapter(self):
+        self._settings_change_as(["Verenigingen Administrator"])
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    def test_a_system_manager_can_repoint_the_national_chapter(self):
+        self._settings_change_as(["System Manager"])
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    # ---- MEDIUM-4: a failed resync is not silent
+
+    def test_a_failed_resync_after_a_national_chapter_change_is_logged_and_shown(self):
+        from unittest import mock
+
+        holder = self._hold_a_board_seat(self.national, "Secretary")
+        before = frappe.db.count("Error Log", {"method": "National board chapter change: role profile resync failed"})
+
+        # Mock justified: failure injection at the sync boundary; a real sync failure needs a corrupt User
+        with mock.patch(
+            "verenigingen.services.member.account.user_role_profile_calculator.sync_user_role_profile",
+            return_value={"success": False, "error": "boom", "user": holder.user},
+        ):
+            self.expectErrorLog()
+            self._change_national_chapter(self.other.name)
+
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "National board chapter change: role profile resync failed"}),
+            before + 1,
+        )
+        self.assertIn(holder.user, " ".join(m.get("message", "") for m in frappe.local.message_log))

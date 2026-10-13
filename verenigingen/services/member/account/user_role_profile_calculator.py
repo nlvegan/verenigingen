@@ -307,12 +307,39 @@ def calculate_user_role_profile_set(user: str) -> list:
         return [headline]
 
     candidates = calculate_all_user_role_profiles(user)
+    # The national slot is filled ONLY by a seat on the current national chapter's board
+    # (get_board_member_profiles refuses national mappings anywhere else). A team whose
+    # stored default is a national profile must not confer it (#1660).
+    member = frappe.db.get_value("Member", {"user": user}, "name")
     national = sorted(
-        {name for _prio, name in candidates if name in NATIONAL_PROFILES},
+        {name for _prio, name in get_board_member_profiles(user, member) if name in NATIONAL_PROFILES},
         key=lambda name: name != NATIONAL_TREASURER_PROFILE,
     )
     own = [name for _prio, name in candidates if name not in NATIONAL_PROFILES]
     return [own[0], *national] if own else national
+
+
+def get_seat_derivable_profiles() -> set:
+    """Every profile this calculator can hand out: the only ones a sync may add or remove.
+
+    Any other profile on a User (HR, System Administrator, a manually assigned
+    Administrator or Auditor...) is not this calculator's to touch.
+    """
+    profiles = {
+        PROFILE_MEMBER,
+        PROFILE_VOLUNTEER,
+        PROFILE_TEAM_LEADER,
+        PROFILE_BOARD_MEMBER,
+        *NATIONAL_PROFILES,
+    }
+    for doctype, field in (
+        ("Chapter", "default_board_role_profile"),
+        ("Chapter Role Profile Mapping", "role_profile"),
+        ("Team", "default_role_profile"),
+        ("Team Role Profile Assignment", "role_profile"),
+    ):
+        profiles.update(frappe.get_all(doctype, filters={field: ["is", "set"]}, pluck=field, distinct=True))
+    return profiles
 
 
 def get_board_member_profiles(user: str, member: str) -> list:
@@ -830,7 +857,9 @@ def get_user_role_profiles(user_name: str) -> list[str]:
     return [single] if single else []
 
 
-def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: bool = False) -> dict:
+def sync_user_role_profile(
+    user: str, dry_run: bool = False, allow_disabled: bool = False, withdraw: tuple = ()
+) -> dict:
     """
     Calculate and apply the correct role profile to a user.
 
@@ -844,6 +873,9 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
             what forces the account back on, see the note below). Callers that
             pass this must be downgrading access (e.g. a termination pipeline),
             not restoring it.
+        withdraw: Profiles the caller knows were granted directly and must now go. The
+            sync only touches profiles it derives (get_seat_derivable_profiles), so a
+            directly granted one is removed only when named here (and not re-derived).
 
     Returns:
         dict: {
@@ -930,6 +962,11 @@ def sync_user_role_profile(user: str, dry_run: bool = False, allow_disabled: boo
 
         # Check if change needed
         if _has_multi_profile_support():
+            # Non-destructive: keep every profile this calculator does not derive
+            # (manual admin profiles, HR, System Administrator...), replace only the rest.
+            derivable = get_seat_derivable_profiles() | set(withdraw)
+            kept = [name for name in existing_profiles if name not in derivable]
+            new_profiles = kept + [name for name in new_profiles if name not in kept]
             role_changed = set(existing_profiles) != set(new_profiles)
         else:
             role_changed = old_profile != new_profile

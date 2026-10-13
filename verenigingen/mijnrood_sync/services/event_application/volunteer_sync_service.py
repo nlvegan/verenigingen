@@ -1082,7 +1082,8 @@ class MijnRoodVolunteerSyncService:
                 )
 
                 if role_profile in get_user_role_profiles(user):
-                    result = sync_user_role_profile(user) or {}
+                    # withdraw=: the sync no longer strips profiles it does not derive
+                    result = sync_user_role_profile(user, withdraw=(role_profile,)) or {}
                     if role_profile in get_user_role_profiles(user):
                         if result.get("success") and not result.get("skipped"):
                             self.logger.info(
