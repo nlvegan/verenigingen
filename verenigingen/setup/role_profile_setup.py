@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -57,6 +58,10 @@ def assign_role_profile_to_user(user: str, role_profile: str) -> None:
 
     validate_document_exists("User", user)
     validate_document_exists("Role Profile", role_profile)
+
+    # The endpoint is ADMIN-tier, which the Treasurer / National Board Member profiles
+    # also clear, so who may hand out a privileged profile is checked here (#1654).
+    validate_may_assign_profile(role_profile)
 
     user_doc = frappe.get_doc("User", user)
 
@@ -116,13 +121,11 @@ def get_recommended_role_profile(user: str) -> str | None:
     if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
         return "Verenigingen System Administrator"
 
-    # 2. Staff roles — a staff member who is also an Accounts User is a
-    #    Treasurer. The treasurer check MUST come first: a plain "staff" branch
-    #    ahead of it would shadow this and make "Verenigingen Treasurer"
-    #    unreachable.
+    # 2. Staff roles. Never "Verenigingen Treasurer": that profile is national only
+    #    (granted by the national board seat or a deliberate assignment), and the
+    #    Staff profile itself carries Accounts User, so no role test can tell a
+    #    treasurer from any other Staff user (#1654).
     if Roles.VERENIGINGEN_STAFF in user_roles:
-        if "Accounts User" in user_roles:
-            return "Verenigingen Treasurer"
         return "Verenigingen Staff"
 
     # 3. Governance roles
@@ -272,36 +275,7 @@ def setup_role_profiles_cli():
                 if not frappe.db.exists("Member", {"user": user}):
                     continue
 
-                # Get user roles for recommendation logic
-                user_roles = frappe.get_roles(user)
-                recommended_profile = None
-
-                # System Administrator
-                if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
-                    recommended_profile = "Verenigingen System Administrator"
-                # Staff roles with accounting — must precede the plain staff
-                # branch, otherwise Treasurer is never reachable.
-                elif Roles.VERENIGINGEN_STAFF in user_roles and "Accounts User" in user_roles:
-                    recommended_profile = "Verenigingen Treasurer"
-                # Manager / staff roles
-                elif Roles.VERENIGINGEN_STAFF in user_roles:
-                    recommended_profile = "Verenigingen Staff"
-                # Governance roles
-                elif "Verenigingen Governance Auditor" in user_roles:
-                    recommended_profile = "Verenigingen Auditor"
-                # Chapter Board roles
-                elif "Verenigingen Chapter Board Member" in user_roles:
-                    recommended_profile = "Verenigingen Chapter Board Member"
-                # Volunteer roles
-                elif frappe.db.get_value("Volunteer", {"member": member.name}, "name"):
-                    volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
-                    if _is_team_leader(volunteer):
-                        recommended_profile = "Verenigingen Team Leader"
-                    else:
-                        recommended_profile = "Verenigingen Volunteer"
-                # Basic member
-                elif "Verenigingen Member" in user_roles:
-                    recommended_profile = "Verenigingen Member"
+                recommended_profile = get_recommended_role_profile(user)
 
                 if recommended_profile:
                     # Check if user already has any verenigingen role profile.

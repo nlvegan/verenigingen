@@ -87,6 +87,36 @@ checkout to have already absorbed prior shrinkage in that case, so it always
 takes the `--fail-on-shrink` path here too; this repo's history is exclusively
 merge commits, so that path is untested in practice, not merely unlikely).
 
+SHRINK ON A PULL REQUEST (``--base-sha``, #1641)
+--------------------------------------------------
+Self-healing on ``pull_request`` left the forcing function on ``push`` only,
+i.e. AFTER merge: a PR that fixed a baselined site without regenerating the
+baseline went green, and develop went red on the push (error_swallow ~16 days,
+log_error_arg_order since #1617). The reason for self-healing on a PR still
+stands, though: a PR must not go red for staleness it did not cause (unrelated
+PR #740 was exactly that), so "fail on any shrink" on a PR is wrong.
+
+``--base-sha SHA`` separates the two. In the shrink-only branch, when
+``--fail-on-shrink`` is NOT set, the gate runs ``regenerate_cmd`` inside a
+detached worktree of ``SHA`` (the PR's base) to obtain the BASE tree's census,
+and fails only the keys the PR itself pushed below it: ``new[k] < base[k]``.
+A key already stale at the base (``new[k] == base[k] < committed[k]``) is drift
+the PR did not cause, and still self-heals. This is exact per key and does not
+depend on the key's shape (path, helper name, orphan name), unlike attributing
+by changed file. The base census costs one extra validator run, only in this
+branch. If the baseline did not exist at the base (a validator introduced by the
+PR) there is nothing to attribute against: warn and self-heal. A base SHA that
+does not resolve, or a base-tree validator that exits non-zero, FAILS with its
+stderr: CI fetches full history and a validator that passes at HEAD should run
+at the base, so either means a broken checkout and a silent pass would reopen
+the very gap this closes.
+
+Known limit: ``github.event.pull_request.base.sha`` is the base tip when the run
+was triggered, and can be older than the first parent of the test-merge commit
+if the base branch moved since. A shrink that landed on the base in between,
+un-regenerated, is then blamed on the PR. Rare, and the base push run is
+already red in that case.
+
 THE ONE CASE THAT MUST NOT SELF-HEAL
 --------------------------------------
 A regenerated census that comes back completely EMPTY while the committed
@@ -200,6 +230,7 @@ import argparse
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -306,6 +337,64 @@ def classify(old: dict[str, int], new: dict[str, int]):
     return grown, appeared, shrunk
 
 
+def base_census(baseline: Path, regenerate_cmd: str, base_sha: str) -> tuple[dict[str, int] | None, str, str]:
+    """``(census, kind, detail)`` for the tree at `base_sha`.
+
+    `kind` is "ok" (census is the dict), or why there is none: "unresolvable"
+    (the SHA is not a commit here -- a broken checkout, since CI fetches full
+    history), "absent" (the baseline did not exist at the base, i.e. the
+    validator is new in this PR -- the one legitimate reason to give up), or
+    "failed" (the base tree's validator exists but could not produce a census;
+    `detail` carries its stderr).
+
+    Runs `regenerate_cmd` (relative paths, as every CI caller passes it) with
+    cwd set to a throwaway detached worktree of `base_sha`, then reads the
+    baseline file that run wrote there. Uses the BASE tree's own validator, so
+    a PR that changes the validator's rules is judged against the old rules --
+    which is correct: a narrowed rule that makes entries vanish is a PR-caused
+    shrink.
+    """
+    resolved = baseline.resolve()
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=resolved.parent, capture_output=True, text=True
+    )
+    if top.returncode != 0:
+        return None, "failed", top.stderr.strip()
+    toplevel = Path(top.stdout.strip()).resolve()
+    rel = resolved.relative_to(toplevel)
+    if subprocess.run(
+        ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"], cwd=toplevel, capture_output=True
+    ).returncode != 0:
+        return None, "unresolvable", ""
+    if subprocess.run(
+        ["git", "cat-file", "-e", f"{base_sha}:{rel.as_posix()}"], cwd=toplevel, capture_output=True
+    ).returncode != 0:
+        return None, "absent", ""
+    with tempfile.TemporaryDirectory() as tmp:
+        wt = Path(tmp) / "base_tree"
+        add = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(wt), base_sha],
+            cwd=toplevel, capture_output=True, text=True,
+        )
+        if add.returncode != 0:
+            return None, "failed", add.stderr.strip()
+        try:
+            try:
+                run = subprocess.run(shlex.split(regenerate_cmd), cwd=wt, capture_output=True, text=True)
+            except OSError as exc:
+                return None, "failed", str(exc)
+            if run.returncode != 0:
+                return None, "failed", (run.stderr or run.stdout).strip()
+            # Unfiltered on purpose: `shrunk` is already scoped by --require-marker, and
+            # a key that is not in it is never looked up here.
+            return parse_baseline((wt / rel).read_text(encoding="utf-8")), "ok", ""
+        finally:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(wt)],
+                cwd=toplevel, capture_output=True, text=True,
+            )
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("baseline", type=Path, help="baseline file, already regenerated on disk")
@@ -336,6 +425,17 @@ def main(argv: list[str]) -> int:
             "a baseline that also records non-blocking entries (a name collision "
             "the validator itself reports as advisory) forces a sync commit for "
             "those too, which is where issue #769 came from."
+        ),
+    )
+    ap.add_argument(
+        "--base-sha",
+        default=None,
+        help=(
+            "pull_request only: the PR's base commit. A pure shrink then fails ONLY "
+            "for keys the PR itself pushed below the base tree's census (measured by "
+            "running regenerate_cmd in a worktree of this commit); staleness already "
+            "present at the base still self-heals. Ignored with --fail-on-shrink. "
+            "See 'SHRINK ON A PULL REQUEST' above."
         ),
     )
     ap.add_argument(
@@ -510,6 +610,40 @@ def main(argv: list[str]) -> int:
             print(f"  - {k}  ({change})")
         print(f"\nRegenerate and commit:\n    {args.regenerate_cmd}")
         return 1
+
+    if args.base_sha:
+        base, kind, detail = base_census(args.baseline, args.regenerate_cmd, args.base_sha)
+        if kind == "unresolvable" or kind == "failed":
+            print(
+                f"::error file={args.baseline}::Cannot compute the census at base {args.base_sha} "
+                f"({'base commit does not resolve in this checkout' if kind == 'unresolvable' else 'its validator failed'}); "
+                "refusing to guess whether this PR caused the shrink."
+            )
+            if detail:
+                print(detail)
+            return 1
+        if kind == "absent":
+            print(
+                f"::warning file={args.baseline}::The baseline is absent at the base {args.base_sha} "
+                "(new validator in this PR), so there is no base census; the shrink self-heals."
+            )
+        else:
+            caused = {k: v for k, v in shrunk.items() if new.get(k, 0) < base.get(k, 0)}
+            if caused:
+                print(
+                    f"::error file={args.baseline}::This PR shrinks the census but does not commit "
+                    "the shrunk baseline."
+                )
+                print("Entries this PR removed or reduced (the good direction -- commit the tighter file):")
+                for k, (before, after) in sorted(caused.items()):
+                    change = "removed entirely" if after == 0 else f"{before} -> {after}"
+                    print(f"  - {k}  ({change}; base tree census: {base.get(k, 0)})")
+                drift = set(shrunk) - set(caused)
+                if drift:
+                    print(f"\n{len(drift)} further entries were already stale at the base; not blamed on this PR.")
+                print(f"\nRegenerate and commit:\n    {args.regenerate_cmd}")
+                return 1
+            print(f"{args.baseline}: every shrunk entry was already stale at the base -- not caused by this PR.")
 
     # Self-heal: this is not a regression, so it does not fail the build.
     print(f"{args.baseline}: the committed baseline is stale, but only in the good direction -- self-healing.")

@@ -35,7 +35,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
 
         unique_suffix = f"{int(time.time() * 1000000) % 1000000}"
         role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+            "Role Profile", "Verenigingen Member", "name"
         ) or frappe.db.get_value("Role Profile", {}, "name")
         self.membership_type = frappe.get_doc(
             {

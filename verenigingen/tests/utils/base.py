@@ -1158,7 +1158,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # Get a role profile for members (required field)
         role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+            "Role Profile", "Verenigingen Member", "name"
         ) or frappe.db.get_value("Role Profile", {}, "name")
 
         # Generate unique name with timestamp to prevent duplicates
@@ -1205,7 +1205,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             return frappe.get_doc("Membership Type", type_name)
 
         role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+            "Role Profile", "Verenigingen Member", "name"
         ) or frappe.db.get_value("Role Profile", {}, "name")
 
         defaults = {

@@ -525,6 +525,40 @@ class TestPaymentEntryFallbacks(DuesSweepTestBase):
         self.assertEqual(len(pe.references), 0)
         self.assertEqual(pe.reference_no, ref)
 
+    def _disable_mollie_named_accounts(self):
+        """Take every '%Mollie%' leaf Account of the company out of the processor's
+        company-fallback lookup for the duration of this test.
+
+        The processor REFUSES (correctly) when more than one enabled '%Mollie%'
+        account exists for the company. The EUR test company is shared, and
+        sibling modules each plant their own Mollie-named account on it ("Mollie",
+        "Mollie Clearing ...", this module's own clearing GL), so whether that
+        lookup finds 0, 1 or 2+ rows depends on shard packing. Disabling them all
+        makes it deterministically 0, which exercises the documented last-resort
+        `Company.default_bank_account` fallback this test is about. Restored and
+        committed in cleanup: the PE path commits mid-test, so a rollback alone
+        would not undo the disable.
+        """
+        names = frappe.get_all(
+            "Account",
+            filters={
+                "company": self.company,
+                "account_name": ["like", "%Mollie%"],
+                "is_group": 0,
+                "disabled": 0,
+            },
+            pluck="name",
+        )
+        for name in names:
+            frappe.db.set_value("Account", name, "disabled", 1, update_modified=False)
+        self.addCleanup(self._cleanup_reenable_accounts, names)
+
+    @staticmethod
+    def _cleanup_reenable_accounts(names):
+        for name in names:
+            frappe.db.set_value("Account", name, "disabled", 0, update_modified=False)
+        frappe.db.commit()
+
     def test_clearing_account_company_mismatch_falls_back(self):
         # Configure a clearing account on a DIFFERENT company than the payment's;
         # the processor detects the mismatch and resolves a company-appropriate
@@ -540,6 +574,7 @@ class TestPaymentEntryFallbacks(DuesSweepTestBase):
         if not other_clearing:
             self.skipTest("No second-company Bank account available to exercise the mismatch branch")
         frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", other_clearing)
+        self._disable_mollie_named_accounts()
         from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
             get_mollie_config,
         )
@@ -560,6 +595,8 @@ class TestPaymentEntryFallbacks(DuesSweepTestBase):
         paid_to_company = frappe.db.get_value("Account", pe.paid_to, "company")
         self.assertEqual(paid_to_company, pe.company)
         self.assertNotEqual(pe.paid_to, other_clearing)
+        # With every '%Mollie%' account disabled, the fallback is the company's default bank account.
+        self.assertEqual(pe.paid_to, frappe.db.get_value("Company", pe.company, "default_bank_account"))
 
 
 # ===========================================================================

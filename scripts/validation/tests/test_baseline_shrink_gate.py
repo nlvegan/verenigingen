@@ -664,5 +664,266 @@ class TestRequireMarker(unittest.TestCase):
         self.assertIn("matches the tree", result.stdout)
 
 
+class TestShrinkOnPullRequest(unittest.TestCase):
+    """#1641: on `pull_request` a shrink used to self-heal unconditionally, so a PR
+    that fixed a baselined site without regenerating the baseline went green and
+    develop went red on the push after merge.
+
+    `--base-sha` fails ONLY the keys the PR itself pushed below the base tree's
+    census. The fixture is a real mini-validator (`census.py`, one baseline line
+    per file = number of `SWALLOW` lines in it) and a real git history, so the
+    gate really regenerates at HEAD and really regenerates again in a worktree
+    of the base commit -- nothing here sets a baseline directly.
+    """
+
+    CENSUS = (
+        "import pathlib, sys\n"
+        "root = pathlib.Path(__file__).resolve().parent\n"
+        "lines = []\n"
+        "for f in sorted(root.glob('*.py')):\n"
+        "    n = f.read_text().count('SWALLOW')\n"
+        "    if n:\n"
+        "        lines.append(f'{f.name}::{n}')\n"
+        "(root / 'census_baseline.txt').write_text('\\n'.join(lines) + '\\n')\n"
+    )
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        _git("init", "-q", "-b", "develop", cwd=self.repo)
+        _git("config", "user.email", "t@example.com", cwd=self.repo)
+        _git("config", "user.name", "t", cwd=self.repo)
+        (self.repo / "census.py").write_text(self.CENSUS, encoding="utf-8")
+        self.baseline = self.repo / "census_baseline.txt"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _commit_all(self, msg):
+        _git("add", "-A", cwd=self.repo)
+        r = _git("commit", "-q", "-m", msg, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return _git("rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+
+    def _write(self, name, swallows):
+        (self.repo / name).write_text("SWALLOW\n" * swallows + "x = 1\n", encoding="utf-8")
+
+    def _regenerate_and_commit_baseline(self, msg):
+        subprocess.run([sys.executable, "census.py"], cwd=str(self.repo), check=True)
+        return self._commit_all(msg)
+
+    def _base_with(self, **swallows):
+        for name, n in swallows.items():
+            self._write(name, n)
+        return self._regenerate_and_commit_baseline("base")
+
+    def _pr_merge(self, base_sha, edit):
+        """A PR branch off `base_sha` applying `edit()`, merged back with --no-ff:
+        GitHub's test-merge commit, which is what actions/checkout checks out."""
+        _git("checkout", "-q", "-b", "pr", base_sha, cwd=self.repo)
+        edit()
+        self._commit_all("pr")
+        _git("checkout", "-q", "develop", cwd=self.repo)
+        r = _git("merge", "--no-ff", "-q", "-m", "test-merge", "pr", cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def _gate(self, *extra, regen=None):
+        return subprocess.run(
+            [
+                sys.executable, str(_MOD_PATH), "census_baseline.txt",
+                regen or f"{sys.executable} census.py", *extra,
+            ],
+            cwd=str(self.repo), capture_output=True, text=True, timeout=60,
+        )
+
+    def test_pr_that_cleans_a_site_without_regenerating_fails(self):
+        """THE simulated PR diff: `a.py` loses its SWALLOW line, the baseline is
+        not touched. Without --base-sha this is the green-PR/red-develop shape."""
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+        self._pr_merge(base, lambda: self._write("a.py", 0))
+        without = self._gate()
+        self.assertEqual(without.returncode, 0, without.stdout)  # status quo: self-heals
+        with_base = self._gate("--base-sha", base)
+        self.assertEqual(with_base.returncode, 1, with_base.stdout + with_base.stderr)
+        self.assertIn("  - a.py  (removed entirely", with_base.stdout)
+        self.assertIn("census.py", with_base.stdout)  # prints the regenerate command
+
+    def test_pr_that_regenerates_the_shrunk_baseline_passes(self):
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+
+        def edit():
+            self._write("a.py", 0)
+            subprocess.run([sys.executable, "census.py"], cwd=str(self.repo), check=True)
+
+        self._pr_merge(base, edit)
+        result = self._gate("--base-sha", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("matches the tree", result.stdout)
+
+    def test_drift_already_stale_at_the_base_is_not_blamed_on_the_pr(self):
+        """The control that keeps this from being 'fail on any shrink': develop
+        already carries a stale baseline (b.py was cleaned by an earlier merge
+        that never regenerated). An UNRELATED PR must stay green."""
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+        self._write("b.py", 0)
+        drifted_base = self._commit_all("develop: b cleaned, baseline not regenerated")
+        self._pr_merge(drifted_base, lambda: (self.repo / "unrelated.py").write_text("y = 2\n"))
+        result = self._gate("--base-sha", drifted_base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("not caused by this PR", result.stdout)
+        # --fail-on-shrink (the push shape) still fails on the very same tree
+        self.assertEqual(self._gate("--fail-on-shrink").returncode, 1)
+
+    def test_pr_is_blamed_only_for_its_own_keys_when_drift_is_also_present(self):
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+        self._write("b.py", 0)
+        drifted_base = self._commit_all("develop drift")
+        self._pr_merge(drifted_base, lambda: self._write("a.py", 0))
+        result = self._gate("--base-sha", drifted_base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("  - a.py  (removed entirely", result.stdout)
+        self.assertNotIn("  - b.py", result.stdout)
+        self.assertIn("already stale at the base", result.stdout)
+
+    def test_pr_that_reduces_an_already_drifted_key_further_is_blamed(self):
+        """base census 2 < committed 3 (drift); the PR takes it to 1. The PR is
+        responsible for the 2 -> 1 and must regenerate."""
+        self._base_with(**{"a.py": 3})
+        self._write("a.py", 2)
+        drifted_base = self._commit_all("develop drift 3 -> 2")
+        self._pr_merge(drifted_base, lambda: self._write("a.py", 1))
+        result = self._gate("--base-sha", drifted_base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("a.py", result.stdout)
+        self.assertIn("base tree census: 2", result.stdout)
+
+    def test_base_sha_does_not_soften_growth(self):
+        base = self._base_with(**{"a.py": 1})
+        self._pr_merge(base, lambda: self._write("c.py", 1))
+        result = self._gate("--base-sha", base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("out of sync", result.stdout)
+
+    def test_unresolvable_base_is_a_hard_error(self):
+        """With fetch-depth 0 the PR base always resolves, so failing to resolve it is
+        a broken checkout, not a reason to wave the PR through."""
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+        self._pr_merge(base, lambda: self._write("a.py", 0))
+        result = self._gate("--base-sha", "0" * 40)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("does not resolve", result.stdout)
+
+    def test_validator_absent_at_base_warns_and_self_heals(self):
+        """A validator introduced by the PR has no base census; that is the one
+        legitimate reason to fall back to self-healing."""
+        (self.repo / "README").write_text("x\n")
+        base = self._commit_all("base without the validator")
+
+        def edit():
+            (self.repo / "census.py").write_text(self.CENSUS, encoding="utf-8")
+            self._write("a.py", 1)
+            self._write("b.py", 1)
+            subprocess.run([sys.executable, "census.py"], cwd=str(self.repo), check=True)
+
+        self._pr_merge(base, edit)
+        self._write("a.py", 0)  # uncommitted: the regenerate step sees a shrink
+        result = self._gate("--base-sha", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning", result.stdout)
+        self.assertIn("absent at the base", result.stdout)
+
+    def test_validator_that_fails_at_base_fails_and_shows_its_stderr(self):
+        """A validator that exists at the base but exits non-zero there cannot be
+        attributed; failing closed (with its stderr) beats a silent pass."""
+        self._base_with(**{"a.py": 1, "b.py": 1})
+        (self.repo / "census.py").write_text(
+            "import sys\nsys.stderr.write('boom from base validator')\nsys.exit(3)\n", encoding="utf-8"
+        )
+        broken_base = self._commit_all("base validator broken")
+
+        def edit():
+            (self.repo / "census.py").write_text(self.CENSUS, encoding="utf-8")
+            self._write("a.py", 0)
+
+        self._pr_merge(broken_base, edit)
+        result = self._gate("--base-sha", broken_base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("boom from base validator", result.stdout)
+
+    def test_fail_on_shrink_takes_precedence_over_base_sha(self):
+        base = self._base_with(**{"a.py": 1})
+        self._write("a.py", 0)
+        drifted = self._commit_all("drift")
+        result = self._gate("--fail-on-shrink", "--base-sha", drifted)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Baseline census shrank", result.stdout)
+
+    def test_unmarked_shrink_is_still_out_of_scope_with_require_marker(self):
+        """Control: --require-marker scoping (#769) is unchanged by --base-sha, so a
+        PR that only shrinks an UNMARKED entry is not asked to regenerate."""
+        script = (
+            "import pathlib\n"
+            "root = pathlib.Path(__file__).resolve().parent\n"
+            "n = sum(f.read_text().count('SWALLOW') for f in root.glob('[ab].py'))\n"
+            "lines = ['marked_fn::' + str((root/'a.py').read_text().count('SWALLOW')) + '  # clone family',"
+            " 'plain::' + str((root/'b.py').read_text().count('SWALLOW'))]\n"
+            "(root / 'census_baseline.txt').write_text('\\n'.join(lines) + '\\n')\n"
+        )
+        (self.repo / "census.py").write_text(script, encoding="utf-8")
+        base = self._base_with(**{"a.py": 1, "b.py": 1})
+        self._pr_merge(base, lambda: self._write("b.py", 0))  # only the UNMARKED key shrinks
+        result = self._gate("--base-sha", base, "--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+    def test_marked_shrink_is_blamed_with_require_marker(self):
+        """Pair of the control above: the MARKED key shrinking is the PR's to commit."""
+        script = (
+            "import pathlib\n"
+            "root = pathlib.Path(__file__).resolve().parent\n"
+            "lines = ['marked_fn::' + str((root/'a.py').read_text().count('SWALLOW')) + '  # clone family',"
+            " 'plain::' + str((root/'b.py').read_text().count('SWALLOW'))]\n"
+            "(root / 'census_baseline.txt').write_text('\\n'.join(lines) + '\\n')\n"
+        )
+        (self.repo / "census.py").write_text(script, encoding="utf-8")
+        base = self._base_with(**{"a.py": 2, "b.py": 1})
+        self._pr_merge(base, lambda: self._write("a.py", 1))
+        result = self._gate("--base-sha", base, "--require-marker", "# clone family")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("marked_fn  (2 -> 1", result.stdout)
+
+
+class TestWorkflowWiresBaseShaOnPullRequests(unittest.TestCase):
+    """#1641 class sweep, pinned: every baseline-shrink step in code-validation.yml
+    must give a pull_request run a way to catch its own shrink. Three shapes exist:
+    the shared gate (`--base-sha`), and two hand-rolled bash steps. The latter
+    used `FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}` and then
+    `[ -n "$FAIL_ON_SHRINK" ]`; the env value is the STRING 'false' on a PR, which
+    is non-empty, so they failed any shrink on a PR too (drift included)."""
+
+    WORKFLOW = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "code-validation.yml"
+
+    def setUp(self):
+        self.text = self.WORKFLOW.read_text(encoding="utf-8")
+
+    def _gate_steps(self):
+        import re
+        # one "- name:" step per chunk
+        chunks = re.split(r"\n    - name: ", self.text)
+        return [c for c in chunks if "baseline_shrink_gate.py" in c and "--already-regenerated" in c]
+
+    def test_every_gate_invocation_passes_base_sha_on_pull_requests(self):
+        steps = self._gate_steps()
+        self.assertGreaterEqual(len(steps), 8, "expected the 8 shared-gate callers")
+        for step in steps:
+            with self.subTest(step=step.splitlines()[0] + " / " + step.split("baseline_shrink_gate.py")[1][:80]):
+                self.assertIn("$BASE_SHA_ARG", step)  # used in the command, not just declared
+                self.assertIn("github.event.pull_request.base.sha", step)
+                self.assertIn("--base-sha", step)
+
+    def test_no_boolean_fail_on_shrink_env_that_is_truthy_when_false(self):
+        self.assertNotIn("FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' }}", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()
