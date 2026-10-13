@@ -423,7 +423,10 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         manual = ["HR", "Verenigingen System Administrator"]
         self._assign_profiles_directly(victim.user, manual)
         frappe.get_doc("User", victim.user).add_roles("System Manager")
-        roles_before = set(frappe.get_roles(victim.user))
+        # Read the Has Role rows directly: frappe.get_roles goes through the per-user role cache.
+        roles_before = set(
+            frappe.get_all("Has Role", filters={"parent": victim.user, "parenttype": "User"}, pluck="role")
+        )
         role = self._chapter_role_labelled("Chair")
 
         frappe.set_user(actor.user)
@@ -446,7 +449,10 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         self.assertIn(PROFILE_BOARD_MEMBER, profiles, "the seat-derived addition is still made")
         frappe.clear_cache(user=victim.user)
         self.assertIn("System Manager", frappe.get_roles(victim.user))
-        self.assertTrue(roles_before <= set(frappe.get_roles(victim.user)))
+        roles_after = set(
+            frappe.get_all("Has Role", filters={"parent": victim.user, "parenttype": "User"}, pluck="role")
+        )
+        self.assertTrue(roles_before <= roles_after, roles_before - roles_after)
 
     def test_a_resync_never_drops_a_manually_assigned_profile(self):
         user = self._hold_a_board_seat(self.national, "Secretary").user
