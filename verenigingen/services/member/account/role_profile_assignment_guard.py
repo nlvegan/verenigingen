@@ -21,6 +21,7 @@ from frappe import _
 from verenigingen.services.member.account.role_profile_mapping_guard import (
     NATIONAL_PROFILES,
     _validate_editor_holds_roles,
+    profile_grants_payroll_access,
 )
 from verenigingen.utils.constants import Roles
 
@@ -35,6 +36,15 @@ def validate_may_assign_profile(profile):
         frappe.throw(
             _(
                 "Role Profile '{0}' can only be assigned by a System Manager or a Verenigingen Administrator."
+            ).format(profile),
+            frappe.PermissionError,
+        )
+    if profile_grants_payroll_access(profile):
+        # Holding HR Manager (the Treasurer does, #1606) must not let you hand it to anybody.
+        frappe.throw(
+            _(
+                "Role Profile '{0}' grants payroll access and can only be assigned by a System "
+                "Manager or a Verenigingen Administrator."
             ).format(profile),
             frappe.PermissionError,
         )

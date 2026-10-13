@@ -51,7 +51,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         user.save()
         return user
 
-    def _call_as(self, user, volunteer_name):
+    def _call_create_employee_as(self, user, volunteer_name):
         original = frappe.session.user
         frappe.set_user(user.name)
         try:
@@ -63,7 +63,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         return frappe.get_all("Employee", filters={"user_id": self.volunteer_user.name}, pluck="name")
 
     def test_staff_creates_the_employee_and_gets_only_its_name(self):
-        result = self._call_as(self.staff, self.volunteer.name)
+        result = self._call_create_employee_as(self.staff, self.volunteer.name)
 
         employees = self._employees()
         self.assertEqual(len(employees), 1)
@@ -74,10 +74,10 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Employee", employees[0], "create_user_permission"), 0)
 
     def test_it_is_idempotent(self):
-        first = self._call_as(self.staff, self.volunteer.name)
+        first = self._call_create_employee_as(self.staff, self.volunteer.name)
         self._track_test_document("Employee", first["employee"], priority=2)
 
-        second = self._call_as(self.staff, self.volunteer.name)
+        second = self._call_create_employee_as(self.staff, self.volunteer.name)
 
         self.assertEqual(second, {"employee": first["employee"], "created": False})
         self.assertEqual(self._employees(), [first["employee"]])
@@ -99,7 +99,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         ).insert()
         self._track_test_document("Employee", existing.name, priority=2)
 
-        result = self._call_as(self.staff, self.volunteer.name)
+        result = self._call_create_employee_as(self.staff, self.volunteer.name)
 
         self.assertEqual(result, {"employee": existing.name, "created": False})
         self.assertEqual(frappe.db.get_value("Volunteer", self.volunteer.name, "employee_id"), existing.name)
@@ -109,11 +109,11 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         volunteer = self.create_test_volunteer(loose.name)
         frappe.db.set_value("Member", loose.name, "user", None, update_modified=False)
         with self.assertRaises(frappe.ValidationError):
-            self._call_as(self.staff, volunteer.name)
+            self._call_create_employee_as(self.staff, volunteer.name)
 
     def test_a_non_staff_caller_is_refused_and_nothing_is_created(self):
         with self.assertRaises(frappe.PermissionError):
-            self._call_as(self.outsider, self.volunteer.name)
+            self._call_create_employee_as(self.outsider, self.volunteer.name)
         self.assertEqual(self._employees(), [])
 
     def test_unknown_and_real_volunteer_are_refused_identically_for_non_staff(self):
@@ -161,7 +161,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
                 target = self._employee_svc_user(profile, f"hi{profile[-5:]}".lower())
                 self._point_member_at(target)
                 with self.assertRaises(frappe.ValidationError) as ctx:
-                    self._call_as(self.staff, self.volunteer.name)
+                    self._call_create_employee_as(self.staff, self.volunteer.name)
                 self.assertIn("above the member and volunteer level", str(ctx.exception))
                 self.assertFalse(frappe.db.exists("Employee", {"user_id": target.name}))
                 self.assertFalse(frappe.db.exists("User Permission", {"user": target.name}))
@@ -185,7 +185,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", stranger.name, update_modified=False)
 
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._call_as(self.staff, self.volunteer.name)
+            self._call_create_employee_as(self.staff, self.volunteer.name)
 
         self.assertNotIn(stranger.name, str(ctx.exception))
         self.assertEqual(frappe.db.get_value("Volunteer", self.volunteer.name, "employee_id"), stranger.name)
@@ -210,7 +210,7 @@ class TestCreateEmployeeForVolunteer(EnhancedTestCase):
         self._point_member_at(target)
 
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._call_as(self.staff, self.volunteer.name)
+            self._call_create_employee_as(self.staff, self.volunteer.name)
 
         self.assertNotIn(existing.name, str(ctx.exception))
         self.assertFalse(frappe.db.get_value("Volunteer", self.volunteer.name, "employee_id"))

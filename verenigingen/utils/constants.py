@@ -60,6 +60,11 @@ class Roles:
         }
     )
 
+    # Roles that open payroll data (salary slips, structures, gratuity ...). Maintainer ruling
+    # 2026-10-12 (#1606): only the Treasurer profile grants HR Manager; a profile granting any of
+    # these may be assigned or mapped only by an administrator, never by a holder of the role.
+    PAYROLL_ROLES: FrozenSet[str] = frozenset({HR_MANAGER, HR_USER})
+
     # Who sees every Expense Claim. HR_ADMIN_ROLES minus plain Staff: Staff may approve claims
     # (Expense Approver) but is scoped like any other approver (#1606). Treasurer and National
     # Board Member keep org-wide access; both profiles also carry Verenigingen Staff, which is

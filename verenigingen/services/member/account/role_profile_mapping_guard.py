@@ -64,7 +64,27 @@ def validate_mapped_profiles(mappings, previous_mappings, *, national_allowed, s
             )
 
     if not system_mapping:
-        _validate_editor_holds_roles({p for _slot, p in mappings - previous_mappings})
+        new_mappings = {p for _slot, p in mappings - previous_mappings}
+        _validate_no_payroll_profile(new_mappings)
+        _validate_editor_holds_roles(new_mappings)
+
+
+def profile_grants_payroll_access(profile):
+    return bool(_roles_granted_by(profile) & Roles.PAYROLL_ROLES)
+
+
+def _validate_no_payroll_profile(new_profiles):
+    """HR Manager / HR User are payroll access (#1606): never mapped by a mere holder of them."""
+    if set(frappe.get_roles()) & (_UNRESTRICTED_ROLES | {Roles.VERENIGINGEN_ADMIN}):
+        return
+    for profile in sorted(new_profiles):
+        if profile_grants_payroll_access(profile):
+            frappe.throw(
+                _(
+                    "Role Profile '{0}' grants payroll access and can only be mapped by a System "
+                    "Manager or a Verenigingen Administrator."
+                ).format(profile)
+            )
 
 
 def validate_editor_holds_roles(mapped_roles, previous_roles):

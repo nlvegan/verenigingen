@@ -321,6 +321,46 @@ class TestTeamProfileMapping(EnhancedTestCase):
             with self.assertRaisesRegex(frappe.ValidationError, "Verenigingen Auditor"):
                 self._save_team_default(PLAIN_PROFILE)
 
+    def _role_profile_granting(self, *roles):
+        profile = frappe.get_doc(
+            {
+                "doctype": "Role Profile",
+                "role_profile": f"Guard Payroll {frappe.generate_hash(length=6)}",
+                "roles": [{"role": r} for r in roles],
+            }
+        ).insert()
+        self.addCleanup(frappe.delete_doc, "Role Profile", profile.name, force=True)
+        return profile.name
+
+    def test_a_holder_of_hr_manager_cannot_map_a_profile_granting_it(self):
+        """#1606: HR Manager is the Treasurer's alone. Holding it (so the roles-held rule is
+        satisfied) must not let an editor map it onto a team.
+
+        Probe shortcut, stated: the guard is called directly as the Treasurer-role user, with the
+        arguments Team.validate passes (team_service), because no stock Team DocPerm lets that
+        role save a Team it does not lead; the Team-save wiring is covered by the other tests here.
+        """
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+
+        email = f"treasurer-editor-{frappe.generate_hash(length=8)}@example.com"
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "Treas",
+                "send_welcome_email": 0,
+                "roles": [{"role": r} for r in ("Verenigingen Staff", "HR Manager", "Projects User")],
+            }
+        ).insert()
+        payroll = self._role_profile_granting("HR Manager")
+        harmless = self._role_profile_granting("Projects User")
+        with self.as_user(email):
+            self.assertIn("HR Manager", frappe.get_roles())  # control: roles-held would allow it
+            with self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
+                validate_mapped_profiles({("default", payroll)}, set(), national_allowed=False)
+            # control: the same editor may still map a profile within their roles
+            validate_mapped_profiles({("default", harmless)}, set(), national_allowed=False)
+
     def test_national_profile_is_refused_on_a_team(self):
         with self.assertRaisesRegex(frappe.ValidationError, "national"):
             self._save_team_default(NATIONAL_PROFILE)
