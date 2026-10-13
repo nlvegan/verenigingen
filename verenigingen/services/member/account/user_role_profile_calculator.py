@@ -348,6 +348,26 @@ def record_sync_granted_profiles(user_doc, profiles) -> None:
         user_doc.set(SYNC_GRANTED_FIELD, json.dumps(sorted(set(profiles))))
 
 
+BUILTIN_PROFILES = frozenset(
+    {PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER, *NATIONAL_PROFILES}
+)
+
+
+def record_requested_profile(user_doc, profile: str, keep_existing: bool = True) -> None:
+    """Record a profile an Account Creation Request asked for, when it is a built-in one.
+
+    A built-in profile is one the calculator derives, so it must be withdrawable once it
+    stops being derived (the volunteer goes inactive, the seat ends); recording it as the
+    sync's own keeps that. A genuinely custom profile is an explicit grant and stays out.
+    """
+    if profile not in BUILTIN_PROFILES:
+        if not keep_existing:
+            record_sync_granted_profiles(user_doc, [])
+        return
+    current = (read_sync_granted_profiles(user_doc.name) or []) if keep_existing else []
+    record_sync_granted_profiles(user_doc, [*current, profile])
+
+
 def get_board_member_profiles(user: str, member: str) -> list:
     """
     Get all role profiles from user's board positions.
@@ -981,13 +1001,7 @@ def sync_user_role_profile(
                 currently_derived = {name for _prio, name in calculate_all_user_role_profiles(user)}
                 # The built-in seat/team profiles also count: a legacy user who left a board or
                 # the volunteers would otherwise keep a stale one for ever (#692 revocation).
-                currently_derived |= {
-                    PROFILE_MEMBER,
-                    PROFILE_VOLUNTEER,
-                    PROFILE_TEAM_LEADER,
-                    PROFILE_BOARD_MEMBER,
-                    *NATIONAL_PROFILES,
-                }
+                currently_derived |= BUILTIN_PROFILES
                 recorded = [name for name in existing_profiles if name in currently_derived]
             removable = (set(recorded) - set(derived)) | set(withdraw)
             kept = [name for name in existing_profiles if name not in removable]

@@ -835,15 +835,73 @@ class TestNationalBoardProfiles(VereningingenTestCase):
 
         self.assertEqual(read_sync_granted_profiles(user.user), [])
 
-    def test_a_profile_requested_at_account_creation_is_kept_by_the_sync(self):
-        """A non-base profile handed out at account creation is an explicit grant, not the sync's own."""
-        from verenigingen.services.member.account.member_role_service import get_member_role_service
+    def _acr_requesting(self, user, profile, volunteer_status="Active"):
+        """Run the real ACR role-assignment phase for ``user`` with ``role_profile=profile``."""
+        from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 
-        new = self._new_volunteer()  # a Member with a Volunteer record is NOT needed: it has none active
+        member = frappe.db.get_value("Volunteer", self._volunteer_of(user), "member")
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member,
+                "email": user,
+                "full_name": "Requested Profile",
+                "status": "Queued",
+                "role_profile": profile,
+                "business_justification": "requested-profile retention test",
+            }
+        )
+        request.insert()
+        self.track_doc("Account Creation Request", request.name)
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+        manager.created_user = user
+        manager.assign_roles_and_profile()
+
+    def _volunteer_of(self, user):
+        member = frappe.db.get_value("Member", {"user": user}, "name")
+        return frappe.db.get_value("Volunteer", {"member": member}, "name")
+
+    def test_a_requested_volunteer_profile_is_withdrawn_once_the_volunteer_is_inactive(self):
+        """The ACR asked for Volunteer; the calculator derives it, so it must also end it."""
+        new = self._new_volunteer()
+        self._acr_requesting(new.user, "Verenigingen Volunteer")
+        sync_user_role_profile(new.user)
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user), "fixture: derived, kept")
+
+        # Labelled shortcut: a direct status write stands in for the volunteer leaving.
         frappe.db.set_value("Volunteer", new.volunteer, "status", "Inactive")
-        get_member_role_service().add_member_roles_to_user(new.user, "Verenigingen Volunteer")
-        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user), "fixture")
+        sync_user_role_profile(new.user)
+
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(new.user))
+
+    def test_a_requested_board_profile_without_a_seat_is_withdrawn_by_the_next_sync(self):
+        new = self._new_volunteer()
+        sync_user_role_profile(new.user)
+        self._acr_requesting(new.user, PROFILE_BOARD_MEMBER)
+        self.assertIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(new.user), "fixture")
 
         sync_user_role_profile(new.user)
 
-        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user))
+        self.assertNotIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(new.user))
+
+    def test_a_requested_profile_already_held_is_still_recorded(self):
+        new = self._new_volunteer()
+        self._assign_profiles_directly(new.user, [PROFILE_BOARD_MEMBER])
+        sync_user_role_profile(new.user)
+        self._assign_profiles_directly(new.user, [PROFILE_BOARD_MEMBER])  # held at ACR time
+        self._acr_requesting(new.user, PROFILE_BOARD_MEMBER)
+
+        sync_user_role_profile(new.user)
+
+        self.assertNotIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(new.user))
+
+    def test_a_custom_requested_profile_is_kept_by_the_sync(self):
+        new = self._new_volunteer()
+        sync_user_role_profile(new.user)
+        self._acr_requesting(new.user, MAPPED_PROFILE)  # Verenigingen Auditor: not built in
+
+        sync_user_role_profile(new.user)
+
+        self.assertIn(MAPPED_PROFILE, get_user_role_profiles(new.user))
