@@ -135,7 +135,7 @@ class ChapterJoinRequest(Document):
 
             if not result.get("success"):
                 frappe.throw(
-                    _("Failed to create chapter membership: {0}").format(result.get("error", "Unknown error"))
+                    _("Failed to create chapter membership: {0}").format(self._failure_reason(result))
                 )
 
             # Add membership history
@@ -164,6 +164,21 @@ class ChapterJoinRequest(Document):
 
         except Exception as e:
             frappe.throw(_("Failed to approve request: {0}").format(str(e)))
+
+    def _failure_reason(self, result):
+        """The reason ChapterMembershipManager.assign_member_to_chapter failed.
+
+        The manager's own early exits key the reason "error" but whatever it passes
+        through from MemberManager.add_member keys it "message", so read both (#1591).
+        add_member's "not_reenabled" message names the member's current status; an
+        approver who cannot read that Member must not learn it from here (#1590),
+        so they get the same refusal without the status.
+        """
+        if result.get("action") == "not_reenabled" and not frappe.has_permission(
+            "Member", "read", doc=self.member
+        ):
+            return _("the member could not be re-enabled in this chapter")
+        return result.get("error") or result.get("message") or _("Unknown error")
 
     def reject_request(self, rejected_by=None, reason=None):
         """Reject the chapter join request with proper error handling"""

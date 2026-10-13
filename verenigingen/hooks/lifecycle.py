@@ -25,11 +25,21 @@ after_install = [
     "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
 ]
 
+# Run before patches and schema sync. Records what our frozen DocTypes' JSON declares
+# before sync_all replaces it, so after_migrate can tell a JSON revocation from an
+# admin's grant (#1629).
+before_migrate = [
+    "verenigingen.setup.custom_docperm_setup.snapshot_own_declared_permissions",
+]
+
 # Run after database migrations complete
 # Used for schema updates, index creation, and data backfills
 after_migrate = [
     # Ensure required payment modes exist (needed for membership applications)
     "verenigingen.setup.ensure_required_payment_modes",
+    # Verenigingen Settings need a Company, which a fresh install lacks (#1647): create them
+    # on the first migrate after one exists. No-op once the Single is saved.
+    "verenigingen.setup.ensure_default_verenigingen_settings",
     # Brand settings initialization
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
     # (No membership-application workflow setup here. The native Frappe Workflow that

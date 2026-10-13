@@ -371,7 +371,7 @@
   },
   {
    "default": "0",
-   "description": "Stop setup_webhook_user (after_install/after_migrate) from creating, re-enabling or reconfiguring the webhook service user. Set this if the account is deliberately disabled or managed manually.",
+   "description": "Stop the system from automatically creating, re-enabling or reconfiguring the webhook user after an installation or update. Set this if the account is deliberately disabled or managed manually.",
    "fieldname": "disable_webhook_user_autosetup",
    "fieldtype": "Check",
    "label": "Disable Webhook User Auto-setup"
