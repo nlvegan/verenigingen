@@ -524,7 +524,7 @@ class BaseRoleProfileManager(ABC):
                 # This ensures volunteers keep "Verenigingen Volunteer" profile if status is Active
                 from verenigingen.utils.user_role_profile_calculator import sync_user_role_profile
 
-                sync_result = sync_user_role_profile(user)
+                sync_result = sync_user_role_profile(user, withdraw=(role_profile,))
 
                 if sync_result.get("success"):
                     new_profile = sync_result.get("new_profile")

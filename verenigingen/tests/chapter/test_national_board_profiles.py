@@ -564,3 +564,50 @@ class TestNationalBoardProfiles(VereningingenTestCase):
             before + 1,
         )
         self.assertIn(holder.user, " ".join(m.get("message", "") for m in frappe.local.message_log))
+
+    # ---- round 2: production has default teams mapping Administrator / Staff
+
+    def test_default_teams_mapping_administrator_and_staff_do_not_make_them_strippable(self):
+        """Default MijnRood teams map VA and Staff; a board member's save must not strip them
+        from a user who is in neither team."""
+        self._staff_team(self.ADMINISTRATOR)
+        self._staff_team(self.STAFF)
+        actor = self._hold_a_board_seat(self.other, "Secretary")
+        victim = self._new_volunteer()
+        manual = ["HR", self.ADMINISTRATOR, self.STAFF]
+        self._assign_profiles_directly(victim.user, manual)
+        frappe.get_doc("User", victim.user).add_roles("System Manager")
+        role = self._chapter_role_labelled("Chair")
+
+        frappe.set_user(actor.user)
+        self.addCleanup(frappe.set_user, "Administrator")
+        chapter = frappe.get_doc("Chapter", self.other.name)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": victim.volunteer,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+                "email": victim.email,
+            },
+        )
+        chapter.save()
+
+        self.assertTrue(set(manual) <= set(get_user_role_profiles(victim.user)))
+        frappe.clear_cache(user=victim.user)
+        self.assertIn("System Manager", frappe.get_roles(victim.user))
+
+    def test_a_staff_profile_from_a_team_the_user_left_is_still_withdrawn(self):
+        """Control: provenance is the user's own membership history, so leaving still removes it."""
+        seat = self._staffer_on_the_national_board(self.STAFF)
+        self.assertIn(self.STAFF, get_user_role_profiles(seat.user), "fixture")
+        frappe.db.set_value(
+            "Team Member", {"volunteer": seat.volunteer}, "status", "Inactive"
+        )  # leaving a team keeps the (inactive) row
+
+        sync_user_role_profile(seat.user)
+
+        profiles = get_user_role_profiles(seat.user)
+        self.assertNotIn(self.STAFF, profiles)
+        self.assertIn(NATIONAL_MEMBER, profiles)

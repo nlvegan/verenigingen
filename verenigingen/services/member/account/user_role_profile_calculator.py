@@ -319,11 +319,16 @@ def calculate_user_role_profile_set(user: str) -> list:
     return [own[0], *national] if own else national
 
 
-def get_seat_derivable_profiles() -> set:
-    """Every profile this calculator can hand out: the only ones a sync may add or remove.
+def get_seat_derivable_profiles(user: str) -> set:
+    """The profiles a sync may remove from THIS user: ones it could have derived for them.
 
-    Any other profile on a User (HR, System Administrator, a manually assigned
-    Administrator or Auditor...) is not this calculator's to touch.
+    The built-in profiles always; a profile configured on a chapter or team only when the
+    user has (or had, any status) a seat or membership there. A mapped profile is NOT
+    removable from a user with no history in the mapping chapter/team: default MijnRood
+    teams map Verenigingen Administrator and Staff, so treating every mapped profile as
+    derived made a sync strip a manually assigned Administrator from any user outside
+    that team, and a plain board member can trigger a sync for anyone by seating them.
+    Everything else on the User (HR, System Administrator...) is never this function's.
     """
     profiles = {
         PROFILE_MEMBER,
@@ -332,13 +337,39 @@ def get_seat_derivable_profiles() -> set:
         PROFILE_BOARD_MEMBER,
         *NATIONAL_PROFILES,
     }
-    for doctype, field in (
-        ("Chapter", "default_board_role_profile"),
-        ("Chapter Role Profile Mapping", "role_profile"),
-        ("Team", "default_role_profile"),
-        ("Team Role Profile Assignment", "role_profile"),
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+    chapters = set(
+        frappe.get_all("Chapter Board Member", filters={"volunteer": volunteer}, pluck="parent")
+        if volunteer
+        else []
+    )
+    teams = set(
+        frappe.get_all("Team Member", filters={"volunteer": volunteer}, pluck="parent") if volunteer else []
+    )
+    teams.update(frappe.get_all("Team", filters={"team_lead": user}, pluck="name"))
+    for doctype, field, parents in (
+        ("Chapter", "default_board_role_profile", chapters),
+        ("Team", "default_role_profile", teams),
     ):
-        profiles.update(frappe.get_all(doctype, filters={field: ["is", "set"]}, pluck=field, distinct=True))
+        if parents:
+            profiles.update(
+                frappe.get_all(
+                    doctype, filters={"name": ["in", list(parents)], field: ["is", "set"]}, pluck=field
+                )
+            )
+    for doctype, parents in (
+        ("Chapter Role Profile Mapping", chapters),
+        ("Team Role Profile Assignment", teams),
+    ):
+        if parents:
+            profiles.update(
+                frappe.get_all(
+                    doctype,
+                    filters={"parent": ["in", list(parents)], "role_profile": ["is", "set"]},
+                    pluck="role_profile",
+                )
+            )
     return profiles
 
 
@@ -964,7 +995,7 @@ def sync_user_role_profile(
         if _has_multi_profile_support():
             # Non-destructive: keep every profile this calculator does not derive
             # (manual admin profiles, HR, System Administrator...), replace only the rest.
-            derivable = get_seat_derivable_profiles() | set(withdraw)
+            derivable = get_seat_derivable_profiles(user) | set(withdraw)
             kept = [name for name in existing_profiles if name not in derivable]
             new_profiles = kept + [name for name in new_profiles if name not in kept]
             role_changed = set(existing_profiles) != set(new_profiles)
