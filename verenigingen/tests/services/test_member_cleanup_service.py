@@ -41,7 +41,7 @@ class TestMemberCleanupService(EnhancedTestCase):
                     "is_active": 1,
                     "minimum_amount": 5.0,
                     "role_profile": frappe.db.get_value(
-                        "Role Profile", {"name": ["like", "%Member%"]}, "name"
+                        "Role Profile", "Verenigingen Member", "name"
                     )
                     or frappe.db.get_value("Role Profile", {}, "name"),
                 }
@@ -247,7 +247,7 @@ class TestMemberCleanupService(EnhancedTestCase):
                     "is_active": 1,
                     "minimum_amount": 5.0,
                     "role_profile": frappe.db.get_value(
-                        "Role Profile", {"name": ["like", "%Member%"]}, "name"
+                        "Role Profile", "Verenigingen Member", "name"
                     )
                     or frappe.db.get_value("Role Profile", {}, "name"),
                 }

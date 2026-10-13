@@ -17,9 +17,27 @@ DEFAULT_ROLE_PROFILE = "Verenigingen Member"
 
 class MembershipType(Document):
     def validate(self):
+        self.validate_mapped_role_profile()
         self.set_default_role_profile()
         self.validate_billing_period()
         self.validate_amount()
+
+    def validate_mapped_role_profile(self):
+        """Staff edit this field and the member-type-change flow grants the profile (#1618).
+
+        The default profile is exempt: it is what every member gets anyway.
+        """
+        from verenigingen.services.member.account.role_profile_mapping_guard import validate_mapped_profiles
+
+        previous = set()
+        if not self.is_new():
+            previous = {("default", frappe.db.get_value("Membership Type", self.name, "role_profile"))}
+        validate_mapped_profiles(
+            {("default", self.role_profile)} - {("default", DEFAULT_ROLE_PROFILE)},
+            previous,
+            national_allowed=False,
+            system_mapping=bool(self.flags.get("system_profile_mapping")),
+        )
 
     def set_default_role_profile(self):
         """Default the mandatory role_profile to the standard member profile.

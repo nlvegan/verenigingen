@@ -104,22 +104,10 @@ def setup_verenigingen():
     make_custom_records()
     make_custom_fields()
 
-    # Follow Frappe best practices: create child table through parent document
-    try:
-        domain_settings = frappe.get_doc("Domain Settings")
-        # Check if domain already exists
-        existing_domain = any(domain.domain == "Verenigingen" for domain in domain_settings.active_domains)
-        if not existing_domain:
-            domain_settings.append("active_domains", {"domain": "Verenigingen"})
-            domain_settings.save()
-    except frappe.DoesNotExistError:
-        frappe.logger().warning("Domain Settings not found - skipping domain setup")
-
-    domain = frappe.get_doc("Domain", "Verenigingen")
-    domain.setup_domain()
-
-    domain_settings = frappe.get_single("Domain Settings")
-    domain_settings.append("active_domains", dict(domain=domain))
+    # No Domain activation here (#1645): the app declares no `domains` hook and ships no
+    # Domain record, so `frappe.get_doc("Domain", "Verenigingen")` / `setup_domain()` can
+    # never work, and nothing is restricted to the domain. It used to abort the whole of
+    # execute_after_install at this point.
     frappe.clear_cache()
 
 
@@ -335,92 +323,99 @@ def execute_after_install():
 
     This function is idempotent - it checks initial_setup_complete flag
     and skips reference data creation if already run.
+
+    Every step runs independently (#1645): a step that RAISES is reported (printed and
+    written to Error Log), the steps after it still run, and the initial-setup flag is not
+    set. The install itself is never aborted. Not every step raises on failure: several
+    swallow their own errors internally (#1662), so a clean return
+    does not prove every step succeeded.
+    Returns the list of failed step names (empty when no step raised).
     """
+    if _is_initial_setup_complete():
+        print("✅ Initial setup already complete - skipping reference data creation")
+        return []
+
+    failed = []
+
+    def run(label, step):
+        _run_install_step(label, step, failed)
+
+    run("validate app dependencies", validate_app_dependencies)
+    # Create default Verenigingen Settings FIRST (critical for campaign donations).
+    # It reports "not created" (None) rather than raising when the site has no Company
+    # yet (#1647); the settings are then created on demand once one exists.
+    run("create Verenigingen Settings", _require_settings_created)
+    run("create E-Boekhouden custom fields", create_eboekhouden_custom_fields)
+    run("create E-Boekhouden Settings", create_default_eboekhouden_settings)
+    run("setup_verenigingen", setup_verenigingen)
+    # Reference data is created here instead of via fixtures to prevent migration overwrites
+    run("create reference data", create_all_reference_data)
+    run("set up membership application system", setup_membership_application_system)
+    run("set up tax exemption templates", setup_tax_exemption_on_install)
+    run("set up termination system", setup_termination_system_integration)
+    run("set up workspace", setup_workspace)
+    run("load fixtures", load_application_fixtures)
+    run("set up security", _install_security)
+    run("set up webhook user", _install_webhook_user)
+    run("set up public document creator", _install_public_document_creator)
+
+    if failed:
+        message = "Verenigingen setup INCOMPLETE - failed steps: " + ", ".join(failed)
+        print(f"⚠️ {message}. Fix the cause and re-run `execute_after_install`.")
+        return failed
+
+    # Mark initial setup as complete to prevent re-running on future migrations
+    _mark_initial_setup_complete()
+    if not _is_initial_setup_complete():
+        # No Verenigingen Settings to hold the flag yet (no Company, #1647).
+        print("Verenigingen setup steps ran; initial-setup flag deferred until Verenigingen Settings exist")
+        return failed
+    print("Verenigingen app setup completed successfully")
+    return failed
+
+
+def _run_install_step(label, step, failed):
+    """Run one install step; record and report a failure instead of aborting the rest."""
     try:
-        # Check if initial setup has already been completed
-        if _is_initial_setup_complete():
-            print("✅ Initial setup already complete - skipping reference data creation")
-            return
-
-        # Validate dependencies
-        validate_app_dependencies()
-
-        # Create default Verenigingen Settings FIRST (critical for campaign donations)
-        create_default_verenigingen_settings()
-
-        # Create E-Boekhouden custom fields first
-        create_eboekhouden_custom_fields()
-
-        # Create default E-Boekhouden Settings
-        create_default_eboekhouden_settings()
-
-        # Execute the setup function from this file
-        setup_verenigingen()
-
-        # Create all reference data (Membership Types, Team Roles, etc.)
-        # This is now done here instead of via fixtures to prevent migration overwrites
-        create_all_reference_data()
-
-        # Set up membership application system
-        setup_membership_application_system()
-
-        # Set up tax exemption templates if enabled
-        setup_tax_exemption_on_install()
-
-        # Set up termination system
-        setup_termination_system_integration()
-
-        # Set up workspace
-        setup_workspace()
-
-        # Load fixtures
-        load_application_fixtures()
-
-        # Set up security configurations
-        try:
-            from verenigingen.setup.security_setup import setup_all_security
-
-            setup_all_security()
-        except Exception as e:
-            print(f"⚠️ Security setup failed: {str(e)}")
-            frappe.logger().warning("Security setup failed: %s", str(e))
-
-        # Set up webhook user for secure payment processing
-        try:
-            from verenigingen.setup.webhook_user_setup import setup_webhook_user
-
-            webhook_result = setup_webhook_user()
-            if webhook_result.get("success"):
-                print("✅ Webhook user setup completed successfully")
-            else:
-                print(f"⚠️ Webhook user setup failed: {webhook_result.get('message')}")
-        except Exception as e:
-            print(f"⚠️ Webhook user setup failed: {str(e)}")
-            frappe.logger().warning("Webhook user setup failed: %s", str(e))
-
-        # Set up public document creator user for secure public form processing
-        try:
-            from verenigingen.setup.public_document_creator_setup import setup_public_document_creator
-
-            creator_result = setup_public_document_creator()
-            if creator_result.get("success"):
-                print("✅ Public document creator setup completed successfully")
-            else:
-                print(f"⚠️ Public document creator setup failed: {creator_result.get('message')}")
-        except Exception as e:
-            print(f"⚠️ Public document creator setup failed: {str(e)}")
-            frappe.logger().warning("Public document creator setup failed: %s", str(e))
-
-        # Mark initial setup as complete to prevent re-running on future migrations
-        _mark_initial_setup_complete()
-
-        # Log the successful setup
-        frappe.logger().info("Verenigingen setup completed successfully")
-        print("Verenigingen app setup completed successfully")
-
+        step()
     except Exception as e:
-        frappe.logger().error("Error during Verenigingen setup: %s", str(e))
-        print(f"Error during setup: {str(e)}")
+        failed.append(label)
+        print(f"⚠️ Install step failed: {label}: {str(e)}")
+        frappe.log_error(
+            title=f"Verenigingen install step failed: {label}"[:140],
+            message=frappe.get_traceback(),
+        )
+
+
+def _require_settings_created():
+    # None with no Company on the site is the expected "deferred" state (#1647), not a
+    # failure; None with a Company present means the create itself failed.
+    if create_default_verenigingen_settings() is None and _resolve_install_company():
+        raise RuntimeError("Verenigingen Settings were not created")
+
+
+def _install_security():
+    from verenigingen.setup.security_setup import setup_all_security
+
+    setup_all_security()
+
+
+def _install_webhook_user():
+    from verenigingen.setup.webhook_user_setup import setup_webhook_user
+
+    result = setup_webhook_user()
+    if not result.get("success"):
+        raise RuntimeError(result.get("message"))
+    print("✅ Webhook user setup completed successfully")
+
+
+def _install_public_document_creator():
+    from verenigingen.setup.public_document_creator_setup import setup_public_document_creator
+
+    result = setup_public_document_creator()
+    if not result.get("success"):
+        raise RuntimeError(result.get("message"))
+    print("✅ Public document creator setup completed successfully")
 
 
 def create_eboekhouden_custom_fields():
@@ -436,12 +431,21 @@ def create_default_verenigingen_settings():
     Without this, the system will fail with "Unable to load system settings" errors.
     """
     try:
-        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
-            # Get default company if exists using standardized query approach
-            from verenigingen.utils.validation_utilities import get_all_active_records
-
-            companies = get_all_active_records("Company", fields=["name"], limit=1, order_by="name")
-            default_company = companies[0].name if companies else "Your Company"
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single (#889), so it made
+        # this create branch dead code; check whether the singleton was ever saved instead.
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+            default_company = _resolve_install_company()
+            if not default_company:
+                # `company` is mandatory and a fresh site has none yet (#1647). Do not invent
+                # a placeholder (a Link to a non-existent Company cannot be saved). The
+                # after_migrate hook `ensure_default_verenigingen_settings` creates the
+                # settings on the first migrate after a Company exists.
+                print(
+                    "⚠️ Verenigingen Settings not created: no Company exists yet. Create a Company; "
+                    "the settings are then created by the next `bench migrate` "
+                    "(or by re-running `execute_after_install`)."
+                )
+                return None
 
             settings = frappe.get_doc(
                 {
@@ -490,6 +494,43 @@ def create_default_verenigingen_settings():
         print(f"⚠️ Failed to create Verenigingen Settings: {str(e)}")
         # Don't fail installation if settings creation fails
         return None
+
+
+def _resolve_install_company():
+    """The global default Company, else the first Company by name, else None.
+
+    Company is not submittable, so QueryBuilder.get_all_active_records("Company")
+    (which falls back to docstatus=1) always returned [] and hid every real Company.
+    """
+    default = frappe.defaults.get_global_default("company")
+    if default and frappe.db.exists("Company", default):
+        return default
+    companies = frappe.get_all("Company", pluck="name", order_by="name asc", limit=1)
+    return companies[0] if companies else None
+
+
+def ensure_default_verenigingen_settings():
+    """after_migrate: create Verenigingen Settings once a Company exists (#1647).
+
+    A fresh install has no Company, so execute_after_install cannot create the
+    Settings. Silent no-op while the Single is saved or there is still no Company.
+    Deliberately does NOT set initial_setup_complete: that flag means "every
+    install step ran", which this hook cannot establish.
+    """
+    if frappe.db.get_singles_dict("Verenigingen Settings") or not _resolve_install_company():
+        return
+    if create_default_verenigingen_settings() is None:
+        return
+    # The install-time public-creator step could not configure creation_user (no Settings
+    # then); wire an existing creator now. Existing Settings are never touched (returned above).
+    from verenigingen.setup.public_document_creator_setup import (
+        configure_creation_user_in_settings,
+        find_existing_public_creator,
+    )
+
+    creator = find_existing_public_creator()
+    if creator:
+        configure_creation_user_in_settings(creator)
 
 
 def _seed_default_document_categories(settings):
@@ -1384,7 +1425,9 @@ def load_application_fixtures():
 def run_complete_setup():
     """Run the complete setup process manually"""
     try:
-        execute_after_install()
+        failed = execute_after_install()
+        if failed:
+            return {"success": False, "message": "Setup incomplete, failed steps: " + ", ".join(failed)}
         return {"success": True, "message": "Complete setup completed successfully"}
     except Exception as e:
         return {"success": False, "message": str(e)}

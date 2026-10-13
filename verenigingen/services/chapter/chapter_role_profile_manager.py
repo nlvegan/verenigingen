@@ -26,6 +26,7 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
+from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
 from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -189,6 +190,9 @@ def assign_chapter_board_role_profile(user: str, chapter_name: str, board_role=N
     Returns:
         dict: Success/failure result
     """
+    # Privileged profiles (the national ones) are not handed out by this ADMIN-tier endpoint
+    # to just anyone: the profile comes from the chapter's mapping, so check what it maps to.
+    validate_may_assign_profile(determine_role_profile_for_board_member(chapter_name, board_role))
     return _chapter_manager.assign_role_profile(user, chapter_name, board_role)
 
 

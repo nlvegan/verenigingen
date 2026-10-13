@@ -335,6 +335,7 @@ COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py:
 COMMIT_EXEMPT tests/backend/components/test_membership_application.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_sepa_reconciliation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_setup_add_settings_fields.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/components/test_setup_install_path.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_staff_anbi_allocation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_event_driven.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_history_bugs.py::2  # order-dep-exempt
@@ -441,7 +442,7 @@ COMMIT_EXEMPT verenigingen/doctype/membership_dues_schedule/test_membership_dues
 COMMIT_EXEMPT verenigingen/doctype/mt940_import/test_mt940_import.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/vip_import/test_vip_import.py::6  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_customer_creation_concurrency.py::2  # order-dep-exempt
-COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_dues_payment_processor_coverage_sweep.py::1  # order-dep-exempt
+COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_dues_payment_processor_coverage_sweep.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_payment_service_unit.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/tests/utils_shared/test_db_helpers.py::1  # order-dep-exempt
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::1  # order-dependence
