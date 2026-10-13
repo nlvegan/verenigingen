@@ -106,16 +106,26 @@ DONATION_READ_ROLES = {
     "Verenigingen Webhook User",
 }
 
-# Install runs setup_public_document_creator, which deliberately gives this role read/write/create
-# on Donation (public donation forms create Donor and Donation as that account). The grant is a
-# Custom DocPerm row, so it is present on a fresh install and absent on a site where
-# test_public_document_creator_setup's teardown has since deleted it. The premise therefore holds
-# either way: this role is an optional reader, any OTHER extra reader still breaks it.
+# Install runs setup_public_document_creator, which DELIBERATELY gives this role read/write/create
+# on Donation (public donation forms create Donor and Donation as that account), so it is tolerated
+# here. That is not a statement that the grant is safe: the account can authenticate, reads and
+# writes every Donation/Donor/Member, has no if_owner restriction, and Donation has no list query
+# (#1670). The row is a Custom DocPerm: present on a fresh install, deleted by
+# test_public_document_creator_setup's teardown, so it is an OPTIONAL reader. Any other extra
+# reader, or a lost required reader, still breaks the premise.
 PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
 
 
-def _unexpected_donation_readers(read_roles):
-    return set(read_roles) - DONATION_READ_ROLES - {PUBLIC_CREATOR_ROLE}
+def _donation_premise_violation(read_roles):
+    """Why Donation's read roles no longer support the list-scope exemption, or None."""
+    read_roles = set(read_roles)
+    extra = read_roles - DONATION_READ_ROLES - {PUBLIC_CREATOR_ROLE}
+    if extra:
+        return f"unexpected readers: {sorted(extra)}"
+    missing = DONATION_READ_ROLES - read_roles
+    if missing:
+        return f"required readers missing: {sorted(missing)}"
+    return None
 
 
 # Handlers that declare the parameter as `ptype` and therefore RECEIVE the real
@@ -223,22 +233,24 @@ class TestPermissionRegistryConsistency(FrappeTestCase):
         """
         read_roles = {perm.role for perm in frappe.get_meta("Donation").permissions if perm.read}
 
-        self.assertFalse(
-            _unexpected_donation_readers(read_roles),
+        self.assertIsNone(
+            _donation_premise_violation(read_roles),
             "Donation's read DocPerm changed. The LIST_SCOPE_EXEMPTIONS entry assumes the role "
             "layer denies everyone but these roles, so Donation needs no query condition. That "
             "is no longer true: either register get_donation_permission_query "
             "(permissions.py:841 -- but read the exemption note first, it denies the webhook "
             "account) or update DONATION_READ_ROLES and the reasoning.",
         )
-        # A role LOSING read breaks the premise just as much as gaining one does.
-        self.assertTrue(DONATION_READ_ROLES <= read_roles, f"missing readers: {DONATION_READ_ROLES - read_roles}")
 
-    def test_donation_premise_check_flags_an_unexpected_reader_but_not_the_public_creator(self):
-        # control for the check above: it can fail, and the creator role is the only tolerated extra
-        self.assertEqual(_unexpected_donation_readers(DONATION_READ_ROLES | {PUBLIC_CREATOR_ROLE}), set())
-        self.assertEqual(
-            _unexpected_donation_readers(DONATION_READ_ROLES | {"Verenigingen Staff"}), {"Verenigingen Staff"}
+    def test_donation_premise_check_discriminates(self):
+        # Control for the check above, through the SAME function the premise test calls.
+        creator = {PUBLIC_CREATOR_ROLE}
+        self.assertIsNone(_donation_premise_violation(DONATION_READ_ROLES))
+        self.assertIsNone(_donation_premise_violation(DONATION_READ_ROLES | creator))
+        self.assertIn("Verenigingen Staff", _donation_premise_violation(DONATION_READ_ROLES | {"Verenigingen Staff"}))
+        self.assertIn(
+            "Verenigingen Webhook User",
+            _donation_premise_violation((DONATION_READ_ROLES - {"Verenigingen Webhook User"}) | creator),
         )
 
     def test_exemptions_are_filed_in_the_right_direction_and_not_stale(self):
