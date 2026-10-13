@@ -806,6 +806,16 @@ class AccountCreationManager:
                     existing_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
                     if self.request.role_profile not in existing_profiles:
                         user_doc.append("role_profiles", {"role_profile": self.request.role_profile})
+                        # An explicitly requested profile is not the sync's own: make sure a record
+                        # exists (empty), or the sync's bootstrap would adopt a built-in one and
+                        # later withdraw it.
+                        from verenigingen.services.member.account.user_role_profile_calculator import (
+                            read_sync_granted_profiles,
+                            record_sync_granted_profiles,
+                        )
+
+                        if read_sync_granted_profiles(self.created_user) is None:
+                            record_sync_granted_profiles(user_doc, [])
                 else:
                     user_doc.role_profile_name = self.request.role_profile
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")

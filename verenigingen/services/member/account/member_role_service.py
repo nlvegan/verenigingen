@@ -110,12 +110,17 @@ class MemberRoleService(StatelessService):
             # roles. Assign via the child table so the profile's roles are applied.
             user.set("role_profiles", [])
             user.append("role_profiles", {"role_profile": role_profile_name})
-            # The sync removes only profiles recorded as its own; this base profile is its own.
+            # The sync removes only profiles recorded as its own.
             from verenigingen.services.member.account.user_role_profile_calculator import (
                 record_sync_granted_profiles,
             )
 
-            record_sync_granted_profiles(user, [role_profile_name])
+            # Only the base Member profile is the sync's own. A profile the caller asked for
+            # (an Account Creation Request's role_profile) is an explicit grant: record an EMPTY
+            # list, so the sync keeps it and bootstrap does not adopt it later.
+            record_sync_granted_profiles(
+                user, [role_profile_name] if role_profile_name == "Verenigingen Member" else []
+            )
 
             # Ensure user is enabled
             if not user.enabled:

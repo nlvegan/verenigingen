@@ -834,3 +834,16 @@ class TestNationalBoardProfiles(VereningingenTestCase):
             sync_user_role_profile(user.user)
 
         self.assertEqual(read_sync_granted_profiles(user.user), [])
+
+    def test_a_profile_requested_at_account_creation_is_kept_by_the_sync(self):
+        """A non-base profile handed out at account creation is an explicit grant, not the sync's own."""
+        from verenigingen.services.member.account.member_role_service import get_member_role_service
+
+        new = self._new_volunteer()  # a Member with a Volunteer record is NOT needed: it has none active
+        frappe.db.set_value("Volunteer", new.volunteer, "status", "Inactive")
+        get_member_role_service().add_member_roles_to_user(new.user, "Verenigingen Volunteer")
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user), "fixture")
+
+        sync_user_role_profile(new.user)
+
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user))
