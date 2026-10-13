@@ -36,14 +36,16 @@ def setup_public_document_creator():
         if not role_result["success"]:
             return role_result
 
-        # Generate secure credentials
-        user_email = generate_public_creator_email()
-        user_password = generate_secure_password()
-
-        # Create the user account
-        user_result = create_public_creator_account(user_email, user_password)
-        if not user_result["success"]:
-            return user_result
+        # Reuse an existing creator rather than minting public-creator-N on every run
+        # (setup is run by every fresh install and by the manual endpoint).
+        user_email = find_existing_public_creator()
+        user_password = None
+        if not user_email:
+            user_email = generate_public_creator_email()
+            user_password = generate_secure_password()
+            user_result = create_public_creator_account(user_email, user_password)
+            if not user_result["success"]:
+                return user_result
 
         # Assign roles
         role_result = assign_public_creator_roles(user_email)
@@ -57,7 +59,8 @@ def setup_public_document_creator():
 
         print("✅ Public document creator setup completed successfully")
         print(f"   📧 User: {user_email}")
-        print(f"   🔐 Password: {user_password}")
+        # The password is never printed (install output lands in CI logs). It is returned
+        # to the caller only when this run created the user; otherwise reset it in Desk.
         print(f"   🛡️ Role: {PUBLIC_CREATOR_ROLE}")
         print("   ⚙️ Configured as creation_user in Verenigingen Settings")
 
@@ -73,6 +76,26 @@ def setup_public_document_creator():
         frappe.logger().error(error_msg)
         print(f"❌ {error_msg}")
         return {"success": False, "message": error_msg}
+
+
+def find_existing_public_creator():
+    """Email of an existing enabled public-creator user that may be reused, else None.
+
+    The `public-creator` name prefix is the only identifier, so it is not trusted alone: the
+    user must hold the creator role and NO other role (a user that also holds e.g. System
+    Manager is never silently adopted as the least-privilege creation user).
+    """
+    rows = frappe.get_all(
+        "User",
+        filters={"name": ["like", "public-creator%"], "enabled": 1},
+        pluck="name",
+        order_by="name asc",
+    )
+    for email in rows:
+        roles = set(frappe.get_all("Has Role", filters={"parent": email}, pluck="role"))
+        if roles == {PUBLIC_CREATOR_ROLE}:
+            return email
+    return None
 
 
 def ensure_public_creator_role_exists():
@@ -231,7 +254,10 @@ def configure_creation_user_in_settings(user_email):
     """Configure the user as creation_user in Verenigingen Settings"""
     try:
         settings_name = "Verenigingen Settings"
-        if not frappe.db.exists("Verenigingen Settings", settings_name):
+        # frappe.db.exists(dt, dt) is unconditionally truthy for a Single (#889), so this skip
+        # never fired on a site whose Settings were not saved yet and the get_doc/save below
+        # then failed on the mandatory `company` (#1647).
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
             print("   ⚠️ Verenigingen Settings not found, skipping configuration")
             return {"success": True, "message": "Settings not found, skipped"}
 

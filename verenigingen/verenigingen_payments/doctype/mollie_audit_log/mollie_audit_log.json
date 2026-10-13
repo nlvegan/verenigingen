@@ -104,14 +104,14 @@
    "fieldtype": "Section Break",
    "label": "Legacy Fields",
    "collapsible": 1,
-   "description": "Deprecated fields maintained for backwards compatibility"
+   "description": "Older fields, kept so that existing log entries stay readable"
   },
   {
    "fieldname": "action",
    "fieldtype": "Data",
    "label": "Action (Legacy)",
    "read_only": 1,
-   "description": "Deprecated: Use event_type instead"
+   "description": "Older field; see Event Type instead"
   },
   {
    "fieldname": "status",
@@ -119,14 +119,14 @@
    "label": "Status (Legacy)",
    "options": "\nsuccess\nfailed\nwarning",
    "read_only": 1,
-   "description": "Deprecated: Use severity instead"
+   "description": "Older field; see Severity instead"
   },
   {
    "fieldname": "details",
    "fieldtype": "Long Text",
    "label": "Details (Legacy)",
    "read_only": 1,
-   "description": "Deprecated: Use description and event_data instead"
+   "description": "Older field; see Description and Event Data instead"
   },
   {
    "fieldname": "security_section",

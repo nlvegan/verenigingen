@@ -269,6 +269,40 @@ class TestCriticalOperationRuleFixtureData(FrappeTestCase):
                     offenders.append((rule.get("name"), fieldname, rule[fieldname]))
         self.assertEqual(offenders, [], f"Invalid Select values in COR fixtures: {offenders[:5]}")
 
+    def test_every_fixture_rule_passes_the_real_doctype_validation(self):
+        """Insert each shipped row through the real DocType controller.
+
+        setup_critical_operation_rules() does exactly this on a fresh site, and a
+        throw from validate() is swallowed into its `errors` list, leaving the
+        rule missing (#1646: rate_limit_calls 10000 against the DocType's
+        batch_rate_limit_calls default of 5000). Defaults are applied by
+        insert(), not get_doc(), so a bare validate() call would not see it.
+
+        Each row is inserted under a throwaway operation_name (autoname is
+        field:operation_name, and the real rows already exist on a test site) and
+        rolled back to a savepoint. frappe.flags.in_install is set because setup
+        runs from after_install, where validate_notification_settings()
+        deliberately skips the recipients check (34 alert_on_execution rows ship
+        without recipients); the rest of validate() is unaffected by the flag.
+        """
+        # Execution-context flag (not a mock): reproduces the after_install context setup runs in.
+        previous = frappe.flags.in_install
+        frappe.flags.in_install = True
+        self.addCleanup(setattr, frappe.flags, "in_install", previous)
+
+        failures = []
+        for fname, rule in self.rules:
+            probe = dict(rule, operation_name=f"zz_probe_{rule['operation_name']}")
+            probe.pop("name", None)
+            frappe.db.savepoint("cor_fixture_probe")
+            try:
+                frappe.get_doc(probe).insert(ignore_permissions=True)
+            except Exception as e:
+                failures.append((fname, rule.get("name"), str(e)))
+            finally:
+                frappe.db.rollback(save_point="cor_fixture_probe")
+        self.assertEqual(failures, [], f"{len(failures)} COR fixture rows fail insert(): {failures[:5]}")
+
     def test_mandatory_fields_are_populated(self):
         """reqd fields missing -> MandatoryError on insert -> rule dropped."""
         meta = frappe.get_meta("Critical Operation Rule")

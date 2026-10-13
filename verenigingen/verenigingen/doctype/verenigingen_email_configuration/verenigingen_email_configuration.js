@@ -256,10 +256,9 @@ function show_sync_dialog(frm, data) {
 		undocumented_html = `
 			<div class="alert alert-info" style="margin-bottom: 15px;">
 				<strong><i class="fa fa-info-circle"></i> ${__('Undocumented Keys')}</strong>
-				<p class="mb-1 small">${__(
-					'These {0} keys are used in code but not documented in notification_registry.py. Consider adding descriptions.',
-					[undocumented_keys.length]
-				)}</p>
+				<p class="mb-1 small">${__('These {0} notification keys have no description yet. Consider adding descriptions.', [
+					undocumented_keys.length
+				])}</p>
 				<div style="max-height: 80px; overflow-y: auto;">
 					<code class="small">${undocumented_keys.join(', ')}</code>
 				</div>

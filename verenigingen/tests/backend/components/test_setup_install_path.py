@@ -9,8 +9,8 @@
 # These tests cover:
 #   * get_custom_fields() as *installable* definitions (anchors, Link targets)
 #     and the fields a fresh site must have without any patch having run.
-#   * The abort behaviour of execute_after_install() and the step that currently
-#     triggers it (setup_verenigingen -> missing "Verenigingen" Domain record).
+#   * That execute_after_install() runs every step and does not mark a failed
+#     run complete (#1645), and the no-Company settings case (#1647).
 #   * Install-time invariants for the service user, E-Boekhouden Settings, the
 #     after_migrate payment-mode top-up and the always-failing dependency
 #     verifier.
@@ -118,77 +118,297 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
         self.assertEqual("Donation" in self.custom_fields, bool(frappe.db.exists("DocType", "Donation")))
 
 
-class TestExecuteAfterInstallAborts(FrappeTestCase):
-    """execute_after_install() wraps every step in one try/except.
+class TestExecuteAfterInstallRunsEveryStep(FrappeTestCase):
+    """execute_after_install() must neither abort at one failing step (#1645) nor
+    mark a half-done install complete.
 
-    KNOWN PRODUCTION BUG: setup_verenigingen() appends "Verenigingen" to
-    Domain Settings.active_domains, but the app ships no `Domain` fixture and
-    nothing creates that record, so the save fails link validation. The blanket
-    handler swallows it, which means everything AFTER setup_verenigingen() in
-    execute_after_install() never runs on a brand-new site:
-    create_all_reference_data(), setup_membership_application_system(),
-    setup_tax_exemption_on_install(), setup_termination_system_integration(),
-    setup_workspace(), load_application_fixtures(), the security/webhook/
-    public-document-creator setup, and _mark_initial_setup_complete().
+    History: setup_verenigingen() activated a Domain "Verenigingen" that nothing
+    ships (and no `domains` hook declares), so it raised on every fresh install
+    (CI included) and the blanket handler swallowed it, skipping every later step.
+    These tests drive the REAL execute_after_install(); the spies use `wraps=` so
+    the real steps still run, and the one injected failure is a step raising.
     """
 
-    def test_domain_record_is_not_shipped(self):
+    LATE_STEPS = (
+        "create_all_reference_data",
+        "setup_membership_application_system",
+        "setup_tax_exemption_on_install",
+        "setup_termination_system_integration",
+        "setup_workspace",
+        "load_application_fixtures",
+    )
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        # Mock justified: the idempotency gate. A warm site (and these very tests, which
+        # run the real steps and so mark the site complete) would otherwise make every
+        # later test a no-op that passes vacuously.
+        self._patch(mock.patch.object(setup_mod, "_is_initial_setup_complete", return_value=False))
+        # Mock justified: the public-creator step commits users and repoints
+        # Verenigingen Settings.creation_user, which survives rollback. It has its own
+        # tests (test_public_document_creator_setup); here it is stubbed out.
+        self._patch(mock.patch.object(setup_mod, "_install_public_document_creator"))
+
+    def _patch(self, patcher):
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _spy_on(self, stack, names):
+        from unittest import mock
+
+        return {
+            name: stack.enter_context(mock.patch.object(setup_mod, name, wraps=getattr(setup_mod, name)))
+            for name in names
+        }
+
+    def test_setup_verenigingen_no_longer_needs_a_domain_record(self):
+        self.assertFalse(frappe.db.exists("Domain", "Verenigingen"), "premise: no Domain is shipped")
+        setup_mod.setup_verenigingen()  # raised LinkValidationError before #1645
+
+    def test_every_step_after_setup_verenigingen_runs(self):
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            spies = self._spy_on(stack, self.LATE_STEPS)
+            failed = setup_mod.execute_after_install()
+        for name, spy in spies.items():
+            self.assertTrue(spy.called, f"{name} was skipped by an earlier step's failure")
+        self.assertEqual(failed, [])
+
+    def test_a_failing_step_does_not_skip_later_steps_and_is_not_marked_done(self):
+        import contextlib
+        from unittest import mock
+
+        with contextlib.ExitStack() as stack:
+            spies = self._spy_on(stack, ("setup_workspace", "_mark_initial_setup_complete"))
+            stack.enter_context(
+                mock.patch.object(setup_mod, "create_all_reference_data", side_effect=RuntimeError("boom"))
+            )
+            failed = setup_mod.execute_after_install()
+        self.assertIn("create reference data", failed)
+        self.assertTrue(spies["setup_workspace"].called, "a later step was skipped after a failure")
         self.assertFalse(
-            frappe.db.exists("Domain", "Verenigingen"),
-            "If the Domain record now exists the upstream bug was fixed - update " "these tests",
+            spies["_mark_initial_setup_complete"].called,
+            "a run with a failed step was marked initial_setup_complete",
         )
 
-    def test_setup_verenigingen_raises_without_the_domain_record(self):
-        with self.assertRaises(frappe.LinkValidationError):
-            setup_mod.setup_verenigingen()
+    def test_a_webhook_step_reporting_failure_counts_as_failed(self):
+        """The webhook / public-creator steps return {"success": False} instead of raising."""
+        from unittest import mock
 
-    def test_execute_after_install_swallows_the_failure(self):
-        """It must not propagate (that would abort `bench install-app`), but it
-        also reports nothing to the caller - hence the silent half-install.
+        with mock.patch(
+            "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+            return_value={"success": False, "message": "nope"},
+        ):
+            failed = setup_mod.execute_after_install()
+        self.assertIn("set up webhook user", failed)
 
-        Asserts an OBSERVABLE post-condition, not the return value: an earlier
-        version did `assertIsNone(execute_after_install())`, which cannot fail
-        because the function has no `return <value>` on any path. It was also
-        non-deterministic — `execute_after_install` early-returns when
-        `_is_initial_setup_complete()`, so on a seeded site it was a pure no-op
-        that still went green.
-        """
-        if setup_mod._is_initial_setup_complete():
-            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+    def test_no_company_defers_the_settings_without_failing_the_install(self):
+        """The CI path: a fresh site has no Company, so Settings cannot be created yet."""
+        from unittest import mock
 
-        setup_mod.execute_after_install()
+        with mock.patch.object(setup_mod, "_resolve_install_company", return_value=None):
+            with mock.patch.object(setup_mod, "create_default_verenigingen_settings", return_value=None):
+                failed = setup_mod.execute_after_install()
+        self.assertEqual(failed, [])
 
-        # It aborted on the Domain step, so it never reached
-        # _mark_initial_setup_complete() at the end of the sequence.
-        self.assertFalse(
-            setup_mod._is_initial_setup_complete(),
-            "execute_after_install() completed despite the Domain abort - the "
-            "silent half-install this test documents no longer happens, so "
-            "re-verify the rest of this class.",
+    def test_a_failed_settings_create_with_a_company_is_a_failure(self):
+        """Control for the deferral: None WITH a Company means the create really failed."""
+        from unittest import mock
+
+        with mock.patch.object(setup_mod, "_resolve_install_company", return_value="Some Company"):
+            with mock.patch.object(setup_mod, "create_default_verenigingen_settings", return_value=None):
+                failed = setup_mod.execute_after_install()
+        self.assertEqual(failed, ["create Verenigingen Settings"])
+
+    def test_run_complete_setup_reports_failed_steps(self):
+        from unittest import mock
+
+        with mock.patch.object(setup_mod, "setup_workspace", side_effect=RuntimeError("boom")):
+            result = setup_mod.run_complete_setup()
+        self.assertFalse(result["success"])
+        self.assertIn("set up workspace", result["message"])
+
+
+class TestSettingsCreatedFromARealCompany(FrappeTestCase):
+    """#1647 review F1: with a REAL Company (no mocked lookup) the install creates Settings.
+
+    The first fix resolved the Company with get_all_active_records, which filters
+    docstatus=1; Company is not submittable, so it never found one. The Singles rows are
+    snapshotted and restored (the create commits, so rollback cannot undo it).
+    """
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        self.company = get_eur_test_company()
+        rows = frappe.db.sql(
+            "select field, value from `tabSingles` where doctype=%s", "Verenigingen Settings"
         )
+        self.addCleanup(self._cleanup_restore_singles, rows)
+        for patcher in (
+            mock.patch.object(setup_mod, "_is_initial_setup_complete", return_value=False),
+            mock.patch.object(setup_mod, "_install_public_document_creator"),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def test_run_complete_setup_reports_success_despite_the_abort(self):
-        """The whitelisted wrapper only sees "no exception" and reports success,
-        so an operator re-running setup gets a green result for a run that
-        stopped at step four.
+    @staticmethod
+    def _cleanup_restore_singles(rows):
+        # Restores the Single's own rows only; child-table rows (tab<Child DocType>) the
+        # create may have written, such as the seeded board_document_categories, are NOT
+        # restored.
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        for field, value in rows:
+            frappe.db.sql(
+                "insert into `tabSingles` (doctype, field, value) values (%s, %s, %s)",
+                ("Verenigingen Settings", field, value),
+            )
+        frappe.db.commit()
+        frappe.clear_cache(doctype="Verenigingen Settings")
 
-        `assertTrue(result["success"])` alone would be a test of a literal —
-        run_complete_setup() returns {"success": True} unconditionally because
-        execute_after_install() has its own blanket except. So the point is the
-        CONTRADICTION: success is reported while setup demonstrably did not
-        complete.
-        """
-        if setup_mod._is_initial_setup_complete():
-            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+    def test_execute_after_install_saves_settings_for_an_existing_company(self):
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"))
+        frappe.clear_cache(doctype="Verenigingen Settings")
 
-        result = setup_mod.run_complete_setup()
+        failed = setup_mod.execute_after_install()
 
+        self.assertEqual(failed, [])
+        saved = frappe.db.get_singles_dict("Verenigingen Settings")
+        self.assertTrue(saved, "Settings were not saved although a Company exists")
+        self.assertTrue(frappe.db.exists("Company", saved.get("company")))
+
+    def test_after_migrate_hook_creates_settings_once_a_company_exists(self):
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        frappe.clear_cache(doctype="Verenigingen Settings")
+
+        setup_mod.ensure_default_verenigingen_settings()
+
+        saved = frappe.db.get_singles_dict("Verenigingen Settings")
+        self.assertTrue(saved)
+        self.assertTrue(frappe.db.exists("Company", saved.get("company")))
+        # The hook cannot know every install step ran, so it must not claim so.
+        self.assertFalse(int(saved.get("initial_setup_complete") or 0))
+
+    def test_after_migrate_hook_wires_an_existing_public_creator(self):
+        creator = _make_creator_user(self, "public-creator-n1@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        frappe.clear_cache(doctype="Verenigingen Settings")
+
+        setup_mod.ensure_default_verenigingen_settings()
+
+        saved = frappe.db.get_singles_dict("Verenigingen Settings")
+        self.assertEqual(saved.get("creation_user"), creator)
+
+    def test_after_migrate_hook_leaves_existing_settings_alone(self):
+        _make_creator_user(self, "public-creator-n1b@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        before = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+            setup_mod.ensure_default_verenigingen_settings()
+            before = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+            frappe.db.set_single_value("Verenigingen Settings", "creation_user", before)
+
+        setup_mod.ensure_default_verenigingen_settings()
+
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "creation_user"), before)
+
+    def test_after_migrate_hook_is_registered(self):
+        self.assertIn("verenigingen.setup.ensure_default_verenigingen_settings", frappe.get_hooks("after_migrate"))
+
+
+PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
+
+
+def _make_creator_user(test, email, roles, enabled=1):
+    """Insert a real System User with exactly `roles`; deleted again at test cleanup."""
+    from verenigingen.setup.public_document_creator_setup import ensure_public_creator_role_exists
+
+    ensure_public_creator_role_exists()
+    user = frappe.get_doc(
+        {
+            "doctype": "User",
+            "email": email,
+            "first_name": "Creator",
+            "enabled": enabled,
+            "user_type": "System User",
+            "send_welcome_email": 0,
+            "roles": [{"role": r} for r in roles],
+        }
+    ).insert(ignore_permissions=True)
+    test.addCleanup(lambda: frappe.delete_doc("User", email, force=True, ignore_permissions=True))
+    return user.name
+
+
+class TestFindExistingPublicCreator(FrappeTestCase):
+    """The name prefix is the only identifier, so the role/enabled/no-extra-role rules are the guard."""
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.setup.public_document_creator_setup import find_existing_public_creator
+
+        self.find = find_existing_public_creator
+        if self.find():
+            self.skipTest("site already has a reusable public creator")
+
+    def test_a_valid_creator_is_found(self):
+        email = _make_creator_user(self, "public-creator-ok@example.com", [PUBLIC_CREATOR_ROLE])
+        self.assertEqual(self.find(), email)
+
+    def test_a_prefixed_user_without_the_role_is_not_reused(self):
+        _make_creator_user(self, "public-creator-norole@example.com", ["Accounts User"])
+        self.assertIsNone(self.find())
+
+    def test_a_disabled_creator_is_not_reused(self):
+        _make_creator_user(self, "public-creator-off@example.com", [PUBLIC_CREATOR_ROLE], enabled=0)
+        self.assertIsNone(self.find())
+
+    def test_a_creator_that_also_holds_system_manager_is_not_reused(self):
+        _make_creator_user(self, "public-creator-sm@example.com", [PUBLIC_CREATOR_ROLE, "System Manager"])
+        self.assertIsNone(self.find())
+
+
+class TestSettingsWithoutACompany(FrappeTestCase):
+    """#1647: on a site with no Company the mandatory `company` cannot be met."""
+
+    def _empty_settings_single(self):
+        frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"))
+
+    def test_creation_is_skipped_with_a_clear_message(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        self._empty_settings_single()
+        out = io.StringIO()
+        with mock.patch.object(setup_mod, "_resolve_install_company", return_value=None):
+            with contextlib.redirect_stdout(out):
+                result = setup_mod.create_default_verenigingen_settings()
+        self.assertIsNone(result)
+        self.assertIn("no Company exists yet", out.getvalue())
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"), "no placeholder was saved")
+
+    def test_after_migrate_hook_is_a_silent_noop_without_a_company(self):
+        from unittest import mock
+
+        self._empty_settings_single()
+        with mock.patch.object(setup_mod, "_resolve_install_company", return_value=None):
+            setup_mod.ensure_default_verenigingen_settings()
+        self.assertFalse(frappe.db.get_singles_dict("Verenigingen Settings"))
+
+    def test_public_creator_config_skips_when_settings_are_unsaved(self):
+        from verenigingen.setup.public_document_creator_setup import configure_creation_user_in_settings
+
+        self._empty_settings_single()
+        result = configure_creation_user_in_settings("someone@example.com")
         self.assertTrue(result["success"])
-        self.assertFalse(
-            setup_mod._is_initial_setup_complete(),
-            "run_complete_setup() reported success AND setup actually completed - "
-            "the misreporting this test documents is gone.",
-        )
+        self.assertIn("skipped", result["message"])
 
 
 class TestVerifyAppDependencies(FrappeTestCase):

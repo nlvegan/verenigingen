@@ -50,7 +50,7 @@
    "fieldtype": "Select",
    "label": "Email Mode",
    "options": "Active\nPaused\nScheduled",
-   "description": "Active: Normal operation. Paused: All emails held until pause_until. Scheduled: Emails batched for scheduled delivery."
+   "description": "Active: Normal operation. Paused: All emails are held until the date and time set under Pause Until. Scheduled: Emails batched for scheduled delivery."
   },
   {
    "fieldname": "column_break_pause",

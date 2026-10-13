@@ -34,7 +34,7 @@ class TestContributionModeTemplateIntegration(VereningingenTestCase):
         unique_name = f"ContribTest-{name_suffix}-{ts}"
 
         role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+            "Role Profile", "Verenigingen Member", "name"
         ) or frappe.db.get_value("Role Profile", {}, "name")
 
         minimum_amount = fields.pop("minimum_amount", 0)

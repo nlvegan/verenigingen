@@ -120,14 +120,14 @@
       "fieldtype": "Small Text",
       "label": "Required Roles",
       "read_only": 1,
-      "description": "Informational only — NOT enforced. Authorization is enforced by Security Level via the role-profile mapping (ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py), not by this field."
+      "description": "For information only; this field is not enforced. Access is controlled by the Security Level, through the role profiles mapped to it."
     },
     {
       "fieldname": "required_permissions",
       "fieldtype": "Small Text",
       "label": "Required Permissions",
       "read_only": 1,
-      "description": "Informational only — NOT enforced. Authorization is enforced by Security Level, not by this field."
+      "description": "For information only; this field is not enforced. Access is controlled by the Security Level."
     },
     {
       "fieldname": "column_break_10",

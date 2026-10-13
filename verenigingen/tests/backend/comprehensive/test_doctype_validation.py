@@ -194,7 +194,7 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
         """
         if not frappe.db.exists("Membership Type", name):
             role_profile = frappe.db.get_value(
-                "Role Profile", {"name": ["like", "%Member%"]}, "name"
+                "Role Profile", "Verenigingen Member", "name"
             ) or frappe.db.get_value("Role Profile", {}, "name")
             frappe.get_doc(
                 {
