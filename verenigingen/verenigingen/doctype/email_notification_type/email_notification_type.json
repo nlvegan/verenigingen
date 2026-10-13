@@ -79,7 +79,7 @@
    "reqd": 1,
    "unique": 1,
    "read_only_depends_on": "eval:!doc.__islocal",
-   "description": "Unique identifier used in code (e.g., 'chapter_assignment', 'payment_failure_first')"
+   "description": "Unique name for this notification type (e.g., 'chapter_assignment', 'payment_failure_first'). It cannot be changed after the notification type is saved."
   },
   {
    "fieldname": "column_break_config",

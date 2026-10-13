@@ -37,6 +37,9 @@ before_migrate = [
 after_migrate = [
     # Ensure required payment modes exist (needed for membership applications)
     "verenigingen.setup.ensure_required_payment_modes",
+    # Verenigingen Settings need a Company, which a fresh install lacks (#1647): create them
+    # on the first migrate after one exists. No-op once the Single is saved.
+    "verenigingen.setup.ensure_default_verenigingen_settings",
     # Brand settings initialization
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
     # (No membership-application workflow setup here. The native Frappe Workflow that

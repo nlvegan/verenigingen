@@ -365,29 +365,34 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
             frappe.db.get_single_value("Verenigingen Settings", "creation_user"), email
         )
 
-    def test_setup_rerun_reconfigures_without_duplicating_role(self):
-        # Documents the ACTUAL re-run contract (reported finding: setup is NOT
-        # email-idempotent). generate_public_creator_email() always returns a
-        # not-yet-existing address, so a second full run spawns a *second* user
-        # (public-creator-1@...) rather than reusing the first. What is stable:
-        # the role is created once, and creation_user is repointed to the latest
-        # user, which carries the role.
+    def test_setup_rerun_reuses_the_existing_creator(self):
+        # Setup runs on every fresh install and via the manual endpoint, so it must be
+        # idempotent: a re-run reuses the creator instead of minting public-creator-N (#1645).
         first = setup_public_document_creator()
         self.assertTrue(first["success"], msg=first)
+        users_before = set(_all_creator_user_emails())
         second = setup_public_document_creator()
         self.assertTrue(second["success"], msg=second)
 
-        # A fresh account is provisioned on the re-run (non-idempotent behavior).
-        self.assertNotEqual(first["user_email"], second["user_email"])
+        self.assertEqual(first["user_email"], second["user_email"])
+        self.assertEqual(set(_all_creator_user_emails()), users_before, "a re-run created a user")
+        # A reused user's password is not known, so none is returned.
+        self.assertIsNone(second["user_password"])
 
-        # Role is created exactly once (not duplicated) across both runs.
         self.assertEqual(frappe.db.count("Role", {"name": PUBLIC_CREATOR_ROLE}), 1)
-
-        # Settings point at the most recent creation user, which has the role.
         configured = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
-        self.assertEqual(configured, second["user_email"])
-        user = frappe.get_doc("User", configured)
-        self.assertTrue(any(r.role == PUBLIC_CREATOR_ROLE for r in user.roles))
+        self.assertEqual(configured, first["user_email"])
+
+    def test_setup_never_prints_the_generated_password(self):
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = setup_public_document_creator()
+        self.assertTrue(result["success"], msg=result)
+        self.assertTrue(result["user_password"], "control: this run created the user")
+        self.assertNotIn(result["user_password"], out.getvalue())
 
     # ------------------------------------------------------------------ #
     # verify_public_document_creator_setup
