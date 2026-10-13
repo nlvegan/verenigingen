@@ -54,6 +54,11 @@ from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resy
 _STUB_EMPLOYEE_GENDER = "Prefer not to say"
 _STUB_EMPLOYEE_DOB = "1990-01-01"
 
+# A member in one of these statuses must not be given volunteer access by an activation request.
+_NO_VOLUNTEER_ACCESS_MEMBER_STATUSES = frozenset(
+    {"Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"}
+)
+
 
 class AccountCreationManager:
     """Secure account creation manager with proper permission validation"""
@@ -766,9 +771,21 @@ class AccountCreationManager:
             member = self.request.source_record
             volunteer = get_volunteer_for_member(member)
 
+        member_status = frappe.db.get_value("Member", member, "status") if member else None
+        if member_status in _NO_VOLUNTEER_ACCESS_MEMBER_STATUSES:
+            # Skip, do not raise: the rest of the role assignment must still run. The sync will not
+            # derive the Volunteer profile for this member, so nothing is granted.
+            frappe.log_error(
+                title="ACR volunteer activation skipped",
+                message=f"{self.request_name}: member {member} has status {member_status}; "
+                "no volunteer record was created or moved to Onboarding.",
+            )
+            return
+
         if volunteer:
             if frappe.db.get_value("Volunteer", volunteer, "status") == "New":
-                # db.set_value: no Volunteer hooks (its New -> * auto-activation would queue a second ACR).
+                # db.set_value on purpose: it skips the Volunteer hooks (a New -> * save would run
+                # _check_auto_activation and queue a second ACR), and so writes no Version row either.
                 frappe.db.set_value("Volunteer", volunteer, "status", "Onboarding")
         elif member:
             member_doc = frappe.get_doc("Member", member)

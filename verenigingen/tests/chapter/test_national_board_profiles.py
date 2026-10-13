@@ -953,3 +953,43 @@ class TestNationalBoardProfiles(VereningingenTestCase):
             self.create_test_member(first_name="Lite", last_name="Vol", email="lite." + email, status="Active").name
         )
         self.assertEqual(frappe.db.get_value("Volunteer", light["volunteer_name"], "status"), "New", "control")
+
+    def test_an_activation_request_for_a_quit_member_creates_no_volunteer_and_still_assigns_roles(self):
+        """F1: a member who may not hold volunteer access gets no Volunteer record or profile, and the
+        rest of the role assignment (the requested role) still runs."""
+        from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
+
+        email = f"quitvol.{frappe.generate_hash(length=8)}@test.invalid"
+        user = self.create_test_user(email)
+        self.track_doc("User", user.name)
+        member = self.create_test_member(first_name="Quit", last_name="Vol", email=email, status="Active")
+        member.db_set("user", user.name, update_modified=False)
+        member.db_set("status", "Quit", update_modified=False)  # labelled shortcut: the terminated state
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": email,
+                "full_name": "Quit Volunteer",
+                "status": "Queued",
+                "role_profile": "Verenigingen Volunteer",
+                "business_justification": "F1 test",
+            }
+        )
+        request.append("requested_roles", {"role": "Verenigingen Auditor"})
+        request.insert()
+        self.track_doc("Account Creation Request", request.name)
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+        manager.created_user = user.name
+        self.expectErrorLog()
+
+        manager.assign_roles_and_profile()
+        # Checked before the Phase 3 sync: that sync re-derives roles from profiles (#1293).
+        self.assertTrue(frappe.db.exists("Has Role", {"parent": user.name, "role": "Verenigingen Auditor"}))
+
+        sync_user_role_profile(user.name)
+
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}), "no volunteer created")
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
