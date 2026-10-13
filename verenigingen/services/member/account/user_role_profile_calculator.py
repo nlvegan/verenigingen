@@ -994,9 +994,12 @@ def sync_user_role_profile(
             added = [name for name in derived if name not in kept]
             new_profiles = kept + added
             granted_now = [name for name in new_profiles if name in added or name in recorded]
-            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and sorted(
-                set(granted_now)
-            ) != sorted(set(read_sync_granted_profiles(user) or []))
+            # None (never recorded) counts as a change even when the new record is empty, so an
+            # explicit "[]" is written and the bootstrap rule runs once, not for ever.
+            stored = read_sync_granted_profiles(user)
+            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and (
+                stored is None or sorted(set(granted_now)) != sorted(set(stored))
+            )
             role_changed = set(existing_profiles) != set(new_profiles)
         else:
             marker_changed = False

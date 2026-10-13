@@ -791,3 +791,40 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         chapter.save()  # must not raise BoardAccessWithdrawalError
 
         self.assertNotIn(MAPPED_PROFILE, get_user_role_profiles(seat.user))
+
+    # ---- round 4
+
+    def test_remove_role_profile_does_not_claim_not_assigned_for_a_held_unrecorded_profile(self):
+        from verenigingen.utils.team_role_profile_manager import _team_manager
+
+        user = self._new_volunteer()
+        team_name = self._staff_team(self.STAFF)
+        self._assign_profiles_directly(user.user, [self.STAFF])  # held by hand: not recorded
+        sync_user_role_profile(user.user)
+
+        result = _team_manager.remove_role_profile(user.user, team_name)
+
+        self.assertEqual(result["action"], "not_recorded", result)
+        self.assertIn(self.STAFF, get_user_role_profiles(user.user))
+
+    def test_a_first_sync_that_records_nothing_still_writes_an_empty_record(self):
+        from unittest import mock
+
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            read_sync_granted_profiles,
+        )
+
+        user = self._new_volunteer()
+        self._assign_profiles_directly(user.user, ["HR"])
+        self.assertIsNone(read_sync_granted_profiles(user.user), "fixture: never recorded")
+
+        # Mock justified: no real member derives nothing (Member is always derived); this reaches
+        # the empty-record branch of the first sync.
+        with mock.patch(
+            "verenigingen.services.member.account.user_role_profile_calculator."
+            "calculate_user_role_profile_set",
+            return_value=[],
+        ):
+            sync_user_role_profile(user.user)
+
+        self.assertEqual(read_sync_granted_profiles(user.user), [])

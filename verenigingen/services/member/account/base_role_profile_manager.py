@@ -573,6 +573,15 @@ class BaseRoleProfileManager(ABC):
                     )
             else:
                 frappe.db.release_savepoint(save_point)
+                if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
+                    # Held, but not recorded as granted by the system (assigned by hand, or
+                    # before the record existed): not this endpoint's to strip.
+                    return self._create_response(
+                        success=True,
+                        message=f"Role profile '{role_profile}' is held but was not granted by the "
+                        "system, so it was left in place",
+                        action="not_recorded",
+                    )
                 return self._create_response(
                     success=True,
                     message=f"User does not have role profile '{role_profile}'",
