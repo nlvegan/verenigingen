@@ -240,12 +240,12 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         holder = frappe.get_doc("User", actor)
         holder.append("role_profiles", {"role_profile": self._profile_granting("HR User")})
         holder.save()
-        self.assertIn("HR User", frappe.get_roles(actor))  # control: roles-held would allow it
         victim = self._make_user_holding_profile(None)
         self._assert_assignment_refused(actor, payroll, assign_role_profile_to_user, victim, payroll)
         previous = frappe.session.user
         frappe.set_user(actor)
         try:
+            self.assertIn("HR User", frappe.get_roles())  # control: roles-held would allow it
             with self.assertRaisesRegex(frappe.ValidationError, "payroll access"):
                 validate_mapped_profiles({("default", payroll)}, set(), national_allowed=False)
         finally:
