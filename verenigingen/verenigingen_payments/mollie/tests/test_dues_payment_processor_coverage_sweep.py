@@ -595,6 +595,8 @@ class TestPaymentEntryFallbacks(DuesSweepTestBase):
         paid_to_company = frappe.db.get_value("Account", pe.paid_to, "company")
         self.assertEqual(paid_to_company, pe.company)
         self.assertNotEqual(pe.paid_to, other_clearing)
+        # With every '%Mollie%' account disabled, the fallback is the company's default bank account.
+        self.assertEqual(pe.paid_to, frappe.db.get_value("Company", pe.company, "default_bank_account"))
 
 
 # ===========================================================================
