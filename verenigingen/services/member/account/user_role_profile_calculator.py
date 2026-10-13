@@ -19,6 +19,7 @@ Author: Verenigingen Development Team
 Last Updated: 2025-10-09
 """
 
+import json
 from datetime import timedelta
 from typing import Optional
 
@@ -319,58 +320,32 @@ def calculate_user_role_profile_set(user: str) -> list:
     return [own[0], *national] if own else national
 
 
-def get_seat_derivable_profiles(user: str) -> set:
-    """The profiles a sync may remove from THIS user: ones it could have derived for them.
+SYNC_GRANTED_FIELD = "custom_sync_granted_profiles"
 
-    The built-in profiles always; a profile configured on a chapter or team only when the
-    user has (or had, any status) a seat or membership there. A mapped profile is NOT
-    removable from a user with no history in the mapping chapter/team: default MijnRood
-    teams map Verenigingen Administrator and Staff, so treating every mapped profile as
-    derived made a sync strip a manually assigned Administrator from any user outside
-    that team, and a plain board member can trigger a sync for anyone by seating them.
-    Everything else on the User (HR, System Administrator...) is never this function's.
+
+def read_sync_granted_profiles(user: str):
+    """The profiles the sync itself granted this user, or None when it never recorded any.
+
+    The sync removes ONLY profiles named here. Inferring "ours" from a user's seat/team
+    rows fails both ways: a deleted row loses the provenance (a withdrawn profile is kept),
+    and a row anyone can create (a team lead's own team) makes a manual profile look
+    derived. None (no record yet) is the bootstrap case, see sync_user_role_profile.
     """
-    profiles = {
-        PROFILE_MEMBER,
-        PROFILE_VOLUNTEER,
-        PROFILE_TEAM_LEADER,
-        PROFILE_BOARD_MEMBER,
-        *NATIONAL_PROFILES,
-    }
-    member = frappe.db.get_value("Member", {"user": user}, "name")
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
-    chapters = set(
-        frappe.get_all("Chapter Board Member", filters={"volunteer": volunteer}, pluck="parent")
-        if volunteer
-        else []
-    )
-    teams = set(
-        frappe.get_all("Team Member", filters={"volunteer": volunteer}, pluck="parent") if volunteer else []
-    )
-    teams.update(frappe.get_all("Team", filters={"team_lead": user}, pluck="name"))
-    for doctype, field, parents in (
-        ("Chapter", "default_board_role_profile", chapters),
-        ("Team", "default_role_profile", teams),
-    ):
-        if parents:
-            profiles.update(
-                frappe.get_all(
-                    doctype, filters={"name": ["in", list(parents)], field: ["is", "set"]}, pluck=field
-                )
-            )
-    for doctype, parents in (
-        ("Chapter Role Profile Mapping", chapters),
-        ("Team Role Profile Assignment", teams),
-    ):
-        if parents:
-            profiles.update(
-                frappe.get_all(
-                    doctype,
-                    filters={"parent": ["in", list(parents)], "role_profile": ["is", "set"]},
-                    pluck="role_profile",
-                )
-            )
-    return profiles
+    if not frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD):
+        return []
+    raw = frappe.db.get_value("User", user, SYNC_GRANTED_FIELD)
+    if not raw:
+        return None
+    try:
+        return [str(name) for name in json.loads(raw)]
+    except (TypeError, ValueError):
+        return None
+
+
+def record_sync_granted_profiles(user_doc, profiles) -> None:
+    """Store ``profiles`` as sync-granted on an in-memory User doc (saved by the caller)."""
+    if frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD):
+        user_doc.set(SYNC_GRANTED_FIELD, json.dumps(sorted(set(profiles))))
 
 
 def get_board_member_profiles(user: str, member: str) -> list:
@@ -904,9 +879,9 @@ def sync_user_role_profile(
             what forces the account back on, see the note below). Callers that
             pass this must be downgrading access (e.g. a termination pipeline),
             not restoring it.
-        withdraw: Profiles the caller knows were granted directly and must now go. The
-            sync only touches profiles it derives (get_seat_derivable_profiles), so a
-            directly granted one is removed only when named here (and not re-derived).
+        withdraw: Profiles a caller must revoke although the sync did not grant them
+            (a MijnRood direct grant). Internal callers should not need it: the sync
+            removes the profiles it recorded as its own and no longer derives.
 
     Returns:
         dict: {
@@ -993,13 +968,39 @@ def sync_user_role_profile(
 
         # Check if change needed
         if _has_multi_profile_support():
-            # Non-destructive: keep every profile this calculator does not derive
-            # (manual admin profiles, HR, System Administrator...), replace only the rest.
-            derivable = get_seat_derivable_profiles(user) | set(withdraw)
-            kept = [name for name in existing_profiles if name not in derivable]
-            new_profiles = kept + [name for name in new_profiles if name not in kept]
+            # Non-destructive: remove ONLY profiles this sync recorded as its own and no
+            # longer derives; never touch one it did not grant (manual admin profiles, HR,
+            # System Administrator...). A profile the user already held is not recorded
+            # as ours when it is derived, so it stays theirs.
+            derived = list(new_profiles)
+            recorded = read_sync_granted_profiles(user)
+            if recorded is None:
+                # Bootstrap (no record yet, e.g. data from before the record existed): only
+                # a currently-derived profile the user holds counts as ours. A manual
+                # profile that coincides with a derived one is indistinguishable here.
+                currently_derived = {name for _prio, name in calculate_all_user_role_profiles(user)}
+                # The built-in seat/team profiles also count: a legacy user who left a board or
+                # the volunteers would otherwise keep a stale one for ever (#692 revocation).
+                currently_derived |= {
+                    PROFILE_MEMBER,
+                    PROFILE_VOLUNTEER,
+                    PROFILE_TEAM_LEADER,
+                    PROFILE_BOARD_MEMBER,
+                    *NATIONAL_PROFILES,
+                }
+                recorded = [name for name in existing_profiles if name in currently_derived]
+            removable = (set(recorded) - set(derived)) | set(withdraw)
+            kept = [name for name in existing_profiles if name not in removable]
+            added = [name for name in derived if name not in kept]
+            new_profiles = kept + added
+            granted_now = [name for name in new_profiles if name in added or name in recorded]
+            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and sorted(
+                set(granted_now)
+            ) != sorted(set(read_sync_granted_profiles(user) or []))
             role_changed = set(existing_profiles) != set(new_profiles)
         else:
+            marker_changed = False
+            derived = [new_profile]
             role_changed = old_profile != new_profile
         module_changed = new_module_profile is not None and old_module_profile != new_module_profile
         changed = role_changed or module_changed
@@ -1020,7 +1021,7 @@ def sync_user_role_profile(
             # then silently stripped by ERPNext's own validate_employee_role()
             # hook instead, which is the safe outcome for a disabled account.
             if role_changed and user_enabled:
-                for profile in new_profiles:
+                for profile in derived:
                     _ensure_employee_for_profile(user, profile)
                 # Inserting Employee triggers ERPNext hooks that modify the
                 # User doc (notably adding the Employee role). Without a
@@ -1041,6 +1042,8 @@ def sync_user_role_profile(
                 user_doc.role_profile_name = new_profiles[0] if new_profiles else new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile
+            if _has_multi_profile_support():
+                record_sync_granted_profiles(user_doc, granted_now)
 
             # Security: ignore_permissions: the profiles written are derived by this function from
             # organisational records (seats, teams, volunteer status), never taken from
@@ -1063,6 +1066,12 @@ def sync_user_role_profile(
                 new_profile=new_profile,
                 old_module=old_module_profile,
                 new_module=new_module_profile,
+            )
+
+        if marker_changed and not changed and not dry_run:
+            # Only the record moved (first sync of this user): no hooks, no profile change.
+            frappe.db.set_value(
+                "User", user, SYNC_GRANTED_FIELD, json.dumps(sorted(set(granted_now))), update_modified=False
             )
 
         return {

@@ -83,6 +83,13 @@ def _set_single_role_profile(user_doc, role_profile: str) -> None:
     """
     if _has_multi_profile_support():
         user_doc.set("role_profiles", [{"role_profile": role_profile}])
+        # This manager grants the profile as a system action: record it as sync-granted so
+        # a later removal may take it back, and so nothing else becomes removable.
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            record_sync_granted_profiles,
+        )
+
+        record_sync_granted_profiles(user_doc, [role_profile])
     user_doc.role_profile_name = role_profile
 
 
@@ -508,7 +515,15 @@ class BaseRoleProfileManager(ABC):
             # in the role_profiles child table (role_profile_name is deprecated/cleared on
             # save), so check both for backwards compatibility.
             current_profiles = _read_role_profiles(user_doc)
-            if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                read_sync_granted_profiles,
+            )
+
+            # Only a profile the sync/this manager granted may be taken back; a manually
+            # assigned one (Administrator, Staff...) is not this endpoint's to strip.
+            if (role_profile == user_doc.role_profile_name or role_profile in current_profiles) and (
+                role_profile in (read_sync_granted_profiles(user) or [])
+            ):
                 previous_role_profile = role_profile
 
                 # Commit the transaction first (entity membership changes are already committed).
@@ -524,7 +539,7 @@ class BaseRoleProfileManager(ABC):
                 # This ensures volunteers keep "Verenigingen Volunteer" profile if status is Active
                 from verenigingen.utils.user_role_profile_calculator import sync_user_role_profile
 
-                sync_result = sync_user_role_profile(user, withdraw=(role_profile,))
+                sync_result = sync_user_role_profile(user)
 
                 if sync_result.get("success"):
                     new_profile = sync_result.get("new_profile")

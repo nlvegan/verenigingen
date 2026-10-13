@@ -110,6 +110,12 @@ class MemberRoleService(StatelessService):
             # roles. Assign via the child table so the profile's roles are applied.
             user.set("role_profiles", [])
             user.append("role_profiles", {"role_profile": role_profile_name})
+            # The sync removes only profiles recorded as its own; this base profile is its own.
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                record_sync_granted_profiles,
+            )
+
+            record_sync_granted_profiles(user, [role_profile_name])
 
             # Ensure user is enabled
             if not user.enabled:

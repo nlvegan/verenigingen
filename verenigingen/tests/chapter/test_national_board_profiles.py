@@ -460,16 +460,16 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         self.assertIn(NATIONAL_MEMBER, profiles)
 
     def test_a_stale_derived_profile_is_still_withdrawn_next_to_manual_ones(self):
-        """Control for the above: non-destructive must not mean never-removing."""
-        seat = self._hold_a_board_seat(self.national, "Secretary")
-        self._assign_profiles_directly(seat.user, ["HR", NATIONAL_MEMBER, NATIONAL_TREASURER])
-
-        sync_user_role_profile(seat.user)
+        """Control: non-destructive must not mean never-removing what the sync granted."""
+        seat = self._hold_a_board_seat(self.national, "Treasurer")
+        self._assign_profiles_directly(seat.user, [*get_user_role_profiles(seat.user), "HR"])
+        chapter = frappe.get_doc("Chapter", self.national.name)
+        self.assertTrue(chapter.board_manager.remove_board_member(seat.volunteer, notify=False)["success"])
 
         profiles = set(get_user_role_profiles(seat.user))
+
         self.assertIn("HR", profiles)
-        self.assertIn(NATIONAL_MEMBER, profiles)
-        self.assertNotIn(NATIONAL_TREASURER, profiles, "a treasurer profile without a treasurer seat is stale")
+        self.assertNotIn(NATIONAL_TREASURER, profiles)
 
     # ---- MEDIUM-3: a team cannot fill the national slot
 
@@ -598,16 +598,196 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         frappe.clear_cache(user=victim.user)
         self.assertIn("System Manager", frappe.get_roles(victim.user))
 
-    def test_a_staff_profile_from_a_team_the_user_left_is_still_withdrawn(self):
-        """Control: provenance is the user's own membership history, so leaving still removes it."""
-        seat = self._staffer_on_the_national_board(self.STAFF)
-        self.assertIn(self.STAFF, get_user_role_profiles(seat.user), "fixture")
-        frappe.db.set_value(
-            "Team Member", {"volunteer": seat.volunteer}, "status", "Inactive"
-        )  # leaving a team keeps the (inactive) row
+    # ---- round 3: provenance is what the SYNC granted, not the existence of a row
 
-        sync_user_role_profile(seat.user)
+    def _nbp_team_member(self, profile, volunteer=None):
+        """A volunteer (real User) added to an association-wide team mapped to ``profile``."""
+        new = volunteer or self._new_volunteer()
+        sync_user_role_profile(new.user)  # a real account has been synced once (records its base profile)
+        team = frappe.get_doc("Team", self._staff_team(profile))
+        team.append(
+            "team_members",
+            {
+                "volunteer": new.volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        team.save()
+        sync_user_role_profile(new.user)
+        return new, team.name
 
-        profiles = get_user_role_profiles(seat.user)
-        self.assertNotIn(self.STAFF, profiles)
-        self.assertIn(NATIONAL_MEMBER, profiles)
+    def test_a_mapped_profile_is_withdrawn_when_the_team_row_is_deleted(self):
+        member, team_name = self._nbp_team_member(self.STAFF)
+        self.assertIn(self.STAFF, get_user_role_profiles(member.user), "fixture: Staff was granted")
+
+        team = frappe.get_doc("Team", team_name)
+        team.remove(team.team_members[0])
+        team.save()
+        sync_user_role_profile(member.user)
+
+        self.assertNotIn(self.STAFF, get_user_role_profiles(member.user))
+
+    def test_a_mapped_profile_is_withdrawn_when_the_team_row_goes_inactive(self):
+        member, team_name = self._nbp_team_member(self.STAFF)
+        team = frappe.get_doc("Team", team_name)
+        team.team_members[0].status = "Inactive"
+        team.save()
+        sync_user_role_profile(member.user)
+
+        self.assertNotIn(self.STAFF, get_user_role_profiles(member.user))
+
+    def test_deleting_a_national_seat_in_the_chapter_form_withdraws_and_does_not_raise(self):
+        seat = self._hold_a_board_seat(self.national, "Secretary")
+        self.assertIn(NATIONAL_MEMBER, get_user_role_profiles(seat.user), "fixture")
+
+        chapter = frappe.get_doc("Chapter", self.national.name)
+        row = next(r for r in chapter.board_members if r.volunteer == seat.volunteer)
+        chapter.remove(row)
+        chapter.save()  # must not raise BoardAccessWithdrawalError for a legitimate removal
+
+        self.assertNotIn(NATIONAL_MEMBER, get_user_role_profiles(seat.user))
+
+    def test_a_team_lead_cannot_strip_a_manual_staff_profile_by_inactivating_the_row(self):
+        """R3-3: the lead's own team maps Staff; the victim holds Staff by hand."""
+        victim = self._new_volunteer()
+        self._assign_profiles_directly(victim.user, [self.STAFF])
+        sync_user_role_profile(victim.user)  # the victim's record exists; Staff is not in it
+        self.assertIn(self.STAFF, get_user_role_profiles(victim.user), "fixture")
+        team_name = self._staff_team(self.STAFF)
+        team = frappe.get_doc("Team", team_name)
+        team.append(
+            "team_members",
+            {
+                "volunteer": victim.volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        team.save()
+        sync_user_role_profile(victim.user)
+
+        team = frappe.get_doc("Team", team_name)
+        team.team_members[0].status = "Inactive"
+        team.save()
+        sync_user_role_profile(victim.user)
+
+        self.assertIn(self.STAFF, get_user_role_profiles(victim.user))
+
+    def test_a_manual_administrator_profile_survives_a_default_team_row_going_inactive(self):
+        """R3-4: Landelijk Beheer maps Administrator; the admin held it before the row existed."""
+        admin = self._new_volunteer()
+        self._assign_profiles_directly(admin.user, [self.ADMINISTRATOR])
+        frappe.get_doc("User", admin.user).add_roles("System Manager")
+        sync_user_role_profile(admin.user)  # records the admin's base state; Administrator is manual
+        team_name = self._staff_team(self.ADMINISTRATOR)
+        team = frappe.get_doc("Team", team_name)
+        team.append(
+            "team_members",
+            {
+                "volunteer": admin.volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        team.save()
+        sync_user_role_profile(admin.user)
+        team = frappe.get_doc("Team", team_name)
+        team.team_members[0].status = "Inactive"
+        team.save()
+        sync_user_role_profile(admin.user)
+
+        self.assertIn(self.ADMINISTRATOR, get_user_role_profiles(admin.user))
+        frappe.clear_cache(user=admin.user)
+        self.assertIn("System Manager", frappe.get_roles(admin.user))
+
+    def test_the_documented_bootstrap_residue_a_never_synced_user_is_indistinguishable(self):
+        """Characterisation of the known limit, NOT a goal: with NO record yet, a manual profile that
+        coincides with a currently-derived one is treated as the sync's own (legacy data)."""
+        legacy = self._new_volunteer()
+        self._assign_profiles_directly(legacy.user, [self.STAFF])
+        team = frappe.get_doc("Team", self._staff_team(self.STAFF))
+        team.append(
+            "team_members",
+            {
+                "volunteer": legacy.volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        team.save()
+        sync_user_role_profile(legacy.user)  # first sync ever: Staff is derived and held -> recorded
+        team = frappe.get_doc("Team", team.name)
+        team.team_members[0].status = "Inactive"
+        team.save()
+        sync_user_role_profile(legacy.user)
+
+        self.assertNotIn(self.STAFF, get_user_role_profiles(legacy.user))
+
+    # ---- R3-2: the whitelisted remove endpoints
+
+    def _call_remove_endpoint_as(self, roles, fn_path, *args):
+        import importlib
+
+        email = f"caller.{frappe.generate_hash(length=8)}@test.invalid"
+        user = self.create_test_user(email, roles=roles)
+        self._assign_profiles_directly(user.name, [self.STAFF])
+        module, name = fn_path.rsplit(".", 1)
+        fn = getattr(importlib.import_module(module), name)
+        frappe.set_user(email)
+        self.addCleanup(frappe.set_user, "Administrator")
+        return fn(*args)
+
+    def test_a_staff_caller_cannot_strip_an_admin_victim_with_no_team_row(self):
+        victim = self._new_volunteer()
+        self._assign_profiles_directly(victim.user, [self.ADMINISTRATOR])
+        frappe.get_doc("User", victim.user).add_roles("System Manager")
+        team_name = self._staff_team(self.STAFF)
+
+        with self.assertRaisesRegex(frappe.PermissionError, "permission to change role profiles"):
+            self._call_remove_endpoint_as(
+                ["Verenigingen Staff"],
+                "verenigingen.utils.team_role_profile_manager.remove_team_role_profile",
+                victim.user,
+                team_name,
+            )
+        self.assertIn(self.ADMINISTRATOR, get_user_role_profiles(victim.user))
+
+    def test_the_remove_guard_refuses_unknown_and_forbidden_chapters_identically(self):
+        """The chapter endpoint's own tier already refuses a Staff caller (measured: "Access
+        denied"), so the guard behind it is exercised directly, as a Staff user."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import (
+            require_may_remove_profile_for,
+        )
+
+        victim = self._new_volunteer()
+        email = f"caller.{frappe.generate_hash(length=8)}@test.invalid"
+        self.create_test_user(email, roles=["Verenigingen Staff"])
+        frappe.set_user(email)
+        self.addCleanup(frappe.set_user, "Administrator")
+        seen = []
+        for chapter in (self.other.name, "No Such Chapter " + frappe.generate_hash(length=6)):
+            frappe.local.message_log = []
+            with self.assertRaises(frappe.PermissionError) as caught:
+                require_may_remove_profile_for("Chapter", chapter, victim.user)
+            log = [{k: v for k, v in m.items() if k != "__frappe_exc_id"} for m in frappe.local.message_log]
+            seen.append((str(caught.exception), log))
+        self.assertEqual(seen[0], seen[1])
+
+    def test_deleting_a_seat_mapped_to_a_configured_profile_in_the_chapter_form_withdraws_it(self):
+        """R3-1: a mapped (non built-in) profile; the row is gone by the time the sync looks."""
+        self.other.reload()
+        self.other.default_board_role_profile = MAPPED_PROFILE
+        self.other.save()
+        seat = self._hold_a_board_seat(self.other, "Secretary")
+        self.assertIn(MAPPED_PROFILE, get_user_role_profiles(seat.user), "fixture")
+
+        chapter = frappe.get_doc("Chapter", self.other.name)
+        chapter.remove(next(r for r in chapter.board_members if r.volunteer == seat.volunteer))
+        chapter.save()  # must not raise BoardAccessWithdrawalError
+
+        self.assertNotIn(MAPPED_PROFILE, get_user_role_profiles(seat.user))
