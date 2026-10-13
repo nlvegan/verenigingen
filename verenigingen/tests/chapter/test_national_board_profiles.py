@@ -905,3 +905,51 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         sync_user_role_profile(new.user)
 
         self.assertIn(MAPPED_PROFILE, get_user_role_profiles(new.user))
+
+    # ---- #1612 ruling (a): explicit full activation leaves the volunteer in Onboarding
+
+    def test_the_calculator_derives_volunteer_for_onboarding_but_not_for_new(self):
+        new = self._new_volunteer()
+        sync_user_role_profile(new.user)
+        # Labelled shortcut: direct status writes stand in for the states under test.
+        frappe.db.set_value("Volunteer", new.volunteer, "status", "New")
+        sync_user_role_profile(new.user)
+        self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(new.user), "control: New")
+
+        frappe.db.set_value("Volunteer", new.volunteer, "status", "Onboarding")
+        sync_user_role_profile(new.user)
+
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user))
+
+    def test_an_activation_request_moves_a_new_volunteer_to_onboarding(self):
+        new = self._new_volunteer()
+        frappe.db.set_value("Volunteer", new.volunteer, "status", "New")
+        self._acr_requesting(new.user, "Verenigingen Volunteer")
+
+        sync_user_role_profile(new.user)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", new.volunteer, "status"), "Onboarding")
+        self.assertIn("Verenigingen Volunteer", get_user_role_profiles(new.user))
+
+    def test_an_activation_request_leaves_other_volunteer_statuses_alone(self):
+        new = self._new_volunteer()
+        frappe.db.set_value("Volunteer", new.volunteer, "status", "Inactive")
+
+        self._acr_requesting(new.user, "Verenigingen Volunteer")
+
+        self.assertEqual(frappe.db.get_value("Volunteer", new.volunteer, "status"), "Inactive")
+
+    def test_full_activation_from_the_member_creates_an_onboarding_volunteer(self):
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
+
+        email = f"fullact.{frappe.generate_hash(length=8)}@test.invalid"
+        member = self.create_test_member(first_name="Full", last_name="Act", email=email, status="Active")
+
+        result = create_volunteer_from_member(member.name, create_user_account=1)
+
+        self.assertTrue(result.get("success"), result)
+        self.assertEqual(frappe.db.get_value("Volunteer", result["volunteer_name"], "status"), "Onboarding")
+        light = create_volunteer_from_member(
+            self.create_test_member(first_name="Lite", last_name="Vol", email="lite." + email, status="Active").name
+        )
+        self.assertEqual(frappe.db.get_value("Volunteer", light["volunteer_name"], "status"), "New", "control")

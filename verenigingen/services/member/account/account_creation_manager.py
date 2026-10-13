@@ -747,6 +747,49 @@ class AccountCreationManager:
                 return None  # Signal: user already existed
             raise
 
+    def _ensure_volunteer_onboarding(self):
+        """An explicit volunteer activation leaves a Volunteer in Onboarding (#1612).
+
+        The role-profile sync derives the Volunteer profile only for an Active/Onboarding
+        volunteer, so a request for that profile on a member with no volunteer (or a "New"
+        one) was undone by its own Phase 3 sync. Creates the volunteer when absent; a "New"
+        one becomes Onboarding; any other status is an operator decision and is left alone.
+        """
+        if self.request.role_profile != "Verenigingen Volunteer":
+            return
+        from verenigingen.utils.member_utils import get_volunteer_for_member
+
+        if self.request.request_type == "Volunteer":
+            volunteer = self.request.source_record
+            member = frappe.db.get_value("Volunteer", volunteer, "member")
+        else:
+            member = self.request.source_record
+            volunteer = get_volunteer_for_member(member)
+
+        if volunteer:
+            if frappe.db.get_value("Volunteer", volunteer, "status") == "New":
+                # db.set_value: no Volunteer hooks (its New -> * auto-activation would queue a second ACR).
+                frappe.db.set_value("Volunteer", volunteer, "status", "Onboarding")
+        elif member:
+            member_doc = frappe.get_doc("Member", member)
+            new_volunteer = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": member_doc.full_name or member_doc.email or member,
+                    "member": member,
+                    "status": "Onboarding",
+                    "start_date": member_doc.member_since or frappe.utils.today(),
+                    "user": member_doc.user or None,
+                }
+            )
+            # Security: gated upstream by @high_security_api + validate_processing_permissions; the
+            # public create_volunteer_from_member endpoint is itself tier-gated and refuses the
+            # Staff actor this pipeline legitimately runs as.
+            new_volunteer.insert(ignore_permissions=True)
+            frappe.db.set_value(
+                "Member", member, "volunteer_record", new_volunteer.name, update_modified=False
+            )
+
     def assign_roles_and_profile(self):
         """Assign roles and role profile with proper permission validation
 
@@ -770,6 +813,7 @@ class AccountCreationManager:
         )
 
         try:
+            self._ensure_volunteer_onboarding()
             user_doc = frappe.get_doc("User", self.created_user)
             existing_roles = [r.role for r in user_doc.roles]
             frappe.logger().info(f"[ACR PIPELINE] User {self.created_user} existing roles: {existing_roles}")
