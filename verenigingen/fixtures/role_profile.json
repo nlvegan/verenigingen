@@ -167,6 +167,9 @@
       },
       {
         "role": "Expense Approver"
+      },
+      {
+        "role": "HR Manager"
       }
     ]
   },
@@ -209,6 +212,9 @@
       },
       {
         "role": "Auditor"
+      },
+      {
+        "role": "Verenigingen National Board Member"
       }
     ]
   },
@@ -305,6 +311,9 @@
       },
       {
         "role": "Purchase User"
+      },
+      {
+        "role": "Expense Approver"
       }
     ]
   },

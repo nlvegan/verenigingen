@@ -39,7 +39,9 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 
 def get_user_accessible_chapters(
-    user_email: Optional[str] = None, required_permission_levels: Optional[List[str]] = None
+    user_email: Optional[str] = None,
+    required_permission_levels: Optional[List[str]] = None,
+    admin_roles=None,
 ) -> Optional[List[str]]:
     """
     Get chapters accessible to a user based on their board positions and permissions.
@@ -47,6 +49,9 @@ def get_user_accessible_chapters(
     Args:
         user_email: User email (defaults to current user)
         required_permission_levels: List of permission levels required (defaults to ["Admin", "Financial"])
+        admin_roles: Roles that count as "sees every chapter" (defaults to Roles.ADMIN_ROLES, which
+            includes Verenigingen Staff). A caller that must scope plain Staff to their board
+            seats passes a narrower set (#1606).
 
     Returns:
         None: User has admin access (can see all chapters)
@@ -106,7 +111,8 @@ def get_user_accessible_chapters(
 
     try:
         # Check for admin roles - these users see all chapters
-        admin_roles = Roles.ADMIN_ROLES
+        if admin_roles is None:
+            admin_roles = Roles.ADMIN_ROLES
         user_roles = frappe.get_roles(user_email)
 
         if any(role in user_roles for role in admin_roles):
