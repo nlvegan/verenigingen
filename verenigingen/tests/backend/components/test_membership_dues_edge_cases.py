@@ -433,7 +433,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         template (dues_rate €15) above the minimum.
         """
         role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+            "Role Profile", "Verenigingen Member", "name"
         ) or frappe.db.get_value("Role Profile", {}, "name")
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Edge Case Type {frappe.generate_hash(length=6)}"
