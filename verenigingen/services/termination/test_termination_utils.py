@@ -170,6 +170,20 @@ class TestTerminationUtils(EnhancedTestCase):
         self.assertEqual(result["impact"]["volunteer_records"], 1)
         self.assertTrue(any("volunteer record" in w for w in result["warnings"]))
 
+    def test_validate_readiness_counts_onboarding_and_new_volunteers(self):
+        """Full activation leaves an Onboarding volunteer holding the Volunteer profile (#1612)."""
+        for status in ("Onboarding", "New"):
+            member = self._make_member()
+            self.create_test_volunteer(member_name=member.name, status=status)
+            result = tu.validate_termination_readiness(member.name)
+            self.assertEqual(result["impact"]["volunteer_records"], 1, status)
+
+        inactive = self._make_member()
+        self.create_test_volunteer(member_name=inactive.name, status="Inactive")
+        self.assertEqual(
+            tu.validate_termination_readiness(inactive.name)["impact"]["volunteer_records"], 0, "control"
+        )
+
     def test_validate_readiness_counts_employee_via_user_id(self):
         member = self._make_member()
         user = self._make_user(member)
