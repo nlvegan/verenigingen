@@ -512,8 +512,9 @@ def _granted_flags(row, checks):
 
 
 def _load_own_snapshot():
-    """The recorded snapshot, or ``None`` when absent or unreadable (reported, and cleared by
-    the caller, so a bad value cannot abort every migrate)."""
+    """The recorded snapshot, ``None`` when there is none, ``{}`` when it is unreadable
+    (reported; the caller then prunes nothing and clears it, so a bad value cannot abort every
+    migrate)."""
     raw = frappe.db.get_global(SNAPSHOT_KEY)
     if not raw:
         return None
@@ -521,14 +522,17 @@ def _load_own_snapshot():
         snapshot = frappe.parse_json(raw)
         valid = isinstance(snapshot, dict) and all(
             isinstance(rows, list)
-            and all(isinstance(r, list) and len(r) == 4 and isinstance(r[3], list) for r in rows)
+            and all(
+                isinstance(r, list) and len(r) == 4 and isinstance(r[0], str) and isinstance(r[3], list)
+                for r in rows
+            )
             for rows in snapshot.values()
         )
     except ValueError:
         valid = False
     if not valid:
         frappe.log_error(
-            title="Own DocType permission snapshot unreadable, nothing pruned",
+            title="Own DocType permission snapshot unreadable, nothing pruned (a revocation may have been missed this migrate)",
             message=f"{SNAPSHOT_KEY}: {str(raw)[:500]}",
         )
         return {}

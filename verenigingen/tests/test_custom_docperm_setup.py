@@ -405,6 +405,11 @@ class TestCustomDocPermSetup(FrappeTestCase):
         '["read"]',
         '{"Customer": {"Verenigingen Staff": ["read", "write", "create"]}}',  # round-1 shape
         '{"Customer": 5}',
+        '{"Customer": {"Verenigingen Staff": {"ptypes": "read", "defaults": []}}}',
+        '{"Customer": {"Verenigingen Staff": {"ptypes": ["read"], "defaults": null}}}',
+        # one valid doctype next to a bad one: the whole value is refused, not half-used
+        '{"Company": {"Verenigingen Webhook User": {"ptypes": ["read"], "defaults": []}},'
+        ' "Customer": 5}',
     )
 
     def _assert_visible_failure(self, call):
@@ -436,7 +441,16 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._freeze_via_user_type_path("Team")
         role = self._a_declared_role("Team")
         frappe.db.delete("DocPerm", {"parent": "Team", "role": role})
-        for garbled in ("{not json", '["Team"]', '{"Team": 5}', '{"Team": [["x"]]}'):
+        good = '"Chapter": [["System Manager", 0, 0, ["read"]]]'
+        for garbled in (
+            "{not json",
+            '["Team"]',
+            '{"Team": 5}',
+            '{"Team": [["x"]]}',
+            '{"Team": [[[], 0, 0, []]]}',  # right length, role not a string
+            "{" + good + ', "Team": 5}',  # a good doctype first, a bad one after it
+            '{"Team": 5, ' + good + "}",
+        ):
             with self.subTest(snapshot=garbled):
                 frappe.db.set_global(setup.SNAPSHOT_KEY, garbled)
                 self._assert_visible_failure(setup._prune_revoked_keys)
