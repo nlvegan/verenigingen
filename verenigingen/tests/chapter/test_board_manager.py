@@ -579,9 +579,12 @@ class TestBoardManager(VereningingenTestCase):
         member, _vol, _role = self._seat_board(permissions_level="Financial", first="PayFin")
         self.assertTrue(self.manager.can_view_member_payments(member_name=member.name))
 
-    def test_can_view_member_payments_admin_allowed(self):
+    def test_can_view_member_payments_admin_denied(self):
+        """#1650 ruling (2026-10-14): chapter Admin does NOT imply financial rights, so an
+        Admin seat may not view member payments. The Financial control is
+        test_can_view_member_payments_financial_allowed."""
         member, _vol, _role = self._seat_board(permissions_level="Admin", first="PayAdmin")
-        self.assertTrue(self.manager.can_view_member_payments(member_name=member.name))
+        self.assertFalse(self.manager.can_view_member_payments(member_name=member.name))
 
     def test_can_view_member_payments_non_board_denied(self):
         member = self.create_test_member(
