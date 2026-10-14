@@ -33,6 +33,7 @@ class WebhookEndpointTestBase(FrappeTestCase):
     def setUp(self):
         super().setUp()
         # Reset response and form_dict, install a request-like object.
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict({})
         frappe.local.request_ip = "203.0.113.1"
         frappe.local.form_dict = frappe._dict({})

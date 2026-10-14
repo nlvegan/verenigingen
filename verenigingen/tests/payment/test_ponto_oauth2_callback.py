@@ -64,6 +64,7 @@ class TestPontoOAuth2Callback(FrappeTestCase):
     def setUp(self):
         super().setUp()
         self._prev_request = getattr(frappe.local, "request", None)
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         # Fresh response container for each test.
         frappe.local.response = frappe._dict()
         cache = frappe.cache()

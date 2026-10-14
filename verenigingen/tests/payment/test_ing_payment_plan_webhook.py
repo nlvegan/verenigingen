@@ -73,6 +73,7 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
         ing_checkout/tests/test_webhook_endpoints.py.
         """
         self._orig_request = getattr(frappe.local, "request", None)
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict({})
         frappe.local.request_ip = "203.0.113.9"
         frappe.local.form_dict = frappe._dict({})

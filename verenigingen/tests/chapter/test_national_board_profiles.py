@@ -373,6 +373,11 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         self.addCleanup(setattr, frappe.local, "request", original_request)
         # Mock justified: Infrastructure - run_doc_method reads the HTTP method of the request
         frappe.local.request = Request(EnvironBuilder(method="POST").get_environ())
+        original_response = getattr(frappe.local, "response", None)
+        self.addCleanup(setattr, frappe.local, "response", original_response)
+        # Mock justified: Infrastructure - run_doc_method appends the doc to response.docs, which
+        # only a real request cycle creates (an earlier test may have left a bare _dict() behind)
+        frappe.local.response = frappe._dict(docs=[])
         nbm = self._an_existing_national_board_member()
         new = self._new_volunteer()
         role = self._chapter_role_labelled("Secretary")
@@ -531,7 +536,7 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         settings.save()
 
     def test_a_financial_manager_cannot_repoint_the_national_chapter(self):
-        with self.assertRaisesRegex(frappe.PermissionError, "national board chapter"):
+        with self.assertRaisesRegex(frappe.PermissionError, "Only a Verenigingen Administrator"):
             self._settings_change_as(["Verenigingen Financial Manager"])
         self.assertEqual(
             frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.national.name
@@ -543,8 +548,48 @@ class TestNationalBoardProfiles(VereningingenTestCase):
             frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
         )
 
-    def test_a_system_manager_can_repoint_the_national_chapter(self):
-        self._settings_change_as(["System Manager"])
+    def test_a_bare_system_manager_cannot_repoint_the_national_chapter(self):
+        """Maintainer ruling on #1626 (2026-10-14): a bare System Manager may not.
+
+        The earlier test asserted the opposite; its premise was the pre-ruling rule.
+        """
+        with self.assertRaisesRegex(frappe.PermissionError, "Only a Verenigingen Administrator"):
+            self._settings_change_as(["System Manager"])
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.national.name
+        )
+
+    def _settings_change_as_profile_holder(self, profile):
+        email = f"setting.{frappe.generate_hash(length=8)}@test.invalid"
+        self.create_test_user(email, roles=[])
+        self.assertNotIn("Verenigingen Administrator", frappe.get_roles(email), "fixture: no role before")
+        self._assign_profiles_directly(email, [profile])
+        # Frappe materialises a profile's roles as Has Role rows on save, so "role via profile"
+        # and "role held directly" are the same state afterwards; this test cannot tell them
+        # apart. What it does prove: a user given ONLY the profile (no direct role) is allowed.
+        self.assertIn("Verenigingen Administrator", frappe.get_roles(email), "fixture: profile grants it")
+        frappe.clear_cache(user=email)
+        frappe.set_user(email)
+        self.addCleanup(frappe.set_user, "Administrator")
+        settings = frappe.get_doc("Verenigingen Settings")
+        settings.national_board_chapter = self.other.name
+        settings.save()
+
+    def test_a_user_given_only_the_verenigingen_system_administrator_profile_can_repoint_the_national_chapter(self):
+        self._settings_change_as_profile_holder("Verenigingen System Administrator")
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    def test_a_user_given_only_the_verenigingen_administrator_profile_can_repoint_the_national_chapter(self):
+        self._settings_change_as_profile_holder("Verenigingen Administrator")
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    def test_the_administrator_user_can_repoint_the_national_chapter(self):
+        """Control: the Administrator user holds every role, so dropping its special case is safe."""
+        self._change_national_chapter(self.other.name)
         self.assertEqual(
             frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
         )

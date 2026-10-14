@@ -58,6 +58,7 @@ class _WebhookEntryPointBase(FrappeTestCase):
 
     def setUp(self):
         # Reset frappe.local.response so http_status_code assertions are clean
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def _call_entry_point(

@@ -552,6 +552,7 @@ class TestPageDonate(EnhancedTestCase):
 
         with self.as_user("Guest"):
             with patch(self._CPS_PATH, self._FakeCompletePaymentService):
+                self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
                 frappe.local.response = frappe._dict()
                 retry_payment(donation.name, donor_email=donor_email)
 

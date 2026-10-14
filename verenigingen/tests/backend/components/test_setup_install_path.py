@@ -297,7 +297,7 @@ class TestSettingsCreatedFromARealCompany(FrappeTestCase):
         self.assertFalse(int(saved.get("initial_setup_complete") or 0))
 
     def test_after_migrate_hook_wires_an_existing_public_creator(self):
-        creator = _make_creator_user(self, "public-creator-n1@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        creator = _make_creator_user(self, "public-creator-11@example.com", roles=[PUBLIC_CREATOR_ROLE])
         frappe.db.delete("Singles", {"doctype": "Verenigingen Settings"})
         frappe.clear_cache(doctype="Verenigingen Settings")
 
@@ -307,7 +307,7 @@ class TestSettingsCreatedFromARealCompany(FrappeTestCase):
         self.assertEqual(saved.get("creation_user"), creator)
 
     def test_after_migrate_hook_leaves_existing_settings_alone(self):
-        _make_creator_user(self, "public-creator-n1b@example.com", roles=[PUBLIC_CREATOR_ROLE])
+        _make_creator_user(self, "public-creator-12@example.com", roles=[PUBLIC_CREATOR_ROLE])
         before = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
         if not frappe.db.get_singles_dict("Verenigingen Settings"):
             setup_mod.ensure_default_verenigingen_settings()
@@ -346,7 +346,9 @@ def _make_creator_user(test, email, roles, enabled=1):
 
 
 class TestFindExistingPublicCreator(FrappeTestCase):
-    """The name prefix is the only identifier, so the role/enabled/no-extra-role rules are the guard."""
+    """The address must match `_CREATOR_ADDRESS` (public-creator[-N]@, #1670) and the
+    role/enabled/no-extra-role rules are the guard. The fixtures use `public-creator-<N>@`
+    because setup adopts only addresses the login refusal also recognises."""
 
     def setUp(self):
         super().setUp()
@@ -357,19 +359,23 @@ class TestFindExistingPublicCreator(FrappeTestCase):
             self.skipTest("site already has a reusable public creator")
 
     def test_a_valid_creator_is_found(self):
-        email = _make_creator_user(self, "public-creator-ok@example.com", [PUBLIC_CREATOR_ROLE])
+        email = _make_creator_user(self, "public-creator-13@example.com", [PUBLIC_CREATOR_ROLE])
         self.assertEqual(self.find(), email)
 
+    def test_a_prefixed_user_whose_address_is_not_the_creator_pattern_is_not_reused(self):
+        _make_creator_user(self, "public-creator-xyz@example.com", [PUBLIC_CREATOR_ROLE])
+        self.assertIsNone(self.find())
+
     def test_a_prefixed_user_without_the_role_is_not_reused(self):
-        _make_creator_user(self, "public-creator-norole@example.com", ["Accounts User"])
+        _make_creator_user(self, "public-creator-14@example.com", ["Accounts User"])
         self.assertIsNone(self.find())
 
     def test_a_disabled_creator_is_not_reused(self):
-        _make_creator_user(self, "public-creator-off@example.com", [PUBLIC_CREATOR_ROLE], enabled=0)
+        _make_creator_user(self, "public-creator-15@example.com", [PUBLIC_CREATOR_ROLE], enabled=0)
         self.assertIsNone(self.find())
 
     def test_a_creator_that_also_holds_system_manager_is_not_reused(self):
-        _make_creator_user(self, "public-creator-sm@example.com", [PUBLIC_CREATOR_ROLE, "System Manager"])
+        _make_creator_user(self, "public-creator-16@example.com", [PUBLIC_CREATOR_ROLE, "System Manager"])
         self.assertIsNone(self.find())
 
 

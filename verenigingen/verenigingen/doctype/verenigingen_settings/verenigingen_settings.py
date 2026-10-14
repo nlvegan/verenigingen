@@ -30,17 +30,19 @@ class VerenigingenSettings(Document):
 
         Financial Manager can write this Single, so without a role check repointing it
         at an ordinary chapter would hand that chapter's seat holders the National Board
-        Member profile (#1626). Only roles that could grant it anyway may change it.
+        Member profile (#1626). Only the Verenigingen Administrator role may change it
+        (maintainer ruling on #1626: the Verenigingen Administrator and Verenigingen System
+        Administrator profiles carry it; a bare System Manager does not).
+        The Administrator user holds every role, so it needs no special case.
         """
         if self.is_new() or frappe.flags.in_install or frappe.flags.in_patch or frappe.flags.in_migrate:
             return
         if not self.has_value_changed("national_board_chapter"):
             return
-        allowed = {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN}
-        if frappe.session.user == "Administrator" or allowed & set(frappe.get_roles()):
+        if Roles.VERENIGINGEN_ADMIN in frappe.get_roles():
             return
         frappe.throw(
-            _("Only a System Manager or Verenigingen Administrator can change the national board chapter."),
+            _("Only a Verenigingen Administrator can change the national board chapter."),
             frappe.PermissionError,
         )
 
