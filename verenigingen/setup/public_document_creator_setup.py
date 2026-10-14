@@ -2,16 +2,27 @@
 # Creates and configures a secure system user for public-facing document creation
 # (donations, member applications, etc.)
 
-import secrets
-import string
+import re
 
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
-# Role name constant
+# Role name constant.
+#
+# SECURITY (#1670): the Custom DocPerm rows this role carries (read/write/create on Donor,
+# Donation, Member, Address, Contact, no if_owner) are only as safe as the account is
+# unreachable. Measured on a test site: as this user, get_list returns EVERY Contact (and may
+# write it) and every Donation row; Donor/Member/Address are refused by the app's
+# has_permission hooks and list queries, which also refuse it CREATE on those four doctypes.
+# So the account is never logged in as: the public flows only impersonate it in-process
+# (secure_user_context -> frappe.set_user). It therefore holds NO password or API key, and
+# refuse_public_creator_authentication() refuses it on every login and every request.
 PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
+
+# The address generate_public_creator_email() mints: public-creator@<domain> or public-creator-N@<domain>.
+_CREATOR_ADDRESS = re.compile(r"^public-creator(-\d+)?@", re.IGNORECASE)
 
 
 def setup_public_document_creator():
@@ -39,11 +50,9 @@ def setup_public_document_creator():
         # Reuse an existing creator rather than minting public-creator-N on every run
         # (setup is run by every fresh install and by the manual endpoint).
         user_email = find_existing_public_creator()
-        user_password = None
         if not user_email:
             user_email = generate_public_creator_email()
-            user_password = generate_secure_password()
-            user_result = create_public_creator_account(user_email, user_password)
+            user_result = create_public_creator_account(user_email)
             if not user_result["success"]:
                 return user_result
 
@@ -52,6 +61,9 @@ def setup_public_document_creator():
         if not role_result["success"]:
             return role_result
 
+        # An account reused from before #1670 still carries its password / API key / sessions.
+        lock_public_creator_credentials(user_email)
+
         # Configure in Verenigingen Settings as creation_user
         config_result = configure_creation_user_in_settings(user_email)
         if not config_result["success"]:
@@ -59,15 +71,12 @@ def setup_public_document_creator():
 
         print("✅ Public document creator setup completed successfully")
         print(f"   📧 User: {user_email}")
-        # The password is never printed (install output lands in CI logs). It is returned
-        # to the caller only when this run created the user; otherwise reset it in Desk.
         print(f"   🛡️ Role: {PUBLIC_CREATOR_ROLE}")
         print("   ⚙️ Configured as creation_user in Verenigingen Settings")
 
         return {
             "success": True,
             "user_email": user_email,
-            "user_password": user_password,
             "message": "Public document creator setup completed successfully",
         }
 
@@ -81,9 +90,11 @@ def setup_public_document_creator():
 def find_existing_public_creator():
     """Email of an existing enabled public-creator user that may be reused, else None.
 
-    The `public-creator` name prefix is the only identifier, so it is not trusted alone: the
-    user must hold the creator role and NO other role (a user that also holds e.g. System
-    Manager is never silently adopted as the least-privilege creation user).
+    The address must be one `is_public_creator()` recognises (`_CREATOR_ADDRESS`), so setup
+    only adopts accounts the login refusal and the migrate hardening also cover (#1670).
+    The prefix is not trusted alone: the user must hold the creator role and NO other role
+    (a user that also holds e.g. System Manager is never silently adopted as the
+    least-privilege creation user).
     """
     rows = frappe.get_all(
         "User",
@@ -92,6 +103,8 @@ def find_existing_public_creator():
         order_by="name asc",
     )
     for email in rows:
+        if not _CREATOR_ADDRESS.match(email):
+            continue
         roles = set(frappe.get_all("Has Role", filters={"parent": email}, pluck="role"))
         if roles == {PUBLIC_CREATOR_ROLE}:
             return email
@@ -150,6 +163,73 @@ def ensure_public_creator_role_exists():
         return {"success": False, "message": error_msg}
 
 
+def lock_public_creator_credentials(user_email):
+    """Strip every credential the creator account could be authenticated with (#1670).
+
+    Idempotent. Removes the stored password and API secret, the API key, a pending password
+    reset key and every live session. Leaves the account enabled and holding its role: the
+    public flows still `frappe.set_user()` it in-process, which needs none of these.
+    No commit here: both callers (setup, after_migrate) commit themselves.
+    """
+    from frappe.sessions import clear_sessions
+    from frappe.utils.password import delete_all_passwords_for
+
+    delete_all_passwords_for("User", user_email)
+    frappe.db.set_value(
+        "User",
+        user_email,
+        {"api_key": None, "reset_password_key": None, "last_reset_password_key_generated_on": None},
+        update_modified=False,
+    )
+    clear_sessions(user_email, force=True)
+
+
+def harden_public_document_creator():
+    """after_migrate: lock the credentials of a creator that predates #1670.
+
+    Sites set up before then hold an account with a password, and install + migrate keep
+    the account. Every account `is_public_creator()` recognises is locked, whatever other
+    roles it has since been given (role-profile sync can add some).
+    """
+    holders = frappe.get_all(
+        "Has Role", filters={"role": PUBLIC_CREATOR_ROLE, "parenttype": "User"}, pluck="parent"
+    )
+    for user in sorted(set(holders)):
+        if is_public_creator(user):
+            lock_public_creator_credentials(user)
+
+
+def is_public_creator(user):
+    """True for the account setup creates: it holds the creator role AND has the address
+    `generate_public_creator_email()` mints (`public-creator[-N]@<domain>`).
+
+    Both are required. The role alone would lock out a staff user who was granted it; the
+    address alone would catch a staff user who merely has a similar name. Other roles are
+    irrelevant on purpose: a creator that gained a role must still never log in. (Not keyed on
+    `Verenigingen Settings.creation_user`: that can be any real account, e.g. veg11's.)
+    """
+    if not user or not _CREATOR_ADDRESS.match(user):
+        return False
+    return PUBLIC_CREATOR_ROLE in frappe.get_roles(user)
+
+
+def refuse_public_creator_authentication(login_manager=None):
+    """auth_hooks / on_login hook: the creator account can never hold a session (#1670).
+
+    `auth_hooks` runs on every request after the session, an API key or a bearer token has set
+    the user, `on_login` after a password (or social/OTP) login succeeded. Both refuse exactly
+    as Frappe refuses a wrong password, so a refusal is not distinguishable from one.
+    The public flows are unaffected: they switch user in-process and never come through here.
+    """
+    if login_manager is not None:
+        if is_public_creator(login_manager.user):
+            # A password set later (reset, admin) must not linger: fail() commits this too.
+            lock_public_creator_credentials(login_manager.user)
+            login_manager.fail("Invalid login credentials", user=login_manager.user)
+    elif is_public_creator(frappe.session.user):
+        raise frappe.AuthenticationError
+
+
 def generate_public_creator_email():
     """Generate a unique email for the public document creator user"""
     try:
@@ -184,15 +264,12 @@ def generate_public_creator_email():
         return user_email
 
 
-def generate_secure_password(length=16):
-    """Generate a cryptographically secure password"""
-    alphabet = string.ascii_letters + string.digits + "!@#$%&*+-=?"
-    password = "".join(secrets.choice(alphabet) for _ in range(length))
-    return password
+def create_public_creator_account(user_email):
+    """Create the public document creator user account.
 
-
-def create_public_creator_account(user_email, user_password):
-    """Create the public document creator user account"""
+    Deliberately WITHOUT a password (#1670): nothing logs in as this user, so a stored
+    credential could only ever be used against us.
+    """
     try:
         if frappe.db.exists("User", user_email):
             print(f"   ℹ️ User {user_email} already exists")
@@ -207,7 +284,6 @@ def create_public_creator_account(user_email, user_password):
                 "full_name": "Public Document Creator",
                 "enabled": 1,
                 "user_type": "System User",
-                "new_password": user_password,
                 "send_welcome_email": 0,
                 "roles": [{"role": PUBLIC_CREATOR_ROLE}],
             }
