@@ -78,6 +78,7 @@ def update_employee_approver(volunteer_doc=None, method=None):
 def refresh_all_expense_approvers():
     """Refresh expense approvers for all volunteers with employee records"""
     updated_count = 0
+    unassigned_count = 0
     error_count = 0
 
     volunteers_with_employees = frappe.db.sql(
@@ -96,6 +97,11 @@ def refresh_all_expense_approvers():
             approver = update_employee_approver(volunteer_data.name)
             if approver:
                 updated_count += 1
+            elif get_volunteer_expense_approver(volunteer_data.name) is None:
+                # No Financial seat exists for them (#1650): left alone, not a failure.
+                # update_employee_approver also returns None when its write failed, in
+                # which case the lookup above finds an approver and it is an error.
+                unassigned_count += 1
             else:
                 error_count += 1
         except Exception:
@@ -106,8 +112,12 @@ def refresh_all_expense_approvers():
     return {
         "success": True,
         "updated": updated_count,
+        "unassigned": unassigned_count,
         "errors": error_count,
-        "message": f"Updated {updated_count} employee records, {error_count} errors",
+        "message": (
+            f"Updated {updated_count} employee records, {unassigned_count} unassigned "
+            f"(no financial seat), {error_count} errors"
+        ),
     }
 
 

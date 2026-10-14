@@ -337,6 +337,11 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
 
     def test_volunteer_expense_approver_simplified_query(self):
         """Test that the simplified expense approver query logic works without SQL errors"""
+        previous_national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous_national
+        )
         # Create test volunteer with unique email
         import time
 
@@ -364,6 +369,11 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
 
     def test_expense_approver_treasurer_priority(self):
         """A volunteer without any financial seat above them gets no approver - simplified integration test"""
+        previous_national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous_national
+        )
         # Create unique email for test volunteer
         import time
 

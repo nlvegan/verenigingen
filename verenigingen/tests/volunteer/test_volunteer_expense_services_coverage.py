@@ -856,7 +856,16 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         )
 
         # No financial seat anywhere above this volunteer: unassigned (#1650).
+        self._pin_national_board_empty()
         self.assertIsNone(get_volunteer_expense_approver(self.volunteer.name))
+
+    def _pin_national_board_empty(self):
+        """No national board for this test (a leaked one could supply an approver)."""
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
 
     def _seat_a_treasurer_for(self, volunteer):
         """A real chapter treasurer (Financial seat) above ``volunteer``; returns their email."""
@@ -892,6 +901,7 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
             update_employee_approver,
         )
 
+        self._pin_national_board_empty()
         manual_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
         emp = self._make_employee(expense_approver=manual_user.email)
         frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
@@ -1000,6 +1010,24 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertNotIn("{error_count}", result["message"])
         # The interpolated counts should appear as their integer values.
         self.assertIn(str(result["updated"]), result["message"])
+
+    def test_refresh_all_counts_a_volunteer_without_a_financial_seat_as_unassigned(self):
+        """#1650: no Financial seat is not an error. Compared as a delta against a refresh
+        run before the fixture exists, since other volunteers on the site also count."""
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_all_expense_approvers,
+        )
+
+        self._pin_national_board_empty()
+        baseline = refresh_all_expense_approvers()
+        emp = self._make_employee(expense_approver=None)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+
+        result = refresh_all_expense_approvers()
+
+        self.assertEqual(result["unassigned"] - baseline["unassigned"], 1)
+        self.assertEqual(result["errors"] - baseline["errors"], 0)
+        self.assertIn(f"{result['unassigned']} unassigned", result["message"])
 
 
 # ---------------------------------------------------------------------------

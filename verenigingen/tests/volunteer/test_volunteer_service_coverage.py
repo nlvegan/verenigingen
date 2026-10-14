@@ -754,6 +754,11 @@ class TestExpenseApproverService(EnhancedTestCase):
     def test_get_expense_approver_unassigned_without_assignments(self):
         """A volunteer with no financial seat above them is left unassigned (#1650): None,
         not Administrator or some fallback user."""
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
         svc = self._get_service()
         self.assertIsNone(svc.get_expense_approver())
 

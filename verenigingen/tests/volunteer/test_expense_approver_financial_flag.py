@@ -74,6 +74,20 @@ class TestExpenseApproverFinancialFlag(EnhancedTestCase):
         )
         chapter.save()
 
+    def _stagger_seat_creation(self, chapter_name, first_is_older):
+        """Give the seats distinct `creation` stamps (child rows inherit the parent's, so a
+        creation-ordered query would tie). PROBE SHORTCUT: written straight to the DB so that
+        idx order and creation order demonstrably disagree; an idx-ordered query is
+        unaffected, any creation-ordered one picks the wrong seat in one of the two cases."""
+        rows = frappe.get_all(
+            "Chapter Board Member", filters={"parent": chapter_name}, pluck="name", order_by="idx asc"
+        )
+        stamps = ["2020-01-01 00:00:00", "2021-01-01 00:00:00"]
+        if not first_is_older:
+            stamps.reverse()
+        for row, stamp in zip(rows, stamps):
+            frappe.db.set_value("Chapter Board Member", row, "creation", stamp, update_modified=False)
+
     def _flag_join(self, chapter_name, member_name):
         chapter = frappe.get_doc("Chapter", chapter_name)
         chapter.append("members", {"member": member_name, "enabled": 1})
@@ -243,9 +257,8 @@ class TestExpenseApproverFinancialFlag(EnhancedTestCase):
         role = self._role("Financial")
         first_vol, first_user = self._volunteer_with_user("seatfirst")
         second_vol, second_user = self._volunteer_with_user("seatsecond")
-        # Seat names are random hashes and the parent timestamp is shared, so any ordering
-        # other than idx is effectively arbitrary per chapter: several chapters, alternating
-        # which volunteer sits first, make a wrong order fail with near certainty.
+        # Which volunteer sits first alternates, and the seats' creation stamps are staggered
+        # both ways (see _stagger_seat_creation), so creation asc and creation desc each fail.
         service = self._approver_service()
         for index in range(6):
             seats = [(first_vol, first_user), (second_vol, second_user)]
@@ -254,6 +267,7 @@ class TestExpenseApproverFinancialFlag(EnhancedTestCase):
             chapter = self._flag_chapter(f"Order{index}")
             for volunteer, _user in seats:
                 self._flag_seat(chapter.name, volunteer.name, role)
+            self._stagger_seat_creation(chapter.name, first_is_older=index % 4 < 2)
             self.assertEqual(service.get_board_financial_approver(chapter.name), seats[0][1].email)
 
     def test_department_approver_follows_board_order(self):
@@ -262,11 +276,18 @@ class TestExpenseApproverFinancialFlag(EnhancedTestCase):
         role = self._role("Financial")
         first_vol, first_user = self._volunteer_with_user("deptfirst")
         second_vol, second_user = self._volunteer_with_user("deptsecond")
-        chapter = self._flag_chapter("DeptOrder")
-        self._flag_seat(chapter.name, second_vol.name, role)
-        self._flag_seat(chapter.name, first_vol.name, role)
-
-        self.assertEqual(DepartmentHierarchyManager()._get_financial_approvers(chapter.name), [second_user.email])
+        manager = DepartmentHierarchyManager()
+        # Several chapters with alternating seat order: tie order other than idx is arbitrary
+        # per chapter, so a wrong order cannot pass by a single coin flip.
+        for index in range(6):
+            seats = [(first_vol, first_user), (second_vol, second_user)]
+            if index % 2:
+                seats.reverse()
+            chapter = self._flag_chapter(f"DeptOrder{index}")
+            for volunteer, _user in seats:
+                self._flag_seat(chapter.name, volunteer.name, role)
+            self._stagger_seat_creation(chapter.name, first_is_older=index % 4 < 2)
+            self.assertEqual(manager._get_financial_approvers(chapter.name), [seats[0][1].email])
 
     def test_inactive_financial_role_is_not_financial(self):
         chapter = self._flag_chapter("InactiveRole")
