@@ -751,21 +751,11 @@ class TestExpenseApproverService(EnhancedTestCase):
 
         return VolunteerExpenseApproverService(volunteer_name or self.volunteer.name)
 
-    def test_financial_roles_order(self):
-        """FINANCIAL_ROLES has expected priority order."""
+    def test_get_expense_approver_unassigned_without_assignments(self):
+        """A volunteer with no financial seat above them is left unassigned (#1650): None,
+        not Administrator or some fallback user."""
         svc = self._get_service()
-        self.assertEqual(svc.FINANCIAL_ROLES[0], "Treasurer")
-        self.assertEqual(svc.FINANCIAL_ROLES[1], "Financial Officer")
-        self.assertIn("Board Chair", svc.FINANCIAL_ROLES)
-        self.assertIn("Secretary", svc.FINANCIAL_ROLES)
-
-    def test_get_expense_approver_fallback(self):
-        """get_expense_approver falls back to Administrator when no approver found."""
-        svc = self._get_service()
-        approver = svc.get_expense_approver()
-        # Should return some user email or Administrator as last resort
-        self.assertIsNotNone(approver)
-        self.assertTrue(len(approver) > 0)
+        self.assertIsNone(svc.get_expense_approver())
 
     def test_load_volunteer(self):
         """_load_volunteer lazy-loads volunteer document."""
@@ -923,13 +913,13 @@ class TestNativeExpenseHelpers(EnhancedTestCase):
     """Tests for native_expense_helpers.py — native expense processing utilities."""
 
     def test_get_volunteer_expense_approver_nonexistent(self):
-        """get_volunteer_expense_approver returns Administrator for non-existent volunteer."""
+        """get_volunteer_expense_approver raises for a non-existent volunteer (#1650)."""
         from verenigingen.services.volunteer.native_expense_helpers import (
             get_volunteer_expense_approver,
         )
 
-        result = get_volunteer_expense_approver("NONEXISTENT-VOL-999")
-        self.assertEqual(result, "Administrator")
+        with self.assertRaises(frappe.DoesNotExistError):
+            get_volunteer_expense_approver("NONEXISTENT-VOL-999")
 
     def test_update_employee_approver_string_input(self):
         """update_employee_approver handles string volunteer name input."""
@@ -1194,19 +1184,6 @@ class TestVolunteerActivationService(EnhancedTestCase):
 # ---------------------------------------------------------------------------
 class TestDepartmentApproverSync(EnhancedTestCase):
     """Tests for department_approver_sync.py — approver sync hooks."""
-
-    def test_get_financial_roles(self):
-        """get_financial_roles returns expected role list."""
-        from verenigingen.services.volunteer.department_approver_sync import (
-            get_financial_roles,
-        )
-
-        roles = get_financial_roles()
-        self.assertIn("Treasurer", roles)
-        self.assertIn("Financial Officer", roles)
-        self.assertIn("Secretary-Treasurer", roles)
-        self.assertIn("Board Chair", roles)
-        self.assertEqual(len(roles), 4)
 
     def test_on_board_member_change_no_parent(self):
         """on_board_member_change skips when doc has no parent chapter."""

@@ -11,15 +11,13 @@ from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resy
 
 
 def get_volunteer_expense_approver(volunteer_name):
-    """Get expense approver for a volunteer using native ERPNext approach"""
-    try:
-        volunteer = frappe.get_doc("Volunteer", volunteer_name)
-        return volunteer.get_expense_approver_from_assignments()
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting expense approver for {volunteer_name}: {str(e)}", "Expense Approver Lookup Error"
-        )
-        return "Administrator"  # Safe fallback
+    """Get expense approver for a volunteer using native ERPNext approach.
+
+    None means no financial seat exists for them (#1650: unassigned). An unknown volunteer
+    raises rather than being reported as "no approver".
+    """
+    volunteer = frappe.get_doc("Volunteer", volunteer_name)
+    return volunteer.get_expense_approver_from_assignments()
 
 
 def update_employee_approver(volunteer_doc=None, method=None):
@@ -37,37 +35,36 @@ def update_employee_approver(volunteer_doc=None, method=None):
         if not frappe.db.exists("Employee", volunteer.employee_id):
             return None
 
+        # None means no financial seat exists for this volunteer (#1650): the claim is left
+        # unassigned, so an approver the old generic fallback assigned is cleared too.
         approver = volunteer.get_expense_approver_from_assignments()
 
-        if approver:
-            employee = frappe.get_doc("Employee", volunteer.employee_id)
-            old_approver = employee.expense_approver  # ast-skip: ERPNext HR field
+        employee = frappe.get_doc("Employee", volunteer.employee_id)
+        old_approver = employee.expense_approver  # ast-skip: ERPNext HR field
 
-            if old_approver != approver:
-                employee.expense_approver = approver
-                employee.department = None  # Remove department dependency
+        if (old_approver or None) != approver:
+            employee.expense_approver = approver
+            employee.department = None  # Remove department dependency
 
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                result = secure_document_operation(
-                    operation="save",
-                    doc=employee,
-                    justification=f"Update expense approver for volunteer {volunteer.volunteer_name} employee record - HR management for expense workflow",
-                    required_permissions=["Employee:write"],
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=employee,
+                justification=f"Update expense approver for volunteer {volunteer.volunteer_name} employee record - HR management for expense workflow",
+                required_permissions=["Employee:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update employee expense approver: {'; '.join(result.errors)}",
+                    "Employee Expense Security",
                 )
+                return None
+            frappe.logger().info(
+                f"Updated expense approver for {volunteer.volunteer_name}: {old_approver} → {approver}"
+            )
 
-                if not result.success:
-                    frappe.log_error(
-                        f"Failed to update employee expense approver: {'; '.join(result.errors)}",
-                        "Employee Expense Security",
-                    )
-                    return None
-                frappe.logger().info(
-                    f"Updated expense approver for {volunteer.volunteer_name}: {old_approver} → {approver}"
-                )
-
-            return approver
-
-        return None
+        return approver
 
     except Exception as e:
         frappe.log_error(f"Error updating employee approver: {str(e)}", "Employee Approver Update Error")

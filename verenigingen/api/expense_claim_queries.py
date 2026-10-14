@@ -9,7 +9,7 @@ approved by appropriate chapter board members with financial authority.
 
 Business Rules:
 - Expense approvers must be board members of the relevant chapter
-- Approvers must have financial roles (Treasurer, Financial Officer, etc.)
+- Approvers must hold a seat whose Chapter Role has permissions_level Financial
 - Approvers must have the "Expense Approver" role enabled
 - Team expenses use the team's parent chapter for approver selection
 
@@ -26,15 +26,6 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-
-# Financial roles that can approve expenses (matches VolunteerExpenseApproverService)
-FINANCIAL_ROLES = [
-    "Treasurer",
-    "Financial Officer",
-    "Secretary-Treasurer",
-    "Board Chair",
-    "Secretary",
-]
 
 
 @frappe.whitelist()
@@ -125,7 +116,7 @@ def get_chapter_expense_approvers(
 
     Returns users who are:
     - Board members of the specified chapter
-    - Have Admin or Financial permission level roles
+    - Hold a seat whose Chapter Role has the Financial permission level (Admin does not imply it)
     - Have the "Expense Approver" role
     - Are enabled users
 
@@ -154,7 +145,7 @@ def get_chapter_expense_approvers(
             AND (u.email LIKE %(txt)s OR u.full_name LIKE %(txt)s)
         """
 
-    # Query for chapter board members with Admin or Financial permission levels and Expense Approver role
+    # Query for chapter board members with the Financial permission level and Expense Approver role
     query = f"""
         SELECT DISTINCT
             u.email,
@@ -170,7 +161,7 @@ def get_chapter_expense_approvers(
             AND hr.role = 'Expense Approver'
             AND cbm.parent = %(chapter)s
             AND cbm.is_active = 1
-            AND cr.permissions_level IN ('Admin', 'Financial')
+            AND cr.permissions_level = 'Financial'
             {search_condition}
         ORDER BY u.full_name
         LIMIT %(start)s, %(page_len)s

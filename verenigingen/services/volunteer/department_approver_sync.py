@@ -5,8 +5,8 @@ Syncs Chapter Board Member changes to Department.expense_approvers
 for native ERPNext Expense Claim approval workflow.
 
 When a chapter board member is added, updated, or removed, this module
-synchronizes the chapter's financial officers (Treasurer, Financial Officer,
-Secretary-Treasurer, Board Chair) to the corresponding Department's
+synchronizes the chapter's financial seats (Chapter Role permissions_level
+Financial, #1650) to the corresponding Department's
 expense_approvers child table.
 
 This enables the native HRMS Expense Claim approval workflow to use
@@ -26,7 +26,7 @@ def on_board_member_change(doc, method):
     Triggered on after_insert, on_update, on_trash of Chapter Board Member.
 
     Only syncs when the changed board member has a financial role
-    (Treasurer, Financial Officer, Secretary-Treasurer, Board Chair).
+    (a Chapter Role whose permissions_level is Financial).
 
     Args:
         doc: Chapter Board Member document
@@ -66,10 +66,15 @@ def get_financial_roles():
     """
     Get list of chapter roles that have financial approval authority.
 
+    A financial role is a Chapter Role with permissions_level Financial (#1650);
+    the role's name and the Admin level carry no financial meaning.
+
     Returns:
         list: Role names that can approve expenses
     """
-    return ["Treasurer", "Financial Officer", "Secretary-Treasurer", "Board Chair"]
+    return frappe.get_all(
+        "Chapter Role", filters={"permissions_level": "Financial", "is_active": 1}, pluck="name"
+    )
 
 
 def sync_chapter_department_approvers(chapter_name):

@@ -268,22 +268,23 @@ class DepartmentHierarchyManager:
 
     def _get_financial_approvers(self, chapter_name):
         """Get users who can approve expenses for a chapter"""
-        # Priority order: Treasurer, Financial Officer, Secretary-Treasurer, Board Chair
-        financial_roles = ["Treasurer", "Financial Officer", "Secretary-Treasurer", "Board Chair"]
+        # A financial seat is a Chapter Role with permissions_level Financial (#1650),
+        # not a role name; Admin does not imply financial.
+        financial_roles = frappe.get_all(
+            "Chapter Role", filters={"permissions_level": "Financial", "is_active": 1}, pluck="name"
+        )
+        if not financial_roles:
+            return []
 
-        # Single query for all financial roles
         board_members = frappe.get_all(
             "Chapter Board Member",
             filters={"parent": chapter_name, "chapter_role": ["in", financial_roles], "is_active": 1},
             fields=["volunteer", "chapter_role"],
+            order_by="idx asc",
         )
 
         if not board_members:
             return []
-
-        # Sort by role priority
-        role_priority = {role: idx for idx, role in enumerate(financial_roles)}
-        board_members.sort(key=lambda x: role_priority.get(x.chapter_role, 999))
 
         # Process in priority order and return first valid approver
         for member in board_members:

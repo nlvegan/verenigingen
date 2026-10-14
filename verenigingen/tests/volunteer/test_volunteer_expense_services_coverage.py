@@ -855,9 +855,22 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
             get_volunteer_expense_approver,
         )
 
-        approver = get_volunteer_expense_approver(self.volunteer.name)
-        # Returns a non-empty approver string (Administrator fallback at minimum).
-        self.assertTrue(approver)
+        # No financial seat anywhere above this volunteer: unassigned (#1650).
+        self.assertIsNone(get_volunteer_expense_approver(self.volunteer.name))
+
+    def test_update_employee_approver_clears_an_approver_nobody_may_hold(self):
+        """#1650: with no financial seat the employee is left unassigned, so an approver the
+        old generic fallback had assigned is cleared, not kept."""
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            update_employee_approver,
+        )
+
+        stale_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        emp = self._make_employee(expense_approver=stale_user.email)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+
+        self.assertIsNone(update_employee_approver(self.volunteer.name))
+        self.assertFalse(frappe.db.get_value("Employee", emp.name, "expense_approver"))
 
     # -- update_employee_approver: volunteer without employee_id --
 

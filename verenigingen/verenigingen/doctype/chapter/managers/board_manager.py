@@ -696,7 +696,7 @@ class BoardManager(BaseManager):
         # Check if role has financial permissions
         try:
             role_doc = frappe.get_doc("Chapter Role", role)
-            return role_doc.permissions_level in ["Financial", "Admin"]
+            return role_doc.permissions_level == "Financial"
         except Exception:
             # If role doesn't exist or has no permissions level
             return False

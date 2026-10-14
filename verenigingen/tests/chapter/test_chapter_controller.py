@@ -106,6 +106,11 @@ class TestChapterController(VereningingenTestCase):
         board_member, _vol, _role = self._make_board(permissions_level="Financial")
         self.assertTrue(self.chapter.can_view_member_payments(member_name=board_member.name))
 
+    def test_can_view_member_payments_admin_role_denied(self):
+        # #1650: chapter Admin does not imply financial rights; only Financial does.
+        board_member, _vol, _role = self._make_board(permissions_level="Admin")
+        self.assertFalse(self.chapter.can_view_member_payments(member_name=board_member.name))
+
     def test_can_view_member_payments_non_board_denied(self):
         self.assertFalse(self.chapter.can_view_member_payments(member_name=self.member.name))
 

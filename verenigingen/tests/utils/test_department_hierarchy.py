@@ -59,7 +59,7 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         return company
 
     def _ensure_chapter_role(self, role_name):
-        """Create a Chapter Role with the exact (financial) name the manager filters on.
+        """Create a uniquely named Financial Chapter Role (labelled `role_name`) and return its name.
 
         Deliberately NOT `@shared_fixture` (#1026 originally added one, #1073
         review found this SEVENTH instance the review's own `track_doc(`/
@@ -77,19 +77,23 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         `suspend_insert_capture()` below changes no observable behaviour; it
         exists only so the by-name guard does not flag this copy.
         """
-        if not frappe.db.exists("Chapter Role", role_name):
-            with suspend_insert_capture():
-                role = frappe.get_doc(
-                    {
-                        "doctype": "Chapter Role",
-                        "role_name": role_name,
-                        "permissions_level": "Financial",
-                        "is_active": 1,
-                    }
-                )
-                role.insert()
-            self._track_test_document("Chapter Role", role.name, priority=3)
-        return role_name
+        # #1650: a financial seat is decided by permissions_level, so build a UNIQUELY named
+        # Financial role. Reusing the shared bare name "Treasurer" picks up whatever level
+        # another module's @shared_fixture gave that row (Basic, in
+        # test_volunteer_assignment_service), which made this class order-dependent.
+        unique_name = f"{role_name}-{frappe.generate_hash(length=6)}"
+        with suspend_insert_capture():
+            role = frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": unique_name,
+                    "permissions_level": "Financial",
+                    "is_active": 1,
+                }
+            )
+            role.insert()
+        self._track_test_document("Chapter Role", role.name, priority=3)
+        return role.name
 
     def _make_chapter(self, published=1):
         return self.factory.create_chapter(published=published, region="Test Region DH")
@@ -154,10 +158,10 @@ class TestDepartmentHierarchy(EnhancedTestCase):
 
     def test_volunteer_department_board_position_priority(self):
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
         chapter = self._make_chapter()
         vol = self.factory.create_volunteer()
-        self._add_board_member(chapter.name, vol.name, "Treasurer")
+        self._add_board_member(chapter.name, vol.name, treasurer_role)
         mgr = DepartmentHierarchyManager()
         # Board position wins -> "Chapter {chapter} Board"
         self.assertEqual(mgr.get_volunteer_department(vol.name), f"Chapter {chapter.name} Board")
@@ -200,11 +204,11 @@ class TestDepartmentHierarchy(EnhancedTestCase):
 
     def test_volunteer_department_inactive_board_ignored(self):
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
         chapter = self._make_chapter()
         vol = self.factory.create_volunteer()
         # Inactive board member -> should fall through to default
-        self._add_board_member(chapter.name, vol.name, "Treasurer", is_active=0)
+        self._add_board_member(chapter.name, vol.name, treasurer_role, is_active=0)
         mgr = DepartmentHierarchyManager()
         self.assertEqual(mgr.get_volunteer_department(vol.name), "National Organization")
 
@@ -272,7 +276,7 @@ class TestDepartmentHierarchy(EnhancedTestCase):
 
     def test_financial_approvers_returns_enabled_user_email(self):
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
         chapter = self._make_chapter()
         # Volunteer whose linked Member has a User -> enabled email
         user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
@@ -280,7 +284,7 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         member.user = user.email
         member.save()
         vol = self.factory.create_volunteer(member_name=member.name, email=user.email, _exact_email=True)
-        self._add_board_member(chapter.name, vol.name, "Treasurer")
+        self._add_board_member(chapter.name, vol.name, treasurer_role)
 
         mgr = DepartmentHierarchyManager()
         approvers = mgr._get_financial_approvers(chapter.name)
@@ -288,7 +292,7 @@ class TestDepartmentHierarchy(EnhancedTestCase):
 
     def test_financial_approvers_skips_disabled_user(self):
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
         chapter = self._make_chapter()
         user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
         frappe.db.set_value("User", user.email, "enabled", 0)
@@ -296,7 +300,7 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         member.user = user.email
         member.save()
         vol = self.factory.create_volunteer(member_name=member.name, email=user.email, _exact_email=True)
-        self._add_board_member(chapter.name, vol.name, "Treasurer")
+        self._add_board_member(chapter.name, vol.name, treasurer_role)
 
         mgr = DepartmentHierarchyManager()
         # Disabled user is skipped -> no valid approver.
@@ -325,10 +329,13 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         )
 
     def test_financial_approvers_role_priority(self):
-        """Treasurer outranks Board Chair regardless of insertion order."""
+        """A Financial seat outranks a non-Financial seat regardless of insertion order (#1650:
+        the flag decides, not the role name)."""
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
-        self._ensure_chapter_role("Board Chair")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
+        chair_role = self.factory.ensure_chapter_role(
+            f"Chair{frappe.generate_hash(length=6)}", {"permissions_level": "Basic"}
+        ).name
         chapter = self._make_chapter()
 
         chair_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
@@ -351,11 +358,11 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
         chapter_doc.append(
             "board_members",
-            {"volunteer": chair_vol.name, "chapter_role": "Board Chair", "from_date": today(), "is_active": 1},
+            {"volunteer": chair_vol.name, "chapter_role": chair_role, "from_date": today(), "is_active": 1},
         )
         chapter_doc.append(
             "board_members",
-            {"volunteer": treas_vol.name, "chapter_role": "Treasurer", "from_date": today(), "is_active": 1},
+            {"volunteer": treas_vol.name, "chapter_role": treasurer_role, "from_date": today(), "is_active": 1},
         )
         chapter_doc.save()
 
@@ -419,14 +426,14 @@ class TestDepartmentHierarchy(EnhancedTestCase):
 
     def test_sync_chapter_approvers_updates_department(self):
         self._ensure_company()
-        self._ensure_chapter_role("Treasurer")
+        treasurer_role = self._ensure_chapter_role("Treasurer")
         chapter = self._make_chapter()
         user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
         member = self.factory.create_member(email=user.email)
         member.user = user.email
         member.save()
         vol = self.factory.create_volunteer(member_name=member.name, email=user.email, _exact_email=True)
-        self._add_board_member(chapter.name, vol.name, "Treasurer")
+        self._add_board_member(chapter.name, vol.name, treasurer_role)
 
         mgr = DepartmentHierarchyManager()
         # Pre-create the target departments so the sync has something to write to
