@@ -377,8 +377,32 @@ def _apply_core_grants():
 
 
 def _load_core_ledger():
+    """The recorded ledger, or ``{}`` when it is unreadable: then nothing is revoked and the
+    apply loop re-seeds it, rather than a bad value aborting every migrate."""
     raw = frappe.db.get_global(CORE_LEDGER_KEY)
-    return frappe.parse_json(raw) if raw else {}
+    if not raw:
+        return {}
+    try:
+        ledger = frappe.parse_json(raw)
+        valid = isinstance(ledger, dict) and all(
+            isinstance(roles, dict)
+            and all(
+                isinstance(entry, dict)
+                and isinstance(entry.get("ptypes"), list)
+                and isinstance(entry.get("defaults"), list)
+                for entry in roles.values()
+            )
+            for roles in ledger.values()
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        frappe.log_error(
+            title="Core grants ledger unreadable, nothing revoked and it was re-seeded",
+            message=f"{CORE_LEDGER_KEY}: {str(raw)[:500]}",
+        )
+        return {}
+    return ledger
 
 
 def _stock_granted(doctype, role, ptype):
@@ -423,7 +447,9 @@ def _revoke_dropped_core_grants(ledger):
     for doctype in list(ledger):
         for role, recorded in list(ledger[doctype].items()):
             kept = declared.get((doctype, role))
-            dropped = [p for p in recorded["ptypes"] if kept is None or p not in kept]
+            # read stays while the tuple does: write without read lets a user edit a document
+            # they cannot open.
+            dropped = [p for p in recorded["ptypes"] if kept is None or (p not in kept and p != "read")]
             if kept is None:
                 dropped += recorded["defaults"]
             if dropped:
@@ -485,12 +511,36 @@ def _granted_flags(row, checks):
     return sorted(f for f in checks if cint(row.get(f)))
 
 
-def _prune_revoked_keys():
+def _load_own_snapshot():
+    """The recorded snapshot, or ``None`` when absent or unreadable (reported, and cleared by
+    the caller, so a bad value cannot abort every migrate)."""
     raw = frappe.db.get_global(SNAPSHOT_KEY)
     if not raw:
+        return None
+    try:
+        snapshot = frappe.parse_json(raw)
+        valid = isinstance(snapshot, dict) and all(
+            isinstance(rows, list)
+            and all(isinstance(r, list) and len(r) == 4 and isinstance(r[3], list) for r in rows)
+            for rows in snapshot.values()
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        frappe.log_error(
+            title="Own DocType permission snapshot unreadable, nothing pruned",
+            message=f"{SNAPSHOT_KEY}: {str(raw)[:500]}",
+        )
+        return {}
+    return snapshot
+
+
+def _prune_revoked_keys():
+    snapshot = _load_own_snapshot()
+    if snapshot is None:
         return
     checks = _check_fields()
-    for doctype, old_rows in frappe.parse_json(raw).items():
+    for doctype, old_rows in snapshot.items():
         declared_now = {_key(row) for row in _stock_rows(doctype)}
         revoked = {
             (role, permlevel, if_owner): flags

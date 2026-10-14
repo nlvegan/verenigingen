@@ -376,6 +376,73 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._sync_with([])
         self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"))
 
+    def test_read_is_not_lowered_while_the_tuple_is_kept(self):
+        # Write without read leaves a user who can edit a document but not open it.
+        self._core_setup()
+        self._sync_with([("Customer", "Verenigingen Staff", ("read", "write", "create"))])
+        self._sync_with([("Customer", "Verenigingen Staff", ("write", "create"))])
+        row = self._effective_row("Customer", "Verenigingen Staff")
+        self.assertEqual([cint(row.read), cint(row.write), cint(row.create)], [1, 1, 1])
+        self._sync_with([])
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"), "read goes with the tuple")
+
+    def test_an_unchanged_declaration_touches_no_row(self):
+        # Direct control for "revoke a still-declared grant": lowering then re-raising a flag in
+        # one run leaves the flags identical, but bumps `modified` (and a delete-and-recreate
+        # changes name and creation).
+        self._core_setup()
+        grants = [("Customer", "Verenigingen Staff", ("read", "write", "create"))]
+        self._sync_with(grants)
+        where = {"parent": "Customer", "role": "Verenigingen Staff"}
+        before = frappe.get_all("Custom DocPerm", filters=where, fields=["name", "creation", "modified"])
+        self.assertEqual(len(before), 1)
+        self._sync_with(grants)
+        self.assertEqual(frappe.get_all("Custom DocPerm", filters=where, fields=["name", "creation", "modified"]),
+                         before)
+
+    GARBLED_LEDGERS = (
+        "{not json",
+        '["read"]',
+        '{"Customer": {"Verenigingen Staff": ["read", "write", "create"]}}',  # round-1 shape
+        '{"Customer": 5}',
+    )
+
+    def _assert_visible_failure(self, call):
+        from unittest import mock
+
+        # Mock justified: the boundary under observation is that the failure is reported.
+        with mock.patch("frappe.log_error") as log_error:
+            call()
+        self.assertEqual(log_error.call_count, 1)
+        self.assertTrue(log_error.call_args.kwargs.get("title"), "log_error needs a keyword title")
+
+    def test_a_garbled_core_ledger_revokes_nothing_and_is_reseeded(self):
+        from verenigingen.setup import custom_docperm_setup as setup
+
+        grants = [("Customer", "Verenigingen Staff", ("read", "write", "create"))]
+        for garbled in self.GARBLED_LEDGERS:
+            with self.subTest(ledger=garbled):
+                self._core_setup()
+                self._sync_with(grants)
+                frappe.db.set_global(setup.CORE_LEDGER_KEY, garbled)
+                self._assert_visible_failure(lambda: self._sync_with([]))
+                self.assertEqual(cint(self._effective_row("Customer", "Verenigingen Staff").write), 1,
+                                 "an unreadable ledger must revoke nothing")
+                self.assertIsInstance(frappe.parse_json(frappe.db.get_global(setup.CORE_LEDGER_KEY)), dict)
+
+    def test_a_garbled_own_snapshot_prunes_nothing_and_is_cleared(self):
+        from verenigingen.setup import custom_docperm_setup as setup
+
+        self._freeze_via_user_type_path("Team")
+        role = self._a_declared_role("Team")
+        frappe.db.delete("DocPerm", {"parent": "Team", "role": role})
+        for garbled in ("{not json", '["Team"]', '{"Team": 5}', '{"Team": [["x"]]}'):
+            with self.subTest(snapshot=garbled):
+                frappe.db.set_global(setup.SNAPSHOT_KEY, garbled)
+                self._assert_visible_failure(setup._prune_revoked_keys)
+                self.assertIn(role, _roles("Team"), "an unreadable snapshot must prune nothing")
+                self.assertFalse(frappe.db.get_global(setup.SNAPSHOT_KEY))
+
     def test_an_admin_raised_flag_on_the_same_row_survives_a_removal(self):
         self._core_setup()
         self._sync_with([("Customer", "Verenigingen Staff", ("read", "write", "create"))])
