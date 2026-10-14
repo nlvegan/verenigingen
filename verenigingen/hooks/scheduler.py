@@ -82,6 +82,10 @@ scheduler_events = {
         # Address optimization
         "verenigingen.tasks.address_optimization.update_all_member_address_fingerprints",
     ],
+    # Long-queue daily: one sync per enabled member-user (#1676).
+    "daily_long": [
+        "verenigingen.services.member.account.user_role_profile_calculator.nightly_role_profile_sync",
+    ],
     # =========================================================================
     # HOURLY TASKS
     # =========================================================================

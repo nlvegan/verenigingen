@@ -35,6 +35,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
 )
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Profile configuration cache (5 minute TTL)
 _profile_config_cache = {}
@@ -1163,6 +1164,94 @@ def recalculate_user_role_profile(user: str, dry_run: bool = False):
     return sync_user_role_profile(user, dry_run=dry_run)
 
 
+def sync_role_profiles_for_users(users: list, dry_run: bool = False) -> dict:
+    """Run sync_user_role_profile over ``users``; one user's failure never stops the run.
+
+    Plain (non-whitelisted) so the scheduler can call it without going through
+    high_security_api. A sync that raises is rolled back to a per-user savepoint (no
+    partial write survives) and counted as an error.
+    """
+    results = {
+        "total": len(users),
+        "changed": 0,
+        "unchanged": 0,
+        "errors": 0,
+        "changes": [],
+        "errors_list": [],
+    }
+    for user in users:
+        savepoint = "role_profile_sync"
+        frappe.db.savepoint(savepoint)
+        try:
+            result = sync_user_role_profile(user, dry_run=dry_run)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A deadlock/timeout has already damaged the transaction: stop, do not resume.
+            raise
+        except Exception as e:
+            rollback_to_savepoint(savepoint)
+            result = {"success": False, "error": str(e)}
+
+        if result.get("success"):
+            if result.get("changed"):
+                results["changed"] += 1
+                results["changes"].append(
+                    {
+                        "user": user,
+                        "old_role": result.get("old_profile"),
+                        "new_role": result.get("new_profile"),
+                        "old_module": result.get("old_module_profile"),
+                        "new_module": result.get("new_module_profile"),
+                        "role_changed": result.get("role_changed"),
+                        "module_changed": result.get("module_changed"),
+                    }
+                )
+            else:
+                results["unchanged"] += 1
+        else:
+            results["errors"] += 1
+            results["errors_list"].append({"user": user, "error": result.get("error")})
+    return results
+
+
+def get_nightly_sync_users() -> list:
+    """Enabled users linked to a Member: the only users the calculator can derive a profile for.
+
+    A user with no Member makes sync_user_role_profile return "not a member" and is
+    left alone, so listing them would only be counted as errors. Profile held is NOT a
+    filter: users with no profile, or an admin/national one, are covered, which the
+    bulk endpoint's 4-profile default is not. Administrator and Guest are never synced.
+    """
+    linked = frappe.get_all("Member", filters={"user": ["is", "set"]}, pluck="user")
+    if not linked:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", list(set(linked))], "enabled": 1},
+        pluck="name",
+    )
+
+
+def nightly_role_profile_sync() -> dict:
+    """Scheduled (daily_long): apply the calculator to every enabled member-user (#1676).
+
+    Corrects drift when no event touched a user: a missed event, or a swallowed sync
+    failure. Writes through frappe's request-level commit like other scheduler jobs;
+    no commit here.
+    """
+    users = [u for u in get_nightly_sync_users() if u not in ("Administrator", "Guest")]
+    results = sync_role_profiles_for_users(users, dry_run=False)
+    for failure in results["errors_list"]:
+        frappe.log_error(
+            title="Nightly Role Profile Sync Failed",
+            message=f"Role profile sync failed for {failure['user']}: {failure['error']}",
+        )
+    print(
+        f"Nightly role profile sync: total={results['total']} changed={results['changed']} "
+        f"unchanged={results['unchanged']} errors={results['errors']}"
+    )
+    return results
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
@@ -1186,39 +1275,9 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
                 ]
             }
 
-        users = frappe.get_all("User", filters=filters, pluck="name")
-
-        results = {
-            "total": len(users),
-            "changed": 0,
-            "unchanged": 0,
-            "errors": 0,
-            "changes": [],
-            "errors_list": [],
-        }
-
-        for user in users:
-            result = sync_user_role_profile(user, dry_run=dry_run)
-
-            if result.get("success"):
-                if result.get("changed"):
-                    results["changed"] += 1
-                    results["changes"].append(
-                        {
-                            "user": user,
-                            "old_role": result.get("old_profile"),
-                            "new_role": result.get("new_profile"),
-                            "old_module": result.get("old_module_profile"),
-                            "new_module": result.get("new_module_profile"),
-                            "role_changed": result.get("role_changed"),
-                            "module_changed": result.get("module_changed"),
-                        }
-                    )
-                else:
-                    results["unchanged"] += 1
-            else:
-                results["errors"] += 1
-                results["errors_list"].append({"user": user, "error": result.get("error")})
+        results = sync_role_profiles_for_users(
+            frappe.get_all("User", filters=filters, pluck="name"), dry_run=dry_run
+        )
 
         return results
 
