@@ -36,6 +36,8 @@ self.track_doc(...) so teardown deletes it; tests that trigger the internal comm
 also frappe.db.rollback() in a finally to drop trailing uncommitted writes.
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today
 
@@ -345,7 +347,28 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
         email = f"rp-cli-{frappe.generate_hash(length=10)}@example.com"
         self.create_test_user(email, roles=roles or [])
         member = self.create_test_member(user=email, chapter=False)
+        self._persona_emails.append(email)
         return email, member
+
+    def setUp(self):
+        super().setUp()
+        self._persona_emails = []
+
+    def tearDown(self):
+        """Track the stub Employees that role-profile assignment created (#1689).
+
+        setup_role_profiles_cli() -> sync_user_role_profile() ->
+        _ensure_employee_for_profile() inserts and COMMITS an Employee for a persona
+        whose profile carries the Employee role. Nothing here created it, so nothing
+        tracked it: the persona User was deleted and the Employee stayed behind with
+        a dangling user_id, which HRMS notify_approver later reads as `from_user`
+        for any claim filed against that Employee. Registered AFTER the User, so
+        the reverse-order cleanup deletes the Employee first.
+        """
+        for email in self._persona_emails:
+            for employee in frappe.get_all("Employee", filters={"user_id": email}, pluck="name"):
+                self.track_doc("Employee", employee, depends_on=("User", email))
+        super().tearDown()
 
     def _ensure_role(self, role_name):
         if not frappe.db.exists("Role", role_name):
@@ -439,6 +462,31 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
                 )
         finally:
             frappe.db.rollback()
+
+    def test_ladder_test_leaves_no_employee_pointing_at_a_deleted_user(self):
+        """#1689 guard: run the ladder test through its REAL setUp/teardown, then
+        look for Employees whose persona User is gone.
+
+        The ladder test makes setup_role_profiles_cli() create stub Employees for
+        its personas. HRMS notify_approver reads Employee.user_id as `from_user`,
+        so a survivor made a later, unrelated Expense Claim insert die with
+        "Could not find From User: rp-cli-..." (the shard saw it in
+        test_b6_b9_backends). Before the fix this reports the survivor.
+        """
+        ladder = type(self)("test_cli_ladder_matches_get_recommended_role_profile_for_every_branch")
+        result = unittest.TestResult()
+        ladder.run(result)
+        self.assertTrue(result.wasSuccessful(), f"the ladder test itself failed: {result.errors + result.failures}")
+
+        dangling = frappe.db.sql(
+            """
+            SELECT e.name, e.user_id FROM `tabEmployee` e
+            LEFT JOIN `tabUser` u ON u.name = e.user_id
+            WHERE e.user_id LIKE %s AND u.name IS NULL
+            """,
+            ("rp-cli-%",),
+        )
+        self.assertEqual(dangling, (), "Employee rows outlived their persona User")
 
     def test_cli_leaves_an_existing_verenigingen_profile_untouched(self):
         """The skip branch: a member-user that already holds a Verenigingen role
