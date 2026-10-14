@@ -73,7 +73,7 @@ def get_user_manageable_chapters(user=None):
         role_doc = frappe.get_doc("Chapter Role", chapter_role)
         if getattr(role_doc, "can_approve_memberships", None):
             manageable_chapters.append(chapter_name)
-        elif getattr(role_doc, "permissions_level", None) in ["Admin", "Membership"]:
+        elif getattr(role_doc, "permissions_level", None) == "Admin":
             manageable_chapters.append(chapter_name)
 
     return manageable_chapters

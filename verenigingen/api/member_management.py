@@ -104,7 +104,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
             WHERE v.member = %s
             AND cbm.parent = %s
             AND cbm.is_active = 1
-            AND cr.permissions_level IN ('Admin', 'Membership')
+            AND cr.permissions_level = 'Admin'
         """,
             [user_member, chapter_name],
             as_dict=True,
@@ -125,7 +125,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
                 WHERE v.member = %s
                 AND cbm.parent = %s
                 AND cbm.is_active = 1
-                AND cr.permissions_level IN ('Admin', 'Membership')
+                AND cr.permissions_level = 'Admin'
             """,
                 [user_member, settings.national_board_chapter],
                 as_dict=True,
@@ -223,7 +223,7 @@ def can_view_members_without_chapter():
             for position in board_positions:
                 try:
                     role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
+                    if role_doc.permissions_level == "Admin":
                         return True
                 except Exception:
                     continue

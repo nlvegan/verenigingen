@@ -236,9 +236,7 @@ def get_user_chapter_filter():
     user = frappe.session.user
 
     # Use existing utility to get user's accessible chapters with proper permissions
-    accessible_chapters = get_user_accessible_chapters(
-        user, required_permission_levels=["Admin", "Membership"]
-    )
+    accessible_chapters = get_user_accessible_chapters(user, required_permission_levels=["Admin"])
 
     # None means admin access (see all)
     if accessible_chapters is None:
