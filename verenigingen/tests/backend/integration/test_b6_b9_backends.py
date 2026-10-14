@@ -142,7 +142,10 @@ class TestSendOverdueReminders(VereningingenTestCase):
             if not e.user_id or frappe.db.exists("User", e.user_id)
         ][:1]
         if not emp:
-            self.skipTest("No Employee master available for Expense Claim seeding")
+            self.skipTest(
+                "No Employee master with a usable user_id for Expense Claim seeding "
+                "(none exist, or every Employee has a user_id whose User is gone; see #1689, #1694)"
+            )
         self.employee = emp[0].name
         self.company = emp[0].company
         self.currency = frappe.db.get_value("Company", self.company, "default_currency") or "EUR"
