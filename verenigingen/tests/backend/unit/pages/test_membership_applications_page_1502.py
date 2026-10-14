@@ -273,9 +273,15 @@ class TestGetApplicationStatsChapterScope(EnhancedTestCase):
         chapter_b = self.create_test_chapter()
         _make_pending_applicant(self, chapter_a.name, "ScopeStatsAdminA")
         _make_pending_applicant(self, chapter_b.name, "ScopeStatsAdminB")
+        # A pending applicant in a third chapter, standing in for whatever
+        # earlier tests in the same shard leave behind (#1688).
+        other_chapter = self.create_test_chapter()
+        _make_pending_applicant(self, other_chapter.name, "ScopeStatsAdminOther")
 
         stats = get_application_stats()
 
-        self.assertIn(chapter_a.name, stats["pending_by_chapter"])
-        self.assertIn(chapter_b.name, stats["pending_by_chapter"])
-        self.assertEqual(stats["total_pending"], 2)
+        # Per-chapter counts for the chapters this test seeded; the global
+        # total also counts whatever earlier tests left pending (#1688).
+        self.assertEqual(stats["pending_by_chapter"].get(chapter_a.name), 1)
+        self.assertEqual(stats["pending_by_chapter"].get(chapter_b.name), 1)
+        self.assertGreaterEqual(stats["total_pending"], 3)
