@@ -229,10 +229,23 @@ class TestChapterDuesSplitReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
             self.assertRaises(frappe.PermissionError, self._get_dues_split)
 
     def test_admin_still_allowed(self):
+        """A refusal raises PermissionError, but an empty list is also what an
+        unseeded site returns, so seed a chapter invoice and require ITS row.
+        Filtering on the seeded chapter keeps the result independent of
+        invoices other tests leave behind (#1678)."""
+        chapter = self.create_test_chapter()
+        member = self.create_test_member(
+            first_name="DuesSplit", last_name=f"M{frappe.generate_hash(length=4)}"
+        )
+        # The factory ignores custom_member_chapter and submits the invoice.
+        invoice = self.create_test_sales_invoice(member.name, posting_date=today())
+        frappe.db.set_value("Sales Invoice", invoice.name, "custom_member_chapter", chapter.name)
         staff_user = self._staff_user("DuesSplitAdmin", role="Verenigingen Administrator")
         with self.set_user(staff_user):
-            result = self._get_dues_split()
-        self.assertEqual(result, [])
+            result = get_dues_split_data(filters={"chapter": chapter.name})
+        self.assertIsInstance(result, list)
+        self.assertEqual([row["chapter"] for row in result], [chapter.name])
+        self.assertEqual(result[0]["total_invoices"], 1)
 
 
 class TestChurnRiskChapterScope(MemberOwnershipProbeMixin, EnhancedTestCase):
