@@ -27,6 +27,7 @@ DELEGATE = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.ha
 class TestHandleMolliePaymentWebhook(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_delegates_to_unified_handler(self):
@@ -57,6 +58,7 @@ class TestHandleMolliePaymentWebhook(EnhancedTestCase):
 class TestHandleUnifiedWebhook(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_get_request_is_health_check(self):
@@ -101,6 +103,7 @@ class TestHandleUnifiedWebhook(EnhancedTestCase):
 class TestWebhookHealthCheck(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_health_check_returns_structured_status(self):

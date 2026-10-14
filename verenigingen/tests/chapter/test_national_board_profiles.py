@@ -373,6 +373,11 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         self.addCleanup(setattr, frappe.local, "request", original_request)
         # Mock justified: Infrastructure - run_doc_method reads the HTTP method of the request
         frappe.local.request = Request(EnvironBuilder(method="POST").get_environ())
+        original_response = getattr(frappe.local, "response", None)
+        self.addCleanup(setattr, frappe.local, "response", original_response)
+        # Mock justified: Infrastructure - run_doc_method appends the doc to response.docs, which
+        # only a real request cycle creates (an earlier test may have left a bare _dict() behind)
+        frappe.local.response = frappe._dict(docs=[])
         nbm = self._an_existing_national_board_member()
         new = self._new_volunteer()
         role = self._chapter_role_labelled("Secretary")
