@@ -211,8 +211,11 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         frappe.clear_cache(user=user)
         self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
         self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
-        idx = frappe.db.get_value("Has Role", {"parent": user, "role": DIRECT_ROLE}, "idx")
-        self.assertGreater(idx, 0, "restored row kept no position")
+        rows = frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, fields=["role", "idx"])
+        restored = next(r.idx for r in rows if r.role == DIRECT_ROLE)
+        others = [r.idx for r in rows if r.role != DIRECT_ROLE]
+        self.assertEqual(restored, max(others) + 1, "restored row is not appended after the others")
+        self.assertEqual(len({r.idx for r in rows}), len(rows), "idx values are not distinct")
         # Control for "keep everything": roles only the old profile supplied ARE withdrawn.
         gone = {r.role for r in frappe.get_doc("Role Profile", PROFILE_VOLUNTEER).roles} - {
             r.role for r in frappe.get_doc("Role Profile", PROFILE_MEMBER).roles
@@ -313,3 +316,13 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         self.assertEqual(calc.read_sync_granted_profiles(user), [PROFILE_MEMBER])
         sync_user_role_profile(user)  # event path: bootstrap no longer runs
         self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+
+    def test_a_recordless_user_with_nothing_to_change_is_not_given_a_record_by_the_record_only_path(self):
+        user = self._nightly_member_user()
+        sync_user_role_profile(user)  # correct profiles and module
+        frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
+
+        result = sync_user_role_profile(user, nightly=True)
+
+        self.assertFalse(result["changed"], result)
+        self.assertIsNone(calc.read_sync_granted_profiles(user))
