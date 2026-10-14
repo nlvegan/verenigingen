@@ -1,9 +1,8 @@
 """Who may deliberately assign a Role Profile to a user (#1654).
 
 role_profile_mapping_guard (#1616) limits what a chapter board or team can MAP. This
-module limits what a caller of an assignment endpoint can GIVE. The endpoints
-(assign_role_profile_to_user, assign_chapter_board_role_profile,
-assign_team_role_profile) are ADMIN-tier, and the Treasurer and National Board Member
+module limits what a caller of an assignment endpoint can GIVE. The endpoint
+(assign_role_profile_to_user) is ADMIN-tier, and the Treasurer and National Board Member
 profiles are themselves CRITICAL-tier, so without this check a holder of either could
 hand out "Verenigingen Administrator" (System Manager), HR Manager (the stock "HR"
 profile) or the national profiles to anybody.

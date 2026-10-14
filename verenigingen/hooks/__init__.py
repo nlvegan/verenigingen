@@ -34,9 +34,11 @@ from verenigingen.hooks.fixtures import fixtures
 from verenigingen.hooks.lifecycle import (
     after_install,
     after_migrate,
+    auth_hooks,
     before_migrate,
     before_tests,
     boot_session,
+    on_login,
     on_logout,
     on_startup,
 )

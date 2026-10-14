@@ -26,7 +26,6 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
-from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
 from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -41,7 +40,6 @@ __all__ = [
     "_chapter_manager",
     "get_chapter_role_profile_config",
     "determine_role_profile_for_board_member",
-    "assign_chapter_board_role_profile",
     "remove_chapter_board_role_profile",
     "bulk_assign_chapter_board_role_profiles",
     "get_chapter_board_role_profile_mapping",
@@ -174,26 +172,6 @@ def determine_role_profile_for_board_member(chapter_name, board_role=None):
         str: Role profile name or None
     """
     return _chapter_manager.determine_role_profile_for_member(chapter_name, board_role)
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def assign_chapter_board_role_profile(user: str, chapter_name: str, board_role=None):
-    """
-    Assign role profile when user joins a chapter board
-
-    Args:
-        user: User email/name
-        chapter_name: Name of the chapter they're joining the board of
-        board_role: Board role (optional, for future role-specific assignments)
-
-    Returns:
-        dict: Success/failure result
-    """
-    # Privileged profiles (the national ones) are not handed out by this ADMIN-tier endpoint
-    # to just anyone: the profile comes from the chapter's mapping, so check what it maps to.
-    validate_may_assign_profile(determine_role_profile_for_board_member(chapter_name, board_role))
-    return _chapter_manager.assign_role_profile(user, chapter_name, board_role)
 
 
 @frappe.whitelist()

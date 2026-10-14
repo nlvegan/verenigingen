@@ -114,7 +114,6 @@ class RoleProfileSystemValidator:
             from verenigingen.utils.team_role_profile_manager import (
                 get_team_role_profile_config,
                 determine_role_profile_for_team_member,
-                assign_team_role_profile,
                 remove_team_role_profile,
                 bulk_assign_team_role_profiles,
                 get_team_role_profile_mapping
@@ -129,7 +128,6 @@ class RoleProfileSystemValidator:
             from verenigingen.utils.chapter_role_profile_manager import (
                 get_chapter_role_profile_config,
                 determine_role_profile_for_board_member,
-                assign_chapter_board_role_profile,
                 remove_chapter_board_role_profile,
                 bulk_assign_chapter_board_role_profiles,
                 get_chapter_board_role_profile_mapping

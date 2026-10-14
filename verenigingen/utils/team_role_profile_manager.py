@@ -26,7 +26,6 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
-from verenigingen.services.member.account.role_profile_assignment_guard import validate_may_assign_profile
 from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -152,25 +151,6 @@ def determine_role_profile_for_team_member(team_name, team_role=None):
         str: Role profile name or None
     """
     return _team_manager.determine_role_profile_for_member(team_name, team_role)
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-def assign_team_role_profile(user: str, team_name: str, team_role=None):
-    """
-    Assign role profile when user joins a team
-
-    Args:
-        user: User email/name
-        team_name: Name of the team they're joining
-        team_role: Team role (optional, for logging)
-
-    Returns:
-        dict: Success/failure result
-    """
-    # A team may legitimately map a System Manager profile (Landelijk Beheer); who may hand it out is checked here.
-    validate_may_assign_profile(determine_role_profile_for_team_member(team_name, team_role))
-    return _team_manager.assign_role_profile(user, team_name, team_role)
 
 
 @frappe.whitelist()
