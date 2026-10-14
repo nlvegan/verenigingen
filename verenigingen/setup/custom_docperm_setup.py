@@ -402,12 +402,13 @@ def _record_core_grant(ledger, doctype, role, ptypes):
     """Remember what this run declared. Stock is consulted when revoking, not here.
 
     A row with no stock counterpart was created by ``add_permission``, whose creation defaults
-    (read, export) are ours too.
+    (read, export) are ours too, but only while undeclared: they go with the row, not with the
+    tuple, so they are kept apart from the declared ptypes.
     """
-    ours = list(ptypes)
+    defaults = []
     if not _has_stock_row(doctype, role):
-        ours += [f for f in _creation_defaults() if f not in ours]
-    ledger.setdefault(doctype, {})[role] = ours
+        defaults = [f for f in _creation_defaults() if f not in ptypes]
+    ledger.setdefault(doctype, {})[role] = {"ptypes": list(ptypes), "defaults": defaults}
 
 
 def _revoke_dropped_core_grants(ledger):
@@ -419,11 +420,12 @@ def _revoke_dropped_core_grants(ledger):
     deleted once it carries no flag at all.
     """
     declared = {(dt, role): set(ptypes) for dt, role, ptypes in CORE_GRANTS}
-    defaults = set(_creation_defaults())
     for doctype in list(ledger):
         for role, recorded in list(ledger[doctype].items()):
             kept = declared.get((doctype, role))
-            dropped = [p for p in recorded if kept is None or p not in kept | defaults]
+            dropped = [p for p in recorded["ptypes"] if kept is None or p not in kept]
+            if kept is None:
+                dropped += recorded["defaults"]
             if dropped:
                 _lower_core_flags(doctype, role, dropped)
         del ledger[doctype]  # re-recorded by the apply loop for everything still declared

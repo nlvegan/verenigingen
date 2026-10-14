@@ -314,9 +314,16 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._clear_ledger()
         self._drop_custom(doctype)
 
-    def _row(self, doctype, role, level=0):
+    def _effective_row(self, doctype, role, level=0):
         rows = [p for p in _effective(doctype) if p.role == role and cint(p.permlevel) == level]
         return rows[0] if rows else None
+
+    def _flags_of_other_roles(self, doctype, role):
+        return {
+            (p.role, cint(p.permlevel), cint(p.if_owner)): tuple(cint(p.get(f)) for f in PERM_FIELDS)
+            for p in _effective(doctype)
+            if p.role != role
+        }
 
     def _stock_row(self, doctype, role):
         rows = frappe.get_all("DocPerm", filters={"parent": doctype, "role": role, "permlevel": 0,
@@ -329,21 +336,45 @@ class TestCustomDocPermSetup(FrappeTestCase):
         kept = ("Company", "Verenigingen Webhook User", ("read",))
         self._drop_custom("Company")
         self._sync_with([ours, kept])
-        self.assertEqual(cint(self._row("Customer", "Verenigingen Staff").write), 1, "precondition")
+        self.assertEqual(cint(self._effective_row("Customer", "Verenigingen Staff").write), 1, "precondition")
         stock = set(frappe.get_all("DocPerm", filters={"parent": "Customer"}, pluck="role"))
         self.assertTrue(stock)
+        others = self._flags_of_other_roles("Customer", "Verenigingen Staff")
+        self.assertTrue(others, "control: other roles' rows must exist to be wrongly lowered")
         self._sync_with([kept])
-        self.assertIsNone(self._row("Customer", "Verenigingen Staff"), "removed tuple still grants")
+        self.assertEqual(self._flags_of_other_roles("Customer", "Verenigingen Staff"), others)
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"), "removed tuple still grants")
         self.assertTrue(stock <= _roles("Customer"), "stock roles must stay")
-        self.assertEqual(cint(self._row("Company", "Verenigingen Webhook User").read), 1)
+        self.assertEqual(cint(self._effective_row("Company", "Verenigingen Webhook User").read), 1)
 
     def test_a_dropped_ptype_is_lowered_and_the_rest_stays(self):
         self._core_setup()
         self._sync_with([("Customer", "Verenigingen Staff", ("read", "write", "create", "report"))])
         self._sync_with([("Customer", "Verenigingen Staff", ("read", "write"))])
-        row = self._row("Customer", "Verenigingen Staff")
+        row = self._effective_row("Customer", "Verenigingen Staff")
         self.assertEqual([cint(row.read), cint(row.write), cint(row.create), cint(row.report)],
                          [1, 1, 0, 0])
+
+    def test_a_declared_creation_default_dropped_from_a_kept_tuple_is_lowered(self):
+        # read/export are switched on by Frappe at creation, but once a tuple DECLARES export
+        # and later drops it, the download right goes (#1642 review F1).
+        self._core_setup()
+        self._sync_with([("Customer", "Verenigingen Staff", ("read", "write", "export", "email"))])
+        self.assertEqual(cint(self._effective_row("Customer", "Verenigingen Staff").export), 1)
+        self._sync_with([("Customer", "Verenigingen Staff", ("read", "write"))])
+        row = self._effective_row("Customer", "Verenigingen Staff")
+        self.assertEqual([cint(row.export), cint(row.email), cint(row.write)], [0, 0, 1])
+
+    def test_an_undeclared_creation_default_stays_while_the_tuple_is_kept(self):
+        # Control: export was never declared, only switched on by Frappe, so keeping the
+        # tuple keeps it (unchanged behaviour); dropping the tuple removes it with the row.
+        self._core_setup()
+        grants = [("Customer", "Verenigingen Staff", ("read", "write"))]
+        self._sync_with(grants)
+        self._sync_with(grants)
+        self.assertEqual(cint(self._effective_row("Customer", "Verenigingen Staff").export), 1)
+        self._sync_with([])
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"))
 
     def test_an_admin_raised_flag_on_the_same_row_survives_a_removal(self):
         self._core_setup()
@@ -352,7 +383,7 @@ class TestCustomDocPermSetup(FrappeTestCase):
                                                       "role": "Verenigingen Staff", "permlevel": 0})
         frappe.db.set_value("Custom DocPerm", name, "delete", 1)  # Role Permissions Manager edit
         self._sync_with([])
-        row = self._row("Customer", "Verenigingen Staff")
+        row = self._effective_row("Customer", "Verenigingen Staff")
         self.assertIsNotNone(row, "a row an admin extended is theirs now")
         self.assertEqual([cint(row.delete), cint(row.write), cint(row.create)], [1, 0, 0])
 
@@ -363,7 +394,7 @@ class TestCustomDocPermSetup(FrappeTestCase):
                                                       "role": "Verenigingen Staff", "permlevel": 0})
         frappe.db.set_value("Custom DocPerm", name, "submit", 1)
         self._sync_with([("Customer", "Verenigingen Staff", ("read",))])
-        row = self._row("Customer", "Verenigingen Staff")
+        row = self._effective_row("Customer", "Verenigingen Staff")
         self.assertEqual([cint(row.submit), cint(row.write), cint(row.create)], [1, 0, 0])
 
     def test_an_ess_row_on_the_same_doctype_survives(self):
@@ -374,7 +405,7 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._sync_with([])
         ess = [p for p in _effective("Customer") if p.role == "Employee Self Service"]
         self.assertEqual([cint(p.select) for p in ess], [1], "ESS select row must survive")
-        self.assertIsNone(self._row("Customer", "Verenigingen Staff"))
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"))
 
     def test_a_flag_the_stock_row_grants_is_not_lowered(self):
         # Declared ptypes include one stock already grants and one it does not. Dropping the
@@ -386,9 +417,9 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self.assertTrue(cint(stock.read) and cint(stock.write), "fixture: stock grants read+write")
         self._core_setup(doctype)
         self._sync_with([(doctype, stock.role, ("read", "write", "cancel"))])
-        self.assertEqual(cint(self._row(doctype, stock.role).cancel), 1, "precondition: we raised it")
+        self.assertEqual(cint(self._effective_row(doctype, stock.role).cancel), 1, "precondition: we raised it")
         self._sync_with([])
-        row = self._row(doctype, stock.role)
+        row = self._effective_row(doctype, stock.role)
         self.assertEqual([cint(row.read), cint(row.write), cint(row.cancel)], [1, 1, 0])
 
     def test_a_flag_stock_starts_granting_later_is_not_lowered(self):
@@ -400,10 +431,10 @@ class TestCustomDocPermSetup(FrappeTestCase):
                      if cint(r.write) and not cint(r.cancel) and r.role not in ("System Manager",))
         self._core_setup(doctype)
         self._sync_with([(doctype, stock.role, ("read", "cancel"))])
-        self.assertEqual(cint(self._row(doctype, stock.role).cancel), 1, "precondition: we raised it")
+        self.assertEqual(cint(self._effective_row(doctype, stock.role).cancel), 1, "precondition: we raised it")
         frappe.db.set_value("DocPerm", stock.name, "cancel", 1)
         self._sync_with([])
-        self.assertEqual(cint(self._row(doctype, stock.role).cancel), 1)
+        self.assertEqual(cint(self._effective_row(doctype, stock.role).cancel), 1)
 
     def test_a_fixture_era_row_is_revoked_once_the_ledger_has_seen_it(self):
         # Existing sites hold raw-inserted rows and no ledger. The first run adopts them from the
@@ -413,7 +444,7 @@ class TestCustomDocPermSetup(FrappeTestCase):
         grants = [("Customer", "Verenigingen Staff", ("read", "write", "create"))]
         self._sync_with(grants)
         self._sync_with([])
-        self.assertIsNone(self._row("Customer", "Verenigingen Staff"))
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"))
 
     def test_without_a_ledger_a_removal_is_not_guessed(self):
         # History before the ledger is unknowable: a row nothing has declared is kept.
@@ -421,14 +452,14 @@ class TestCustomDocPermSetup(FrappeTestCase):
         self._sync_with([("Customer", "Verenigingen Staff", ("read", "write", "create"))])
         self._clear_ledger()
         self._sync_with([])
-        self.assertEqual(cint(self._row("Customer", "Verenigingen Staff").write), 1)
+        self.assertEqual(cint(self._effective_row("Customer", "Verenigingen Staff").write), 1)
 
     def test_every_duplicate_row_is_lowered(self):
         self._core_setup()
         self._sync_with([("Customer", "Verenigingen Staff", ("read", "write"))])
         self._raw_custom_row("Customer", "Verenigingen Staff", read=1, write=1)
         self._sync_with([])
-        self.assertIsNone(self._row("Customer", "Verenigingen Staff"))
+        self.assertIsNone(self._effective_row("Customer", "Verenigingen Staff"))
 
     def test_a_still_declared_grant_is_never_revoked(self):
         # Control for the revoke: two syncs of the real CORE_GRANTS must not lower anything.
