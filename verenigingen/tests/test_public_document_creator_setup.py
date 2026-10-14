@@ -17,8 +17,6 @@ the created Role / User / Custom DocPerm records and restores the mutated
 Verenigingen Settings Single value.
 """
 
-import string
-
 import frappe
 
 from verenigingen.setup.public_document_creator_setup import (
@@ -28,7 +26,6 @@ from verenigingen.setup.public_document_creator_setup import (
     create_public_creator_account,
     ensure_public_creator_role_exists,
     generate_public_creator_email,
-    generate_secure_password,
     setup_public_document_creator,
     setup_public_document_creator_manual,
     verify_public_document_creator_manual,
@@ -43,6 +40,9 @@ MANAGED_DOCTYPES = ["Donor", "Donation", "Member", "Address", "Contact"]
 class TestPublicDocumentCreatorSetup(VereningingenTestCase):
     def setUp(self):
         super().setUp()
+        # Users a test inserted that setup's own commit would otherwise leave behind.
+        self._control_users = []
+        self._original_user = frappe.session.user
         # Capture the current Single value so we can restore it: the module commits
         # its mutation, defeating the per-test rollback.
         self._original_creation_user = frappe.db.get_single_value(
@@ -101,14 +101,15 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
         return user
 
     def tearDown(self):
+        frappe.set_user(self._original_user)
         # Explicit cleanup of committed side effects, in dependency-safe order:
         # user first (references role), then the role's Custom DocPerms, then the role.
-        try:
-            for candidate in _all_creator_user_emails():
+        for candidate in [*self._control_users, *_all_creator_user_emails()]:
+            try:
                 if frappe.db.exists("User", candidate):
                     frappe.delete_doc("User", candidate, force=True, ignore_permissions=True)
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         try:
             # Remove every Custom DocPerm the test caused on the managed doctypes
@@ -141,26 +142,6 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
             pass
 
         super().tearDown()
-
-    # ------------------------------------------------------------------ #
-    # generate_secure_password
-    # ------------------------------------------------------------------ #
-    def test_generate_secure_password_default_length(self):
-        pwd = generate_secure_password()
-        self.assertEqual(len(pwd), 16)
-
-    def test_generate_secure_password_custom_length(self):
-        pwd = generate_secure_password(24)
-        self.assertEqual(len(pwd), 24)
-
-    def test_generate_secure_password_uses_expected_alphabet(self):
-        allowed = set(string.ascii_letters + string.digits + "!@#$%&*+-=?")
-        pwd = generate_secure_password(64)
-        self.assertTrue(set(pwd).issubset(allowed))
-
-    def test_generate_secure_password_is_random(self):
-        # Two independent draws should not collide (cryptographic randomness).
-        self.assertNotEqual(generate_secure_password(), generate_secure_password())
 
     # ------------------------------------------------------------------ #
     # generate_public_creator_email
@@ -261,7 +242,7 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
     def test_create_account_creates_user(self):
         ensure_public_creator_role_exists()
         email = generate_public_creator_email()
-        result = create_public_creator_account(email, generate_secure_password())
+        result = create_public_creator_account(email)
         self.assertTrue(result["success"], msg=result)
         self.assertTrue(frappe.db.exists("User", email))
 
@@ -277,9 +258,9 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
     def test_create_account_idempotent(self):
         ensure_public_creator_role_exists()
         email = generate_public_creator_email()
-        first = create_public_creator_account(email, generate_secure_password())
+        first = create_public_creator_account(email)
         self.assertTrue(first["success"])
-        second = create_public_creator_account(email, generate_secure_password())
+        second = create_public_creator_account(email)
         self.assertTrue(second["success"])
         self.assertEqual(second["message"], "User already exists")
 
@@ -302,7 +283,7 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
     def test_assign_roles_idempotent(self):
         ensure_public_creator_role_exists()
         email = generate_public_creator_email()
-        create_public_creator_account(email, generate_secure_password())
+        create_public_creator_account(email)
         result = assign_public_creator_roles(email)
         self.assertTrue(result["success"])
         # Role appears exactly once, not duplicated.
@@ -354,7 +335,6 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
         self.assertTrue(result["success"], msg=result)
         email = result["user_email"]
         self.assertTrue(email.startswith("public-creator@"))
-        self.assertEqual(len(result["user_password"]), 16)
 
         # Role, user, role assignment, and settings all wired up.
         self.assertTrue(frappe.db.exists("Role", PUBLIC_CREATOR_ROLE))
@@ -376,23 +356,237 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
 
         self.assertEqual(first["user_email"], second["user_email"])
         self.assertEqual(set(_all_creator_user_emails()), users_before, "a re-run created a user")
-        # A reused user's password is not known, so none is returned.
-        self.assertIsNone(second["user_password"])
 
         self.assertEqual(frappe.db.count("Role", {"name": PUBLIC_CREATOR_ROLE}), 1)
         configured = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
         self.assertEqual(configured, first["user_email"])
 
-    def test_setup_never_prints_the_generated_password(self):
-        import contextlib
-        import io
-
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            result = setup_public_document_creator()
+    # ------------------------------------------------------------------ #
+    # #1670: the creator account must not be usable as a login
+    #
+    # The public flows only ever `frappe.set_user(creator)` in-process; nothing
+    # needs a session, a password or an API key for it. Each test below tries one
+    # way in, and each has a control (an ordinary user passes the same path) so a
+    # refusal that is really "everyone is refused" cannot pass.
+    # ------------------------------------------------------------------ #
+    def _creator_after_setup(self):
+        result = setup_public_document_creator()
         self.assertTrue(result["success"], msg=result)
-        self.assertTrue(result["user_password"], "control: this run created the user")
-        self.assertNotIn(result["user_password"], out.getvalue())
+        return result["user_email"]
+
+    def _make_login_user(self, email):
+        """An ordinary Website User with a known password (the control)."""
+        from frappe.utils.password import update_password
+
+        self._control_users.append(email)
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "Control",
+                "user_type": "Website User",
+                "enabled": 1,
+                "send_welcome_email": 0,
+            }
+        ).insert(ignore_permissions=True)
+        update_password(user.name, "Zq9!control-pass-1670")
+        return user.name
+
+    def _password_login(self, user, password):
+        """Real LoginManager authenticate + the on_login trigger, no HTTP request."""
+        from frappe.auth import LoginManager
+
+        manager = LoginManager.__new__(LoginManager)
+        manager.user = manager.info = manager.full_name = manager.user_type = None
+        # No HTTP request here, and the login-attempt tracker is keyed on the request IP.
+        previous_ip = getattr(frappe.local, "request_ip", None)
+        frappe.local.request_ip = "127.0.0.1"
+        try:
+            manager.authenticate(user=user, pwd=password)
+            manager.run_trigger("on_login")
+        finally:
+            frappe.local.request_ip = previous_ip
+        return manager.user
+
+    def test_setup_leaves_the_creator_without_any_password(self):
+        email = self._creator_after_setup()
+        rows = frappe.db.sql("select fieldname from __Auth where doctype='User' and name=%s", email)
+        self.assertEqual(rows, (), msg="the creator must hold no stored credential at all")
+
+    def test_a_password_set_later_still_cannot_log_the_creator_in(self):
+        from frappe.utils.password import update_password
+
+        email = self._creator_after_setup()
+        control = self._make_login_user("control-login-1670@example.invalid")
+        self.assertEqual(self._password_login(control, "Zq9!control-pass-1670"), control)
+
+        update_password(email, "Zq9!set-by-an-admin-1670")
+        frappe.clear_cache()
+        with self.assertRaises(frappe.AuthenticationError):
+            self._password_login(email, "Zq9!set-by-an-admin-1670")
+
+    def _authenticate_with_api_key(self, user):
+        from frappe.auth import validate_api_key_secret, validate_auth_via_hooks
+        from frappe.core.doctype.user.user import generate_keys
+
+        secret = generate_keys(user)["api_secret"]
+        key = frappe.db.get_value("User", user, "api_key")
+        previous_manager = getattr(frappe.local, "login_manager", None)
+        frappe.local.login_manager = frappe._dict(user="Guest")
+        try:
+            validate_api_key_secret(key, secret)
+            self.assertEqual(frappe.session.user, user, "control: the key authenticated")
+            validate_auth_via_hooks()
+        finally:
+            frappe.local.login_manager = previous_manager
+            frappe.set_user(self._original_user)
+
+    def test_an_api_key_cannot_authenticate_the_creator(self):
+        email = self._creator_after_setup()
+        control = self._make_login_user("control-key-1670@example.invalid")
+        self._authenticate_with_api_key(control)
+
+        frappe.clear_cache()
+        with self.assertRaises(frappe.AuthenticationError):
+            self._authenticate_with_api_key(email)
+
+    def test_an_existing_session_of_the_creator_is_refused(self):
+        from frappe.auth import validate_auth_via_hooks
+
+        email = self._creator_after_setup()
+        control = self._make_login_user("control-session-1670@example.invalid")
+        frappe.clear_cache()
+        try:
+            frappe.set_user(control)
+            validate_auth_via_hooks()
+            frappe.set_user(email)
+            with self.assertRaises(frappe.AuthenticationError):
+                validate_auth_via_hooks()
+        finally:
+            frappe.set_user(self._original_user)
+
+    def test_the_refusal_is_the_same_as_a_wrong_password(self):
+        """Same exception, same response message, same Activity Log row as a bad password."""
+        from frappe.utils.password import update_password
+
+        email = self._creator_after_setup()
+        update_password(email, "Zq9!set-by-an-admin-1670")
+        frappe.clear_cache()
+        control = self._make_login_user("control-oracle-1670@example.invalid")
+
+        def attempt(user, password):
+            frappe.local.response.pop("message", None)
+            before = frappe.db.count("Activity Log", {"operation": "Login", "status": "Failed"})
+            with self.assertRaises(frappe.AuthenticationError):
+                self._password_login(user, password)
+            after = frappe.db.count("Activity Log", {"operation": "Login", "status": "Failed"})
+            return frappe.local.response.get("message"), after - before
+
+        wrong = attempt(control, "not-the-password")
+        refused = attempt(email, "Zq9!set-by-an-admin-1670")
+        self.assertEqual(refused, wrong)
+        self.assertEqual(wrong, ("Invalid login credentials", 1))
+
+    @staticmethod
+    def _session_count(user):
+        return frappe.db.sql("select count(*) from tabSessions where user=%s", user)[0][0]
+
+    def _open_session_for(self, user):
+        """A real session row, written by Frappe's own Session.insert_session_record.
+
+        Session() itself needs an HTTP request (cookies), which a test does not have, so the
+        record it would have built is populated by hand and inserted the way a login does.
+        """
+        from frappe.sessions import Session, get_expiry_period
+
+        session = Session.__new__(Session)
+        session.sid = frappe.generate_hash()
+        session.user = user
+        session.data = frappe._dict(
+            user=user,
+            sid=session.sid,
+            data=frappe._dict(
+                user=user,
+                session_ip="127.0.0.1",
+                last_updated=frappe.utils.now(),
+                creation=frappe.utils.now(),
+                session_expiry=get_expiry_period(),
+                full_name="Public Document Creator",
+                user_type="Website User",
+            ),
+        )
+        session.insert_session_record()
+
+    def test_hardening_strips_a_creator_that_already_has_credentials(self):
+        """A site set up before #1670 has a password, an API key, a session and a reset key."""
+        from frappe.core.doctype.user.user import generate_keys
+        from frappe.utils.password import update_password
+
+        from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
+
+        email = self._creator_after_setup()
+        update_password(email, "Zq9!legacy-password-1670")
+        generate_keys(email)
+        frappe.db.set_value("User", email, "reset_password_key", "legacy-reset-key")
+        self.assertTrue(frappe.db.get_value("User", email, "api_key"), "precondition")
+        self._open_session_for(email)
+        self.assertEqual(self._session_count(email), 1, "precondition: a live session exists")
+
+        harden_public_document_creator()
+
+        self.assertEqual(
+            frappe.db.sql("select fieldname from __Auth where doctype='User' and name=%s", email), ()
+        )
+        self.assertFalse(frappe.db.get_value("User", email, "api_key"))
+        self.assertFalse(frappe.db.get_value("User", email, "reset_password_key"))
+        self.assertEqual(self._session_count(email), 0)
+        # What the public flows need is untouched.
+        user = frappe.get_doc("User", email)
+        self.assertEqual(user.enabled, 1)
+        self.assertTrue(any(r.role == PUBLIC_CREATOR_ROLE for r in user.roles))
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "creation_user"), email)
+
+    def test_hardening_leaves_a_staff_user_that_merely_matches_the_prefix_alone(self):
+        from frappe.utils.password import check_password, update_password
+
+        from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
+
+        self._creator_after_setup()
+        staff = self._make_user("public-creator-staff-1670@example.invalid")
+        update_password(staff.name, "Zq9!staff-password-1670")
+        harden_public_document_creator()
+        self.assertEqual(check_password(staff.name, "Zq9!staff-password-1670"), staff.name)
+
+    def test_the_hardening_hook_is_wired_into_migrate(self):
+        from frappe import get_hooks
+
+        frappe.clear_cache()
+        self.assertIn(
+            "verenigingen.setup.public_document_creator_setup.harden_public_document_creator",
+            get_hooks("after_migrate"),
+        )
+
+    # ------------------------------------------------------------------ #
+    # #1670: the public flows impersonate the creator IN-PROCESS and must keep doing so.
+    # (They are exercised end to end, as Guest, by test_guest_donation_flow and
+    # test_application_submission_validation; neither goes through an auth hook.)
+    # ------------------------------------------------------------------ #
+    def test_in_process_impersonation_of_the_creator_still_works(self):
+        from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
+
+        creator = self._creator_after_setup()
+        frappe.clear_cache()
+        try:
+            frappe.set_user("Guest")
+            system_user = get_system_user_for_operation("public creator lockdown test")
+            self.assertEqual(system_user, creator)
+            with secure_user_context(system_user, "public creator lockdown test"):
+                self.assertEqual(frappe.session.user, creator)
+                contact = frappe.get_doc({"doctype": "Contact", "first_name": "Lockdown1670"}).insert()
+        finally:
+            frappe.set_user(self._original_user)
+        self.track_doc("Contact", contact.name)
+        self.assertEqual(contact.owner, creator)
 
     # ------------------------------------------------------------------ #
     # verify_public_document_creator_setup

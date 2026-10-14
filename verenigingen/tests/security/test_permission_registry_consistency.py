@@ -108,9 +108,11 @@ DONATION_READ_ROLES = {
 
 # Install runs setup_public_document_creator, which DELIBERATELY gives this role read/write/create
 # on Donation (public donation forms create Donor and Donation as that account), so it is tolerated
-# here. That is not a statement that the grant is safe: the account can authenticate, reads and
-# writes every Donation/Donor/Member, has no if_owner restriction, and Donation has no list query
-# (#1670). The row is a Custom DocPerm: present on a fresh install, deleted by
+# here. That is not a statement that the grant is safe: it has no if_owner restriction, and Donation
+# has no list query, so the account lists every Donation (#1670). What keeps that unreachable is
+# that the account holds no credential and is refused at login and on every request
+# (public_document_creator_setup.refuse_public_creator_authentication). The row is a Custom DocPerm:
+# present on a fresh install, deleted by
 # test_public_document_creator_setup's teardown, so it is an OPTIONAL reader. Any other extra
 # reader, or a lost required reader, still breaks the premise.
 PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
