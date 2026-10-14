@@ -66,6 +66,9 @@ after_migrate = [
     # deterministic; it previously returned a deliberately-unused address, so this
     # would have minted a new user on every migrate.
     "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+    # The public document creator is only ever impersonated in-process and must hold no
+    # password / API key / session (#1670). Sites that created it earlier still carry them.
+    "verenigingen.setup.public_document_creator_setup.harden_public_document_creator",
     # Raw-SQL SEPA operations tables -- see #1510 and the after_install entry
     # above. Also here (idempotent, IF NOT EXISTS) so an existing site that
     # was installed before this hook existed converges on the next migrate.
@@ -82,6 +85,12 @@ before_tests = "verenigingen.tests.setup.before_tests"
 
 # Run when user logs out
 on_logout = "verenigingen.auth_hooks.on_logout"
+
+# The public document creator account can never authenticate (#1670): `on_login` covers
+# password / social / OTP logins, `auth_hooks` covers every request (cookie session, API key,
+# bearer token).
+on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
+auth_hooks = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
 
 # Run when the application starts
 # Used for startup verification of critical infrastructure
