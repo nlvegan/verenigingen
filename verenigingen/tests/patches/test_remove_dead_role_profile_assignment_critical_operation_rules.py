@@ -13,25 +13,11 @@ from verenigingen.patches.v2_2.remove_dead_role_profile_assignment_critical_oper
     DEAD_RULES,
     execute,
 )
+from verenigingen.tests.patches.test_remove_dead_chapter_board_permission_critical_operation_rules import (
+    _insert_rule,
+)
 
 CONTROL = "zz_1659_live_control_rule"
-
-
-def _insert_rule(name):
-    frappe.get_doc(
-        {
-            "doctype": "Critical Operation Rule",
-            "operation_name": name,
-            "operation_type": "admin",
-            "enabled": 1,
-            "security_level": "low",
-            "required_roles": "System Manager",
-            "rate_limit_calls": 180,
-            "rate_limit_period_seconds": 3600,
-            "rate_limit_scope": "per_user",
-            "audit_level": "minimal",
-        }
-    ).insert(ignore_permissions=True)
 
 
 class TestRemoveDeadRoleProfileAssignmentRules(FrappeTestCase):
@@ -59,6 +45,13 @@ class TestRemoveDeadRoleProfileAssignmentRules(FrappeTestCase):
         self.assertTrue(frappe.db.exists("Critical Operation Rule", CONTROL))
 
     def test_execute_is_idempotent(self):
+        """Run on a site that is already clean: no raise, dead rules stay absent, live rule stays."""
+        for name in DEAD_RULES:
+            frappe.delete_doc("Critical Operation Rule", name, ignore_permissions=True, force=True)
+
         execute()
         execute()
+
+        for name in DEAD_RULES:
+            self.assertFalse(frappe.db.exists("Critical Operation Rule", name), name)
         self.assertTrue(frappe.db.exists("Critical Operation Rule", CONTROL))

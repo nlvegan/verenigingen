@@ -93,25 +93,6 @@ def _set_single_role_profile(user_doc, role_profile: str) -> None:
     user_doc.role_profile_name = role_profile
 
 
-def _add_role_profile(user_doc, role_profile: str) -> None:
-    """Add ``role_profile`` to ``user_doc`` WITHOUT touching the profiles it already holds (#1659).
-
-    _set_single_role_profile replaces, which is wrong for a bulk run over members who
-    hold other profiles (Staff, Volunteer, ...). The profile is recorded as sync-granted,
-    keeping the rest of that record, so a later withdrawal may take it back.
-    """
-    if _has_multi_profile_support():
-        user_doc.append("role_profiles", {"role_profile": role_profile})
-        from verenigingen.services.member.account.user_role_profile_calculator import (
-            read_sync_granted_profiles,
-            record_sync_granted_profiles,
-        )
-
-        recorded = read_sync_granted_profiles(user_doc.name) or []
-        record_sync_granted_profiles(user_doc, [*recorded, role_profile])
-    user_doc.role_profile_name = user_doc.role_profile_name or role_profile
-
-
 def _remove_single_role_profile(user_doc, role_profile: str) -> None:
     """Remove ``role_profile`` from ``user_doc`` if present, version-agnostic.
 
@@ -1002,52 +983,31 @@ class BaseRoleProfileManager(ABC):
                     ),
                 }
 
-            # WHY: Frappe v16 derives roles from the role_profiles child table; the
-            # old frappe.db.set_value("User", ..., "role_profile_name", ...) here was
-            # a silent no-op that granted NO roles (and bypassed User hooks) while
-            # this path reported action="assigned". Load the real User doc and write
-            # the child table, mirroring assign_role_profile / _strip_role_profile.
-            # (The preloaded user_docs dict lacks the child table, so re-fetch.)
-            user_doc_full = frappe.get_doc("User", user)
-            current_profiles = _read_role_profiles(user_doc_full)
-            if role_profile in current_profiles:
-                return {
-                    "user": user,
-                    "member": member_id,
-                    "result": self._create_response(
-                        success=True,
-                        message=f"User already has role profile '{role_profile}'",
-                        action="already_assigned",
-                    ),
-                }
-
-            previous_role_profile = user_doc_full.role_profile_name or next(iter(current_profiles), None)
-            _add_role_profile(user_doc_full, role_profile)
-
-            save_result = secure_document_operation(
-                operation="save",
-                doc=user_doc_full,
-                justification=f"Bulk assign role profile '{role_profile}' to user {user} for {self.config.entity_type} {entity_name} - role profile management for organizational access control",
-                required_permissions=["User:write"],
+            # The profiles a member holds are derived from ground truth (seats, teams,
+            # volunteer status) by the sync, which only withdraws what it granted itself.
+            # Writing this team's profile here instead would replace what the member
+            # holds, and a profile the sync does not derive for them (outranked, a second
+            # team) would be withdrawn again by the next event or nightly sync (#1659).
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                auto_sync_on_role_change,
             )
-            if not save_result.success:
+
+            sync_result = auto_sync_on_role_change(user)
+            if not sync_result or not sync_result.get("success"):
+                error = (sync_result or {}).get("error") or "role profile sync failed"
                 return {
                     "user": user,
                     "member": member_id,
                     "result": self._create_response(
-                        success=False,
-                        error=f"Failed to assign role profile: {'; '.join(save_result.errors)}",
-                        error_code=ERROR_CODES["PERMISSION_ERROR"],
+                        success=False, error=error, error_code=ERROR_CODES["SYSTEM_ERROR"]
                     ),
                 }
 
-            # Clear user permissions cache to ensure the new role profile takes effect
             frappe.cache().delete_key(f"user_roles:{user}")
             frappe.cache().delete_key(f"user_permissions:{user}")
 
-            # Log bulk assignment
             frappe.logger().info(
-                f"{self.config.log_context} (Bulk): Assigned '{role_profile}' to user {user} "
+                f"{self.config.log_context} (Bulk): synced role profiles of user {user} "
                 f"for {self.config.entity_type} {entity_name} (role: {role or 'default'})"
             )
 
@@ -1056,10 +1016,9 @@ class BaseRoleProfileManager(ABC):
                 "member": member_id,
                 "result": self._create_response(
                     success=True,
-                    message=f"Assigned role profile '{role_profile}' to user",
-                    role_profile=role_profile,
-                    previous_role_profile=previous_role_profile,
-                    action="assigned",
+                    message=f"Synced role profiles of user {user}",
+                    role_profile=sync_result.get("new_profile"),
+                    action="assigned" if sync_result.get("changed") else "already_assigned",
                 ),
             }
 

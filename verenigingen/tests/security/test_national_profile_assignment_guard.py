@@ -302,19 +302,27 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
 
     # -- the team bulk endpoint replaced a member's profiles (#1659) ----------
 
-    def _team_with_seated_victim(self, mapped_profile, held_profiles):
-        """A team mapped to `mapped_profile` with one Active member whose User holds `held_profiles`.
+    AUDITOR = "Verenigingen Auditor"  # not derived for every member, unlike "Verenigingen Member"
 
-        Probe shortcut, stated: the victim's held profiles are written directly onto the
-        User row AFTER the member is seated (the seating hooks sync profiles themselves),
-        and the test asserts that pre-state as a control before calling the endpoint.
+    def _seated_team_member(self, mapped_profile):
+        """A member who holds Staff (via the guarded endpoint) and Volunteer (via the sync), on a
+        team mapped to `mapped_profile`, with the team row INACTIVE so that nothing derives the
+        team's profile yet. Returns (team, victim, team_member_row_name).
+
+        Probe shortcut, stated: the Team Member row's status is flipped with db.set_value
+        (here and in the tests), because saving the Team runs the seating sync itself and
+        would hide what the bulk endpoint does. Each test asserts the pre-state as a control.
         """
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+        from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+
         frappe.db.set_single_value("Verenigingen Settings", "creation_user", "Administrator")
         team = self.factory.create_test_team()
         self.track_doc("Team", team.name)
         victim = self._make_user_holding_profile(None)
         member = self.create_test_member(user=victim, chapter=False)
         volunteer = self.create_test_volunteer(member=member.name)
+        assign_role_profile_to_user(victim, "Verenigingen Staff")
         doc = frappe.get_doc("Team", team.name)
         doc.enable_role_profiles = 1
         doc.default_role_profile = mapped_profile
@@ -324,26 +332,45 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
                 "volunteer": volunteer.name,
                 "team_role": "Team Member",
                 "from_date": frappe.utils.today(),
-                "status": "Active",
+                "status": "Inactive",
             },
         )
         doc.save()
-        user = frappe.get_doc("User", victim)
-        user.set("role_profiles", [{"role_profile": p} for p in held_profiles])
-        user.save(ignore_permissions=True)
-        return team.name, victim
+        sync_user_role_profile(victim)
+        row = frappe.db.get_value("Team Member", {"parent": team.name, "volunteer": volunteer.name}, "name")
+        return team.name, victim, row
 
-    def test_the_team_bulk_endpoint_adds_the_team_profile_and_keeps_what_the_member_holds(self):
+    def test_the_team_bulk_endpoint_gives_the_derived_team_profile_and_keeps_staff(self):
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            calculate_user_role_profile_set,
+            sync_user_role_profile,
+        )
         from verenigingen.utils.team_role_profile_manager import bulk_assign_team_role_profiles
 
-        held = {"Verenigingen Staff", "Verenigingen Volunteer"}
-        team, victim = self._team_with_seated_victim("Verenigingen Member", held)
-        self.assertEqual(self._profiles_of(victim), held, "control: the pre-state")
+        team, victim, row = self._seated_team_member(self.AUDITOR)
+        before = self._profiles_of(victim)
+        self.assertIn("Verenigingen Staff", before, "control: Staff held before")
+        self.assertNotIn(self.AUDITOR, before, "control: the team profile is not held yet")
+        frappe.db.set_value("Team Member", row, "status", "Active")
+        derived = set(calculate_user_role_profile_set(victim))
+        self.assertIn(self.AUDITOR, derived, "control: the sync derives the team profile for an Active member")
         actor = self._make_user_holding_profile(TREASURER)
 
         result = self._call_as(actor, bulk_assign_team_role_profiles, team)
 
         self.assertTrue(result.get("success"), result)
-        self.assertEqual(
-            self._profiles_of(victim), held | {"Verenigingen Member"}, "kept what it held AND got the team's"
-        )
+        after = self._profiles_of(victim)
+        self.assertIn(self.AUDITOR, after)
+        self.assertIn("Verenigingen Staff", after, "bulk must not replace what the member holds")
+
+        # The next sync agrees (no flip-flop), and withdraws the team profile once the member
+        # leaves the team while Staff stays.
+        sync_user_role_profile(victim)
+        self.assertEqual(self._profiles_of(victim), after)
+        again = self._call_as(actor, bulk_assign_team_role_profiles, team)
+        self.assertEqual([r["result"]["action"] for r in again["results"]], ["already_assigned"])
+        frappe.db.set_value("Team Member", row, "status", "Inactive")
+        sync_user_role_profile(victim)
+        gone = self._profiles_of(victim)
+        self.assertNotIn(self.AUDITOR, gone)
+        self.assertIn("Verenigingen Staff", gone)
