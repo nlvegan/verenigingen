@@ -130,9 +130,22 @@ class TestSendOverdueReminders(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
-        emp = frappe.get_all("Employee", fields=["name", "company"], limit=1)
+        # HRMS notify_approver reads Employee.user_id as the notification's
+        # from_user, and PWA Notification validates it as a Link to User. An
+        # Employee a sibling test leaked (user deleted, Employee left) would die
+        # here with "Could not find From User" (#1689), so skip those.
+        emp = [
+            e
+            for e in frappe.get_all(
+                "Employee", fields=["name", "company", "user_id"], order_by="creation asc"
+            )
+            if not e.user_id or frappe.db.exists("User", e.user_id)
+        ][:1]
         if not emp:
-            self.skipTest("No Employee master available for Expense Claim seeding")
+            self.skipTest(
+                "No Employee master with a usable user_id for Expense Claim seeding "
+                "(none exist, or every Employee has a user_id whose User is gone; see #1689, #1694)"
+            )
         self.employee = emp[0].name
         self.company = emp[0].company
         self.currency = frappe.db.get_value("Company", self.company, "default_currency") or "EUR"
