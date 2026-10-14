@@ -53,6 +53,7 @@ class TestHandlePaymentWebhook(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         # Reset response status between cases so a prior 500 doesn't leak.
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_missing_payment_id_returns_500(self):
@@ -147,6 +148,7 @@ class TestHandlePaymentWebhook(EnhancedTestCase):
 class TestHandleRefundWebhook(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_empty_payload_returns_500(self):
@@ -292,6 +294,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
 class TestHandleChargebackWebhook(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
     def test_empty_payload_returns_500(self):
