@@ -35,6 +35,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
 )
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Profile configuration cache (5 minute TTL)
 _profile_config_cache = {}
@@ -884,7 +885,11 @@ def get_user_role_profiles(user_name: str) -> list[str]:
 
 
 def sync_user_role_profile(
-    user: str, dry_run: bool = False, allow_disabled: bool = False, withdraw: tuple = ()
+    user: str,
+    dry_run: bool = False,
+    allow_disabled: bool = False,
+    withdraw: tuple = (),
+    nightly: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -902,6 +907,14 @@ def sync_user_role_profile(
         withdraw: Profiles a caller must revoke although the sync did not grant them
             (a MijnRood direct grant). Internal callers should not need it: the sync
             removes the profiles it recorded as its own and no longer derives.
+        nightly: Conservative mode for the scheduled sweep (#1676). (1) A user with no
+            sync-granted record loses nothing: only missing derived profiles are added
+            and the record is written. (2) Roles held directly, i.e. supplied by none of
+            the user's old profiles, are kept across the save (User.validate otherwise
+            resets roles to the profiles' roles). (3) A write inside a savepoint that
+            fails is rolled back, and a deadlock/timeout is re-raised instead of being
+            swallowed, so the run stops rather than resuming on a damaged transaction.
+            The event-driven callers keep the replace behaviour (#1293).
 
     Returns:
         dict: {
@@ -913,7 +926,10 @@ def sync_user_role_profile(
             "message": str
         }
     """
+    savepoint = "nightly_role_profile_sync"
     try:
+        if nightly:
+            frappe.db.savepoint(savepoint)
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
 
@@ -994,7 +1010,10 @@ def sync_user_role_profile(
             # as ours when it is derived, so it stays theirs.
             derived = list(new_profiles)
             recorded = read_sync_granted_profiles(user)
-            if recorded is None:
+            if recorded is None and nightly:
+                # No record: nothing is provably ours, so nothing is withdrawn (maintainer ruling on #1676).
+                recorded = []
+            elif recorded is None:
                 # Bootstrap (no record yet, e.g. data from before the record existed): only
                 # a currently-derived profile the user holds counts as ours. A manual
                 # profile that coincides with a derived one is indistinguishable here.
@@ -1011,18 +1030,25 @@ def sync_user_role_profile(
             # None (never recorded) counts as a change even when the new record is empty, so an
             # explicit "[]" is written and the bootstrap rule runs once, not for ever.
             stored = read_sync_granted_profiles(user)
-            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and (
-                stored is None or sorted(set(granted_now)) != sorted(set(stored))
+            # Nightly, a record-less user the job adds nothing to stays record-less: a record
+            # (even "[]") would switch off the event path's bootstrap withdrawal for them.
+            keep_recordless = nightly and stored is None and not added
+            marker_changed = (
+                frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD)
+                and not keep_recordless
+                and (stored is None or sorted(set(granted_now)) != sorted(set(stored)))
             )
             role_changed = set(existing_profiles) != set(new_profiles)
         else:
             marker_changed = False
+            keep_recordless = False
             derived = [new_profile]
             role_changed = old_profile != new_profile
         module_changed = new_module_profile is not None and old_module_profile != new_module_profile
         changed = role_changed or module_changed
 
         if changed and not dry_run:
+            direct_roles = _direct_roles(user, existing_profiles) if nightly else []
             # TODO: When Frappe v16 lands with multi-profile support,
             # use calculate_all_user_role_profiles() + _has_multi_profile_support()
             # to assign all applicable profiles instead of just the highest.
@@ -1059,7 +1085,7 @@ def sync_user_role_profile(
                 user_doc.role_profile_name = new_profiles[0] if new_profiles else new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile
-            if _has_multi_profile_support():
+            if _has_multi_profile_support() and not keep_recordless:
                 record_sync_granted_profiles(user_doc, granted_now)
 
             # Security: ignore_permissions: the profiles written are derived by this function from
@@ -1068,6 +1094,7 @@ def sync_user_role_profile(
             # a National Board Member seating a new volunteer (#1615). Without it the sync
             # raised PermissionError, was swallowed, and the new seat holder got no profile.
             user_doc.save(ignore_permissions=True)
+            _restore_direct_roles(user, direct_roles)
 
             log_msg = f"Updated profiles for {user}:"
             if role_changed:
@@ -1108,18 +1135,56 @@ def sync_user_role_profile(
             ),
         }
 
-    except Exception as e:
-        # Surface as Error Log too: the warning-only path lost us a
-        # TimestampMismatchError regression for weeks (issue surfaced 2026-04-19
-        # when the customer_group bug stopped masking it). Callers
-        # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow,
-        # so this is the last reachable point before silent absorption.
-        frappe.logger().error(f"Error syncing role profile for {user}: {str(e)}")
-        frappe.log_error(
-            message=f"Error syncing role profile for {user}: {e}",
-            title="Role Profile Sync Failed",
-        )
-        return {"success": False, "error": str(e), "user": user}
+    except NON_RESUMABLE_DB_ERRORS as e:
+        if nightly:
+            raise
+        return _sync_failed(user, e)
+    # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always
+    # been handed success=False instead and must keep that contract (#1293).
+    except Exception as e:  # non-resumable-ok: legacy swallow contract for non-nightly callers
+        if nightly:
+            rollback_to_savepoint(savepoint)
+        return _sync_failed(user, e)
+
+
+def _sync_failed(user: str, e: Exception) -> dict:
+    # Surface as Error Log too: the warning-only path lost us a
+    # TimestampMismatchError regression for weeks (issue surfaced 2026-04-19
+    # when the customer_group bug stopped masking it). Callers
+    # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow,
+    # so this is the last reachable point before silent absorption.
+    frappe.logger().error(f"Error syncing role profile for {user}: {str(e)}")
+    frappe.log_error(
+        message=f"Error syncing role profile for {user}: {e}",
+        title="Role Profile Sync Failed",
+    )
+    return {"success": False, "error": str(e), "user": user}
+
+
+def _direct_roles(user: str, old_profiles: list) -> list:
+    """Roles the user holds that none of their current profiles supplies."""
+    supplied = set()
+    for profile in old_profiles:
+        if frappe.db.exists("Role Profile", profile):
+            supplied.update(r.role for r in frappe.get_cached_doc("Role Profile", profile).roles)
+    held = frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role")
+    return [role for role in held if role not in supplied]
+
+
+def _restore_direct_roles(user: str, roles: list) -> None:
+    """Re-add roles User.save() dropped; written as rows, since another save would drop them again."""
+    held = set(frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role"))
+    missing = [role for role in roles if role not in held]
+    if not missing:
+        return
+    user_doc = frappe.get_doc("User", user)
+    next_idx = len(user_doc.roles) + 1
+    for offset, role in enumerate(missing):
+        row = frappe.new_doc("Has Role", parent_doc=user_doc, parentfield="roles")
+        row.role = role
+        row.idx = next_idx + offset
+        row.db_insert()
+    frappe.clear_cache(user=user)
 
 
 def resync_chapter_seat_holders(chapter_name: str) -> list:
@@ -1163,6 +1228,83 @@ def recalculate_user_role_profile(user: str, dry_run: bool = False):
     return sync_user_role_profile(user, dry_run=dry_run)
 
 
+def sync_role_profiles_for_users(users: list, dry_run: bool = False, nightly: bool = False) -> dict:
+    """Run sync_user_role_profile over ``users``; one user's failure never stops the run.
+
+    Plain (non-whitelisted) so the scheduler can call it without going through
+    high_security_api. sync_user_role_profile catches its own failures (one Error Log
+    row each) and returns success=False, which is counted here; with ``nightly`` it
+    also rolls the failed user's partial writes back, and re-raises a deadlock/timeout.
+    """
+    results = {
+        "total": len(users),
+        "changed": 0,
+        "unchanged": 0,
+        "errors": 0,
+        "changes": [],
+        "errors_list": [],
+    }
+    for user in users:
+        result = sync_user_role_profile(user, dry_run=dry_run, nightly=nightly)
+
+        if result.get("success"):
+            if result.get("changed"):
+                results["changed"] += 1
+                results["changes"].append(
+                    {
+                        "user": user,
+                        "old_role": result.get("old_profile"),
+                        "new_role": result.get("new_profile"),
+                        "old_module": result.get("old_module_profile"),
+                        "new_module": result.get("new_module_profile"),
+                        "role_changed": result.get("role_changed"),
+                        "module_changed": result.get("module_changed"),
+                    }
+                )
+            else:
+                results["unchanged"] += 1
+        else:
+            results["errors"] += 1
+            results["errors_list"].append({"user": user, "error": result.get("error")})
+    return results
+
+
+def get_nightly_sync_users() -> list:
+    """Enabled users linked to a Member: the only users the calculator can derive a profile for.
+
+    A user with no Member makes sync_user_role_profile return "not a member" and is
+    left alone, so listing them would only be counted as errors. Administrator and Guest
+    are never listed (standard users). Profile held is NOT a filter: users with no
+    profile, or an admin/national one, are covered, which the bulk endpoint's 4-profile
+    default is not.
+    """
+    linked = frappe.get_all("Member", filters={"user": ["is", "set"]}, pluck="user")
+    linked = [u for u in linked if u not in ("Administrator", "Guest")]
+    if not linked:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", list(set(linked))], "enabled": 1},
+        pluck="name",
+    )
+
+
+def nightly_role_profile_sync() -> dict:
+    """Scheduled (daily_long): apply the calculator to every enabled member-user (#1676).
+
+    Corrects drift when no event touched a user: a missed event, or a swallowed sync
+    failure. Writes through frappe's request-level commit like other scheduler jobs;
+    no commit here.
+    """
+    users = get_nightly_sync_users()
+    results = sync_role_profiles_for_users(users, dry_run=False, nightly=True)
+    print(
+        f"Nightly role profile sync: total={results['total']} changed={results['changed']} "
+        f"unchanged={results['unchanged']} errors={results['errors']}"
+    )
+    return results
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
@@ -1186,39 +1328,9 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
                 ]
             }
 
-        users = frappe.get_all("User", filters=filters, pluck="name")
-
-        results = {
-            "total": len(users),
-            "changed": 0,
-            "unchanged": 0,
-            "errors": 0,
-            "changes": [],
-            "errors_list": [],
-        }
-
-        for user in users:
-            result = sync_user_role_profile(user, dry_run=dry_run)
-
-            if result.get("success"):
-                if result.get("changed"):
-                    results["changed"] += 1
-                    results["changes"].append(
-                        {
-                            "user": user,
-                            "old_role": result.get("old_profile"),
-                            "new_role": result.get("new_profile"),
-                            "old_module": result.get("old_module_profile"),
-                            "new_module": result.get("new_module_profile"),
-                            "role_changed": result.get("role_changed"),
-                            "module_changed": result.get("module_changed"),
-                        }
-                    )
-                else:
-                    results["unchanged"] += 1
-            else:
-                results["errors"] += 1
-                results["errors_list"].append({"user": user, "error": result.get("error")})
+        results = sync_role_profiles_for_users(
+            frappe.get_all("User", filters=filters, pluck="name"), dry_run=dry_run
+        )
 
         return results
 
