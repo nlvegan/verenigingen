@@ -858,19 +858,59 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         # No financial seat anywhere above this volunteer: unassigned (#1650).
         self.assertIsNone(get_volunteer_expense_approver(self.volunteer.name))
 
-    def test_update_employee_approver_clears_an_approver_nobody_may_hold(self):
-        """#1650: with no financial seat the employee is left unassigned, so an approver the
-        old generic fallback had assigned is cleared, not kept."""
+    def _seat_a_treasurer_for(self, volunteer):
+        """A real chapter treasurer (Financial seat) above ``volunteer``; returns their email."""
+        chapter = self.ensure_test_chapter(f"DeepTreas{frappe.generate_hash(length=6)}")
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append("members", {"member": volunteer.member, "enabled": 1})
+        chapter_doc.save()
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        member = self.create_test_member(first_name="DeepTreas", last_name="Seat")
+        treasurer = self.create_test_volunteer(member_name=member.name)
+        frappe.db.set_value("Volunteer", treasurer.name, "email", user.email)
+        role = self.factory.ensure_chapter_role(
+            f"DeepFin{frappe.generate_hash(length=6)}", {"permissions_level": "Financial"}
+        )
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": treasurer.name,
+                "chapter_role": role.name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+        return user.email
+
+    def test_update_employee_approver_keeps_a_manual_approver_when_no_financial_seat(self):
+        """#1650 ruling: with no Financial seat the refresh leaves Employee.expense_approver
+        alone, so an approver set by hand survives. (Control: a Financial seat IS written,
+        see test_update_employee_approver_writes_a_financial_seat_approver.)"""
         from verenigingen.services.volunteer.native_expense_helpers import (
             update_employee_approver,
         )
 
-        stale_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
-        emp = self._make_employee(expense_approver=stale_user.email)
+        manual_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        emp = self._make_employee(expense_approver=manual_user.email)
         frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
 
         self.assertIsNone(update_employee_approver(self.volunteer.name))
-        self.assertFalse(frappe.db.get_value("Employee", emp.name, "expense_approver"))
+        self.assertEqual(frappe.db.get_value("Employee", emp.name, "expense_approver"), manual_user.email)
+
+    def test_update_employee_approver_writes_a_financial_seat_approver(self):
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            update_employee_approver,
+        )
+
+        manual_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        emp = self._make_employee(expense_approver=manual_user.email)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+        treasurer_email = self._seat_a_treasurer_for(self.volunteer)
+
+        self.assertEqual(update_employee_approver(self.volunteer.name), treasurer_email)
+        self.assertEqual(frappe.db.get_value("Employee", emp.name, "expense_approver"), treasurer_email)
 
     # -- update_employee_approver: volunteer without employee_id --
 

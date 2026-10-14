@@ -35,14 +35,16 @@ def update_employee_approver(volunteer_doc=None, method=None):
         if not frappe.db.exists("Employee", volunteer.employee_id):
             return None
 
-        # None means no financial seat exists for this volunteer (#1650): the claim is left
-        # unassigned, so an approver the old generic fallback assigned is cleared too.
         approver = volunteer.get_expense_approver_from_assignments()
+        if not approver:
+            # No financial seat exists for this volunteer (#1650 ruling): leave the Employee
+            # alone, so an approver an admin set by hand survives the refresh.
+            return None
 
         employee = frappe.get_doc("Employee", volunteer.employee_id)
         old_approver = employee.expense_approver  # ast-skip: ERPNext HR field
 
-        if (old_approver or None) != approver:
+        if old_approver != approver:
             employee.expense_approver = approver
             employee.department = None  # Remove department dependency
 
