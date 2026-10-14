@@ -93,6 +93,25 @@ def _set_single_role_profile(user_doc, role_profile: str) -> None:
     user_doc.role_profile_name = role_profile
 
 
+def _add_role_profile(user_doc, role_profile: str) -> None:
+    """Add ``role_profile`` to ``user_doc`` WITHOUT touching the profiles it already holds (#1659).
+
+    _set_single_role_profile replaces, which is wrong for a bulk run over members who
+    hold other profiles (Staff, Volunteer, ...). The profile is recorded as sync-granted,
+    keeping the rest of that record, so a later withdrawal may take it back.
+    """
+    if _has_multi_profile_support():
+        user_doc.append("role_profiles", {"role_profile": role_profile})
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            read_sync_granted_profiles,
+            record_sync_granted_profiles,
+        )
+
+        recorded = read_sync_granted_profiles(user_doc.name) or []
+        record_sync_granted_profiles(user_doc, [*recorded, role_profile])
+    user_doc.role_profile_name = user_doc.role_profile_name or role_profile
+
+
 def _remove_single_role_profile(user_doc, role_profile: str) -> None:
     """Remove ``role_profile`` from ``user_doc`` if present, version-agnostic.
 
@@ -1003,7 +1022,7 @@ class BaseRoleProfileManager(ABC):
                 }
 
             previous_role_profile = user_doc_full.role_profile_name or next(iter(current_profiles), None)
-            _set_single_role_profile(user_doc_full, role_profile)
+            _add_role_profile(user_doc_full, role_profile)
 
             save_result = secure_document_operation(
                 operation="save",

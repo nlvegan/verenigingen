@@ -299,3 +299,51 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
                 frappe.is_whitelisted(getattr(module, kept))  # control: raises if not whitelisted
                 self.assertFalse(hasattr(module, gone), gone)
                 self.assertNotIn(gone, getattr(module, "__all__", ()))
+
+    # -- the team bulk endpoint replaced a member's profiles (#1659) ----------
+
+    def _team_with_seated_victim(self, mapped_profile, held_profiles):
+        """A team mapped to `mapped_profile` with one Active member whose User holds `held_profiles`.
+
+        Probe shortcut, stated: the victim's held profiles are written directly onto the
+        User row AFTER the member is seated (the seating hooks sync profiles themselves),
+        and the test asserts that pre-state as a control before calling the endpoint.
+        """
+        frappe.db.set_single_value("Verenigingen Settings", "creation_user", "Administrator")
+        team = self.factory.create_test_team()
+        self.track_doc("Team", team.name)
+        victim = self._make_user_holding_profile(None)
+        member = self.create_test_member(user=victim, chapter=False)
+        volunteer = self.create_test_volunteer(member=member.name)
+        doc = frappe.get_doc("Team", team.name)
+        doc.enable_role_profiles = 1
+        doc.default_role_profile = mapped_profile
+        doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+        doc.save()
+        user = frappe.get_doc("User", victim)
+        user.set("role_profiles", [{"role_profile": p} for p in held_profiles])
+        user.save(ignore_permissions=True)
+        return team.name, victim
+
+    def test_the_team_bulk_endpoint_adds_the_team_profile_and_keeps_what_the_member_holds(self):
+        from verenigingen.utils.team_role_profile_manager import bulk_assign_team_role_profiles
+
+        held = {"Verenigingen Staff", "Verenigingen Volunteer"}
+        team, victim = self._team_with_seated_victim("Verenigingen Member", held)
+        self.assertEqual(self._profiles_of(victim), held, "control: the pre-state")
+        actor = self._make_user_holding_profile(TREASURER)
+
+        result = self._call_as(actor, bulk_assign_team_role_profiles, team)
+
+        self.assertTrue(result.get("success"), result)
+        self.assertEqual(
+            self._profiles_of(victim), held | {"Verenigingen Member"}, "kept what it held AND got the team's"
+        )
