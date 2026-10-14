@@ -543,8 +543,43 @@ class TestNationalBoardProfiles(VereningingenTestCase):
             frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
         )
 
-    def test_a_system_manager_can_repoint_the_national_chapter(self):
-        self._settings_change_as(["System Manager"])
+    def test_a_bare_system_manager_cannot_repoint_the_national_chapter(self):
+        """Maintainer ruling on #1626 (2026-10-14): a bare System Manager may not.
+
+        The earlier test asserted the opposite; its premise was the pre-ruling rule.
+        """
+        with self.assertRaisesRegex(frappe.PermissionError, "national board chapter"):
+            self._settings_change_as(["System Manager"])
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.national.name
+        )
+
+    def _settings_change_as_profile_holder(self, profile):
+        email = f"setting.{frappe.generate_hash(length=8)}@test.invalid"
+        self.create_test_user(email, roles=[])
+        self._assign_profiles_directly(email, [profile])
+        frappe.clear_cache(user=email)
+        frappe.set_user(email)
+        self.addCleanup(frappe.set_user, "Administrator")
+        settings = frappe.get_doc("Verenigingen Settings")
+        settings.national_board_chapter = self.other.name
+        settings.save()
+
+    def test_a_verenigingen_system_administrator_profile_holder_can_repoint_the_national_chapter(self):
+        self._settings_change_as_profile_holder("Verenigingen System Administrator")
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    def test_a_verenigingen_administrator_profile_holder_can_repoint_the_national_chapter(self):
+        self._settings_change_as_profile_holder("Verenigingen Administrator")
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
+        )
+
+    def test_the_administrator_user_can_repoint_the_national_chapter(self):
+        """Control: the Administrator user holds every role, so dropping its special case is safe."""
+        self._change_national_chapter(self.other.name)
         self.assertEqual(
             frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), self.other.name
         )
