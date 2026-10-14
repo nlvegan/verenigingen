@@ -7,6 +7,7 @@ import frappe
 from verenigingen.services.member.account import user_role_profile_calculator as calc
 from verenigingen.services.member.account.user_role_profile_calculator import (
     PROFILE_MEMBER,
+    PROFILE_TEAM_LEADER,
     PROFILE_VOLUNTEER,
     nightly_role_profile_sync,
     sync_role_profiles_for_users,
@@ -16,6 +17,7 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 
 JOB = "verenigingen.services.member.account.user_role_profile_calculator.nightly_role_profile_sync"
 ADMIN_PROFILE = "Verenigingen Administrator"
+DIRECT_ROLE = "Newsletter Manager"
 
 
 class TestNightlyRoleProfileSync(VereningingenTestCase):
@@ -104,33 +106,165 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         self.assertNotIn(non_member, users)
         self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(disabled))
 
-    def test_one_failing_user_does_not_stop_the_run(self):
+    def _error_log_rows(self, user):
+        self.expectErrorLog("Role Profile Sync Failed")
+        rows = frappe.get_all(
+            "Error Log", filters={"error": ["like", f"%{user}%"]}, pluck="name"
+        )
+        # tabError Log is MyISAM: the harness rollback cannot remove these.
+        self.addCleanup(lambda: [frappe.delete_doc("Error Log", r, force=True) for r in
+                                 frappe.get_all("Error Log", filters={"error": ["like", f"%{user}%"]}, pluck="name")])
+        return rows
+
+    def _raise_for(self, bad, exc):
+        real = calc.calculate_user_role_profile_set
+
+        def flaky(user):
+            if user == bad:
+                raise exc
+            return real(user)
+
+        # Mock justified: failure injection INSIDE the real sync (the calculator call it makes).
+        return mock.patch.object(calc, "calculate_user_role_profile_set", side_effect=flaky)
+
+    def test_one_failing_user_does_not_stop_the_run_and_logs_one_error_row(self):
         bad, good = self._nightly_member_user(), self._nightly_member_user()
         self._drift_to_volunteer(good)
-        real = calc.sync_user_role_profile
+        self._error_log_rows(bad)
 
-        def flaky(user, **kwargs):
-            if user == bad:
-                raise RuntimeError("boom")
-            return real(user, **kwargs)
-
-        # Mock justified: injects a failure into ONE user; the other user takes the real sync.
-        with mock.patch.object(calc, "sync_user_role_profile", side_effect=flaky):
-            results = sync_role_profiles_for_users([bad, good])
+        with self._raise_for(bad, RuntimeError("boom")):
+            results = sync_role_profiles_for_users([bad, good], nightly=True)
 
         self.assertEqual(results["errors"], 1, results)
         self.assertEqual(results["errors_list"][0]["user"], bad)
         self.assertEqual(results["changed"], 1, results)
         self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(good))
+        rows = frappe.get_all(
+            "Error Log", filters={"error": ["like", f"%{bad}%"]}, fields=["method"]
+        )
+        self.assertEqual([r.method for r in rows], ["Role Profile Sync Failed"])
 
-    def test_failures_are_logged_and_a_summary_is_printed(self):
+    def test_a_deadlock_stops_the_nightly_run_but_not_the_event_path(self):
+        bad, after = self._nightly_member_user(), self._nightly_member_user()
+        self._drift_to_volunteer(after)
+        self._error_log_rows(bad)
+        with self._raise_for(bad, frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                sync_role_profiles_for_users([bad, after], nightly=True)
+            self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(after), "run must have stopped")
+            # Event-driven callers keep swallowing (unchanged contract).
+            self.assertFalse(sync_user_role_profile(bad)["success"])
+
+    def test_a_failure_after_the_save_rolls_the_users_writes_back(self):
+        user = self._nightly_member_user()
+        self._drift_to_volunteer(user)
+        self._error_log_rows(user)
+
+        # Mock justified: fails AFTER user_doc.save() inside the real sync.
+        with mock.patch.object(calc, "_restore_direct_roles", side_effect=RuntimeError("late")):
+            results = sync_role_profiles_for_users([user], nightly=True)
+
+        self.assertEqual(results["errors"], 1, results)
+        self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+        self.assertNotIn(PROFILE_MEMBER, calc.get_user_role_profiles(user), "saved change survived")
+
+    def test_summary_line_counts_errors(self):
         bad = self._nightly_member_user()
-        with mock.patch.object(calc, "get_nightly_sync_users", return_value=[bad]), mock.patch.object(
-            calc, "sync_user_role_profile", side_effect=RuntimeError("boom")
-        ), mock.patch.object(calc.frappe, "log_error") as log_error, mock.patch("builtins.print") as out:
-            # Mock justified: failure injection; asserts the reporting channels only.
+        self._error_log_rows(bad)
+        with mock.patch.object(calc, "get_nightly_sync_users", return_value=[bad]), self._raise_for(
+            bad, RuntimeError("boom")
+        ), mock.patch("builtins.print") as out:
             nightly_role_profile_sync()
-
-        self.assertEqual(log_error.call_args.kwargs["title"], "Nightly Role Profile Sync Failed")
-        self.assertIn(bad, log_error.call_args.kwargs["message"])
         self.assertIn("errors=1", out.call_args.args[0])
+
+    def test_administrator_and_guest_are_never_listed(self):
+        member = self.create_test_member(
+            first_name="Adm", last_name=f"A{frappe.generate_hash(length=5)}",
+            email=f"adm.{frappe.generate_hash(length=6)}@test.invalid", status="Active",
+        )
+        frappe.db.set_value("Member", member.name, "user", "Administrator")
+        self.assertTrue(frappe.db.get_value("User", "Administrator", "enabled"), "control: enabled")
+        self.assertNotIn("Administrator", calc.get_nightly_sync_users())
+
+    # ---- maintainer rulings (#1676): direct roles kept, no strip without a record
+
+    def _grant_direct_role(self, user, role):
+        # A User save would reset roles to the profiles' roles, so write the row directly,
+        # the way a direct grant is stored.
+        doc = frappe.get_doc("User", user)
+        row = frappe.new_doc("Has Role", parent_doc=doc, parentfield="roles")
+        row.role = role
+        row.db_insert()
+        frappe.clear_cache(user=user)
+
+    def test_a_direct_role_survives_a_profile_change(self):
+        user = self._nightly_member_user()
+        self._drift_to_volunteer(user)
+        self._grant_direct_role(user, DIRECT_ROLE)
+        self.assertIn(DIRECT_ROLE, frappe.get_roles(user), "fixture")
+
+        nightly_role_profile_sync()
+
+        frappe.clear_cache(user=user)
+        self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+        self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
+        # Control for "keep everything": roles only the old profile supplied ARE withdrawn.
+        gone = {r.role for r in frappe.get_doc("Role Profile", PROFILE_VOLUNTEER).roles} - {
+            r.role for r in frappe.get_doc("Role Profile", PROFILE_MEMBER).roles
+        }
+        self.assertTrue(gone - {DIRECT_ROLE}, "fixture: Volunteer adds nothing over Member")
+        for role in gone - {DIRECT_ROLE}:
+            self.assertNotIn(role, frappe.get_roles(user))
+
+    def test_a_direct_role_survives_a_module_profile_only_change(self):
+        user = self._nightly_member_user()
+        sync_user_role_profile(user)
+        self._grant_direct_role(user, DIRECT_ROLE)
+        frappe.db.set_value("User", user, "module_profile", None)
+        result = sync_user_role_profile(user, dry_run=True, nightly=True)
+        self.assertTrue(result["module_changed"] and not result["role_changed"], f"fixture: {result}")
+
+        nightly_role_profile_sync()
+
+        frappe.clear_cache(user=user)
+        self.assertTrue(frappe.db.get_value("User", user, "module_profile"), "module not applied")
+        self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
+
+    def test_event_path_still_replaces_direct_roles(self):
+        """Control: only the nightly path preserves (#1293 tracks the event path)."""
+        user = self._nightly_member_user()
+        self._drift_to_volunteer(user)
+        self._grant_direct_role(user, DIRECT_ROLE)
+        sync_user_role_profile(user)
+        frappe.clear_cache(user=user)
+        self.assertNotIn(DIRECT_ROLE, frappe.get_roles(user))
+
+    def _assert_hand_assigned_survives_two_nights(self, profile):
+        user = self._nightly_member_user()
+        self._attach(user, profile)
+        frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
+        self.assertIsNone(calc.read_sync_granted_profiles(user), "fixture: no record")
+
+        nightly_role_profile_sync()
+        self.assertIn(profile, calc.get_user_role_profiles(user), "stripped on night 1")
+        self.assertIn(PROFILE_MEMBER, calc.get_user_role_profiles(user), "derived profile not added")
+        record = calc.read_sync_granted_profiles(user)
+        self.assertIsNotNone(record, "record not written")
+        self.assertNotIn(profile, record)
+
+        nightly_role_profile_sync()
+        self.assertIn(profile, calc.get_user_role_profiles(user), "stripped on night 2")
+
+    def test_hand_assigned_team_leader_survives_first_and_second_night(self):
+        self._assert_hand_assigned_survives_two_nights(PROFILE_TEAM_LEADER)
+
+    def test_hand_assigned_national_treasurer_survives_first_and_second_night(self):
+        self._assert_hand_assigned_survives_two_nights(calc.NATIONAL_TREASURER_PROFILE)
+
+    def test_event_path_bootstrap_still_strips_without_a_record(self):
+        """Control: the strip these tests forbid for the nightly job is the event path's."""
+        user = self._nightly_member_user()
+        self._attach(user, PROFILE_TEAM_LEADER)
+        frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
+        sync_user_role_profile(user)
+        self.assertNotIn(PROFILE_TEAM_LEADER, calc.get_user_role_profiles(user))
