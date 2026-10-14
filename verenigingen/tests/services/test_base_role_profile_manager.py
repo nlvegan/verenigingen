@@ -582,7 +582,11 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         self.assertTrue(result["result"]["success"])
         self.assertEqual(result["result"]["action"], "no_config")
 
-    def test_process_bulk_member_assigns(self):
+    def test_process_bulk_member_for_a_user_who_is_not_a_member_grants_nothing(self):
+        # Bulk delegates to the ground-truth sync (#1659), which derives profiles from the
+        # member's seats/teams. A bare User with no Member has nothing to derive: refused,
+        # and the cached profile is NOT written onto the user. (Bulk only ever feeds users
+        # joined through Member.user; the real grant is covered by test_bulk_assign_with_member.)
         profile = self._make_role_profile()
         user = self._make_system_user()
         result = self.team_manager._process_bulk_member(
@@ -591,28 +595,8 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
             role_profile_cache={"Team Member": profile},
             entity_name="Whatever",
         )
-        self.assertTrue(result["result"]["success"])
-        self.assertEqual(result["result"]["action"], "assigned")
-        # Assert the real grant via the v16 role_profiles child table (not just the
-        # deprecated role_profile_name column, which the old code wrote as a no-op).
-        self.assertIn(profile, self._assigned_profiles(user))
-
-    def test_process_bulk_member_already_assigned(self):
-        profile = self._make_role_profile()
-        user = self._make_system_user()
-        member_data = {"user": user, "member": "M-1", "team_role": "Team Member"}
-        cache = {"Team Member": profile}
-        # First call assigns it (writes the role_profiles child table).
-        first = self.team_manager._process_bulk_member(
-            member_data, {user: frappe._dict(role_profile_name=None)}, cache, "Whatever"
-        )
-        self.assertEqual(first["result"]["action"], "assigned")
-        # Second call must detect the existing assignment via the child table.
-        second = self.team_manager._process_bulk_member(
-            member_data, {user: frappe._dict(role_profile_name=profile)}, cache, "Whatever"
-        )
-        self.assertTrue(second["result"]["success"])
-        self.assertEqual(second["result"]["action"], "already_assigned")
+        self.assertFalse(result["result"]["success"])
+        self.assertNotIn(profile, self._assigned_profiles(user))
 
     # =================================================================
     # _log_role_assignment (smoke - must not raise)
