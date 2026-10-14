@@ -232,14 +232,18 @@ class TestChapterDuesSplitReportRoleScope(MemberOwnershipProbeMixin, EnhancedTes
         """A refusal raises PermissionError, but an empty list is also what an
         unseeded site returns, so seed a chapter invoice and require ITS row.
         Filtering on the seeded chapter keeps the result independent of
-        invoices other tests leave behind (#1678)."""
+        invoices other tests leave behind (#1678). A second chapter's invoice is
+        the control: a report that ignored the chapter filter would return it too."""
         chapter = self.create_test_chapter()
         member = self.create_test_member(
             first_name="DuesSplit", last_name=f"M{frappe.generate_hash(length=4)}"
         )
-        # The factory ignores custom_member_chapter and submits the invoice.
-        invoice = self.create_test_sales_invoice(member.name, posting_date=today())
-        frappe.db.set_value("Sales Invoice", invoice.name, "custom_member_chapter", chapter.name)
+        other_chapter = self.create_test_chapter()
+        # The factory ignores custom_member_chapter and submits the invoice. The
+        # db.set_value deliberately bypasses the populate_member_chapter hook path.
+        for chapter_name in (chapter.name, other_chapter.name):
+            invoice = self.create_test_sales_invoice(member.name, posting_date=today())
+            frappe.db.set_value("Sales Invoice", invoice.name, "custom_member_chapter", chapter_name)
         staff_user = self._staff_user("DuesSplitAdmin", role="Verenigingen Administrator")
         with self.set_user(staff_user):
             result = get_dues_split_data(filters={"chapter": chapter.name})
