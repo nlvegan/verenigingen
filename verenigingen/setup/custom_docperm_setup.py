@@ -29,7 +29,18 @@ does, does not. Three things follow, handled here in this order by
    a duplicate Custom row for the revoked key whose flags differ survives (Frappe ORs it);
    a Check field added to DocPerm in the same migrate makes every flag comparison miss;
    stock rows rewritten outside migrate (``reload-doctype``, a developer_mode save) leave no
-   snapshot of the old JSON, so that revocation needs a patch. Core DocTypes are not covered.
+   snapshot of the old JSON, so that revocation needs a patch.
+5. ``_revoke_dropped_core_grants`` (#1642): the same problem for ``CORE_GRANTS``, which lives in
+   Python, so a ``before_migrate`` snapshot would already see the NEW tuple. Instead
+   :func:`_apply_core_grants` records, at the end of every run, what it granted
+   (:data:`CORE_LEDGER_KEY`); the next run revokes whatever the ledger holds and
+   ``CORE_GRANTS`` no longer declares. What we granted is the declared ptypes that the core
+   DocType's STOCK row for that role does not already carry: a flag stock grants is not ours to
+   lower, a flag nobody declared (an admin's, HRMS's, an ESS ``select``) is never in the ledger,
+   and a row we created is deleted only when it is then empty. History before the ledger
+   existed is unknowable and is not revoked; the ledger is seeded from the current
+   declaration on the first run, so every later removal does revoke. Residual ambiguity: an
+   admin who raised a flag we ALSO declare is indistinguishable from us having raised it.
 
 No commit here: both hooks run inside migrate / install-app, which commit themselves.
 """
@@ -43,6 +54,9 @@ APP = "verenigingen"
 # tabDefaultValue key for the before_migrate snapshot; set_global commits with the atomic
 # pre_schema_updates phase, so it survives a migrate that dies before after_migrate.
 SNAPSHOT_KEY = "verenigingen_own_docperm_snapshot"
+# tabDefaultValue key for the ledger of core grants: {doctype: {role: [ptype, ...]}}. Written at
+# the end of each apply, so it holds the PREVIOUS declaration when the next apply starts.
+CORE_LEDGER_KEY = "verenigingen_core_grants_ledger"
 
 # (doctype, role, ptypes granted). All at permlevel 0, not if_owner. Lifted verbatim from the
 # retired fixtures/custom_docperm.json, minus its DocType row (meta.py skips custom perms for
@@ -343,6 +357,8 @@ def _ensure_grant_role(role):
 
 
 def _apply_core_grants():
+    ledger = _load_core_ledger()
+    _revoke_dropped_core_grants(ledger)
     for doctype, role, ptypes in CORE_GRANTS:
         _ensure_grant_role(role)
         setup_custom_perms(doctype)  # copies the stock rows first, only if no Custom DocPerm yet
@@ -356,6 +372,76 @@ def _apply_core_grants():
         if missing:
             update_custom_docperm(rows[0].name, missing)
         frappe.clear_cache(doctype=doctype)
+        _record_core_grant(ledger, doctype, role, ptypes)
+    frappe.db.set_global(CORE_LEDGER_KEY, frappe.as_json(ledger, indent=None))
+
+
+def _load_core_ledger():
+    raw = frappe.db.get_global(CORE_LEDGER_KEY)
+    return frappe.parse_json(raw) if raw else {}
+
+
+def _stock_granted(doctype, role, ptype):
+    return any(cint(r.get(ptype)) for r in _stock_rows(doctype) if _key(r) == (role, 0, 0))
+
+
+def _creation_defaults():
+    """Check fields Frappe turns on in a new Custom DocPerm row (read, export)."""
+    return [
+        df.fieldname
+        for df in frappe.get_meta("Custom DocPerm").fields
+        if df.fieldtype == "Check" and cint(df.default)
+    ]
+
+
+def _has_stock_row(doctype, role):
+    return any(_key(r) == (role, 0, 0) for r in _stock_rows(doctype))
+
+
+def _record_core_grant(ledger, doctype, role, ptypes):
+    """Remember what this run declared. Stock is consulted when revoking, not here.
+
+    A row with no stock counterpart was created by ``add_permission``, whose creation defaults
+    (read, export) are ours too.
+    """
+    ours = list(ptypes)
+    if not _has_stock_row(doctype, role):
+        ours += [f for f in _creation_defaults() if f not in ours]
+    ledger.setdefault(doctype, {})[role] = ours
+
+
+def _revoke_dropped_core_grants(ledger):
+    """Take back what a previous ``CORE_GRANTS`` granted and the current one does not (#1642).
+
+    Only the dropped flags, only on the (role, permlevel 0, not if_owner) row we wrote to, and
+    never a flag the stock row grants. Flags nobody here declared are untouched, so an admin's
+    extra flag on the same row survives. A row with no stock counterpart is ours outright and is
+    deleted once it carries no flag at all.
+    """
+    declared = {(dt, role): set(ptypes) for dt, role, ptypes in CORE_GRANTS}
+    defaults = set(_creation_defaults())
+    for doctype in list(ledger):
+        for role, recorded in list(ledger[doctype].items()):
+            kept = declared.get((doctype, role))
+            dropped = [p for p in recorded if kept is None or p not in kept | defaults]
+            if dropped:
+                _lower_core_flags(doctype, role, dropped)
+        del ledger[doctype]  # re-recorded by the apply loop for everything still declared
+
+
+def _lower_core_flags(doctype, role, flags):
+    lower = [p for p in flags if not _stock_granted(doctype, role, p)]
+    ours_outright = not _has_stock_row(doctype, role)
+    checks = [f for f in _check_fields() if f != "if_owner"]
+    for row in _custom_rows(doctype):
+        if _key(row) != (role, 0, 0):
+            continue
+        changed = {p: 0 for p in lower if cint(row.get(p))}
+        if changed:
+            update_custom_docperm(row.name, changed)
+        if ours_outright and not any(cint(row.get(f)) for f in checks if f not in changed):
+            frappe.delete_doc("Custom DocPerm", row.name, ignore_permissions=True)
+    frappe.clear_cache(doctype=doctype)
 
 
 def _own_doctypes_with_custom_perms():
