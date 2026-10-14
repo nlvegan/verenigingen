@@ -596,6 +596,34 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
         harden_public_document_creator()
         self.assertEqual(self._password_login(staff, "Zq9!control-pass-1670"), staff)
 
+    def test_setup_mints_its_own_creator_instead_of_adopting_an_address_it_would_not_refuse(self):
+        """N1: one predicate. A role-only `public-creator-xyz@` user is not adopted as
+        creation_user, because the login refusal would not recognise it; setup mints a real one."""
+        ensure_public_creator_role_exists()
+        stray = self._make_login_user("public-creator-xyz@example.invalid")
+        frappe.get_doc("User", stray).add_roles(PUBLIC_CREATOR_ROLE)
+        # The stray holds ONLY the creator role (plus Website User's automatic ones): the shape
+        # the old LIKE-based find_existing_public_creator adopted.
+        self.assertEqual(
+            set(frappe.get_all("Has Role", filters={"parent": stray}, pluck="role")), {PUBLIC_CREATOR_ROLE}
+        )
+
+        creator = self._creator_after_setup()
+        self.assertNotEqual(creator, stray)
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "creation_user"), creator)
+
+    def test_a_staff_user_with_a_similar_address_and_the_creator_role_can_still_log_in(self):
+        """N2: pins the address regex. `public-creator-staff-...` matches the old LIKE prefix."""
+        from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
+
+        self._creator_after_setup()
+        staff = self._make_login_user("public-creator-staff-1670@example.invalid")
+        frappe.get_doc("User", staff).add_roles(PUBLIC_CREATOR_ROLE)
+        frappe.clear_cache()
+
+        harden_public_document_creator()
+        self.assertEqual(self._password_login(staff, "Zq9!control-pass-1670"), staff)
+
     def test_the_hardening_hook_is_wired_into_migrate(self):
         from frappe import get_hooks
 

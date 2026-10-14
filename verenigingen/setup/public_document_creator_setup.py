@@ -90,9 +90,11 @@ def setup_public_document_creator():
 def find_existing_public_creator():
     """Email of an existing enabled public-creator user that may be reused, else None.
 
-    The `public-creator` name prefix is the only identifier, so it is not trusted alone: the
-    user must hold the creator role and NO other role (a user that also holds e.g. System
-    Manager is never silently adopted as the least-privilege creation user).
+    The address must be one `is_public_creator()` recognises (`_CREATOR_ADDRESS`), so setup
+    only adopts accounts the login refusal and the migrate hardening also cover (#1670).
+    The prefix is not trusted alone: the user must hold the creator role and NO other role
+    (a user that also holds e.g. System Manager is never silently adopted as the
+    least-privilege creation user).
     """
     rows = frappe.get_all(
         "User",
@@ -101,6 +103,8 @@ def find_existing_public_creator():
         order_by="name asc",
     )
     for email in rows:
+        if not _CREATOR_ADDRESS.match(email):
+            continue
         roles = set(frappe.get_all("Has Role", filters={"parent": email}, pluck="role"))
         if roles == {PUBLIC_CREATOR_ROLE}:
             return email
