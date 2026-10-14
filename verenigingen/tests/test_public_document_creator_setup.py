@@ -546,16 +546,55 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
         self.assertTrue(any(r.role == PUBLIC_CREATOR_ROLE for r in user.roles))
         self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "creation_user"), email)
 
-    def test_hardening_leaves_a_staff_user_that_merely_matches_the_prefix_alone(self):
+    def test_hardening_leaves_a_user_with_the_creator_address_but_not_the_role_alone(self):
         from frappe.utils.password import check_password, update_password
 
         from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
 
         self._creator_after_setup()
-        staff = self._make_user("public-creator-staff-1670@example.invalid")
+        staff = self._make_user("public-creator-7@example.invalid")
         update_password(staff.name, "Zq9!staff-password-1670")
         harden_public_document_creator()
         self.assertEqual(check_password(staff.name, "Zq9!staff-password-1670"), staff.name)
+        # ...and the login hook leaves it alone too (it has the address but not the role).
+        frappe.clear_cache()
+        self.assertEqual(self._password_login(staff.name, "Zq9!staff-password-1670"), staff.name)
+
+    def test_a_creator_that_gained_another_role_is_still_refused_and_locked(self):
+        """M1: roles also arrive via role-profile sync; any extra role must not unlock the account."""
+        from frappe.utils.password import check_password, update_password
+
+        from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
+
+        email = self._creator_after_setup()
+        frappe.get_doc("User", email).add_roles("Report Manager")
+        frappe.clear_cache()
+        self.assertIn("Report Manager", frappe.get_roles(email), "precondition")
+
+        update_password(email, "Zq9!extra-role-1670")
+        with self.assertRaises(frappe.AuthenticationError):
+            self._password_login(email, "Zq9!extra-role-1670")
+        # L2: the refusal also removed the password it just saw, so it does not linger.
+        with self.assertRaises(frappe.AuthenticationError):
+            check_password(email, "Zq9!extra-role-1670")
+
+        update_password(email, "Zq9!extra-role-again-1670")
+        harden_public_document_creator()
+        self.assertEqual(
+            frappe.db.sql("select fieldname from __Auth where doctype='User' and name=%s", email), ()
+        )
+
+    def test_a_staff_user_holding_the_creator_role_with_another_address_can_still_log_in(self):
+        from verenigingen.setup.public_document_creator_setup import harden_public_document_creator
+
+        self._creator_after_setup()
+        staff = self._make_login_user("staff-holds-creator-role-1670@example.invalid")
+        frappe.get_doc("User", staff).add_roles(PUBLIC_CREATOR_ROLE)
+        frappe.clear_cache()
+        self.assertIn(PUBLIC_CREATOR_ROLE, frappe.get_roles(staff), "precondition")
+
+        harden_public_document_creator()
+        self.assertEqual(self._password_login(staff, "Zq9!control-pass-1670"), staff)
 
     def test_the_hardening_hook_is_wired_into_migrate(self):
         from frappe import get_hooks

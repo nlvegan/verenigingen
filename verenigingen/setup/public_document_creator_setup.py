@@ -2,6 +2,8 @@
 # Creates and configures a secure system user for public-facing document creation
 # (donations, member applications, etc.)
 
+import re
+
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -18,6 +20,9 @@ from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resy
 # (secure_user_context -> frappe.set_user). It therefore holds NO password or API key, and
 # refuse_public_creator_authentication() refuses it on every login and every request.
 PUBLIC_CREATOR_ROLE = "Verenigingen Public Document Creator"
+
+# The address generate_public_creator_email() mints: public-creator@<domain> or public-creator-N@<domain>.
+_CREATOR_ADDRESS = re.compile(r"^public-creator(-\d+)?@", re.IGNORECASE)
 
 
 def setup_public_document_creator():
@@ -179,20 +184,29 @@ def harden_public_document_creator():
     """after_migrate: lock the credentials of a creator that predates #1670.
 
     Sites set up before then hold an account with a password, and install + migrate keep
-    the account. Only an account `find_existing_public_creator()` accepts is touched: it must
-    hold the creator role and nothing else, so a staff user is never locked out.
+    the account. Every account `is_public_creator()` recognises is locked, whatever other
+    roles it has since been given (role-profile sync can add some).
     """
-    creator = find_existing_public_creator()
-    if creator:
-        lock_public_creator_credentials(creator)
+    holders = frappe.get_all(
+        "Has Role", filters={"role": PUBLIC_CREATOR_ROLE, "parenttype": "User"}, pluck="parent"
+    )
+    for user in sorted(set(holders)):
+        if is_public_creator(user):
+            lock_public_creator_credentials(user)
 
 
 def is_public_creator(user):
-    """True for the creator account: it holds the creator role and no other role."""
-    if not user or user in ("Guest", "Administrator"):
+    """True for the account setup creates: it holds the creator role AND has the address
+    `generate_public_creator_email()` mints (`public-creator[-N]@<domain>`).
+
+    Both are required. The role alone would lock out a staff user who was granted it; the
+    address alone would catch a staff user who merely has a similar name. Other roles are
+    irrelevant on purpose: a creator that gained a role must still never log in. (Not keyed on
+    `Verenigingen Settings.creation_user`: that can be any real account, e.g. veg11's.)
+    """
+    if not user or not _CREATOR_ADDRESS.match(user):
         return False
-    roles = set(frappe.get_roles(user))
-    return PUBLIC_CREATOR_ROLE in roles and not roles - {PUBLIC_CREATOR_ROLE, "All", "Guest", "Desk User"}
+    return PUBLIC_CREATOR_ROLE in frappe.get_roles(user)
 
 
 def refuse_public_creator_authentication(login_manager=None):
@@ -205,6 +219,8 @@ def refuse_public_creator_authentication(login_manager=None):
     """
     if login_manager is not None:
         if is_public_creator(login_manager.user):
+            # A password set later (reset, admin) must not linger: fail() commits this too.
+            lock_public_creator_credentials(login_manager.user)
             login_manager.fail("Invalid login credentials", user=login_manager.user)
     elif is_public_creator(frappe.session.user):
         raise frappe.AuthenticationError
