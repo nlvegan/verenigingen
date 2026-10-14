@@ -583,7 +583,8 @@ class TestHooksDataIntegrity(unittest.TestCase):
         scheduler_module = load_hooks_submodule("scheduler")
         scheduler_events = scheduler_module.scheduler_events
 
-        valid_frequencies = {"daily", "hourly", "weekly", "monthly", "yearly", "cron"}
+        # daily_long is a real Frappe frequency (frappe/hooks.py scheduler_events), long queue.
+        valid_frequencies = {"daily", "daily_long", "hourly", "weekly", "monthly", "yearly", "cron"}
 
         for frequency, handlers in scheduler_events.items():
             self.assertIn(frequency, valid_frequencies, f"Invalid frequency: {frequency}")
