@@ -1018,6 +1018,8 @@ class BaseRoleProfileManager(ABC):
                     success=True,
                     message=f"Synced role profiles of user {user}",
                     role_profile=sync_result.get("new_profile"),
+                    # "assigned" means the sync CHANGED this user's profiles, not that this team's
+                    # profile was granted (it may be outranked); "already_assigned" means no change.
                     action="assigned" if sync_result.get("changed") else "already_assigned",
                 ),
             }
