@@ -295,7 +295,6 @@ verenigingen/services/volunteer/expense_history_batch_processor.py::cleanup_orph
 verenigingen/services/volunteer/expense_history_batch_processor.py::validate_expense_history_integrity::2
 verenigingen/services/volunteer/expense_history_entry_builder.py::ExpenseHistoryEntryBuilder.build_from_expense_doc::1
 verenigingen/services/volunteer/native_expense_helpers.py::fix_expense_approver_issues::1
-verenigingen/services/volunteer/native_expense_helpers.py::get_volunteer_expense_approver::1
 verenigingen/services/volunteer/native_expense_helpers.py::update_employee_approver::2
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::get_volunteer_expense_statistics::1
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::get_volunteer_expenses_from_claims::3

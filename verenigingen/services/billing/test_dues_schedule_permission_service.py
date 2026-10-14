@@ -97,7 +97,7 @@ class _BasePermissionTest(EnhancedTestCase):
         self._committed.append(("User", u.name))
         return u.name
 
-    def _make_chapter_with_finance_board(self, member_in_chapter=None):
+    def _make_chapter_with_finance_board(self, member_in_chapter=None, permissions_level="Financial"):
         """Create a chapter, optionally add member_in_chapter to it, and a board
         member (a volunteer linked to a board user) with a Financial chapter role.
 
@@ -125,12 +125,12 @@ class _BasePermissionTest(EnhancedTestCase):
         volunteer = self.create_test_volunteer(member_name=board_member.name)
         self._committed.append(("Volunteer", volunteer.name))
 
-        # Find/create a Financial chapter role
-        fin_role = frappe.db.get_value("Chapter Role", {"permissions_level": "Financial"}, "name")
+        # Find/create a chapter role at `permissions_level` (Financial unless a test asks otherwise)
+        fin_role = frappe.db.get_value("Chapter Role", {"permissions_level": permissions_level}, "name")
         if not fin_role:
             role_doc = frappe.new_doc("Chapter Role")
             role_doc.role_name = f"Fin-{frappe.generate_hash(length=6)}"
-            role_doc.permissions_level = "Financial"
+            role_doc.permissions_level = permissions_level
             role_doc.is_active = 1
             role_doc.insert(ignore_permissions=True)
             fin_role = role_doc.name
@@ -280,6 +280,13 @@ class TestChapterBoardWithFinance(_BasePermissionTest):
             self.skipTest(f"Chapter board fixture unavailable in this site: {e}")
         result = self.service.is_chapter_board_with_finance(member.name, board_user)
         self.assertTrue(result)
+
+    def test_chapter_admin_role_does_not_imply_finance(self):
+        """#1650 ruling (2026-10-14): only the Financial level is a financial right.
+        Control: the Financial seat in test_board_member_with_finance_has_access passes."""
+        member, sched = self._member_with_active_schedule()
+        board_user, _chapter = self._make_chapter_with_finance_board(member.name, permissions_level="Admin")
+        self.assertFalse(self.service.is_chapter_board_with_finance(member.name, board_user))
 
     def test_no_chapter_returns_false(self):
         member, sched = self._member_with_active_schedule()

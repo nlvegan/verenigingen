@@ -929,7 +929,7 @@ def get_user_chapter_access(**kwargs):
             }
             for position in board_positions:
                 level = role_levels.get(position.chapter_role)
-                if level in ("Admin", "Membership") and position.parent not in user_chapters:
+                if level == "Admin" and position.parent not in user_chapters:
                     user_chapters.append(position.parent)
 
     # Check national chapter access

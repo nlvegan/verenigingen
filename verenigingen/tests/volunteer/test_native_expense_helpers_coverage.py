@@ -9,7 +9,7 @@ formatted refresh/issue strings, readiness boolean). This file targets the
 *remaining* missed paths -- the ones that actually mutate Employee/User records
 or run the maintenance whitelists end-to-end:
 
-  * ``get_volunteer_expense_approver`` -- exception/fallback branch.
+  * ``get_volunteer_expense_approver`` -- unknown volunteer raises.
   * ``update_employee_approver`` -- the real success path (Employee.expense_approver
     written via ``secure_document_operation``), the string-volunteer-arg branch,
     and the no-op-when-unchanged branch.
@@ -70,6 +70,35 @@ class _NativeHelperFixtureMixin:
         self.factory.track_document("User", user.name, priority=2)
         return user
 
+    def _seat_financial_approver_for(self, volunteer):
+        """Give ``volunteer`` a real chapter treasurer (#1650: with no financial seat above
+        them they are left unassigned). Returns that treasurer's User email."""
+        member_name = volunteer.member
+        chapter = self.ensure_test_chapter(f"NativeHelp{frappe.generate_hash(length=6)}")
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append("members", {"member": member_name, "enabled": 1})
+        chapter_doc.save()
+
+        treasurer_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        treasurer_member = self.create_test_member(first_name="NativeTreas", last_name="Seat")
+        treasurer = self.create_test_volunteer(member_name=treasurer_member.name)
+        frappe.db.set_value("Volunteer", treasurer.name, "email", treasurer_user.email)
+        role = self.factory.ensure_chapter_role(
+            f"NativeFin{frappe.generate_hash(length=6)}", {"permissions_level": "Financial"}
+        )
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": treasurer.name,
+                "chapter_role": role.name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+        return treasurer_user.email
+
     def _revoke_expense_approver_role(self, user_name):
         """Remove the 'Expense Approver' Has Role row from a user.
 
@@ -95,17 +124,14 @@ class _NativeHelperFixtureMixin:
 # get_volunteer_expense_approver -- exception / fallback branch
 # ---------------------------------------------------------------------------
 class TestGetVolunteerExpenseApprover(_NativeHelperFixtureMixin, EnhancedTestCase):
-    def test_nonexistent_volunteer_falls_back_to_administrator(self):
-        """A non-existent volunteer makes ``frappe.get_doc`` raise; the helper
-        swallows it (logging 'Expense Approver Lookup Error') and returns the
-        'Administrator' safe fallback."""
+    def test_nonexistent_volunteer_raises(self):
+        """A non-existent volunteer is an error, not 'no approver' (#1650)."""
         from verenigingen.services.volunteer.native_expense_helpers import (
             get_volunteer_expense_approver,
         )
 
-        self.expectErrorLog("Expense Approver Lookup Error")
-        approver = get_volunteer_expense_approver("VOL-DOES-NOT-EXIST-XYZ")
-        self.assertEqual(approver, "Administrator")
+        with self.assertRaises(frappe.DoesNotExistError):
+            get_volunteer_expense_approver("VOL-DOES-NOT-EXIST-XYZ")
 
 
 # ---------------------------------------------------------------------------
@@ -128,14 +154,12 @@ class TestUpdateEmployeeApprover(_NativeHelperFixtureMixin, EnhancedTestCase):
 
         emp = self._make_employee(expense_approver=None)
         self._link_volunteer_employee(self.volunteer, emp.name)
+        treasurer_email = self._seat_financial_approver_for(self.volunteer)
 
-        # With no organizational assignments the approver service falls back to a
-        # real user (Administrator at minimum) -- a non-empty value that differs
-        # from the employee's current empty approver, so the write branch runs.
         with self.assertNoErrorLog():
             approver = update_employee_approver(self.volunteer)
 
-        self.assertTrue(approver, "computed approver should be a non-empty user")
+        self.assertEqual(approver, treasurer_email)
         self.assertEqual(
             frappe.db.get_value("Employee", emp.name, "expense_approver"),
             approver,
@@ -154,11 +178,12 @@ class TestUpdateEmployeeApprover(_NativeHelperFixtureMixin, EnhancedTestCase):
 
         emp = self._make_employee(expense_approver=None)
         self._link_volunteer_employee(self.volunteer, emp.name)
+        treasurer_email = self._seat_financial_approver_for(self.volunteer)
 
         with self.assertNoErrorLog():
             approver = update_employee_approver(self.volunteer.name)
 
-        self.assertTrue(approver)
+        self.assertEqual(approver, treasurer_email)
         self.assertEqual(
             frappe.db.get_value("Employee", emp.name, "expense_approver"),
             approver,
@@ -174,6 +199,7 @@ class TestUpdateEmployeeApprover(_NativeHelperFixtureMixin, EnhancedTestCase):
 
         # Determine what the service would compute for this volunteer, then seed
         # the Employee with that exact value so old_approver == approver.
+        self._seat_financial_approver_for(self.volunteer)
         computed = self.volunteer.get_expense_approver_from_assignments()
         self.assertTrue(computed)
         emp = self._make_employee(expense_approver=computed)
@@ -263,6 +289,7 @@ class TestFixExpenseApproverIssues(_NativeHelperFixtureMixin, EnhancedTestCase):
 
         emp = self._make_employee(expense_approver=None)
         self._link_volunteer_employee(self.volunteer, emp.name)
+        self._seat_financial_approver_for(self.volunteer)
         self.assertFalse(frappe.db.get_value("Employee", emp.name, "expense_approver"))
 
         with self.assertNoErrorLog():

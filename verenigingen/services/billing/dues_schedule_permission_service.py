@@ -293,7 +293,7 @@ class DuesSchedulePermissionService(StatelessService):
         # Check if the role has financial permissions
         if board_member.chapter_role:
             role_doc = frappe.get_doc("Chapter Role", board_member.chapter_role)
-            return getattr(role_doc, "permissions_level", None) in ["Financial", "Admin"]
+            return getattr(role_doc, "permissions_level", None) == "Financial"
 
         return False
 

@@ -302,6 +302,47 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         user_emails = [r[0] for r in result]
         self.assertNotIn(non_financial_user.name, user_emails)
 
+    def test_chapter_admin_level_seat_is_not_listed_as_approver(self):
+        """#1650 ruling (2026-10-14): chapter Admin does NOT imply financial rights, so an
+        Admin-level seat holder (veg11's 'Treasurer' role) is not an expense approver.
+        Control: the Financial seat built in setUp is still listed in the same result."""
+        member = self.create_test_member(first_name="AdminSeat", last_name="Member", birth_date="1990-01-01")
+        admin_user = self.create_test_user(
+            email=f"admin_seat_{self.uid}@test.com",
+            roles=["Verenigingen Chapter Board Member", "Expense Approver"],
+        )
+        member.user = admin_user.name
+        member.save()
+        volunteer = self.create_test_volunteer(member=member.name)
+        frappe.db.set_value("Volunteer", volunteer.name, "user", admin_user.name)
+        admin_role = frappe.get_doc({
+            "doctype": "Chapter Role",
+            "role_name": f"Test Admin Role {frappe.generate_hash(length=6)}",
+            "permissions_level": "Admin",
+        })
+        admin_role.insert()
+        chapter_doc = frappe.get_doc("Chapter", self.chapter1.name)
+        chapter_doc.append("board_members", {
+            "volunteer": volunteer.name,
+            "chapter_role": admin_role.name,
+            "from_date": today(),
+            "is_active": 1,
+        })
+        chapter_doc.save()
+
+        frappe.set_user(self.staff_user.name)
+
+        from verenigingen.api.expense_claim_queries import get_chapter_expense_approvers
+
+        result = get_chapter_expense_approvers(
+            doctype="User", txt="", searchfield="email", start=0, page_len=20,
+            filters={"chapter": self.chapter1.name}
+        )
+
+        user_emails = [r[0] for r in result]
+        self.assertIn(self.board_user.name, user_emails)
+        self.assertNotIn(admin_user.name, user_emails)
+
     def test_team_expense_approvers_uses_team_chapter(self):
         """Team expense approvers should come from the team's parent chapter"""
         # Create the team as Administrator (Staff cannot insert Team masters).

@@ -855,9 +855,72 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
             get_volunteer_expense_approver,
         )
 
-        approver = get_volunteer_expense_approver(self.volunteer.name)
-        # Returns a non-empty approver string (Administrator fallback at minimum).
-        self.assertTrue(approver)
+        # No financial seat anywhere above this volunteer: unassigned (#1650).
+        self._pin_national_board_empty()
+        self.assertIsNone(get_volunteer_expense_approver(self.volunteer.name))
+
+    def _pin_national_board_empty(self):
+        """No national board for this test (a leaked one could supply an approver)."""
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", None)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
+
+    def _seat_a_treasurer_for(self, volunteer):
+        """A real chapter treasurer (Financial seat) above ``volunteer``; returns their email."""
+        chapter = self.ensure_test_chapter(f"DeepTreas{frappe.generate_hash(length=6)}")
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append("members", {"member": volunteer.member, "enabled": 1})
+        chapter_doc.save()
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        member = self.create_test_member(first_name="DeepTreas", last_name="Seat")
+        treasurer = self.create_test_volunteer(member_name=member.name)
+        frappe.db.set_value("Volunteer", treasurer.name, "email", user.email)
+        role = self.factory.ensure_chapter_role(
+            f"DeepFin{frappe.generate_hash(length=6)}", {"permissions_level": "Financial"}
+        )
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": treasurer.name,
+                "chapter_role": role.name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+        return user.email
+
+    def test_update_employee_approver_keeps_a_manual_approver_when_no_financial_seat(self):
+        """#1650 ruling: with no Financial seat the refresh leaves Employee.expense_approver
+        alone, so an approver set by hand survives. (Control: a Financial seat IS written,
+        see test_update_employee_approver_writes_a_financial_seat_approver.)"""
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            update_employee_approver,
+        )
+
+        self._pin_national_board_empty()
+        manual_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        emp = self._make_employee(expense_approver=manual_user.email)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+
+        self.assertIsNone(update_employee_approver(self.volunteer.name))
+        self.assertEqual(frappe.db.get_value("Employee", emp.name, "expense_approver"), manual_user.email)
+
+    def test_update_employee_approver_writes_a_financial_seat_approver(self):
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            update_employee_approver,
+        )
+
+        manual_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        emp = self._make_employee(expense_approver=manual_user.email)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+        treasurer_email = self._seat_a_treasurer_for(self.volunteer)
+
+        self.assertEqual(update_employee_approver(self.volunteer.name), treasurer_email)
+        self.assertEqual(frappe.db.get_value("Employee", emp.name, "expense_approver"), treasurer_email)
 
     # -- update_employee_approver: volunteer without employee_id --
 
@@ -947,6 +1010,24 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertNotIn("{error_count}", result["message"])
         # The interpolated counts should appear as their integer values.
         self.assertIn(str(result["updated"]), result["message"])
+
+    def test_refresh_all_counts_a_volunteer_without_a_financial_seat_as_unassigned(self):
+        """#1650: no Financial seat is not an error. Compared as a delta against a refresh
+        run before the fixture exists, since other volunteers on the site also count."""
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_all_expense_approvers,
+        )
+
+        self._pin_national_board_empty()
+        baseline = refresh_all_expense_approvers()
+        emp = self._make_employee(expense_approver=None)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+
+        result = refresh_all_expense_approvers()
+
+        self.assertEqual(result["unassigned"] - baseline["unassigned"], 1)
+        self.assertEqual(result["errors"] - baseline["errors"], 0)
+        self.assertIn(f"{result['unassigned']} unassigned", result["message"])
 
 
 # ---------------------------------------------------------------------------

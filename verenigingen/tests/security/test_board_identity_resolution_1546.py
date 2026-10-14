@@ -93,15 +93,17 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
 
     # ---- probe-state helpers -------------------------------------------------
 
-    def _unlink_board_user(self):
+    def _unlink_board_user(self, board=None):
         """Clear the board member's Member.user link. PROBE SHORTCUT -- see
         module docstring. Member.email is left untouched, so
         get_member_name_for_user(self.board.user) would still resolve this
         Member via its fallback; get_member_name_for_board_access must not."""
-        frappe.get_doc("Member", self.board.member).db_set("user", "")
+        board = board or self.board
+        frappe.get_doc("Member", board.member).db_set("user", "")
 
-    def _relink_board_user(self):
-        frappe.get_doc("Member", self.board.member).db_set("user", self.board.user)
+    def _relink_board_user(self, board=None):
+        board = board or self.board
+        frappe.get_doc("Member", board.member).db_set("user", board.user)
 
     # ---- assertion helpers ----------------------------------------------------
 
@@ -536,34 +538,48 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
     # ---- it is unaffected by this fix -- not separately tested here because it is
     # ---- untouched code, same as #1546's other own-record branches.
 
+    # The class seat (self.board) is Admin. These two checks are FINANCIAL gates, and since
+    # #1650 (maintainer ruling 2026-10-14) chapter Admin does not imply financial rights, so
+    # the identity rule is exercised with a Financial seat; the Admin seat is the control.
+    def _financial_board_seat(self):
+        return self.create_test_board_member(
+            self.chapter.name, permissions_level="Financial", first_name="BoardFin"
+        )
+
     def test_can_view_financial_info_board_branch_follows_identity_rule(self):
         from verenigingen.permissions import can_view_financial_info
 
-        self._unlink_board_user()
+        fin = self._financial_board_seat()
+        self._unlink_board_user(fin)
         self.assertFalse(
-            can_view_financial_info("Member", self.target.name, user=self.board.user),
+            can_view_financial_info("Member", self.target.name, user=fin.user),
             "unlinked board user must not view a chapter peer's financial info",
         )
 
-        self._relink_board_user()
+        self._relink_board_user(fin)
         self.assertTrue(
+            can_view_financial_info("Member", self.target.name, user=fin.user),
+            "linked Financial board user must view a chapter peer's financial info",
+        )
+        self.assertFalse(
             can_view_financial_info("Member", self.target.name, user=self.board.user),
-            "linked board user must view a chapter peer's financial info",
+            "#1650: a linked Admin (non-Financial) board user must not view financial info",
         )
 
     def test_check_member_payment_access_board_branch_follows_identity_rule(self):
         from verenigingen.permissions import check_member_payment_access
 
-        self._unlink_board_user()
+        fin = self._financial_board_seat()
+        self._unlink_board_user(fin)
         self.assertFalse(
-            check_member_payment_access(self.target.name, user=self.board.user),
+            check_member_payment_access(self.target.name, user=fin.user),
             "unlinked board user must not access a chapter peer's payment info",
         )
 
-        self._relink_board_user()
+        self._relink_board_user(fin)
         self.assertTrue(
-            check_member_payment_access(self.target.name, user=self.board.user),
-            "linked board user must access a chapter peer's payment info",
+            check_member_payment_access(self.target.name, user=fin.user),
+            "linked Financial board user must access a chapter peer's payment info",
         )
 
     # ---- S1: assign_chapter_board_role (grant/remove) and ---------------------------
