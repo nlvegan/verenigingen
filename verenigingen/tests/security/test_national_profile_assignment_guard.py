@@ -278,67 +278,24 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         self._call_as(actor, assign_role_profile_to_user, victim, held)
         self.assertIn(held, self._profiles_of(victim))
 
-    def test_the_chapter_and_team_endpoints_refuse_a_mapped_profile_the_actor_cannot_hold(self):
-        from verenigingen.utils.team_role_profile_manager import assign_team_role_profile
+    # -- chapter / team assignment endpoints (removed, #1659) ----------------
 
-        hr = self._profile_granting("HR Manager")
-        team = self.factory.create_test_team()
-        self.track_doc("Team", team.name)
-        doc = frappe.get_doc("Team", team.name)
-        doc.enable_role_profiles = 1
-        doc.default_role_profile = hr
-        doc.save()
-        actor = self._make_user_holding_profile(NBM)
-        victim = self._make_user_holding_profile(None)
-        self._assert_assignment_refused(actor, hr, assign_team_role_profile, victim, team.name)
-        self.assertNotIn(hr, self._profiles_of(victim))
+    def test_there_is_no_endpoint_that_hands_a_chapter_or_team_profile_to_an_unseated_user(self):
+        """#1659: assign_chapter_board_role_profile / assign_team_role_profile gave the mapped
+        profile to ANY user and replaced every profile the user held. Nothing called them and
+        the seat sync grants these profiles, so they are gone.
 
-    # -- chapter / team assignment endpoints -------------------------------
+        Controls: the sibling endpoints in the same modules are still there and still
+        whitelisted, so this cannot pass because an import failed or a module was emptied.
+        """
+        from verenigingen.services.chapter import chapter_role_profile_manager as chapter_mod
+        from verenigingen.utils import team_role_profile_manager as team_mod
 
-    def _national_chapter_mapped_to(self, profile):
-        chapter = self.create_test_chapter(
-            chapter_name=f"Natl {frappe.generate_hash(length=6)}", postal_codes="1000-1999", published=1
-        )
-        old = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
-        self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", old)
-        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", chapter.name)
-        doc = frappe.get_doc("Chapter", chapter.name)
-        doc.default_board_role_profile = profile
-        doc.save()
-        return chapter.name
-
-    def test_a_national_board_member_cannot_hand_out_the_national_profile_via_the_chapter_endpoint(self):
-        from verenigingen.services.chapter.chapter_role_profile_manager import (
-            assign_chapter_board_role_profile,
-        )
-
-        chapter = self._national_chapter_mapped_to(TREASURER)
-        actor = self._make_user_holding_profile(NBM)
-        victim = self._make_user_holding_profile(None)
-        self._assert_assignment_refused(actor, TREASURER, assign_chapter_board_role_profile, victim, chapter)
-        self.assertNotIn(TREASURER, self._profiles_of(victim))
-
-    def test_an_administrator_can_use_the_chapter_endpoint(self):
-        from verenigingen.services.chapter.chapter_role_profile_manager import (
-            assign_chapter_board_role_profile,
-        )
-
-        chapter = self._national_chapter_mapped_to(TREASURER)
-        victim = self._make_user_holding_profile(None)
-        result = self._call_as("Administrator", assign_chapter_board_role_profile, victim, chapter)
-        self.assertTrue(result.get("success"), result)
-        self.assertIn(TREASURER, self._profiles_of(victim))
-
-    def test_a_treasurer_holder_cannot_hand_out_a_team_profile_granting_system_manager(self):
-        from verenigingen.utils.team_role_profile_manager import assign_team_role_profile
-
-        team = self.factory.create_test_team()
-        self.track_doc("Team", team.name)
-        doc = frappe.get_doc("Team", team.name)
-        doc.enable_role_profiles = 1
-        doc.default_role_profile = ADMIN_PROFILE
-        doc.save()
-        actor = self._make_user_holding_profile(TREASURER)
-        victim = self._make_user_holding_profile(None)
-        self._assert_assignment_refused(actor, ADMIN_PROFILE, assign_team_role_profile, victim, team.name)
-        self.assertNotIn(ADMIN_PROFILE, self._profiles_of(victim))
+        for module, gone, kept in (
+            (chapter_mod, "assign_chapter_board_role_profile", "bulk_assign_chapter_board_role_profiles"),
+            (team_mod, "assign_team_role_profile", "bulk_assign_team_role_profiles"),
+        ):
+            with self.subTest(module=module.__name__):
+                frappe.is_whitelisted(getattr(module, kept))  # control: raises if not whitelisted
+                self.assertFalse(hasattr(module, gone), gone)
+                self.assertNotIn(gone, getattr(module, "__all__", ()))
