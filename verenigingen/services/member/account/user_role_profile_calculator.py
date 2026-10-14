@@ -1030,12 +1030,18 @@ def sync_user_role_profile(
             # None (never recorded) counts as a change even when the new record is empty, so an
             # explicit "[]" is written and the bootstrap rule runs once, not for ever.
             stored = read_sync_granted_profiles(user)
-            marker_changed = frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD) and (
-                stored is None or sorted(set(granted_now)) != sorted(set(stored))
+            # Nightly, a record-less user the job adds nothing to stays record-less: a record
+            # (even "[]") would switch off the event path's bootstrap withdrawal for them.
+            keep_recordless = nightly and stored is None and not added
+            marker_changed = (
+                frappe.get_meta("User").has_field(SYNC_GRANTED_FIELD)
+                and not keep_recordless
+                and (stored is None or sorted(set(granted_now)) != sorted(set(stored)))
             )
             role_changed = set(existing_profiles) != set(new_profiles)
         else:
             marker_changed = False
+            keep_recordless = False
             derived = [new_profile]
             role_changed = old_profile != new_profile
         module_changed = new_module_profile is not None and old_module_profile != new_module_profile
@@ -1079,7 +1085,7 @@ def sync_user_role_profile(
                 user_doc.role_profile_name = new_profiles[0] if new_profiles else new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile
-            if _has_multi_profile_support():
+            if _has_multi_profile_support() and not keep_recordless:
                 record_sync_granted_profiles(user_doc, granted_now)
 
             # Security: ignore_permissions: the profiles written are derived by this function from
@@ -1172,9 +1178,11 @@ def _restore_direct_roles(user: str, roles: list) -> None:
     if not missing:
         return
     user_doc = frappe.get_doc("User", user)
-    for role in missing:
+    next_idx = len(user_doc.roles) + 1
+    for offset, role in enumerate(missing):
         row = frappe.new_doc("Has Role", parent_doc=user_doc, parentfield="roles")
         row.role = role
+        row.idx = next_idx + offset
         row.db_insert()
     frappe.clear_cache(user=user)
 
@@ -1266,9 +1274,9 @@ def get_nightly_sync_users() -> list:
 
     A user with no Member makes sync_user_role_profile return "not a member" and is
     left alone, so listing them would only be counted as errors. Administrator and Guest
-    are never listed (standard users). Profile held is NOT a
-    filter: users with no profile, or an admin/national one, are covered, which the
-    bulk endpoint's 4-profile default is not.
+    are never listed (standard users). Profile held is NOT a filter: users with no
+    profile, or an admin/national one, are covered, which the bulk endpoint's 4-profile
+    default is not.
     """
     linked = frappe.get_all("Member", filters={"user": ["is", "set"]}, pluck="user")
     linked = [u for u in linked if u not in ("Administrator", "Guest")]

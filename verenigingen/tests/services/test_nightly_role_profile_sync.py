@@ -159,6 +159,8 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         user = self._nightly_member_user()
         self._drift_to_volunteer(user)
         self._error_log_rows(user)
+        record_before = calc.read_sync_granted_profiles(user)
+        self.assertEqual(record_before, [PROFILE_VOLUNTEER], "fixture: record names Volunteer")
 
         # Mock justified: fails AFTER user_doc.save() inside the real sync.
         with mock.patch.object(calc, "_restore_direct_roles", side_effect=RuntimeError("late")):
@@ -167,6 +169,7 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         self.assertEqual(results["errors"], 1, results)
         self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
         self.assertNotIn(PROFILE_MEMBER, calc.get_user_role_profiles(user), "saved change survived")
+        self.assertEqual(calc.read_sync_granted_profiles(user), record_before, "record write survived")
 
     def test_summary_line_counts_errors(self):
         bad = self._nightly_member_user()
@@ -208,6 +211,8 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         frappe.clear_cache(user=user)
         self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
         self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
+        idx = frappe.db.get_value("Has Role", {"parent": user, "role": DIRECT_ROLE}, "idx")
+        self.assertGreater(idx, 0, "restored row kept no position")
         # Control for "keep everything": roles only the old profile supplied ARE withdrawn.
         gone = {r.role for r in frappe.get_doc("Role Profile", PROFILE_VOLUNTEER).roles} - {
             r.role for r in frappe.get_doc("Role Profile", PROFILE_MEMBER).roles
@@ -268,3 +273,43 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
         sync_user_role_profile(user)
         self.assertNotIn(PROFILE_TEAM_LEADER, calc.get_user_role_profiles(user))
+
+    # ---- S1: a record-less user the job adds nothing to must stay record-less
+
+    def _legacy_volunteer_holder(self):
+        """Holds Volunteer with no record, as pre-record data does, and has an Active volunteer."""
+        user = self._nightly_member_user()
+        member = frappe.db.get_value("Member", {"user": user}, "name")
+        volunteer = self.create_test_volunteer(member=member, status="Active").name
+        self._attach(user, PROFILE_VOLUNTEER)
+        frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
+        self.assertIsNone(calc.read_sync_granted_profiles(user), "fixture: no record")
+        return user, volunteer
+
+    def test_nothing_to_add_leaves_the_user_recordless_so_event_bootstrap_still_withdraws(self):
+        user, volunteer = self._legacy_volunteer_holder()
+
+        nightly_role_profile_sync()
+
+        self.assertIsNone(calc.read_sync_granted_profiles(user), "nightly wrote a record")
+        self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+        # Direct status write stands in for the volunteer being deactivated.
+        frappe.db.set_value("Volunteer", volunteer, "status", "Inactive")
+        sync_user_role_profile(user)  # event path
+        held = calc.get_user_role_profiles(user)
+        self.assertNotIn(PROFILE_VOLUNTEER, held, "event bootstrap no longer withdraws")
+        self.assertIn(PROFILE_MEMBER, held)
+
+    def test_adding_a_profile_writes_the_record_and_ends_the_event_bootstrap(self):
+        """Documented residual (maintainer, #1676): the record the job writes is final."""
+        user = self._nightly_member_user()
+        self._attach(user, PROFILE_VOLUNTEER)  # stale: no Volunteer record; Member is missing
+        frappe.db.set_value("User", user, calc.SYNC_GRANTED_FIELD, None)
+
+        nightly_role_profile_sync()
+
+        held = calc.get_user_role_profiles(user)
+        self.assertIn(PROFILE_MEMBER, held)
+        self.assertEqual(calc.read_sync_granted_profiles(user), [PROFILE_MEMBER])
+        sync_user_role_profile(user)  # event path: bootstrap no longer runs
+        self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
