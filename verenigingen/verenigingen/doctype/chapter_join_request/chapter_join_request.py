@@ -114,6 +114,12 @@ class ChapterJoinRequest(Document):
         if self.status != "Pending":
             frappe.throw(_("Only pending requests can be approved"))
 
+        # The Approved save and the membership assignment are one unit (#1632): the whitelisted
+        # wrappers swallow a failure and return a dict, so the request would otherwise commit as
+        # Approved with no membership and no retry path. A savepoint (not a full rollback) undoes
+        # only this request, so bulk approval keeps the requests that already succeeded.
+        savepoint = "cjr_approve_" + frappe.generate_hash(length=8)
+        frappe.db.savepoint(savepoint)
         try:
             # Update request status first
             self.status = "Approved"
@@ -155,6 +161,8 @@ class ChapterJoinRequest(Document):
                     )
                 )
 
+            frappe.db.release_savepoint(savepoint)
+
             # Return success with notification status
             return {
                 "success": True,
@@ -163,7 +171,23 @@ class ChapterJoinRequest(Document):
             }
 
         except Exception as e:
+            self._undo_failed_approval(savepoint, e)
             frappe.throw(_("Failed to approve request: {0}").format(str(e)))
+
+    def _undo_failed_approval(self, savepoint, error):
+        """Roll the Approved save back to *savepoint* and restore the in-memory doc.
+
+        Every failure is rolled back, including a 1205 lock timeout: it leaves the transaction
+        and savepoint live, so skipping the rollback would let a swallowing wrapper commit the
+        Approved row (#1632). Only a 1213 deadlock has already destroyed the savepoint;
+        rollback_to_savepoint tolerates that (returns False) instead of masking the real error.
+        """
+        from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+
+        if rollback_to_savepoint(savepoint):
+            self.reload()
+        if isinstance(error, NON_RESUMABLE_DB_ERRORS):
+            raise error
 
     def _failure_reason(self, result):
         """The reason ChapterMembershipManager.assign_member_to_chapter failed.
