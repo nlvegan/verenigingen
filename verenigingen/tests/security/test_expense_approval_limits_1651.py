@@ -190,7 +190,7 @@ class TestApprovalIsRefusedAboveTheLimit(LimitBase):
             validate_amount_within_approval_limit(claim, self.fin_user.name)
         self.assertIn("approval limit", str(ctx.exception))
         # control: the same claim within the limit passes
-        claim.total_claimed_amount = self.FINANCIAL_LIMIT
+        claim.total_claimed_amount = claim.total_sanctioned_amount = self.FINANCIAL_LIMIT
         validate_amount_within_approval_limit(claim, self.fin_user.name)
 
     def test_a_claim_without_chapter_or_team_is_not_limited(self):
@@ -263,20 +263,28 @@ class TestWhoIsNotLimited(LimitBase):
         self.assertIsNone(get_approval_limit(nat_fin.name, self.chapter.name))
 
     def test_a_national_admin_seat_is_not_unlimited(self):
-        # control: only a FINANCIAL national seat counts as a national approver (#1650)
+        # control: only a FINANCIAL national seat counts as a national approver (#1650); an Admin
+        # seat there is bound like any other user without a seat on THIS chapter
         self.set_national(self.national)
         nat_adm, _vol = self.seat_holder("nadm", self.national, "Admin")
-        self.assertIsNone(get_approval_limit(nat_adm.name, self.chapter.name))  # no seat on this chapter
-        self.assertEqual(
-            get_approval_limit(nat_adm.name, self.national.name), None
-        )  # no limit configured on the national chapter either
+        self.assertEqual(get_approval_limit(nat_adm.name, self.chapter.name), self.REGULAR_LIMIT)
         self.set_limits(self.national, 10, 20)
         self.assertEqual(get_approval_limit(nat_adm.name, self.national.name), 10)
 
-    def test_an_approver_with_no_seat_on_the_claims_chapter_is_not_limited_by_it(self):
+    def test_a_seat_on_another_chapter_does_not_unlock_this_one(self):
+        # fail closed (ruling 2026-10-29): no seat HERE = bound like a regular seat
         other = self.create_chapter(chapter_name=f"Exp Other {self.token}", region=ensure_test_region())
         stranger, _vol = self.seat_holder("stranger", other, "Financial")
-        self.assertIsNone(get_approval_limit(stranger.name, self.chapter.name))
+        self.assertEqual(get_approval_limit(stranger.name, self.chapter.name), self.REGULAR_LIMIT)
+
+    def test_a_system_manager_who_is_not_a_verenigingen_administrator_is_unlimited(self):
+        sysmgr = self.create_test_user(
+            email=f"x1651-sm-{self.token}@test.com", roles=["System Manager", "Expense Approver"]
+        )
+        self.assertIsNone(get_approval_limit(sysmgr.name, self.chapter.name))
+
+    def test_the_administrator_user_is_unlimited(self):
+        self.assertIsNone(get_approval_limit("Administrator", self.chapter.name))
 
     def test_unset_limits_mean_no_limit(self):
         self.set_limits(self.chapter, 0, 0)
@@ -299,9 +307,9 @@ class TestWhoIsNotLimited(LimitBase):
         self.set_limits(self.chapter, 900, 300)
         self.assertEqual(get_approval_limit(self.adm_user.name, self.chapter.name), 300)
 
-    def test_an_inactive_seat_does_not_limit_anyone(self):
+    def test_an_inactive_seat_is_no_seat_so_the_user_is_bound_as_a_regular_seat(self):
         frappe.db.set_value("Chapter Board Member", {"parent": self.chapter.name, "volunteer": self.adm_vol.name}, "is_active", 0)
-        self.assertIsNone(get_approval_limit(self.adm_user.name, self.chapter.name))
+        self.assertEqual(get_approval_limit(self.adm_user.name, self.chapter.name), self.REGULAR_LIMIT)
 
     def test_a_seat_found_by_email_only_is_not_a_seat(self):
         # #1546: identity is Member.user; a Member that merely shares the email grants nothing
@@ -321,7 +329,105 @@ class TestWhoIsNotLimited(LimitBase):
                 "is_active": 1,
             }
         ).insert()
-        self.assertIsNone(get_approval_limit(lone.name, self.chapter.name))
+        self.assertEqual(get_approval_limit(lone.name, self.chapter.name), self.REGULAR_LIMIT)
+
+
+class TestEveryoneWithoutASeatIsRefused(LimitBase):
+    """Ruling 2026-10-29: only the Treasurer role, System Manager and a national Financial seat
+    are unlimited. Each wide role below used to be waved through; each is a real save."""
+
+    OVER = 10000
+
+    def test_plain_staff_designated_approver_without_a_seat_is_refused(self):
+        staff = self._staffexp_user("Verenigingen Staff", "stf1651", extra_roles=("Expense Approver",))
+        self._staffexp_employee(staff)
+        # Designated while within the limit, then raised: the DocShare outlives the re-routing
+        claim = self.amount_claim(50, expense_approver=staff)
+        doc = frappe.get_doc("Expense Claim", claim.name)
+        doc.expenses[0].amount = doc.expenses[0].sanctioned_amount = self.OVER
+        doc.save()
+        self.assert_refused(staff, claim)
+
+    def test_a_financial_seat_who_is_also_a_verenigingen_administrator_is_bound_by_the_seat(self):
+        user, _vol = self.seat_holder("favad", self.chapter, "Financial", extra_roles=("Verenigingen Administrator", "System Manager"))
+        claim = self.amount_claim(self.OVER)
+        self.assert_refused(user, claim)
+
+    def test_national_board_member_profile_without_a_seat_is_refused(self):
+        self.assert_refused(self.nbm, self.amount_claim(self.OVER))
+
+    def test_verenigingen_administrator_without_a_seat_is_refused(self):
+        self.assert_refused(self.admin, self.amount_claim(self.OVER))
+
+    def test_hr_manager_staff_without_a_seat_is_refused(self):
+        self.assert_refused(self.hr_staff, self.amount_claim(self.OVER))
+
+    def test_the_same_users_may_approve_within_the_regular_limit(self):
+        # control: the refusal is about the amount, not about who they are
+        for actor in (self.nbm, self.admin, self.hr_staff):
+            with self.subTest(actor=actor.name):
+                claim = self.amount_claim(self.REGULAR_LIMIT)
+                self.decide(actor, claim.name, "Approved")
+                self.assertEqual(self.status_of(claim), "Approved")
+
+    def test_without_limits_configured_nobody_is_refused(self):
+        # fail-closed applies only where a limit exists
+        self.set_limits(self.chapter, 0, 0)
+        claim = self.amount_claim(self.OVER)
+        self.decide(self.nbm, claim.name, "Approved")
+        self.assertEqual(self.status_of(claim), "Approved")
+
+    def test_a_system_manager_user_may_approve_above_the_limit(self):
+        sysmgr = self.create_test_user(
+            email=f"x1651-sm2-{self.token}@test.com", roles=["System Manager", "Expense Approver"]
+        )
+        self._staffexp_employee(sysmgr)
+        claim = self.amount_claim(self.OVER)
+        self.decide(sysmgr, claim.name, "Approved")
+        self.assertEqual(self.status_of(claim), "Approved")
+
+
+class TestTaxesCountTowardsTheLimit(LimitBase):
+    def tax_claim(self, amount, tax):
+        claim = self.amount_claim(amount)
+        doc = frappe.get_doc("Expense Claim", claim.name)
+        doc.append(
+            "taxes",
+            {
+                "account_head": self.expense_account,
+                "description": "tax 1651",
+                "tax_amount": tax,
+                "cost_center": self.cost_center,
+            },
+        )
+        doc.save()
+        self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "grand_total"), amount + tax)
+        return doc
+
+    def test_amount_at_the_limit_plus_tax_is_refused(self):
+        claim = self.tax_claim(self.FINANCIAL_LIMIT, 400)
+        self.assert_refused(self.fin_user, claim)
+
+    def test_amount_plus_tax_within_the_limit_is_approved(self):
+        # control: taxes alone do not make a claim refusable
+        claim = self.tax_claim(self.FINANCIAL_LIMIT - 400, 400)
+        self.decide(self.fin_user, claim.name, "Approved")
+        self.assertEqual(self.status_of(claim), "Approved")
+
+    def test_adding_tax_to_an_approved_claim_is_refused(self):
+        claim = self.amount_claim(self.FINANCIAL_LIMIT)
+        self.decide(self.fin_user, claim.name, "Approved")
+
+        def add_tax():
+            doc = frappe.get_doc("Expense Claim", claim.name)
+            doc.append(
+                "taxes",
+                {"account_head": self.expense_account, "description": "t", "tax_amount": 400, "cost_center": self.cost_center},
+            )
+            doc.save()
+
+        with self.assertRaises(frappe.PermissionError):
+            self.act_as(self.fin_user, add_tax)
 
 
 class TestClaimsGoUp(LimitBase):

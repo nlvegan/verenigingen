@@ -558,9 +558,16 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
 
         # #1651: the hardcoded 100/500 were a false premise (nothing enforced them); the
         # thresholds are now the per-chapter limits, keyed by chapter
+        chapter = self.ensure_test_chapter("ExpThreshChap")
+        frappe.db.set_value(
+            "Chapter",
+            chapter.name,
+            {"board_member_approval_limit": 111, "financial_role_approval_limit": 222},
+            update_modified=False,
+        )
         t = get_approval_thresholds()
-        self.assertIsInstance(t, dict)
         self.assertNotIn("basic_limit", t)
+        self.assertEqual(t[chapter.name], {"regular_limit": 111, "financial_limit": 222})
 
     def test_get_national_chapter_none_when_unset(self):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import (

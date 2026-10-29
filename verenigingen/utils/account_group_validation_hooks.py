@@ -141,7 +141,14 @@ def validate_expense_claim_approval_limit(doc):
         return
     if not any(
         doc.has_value_changed(field)
-        for field in ("approval_status", "employee", "total_claimed_amount", "custom_chapter", "custom_team")
+        for field in (
+            "approval_status",
+            "employee",
+            "total_claimed_amount",
+            "total_sanctioned_amount",
+            "total_taxes_and_charges",
+            "custom_chapter",
+        )
     ):
         return
     validate_amount_within_approval_limit(doc, frappe.session.user)

@@ -17,10 +17,16 @@ Rules, all keyed on the claim's chapter (``custom_chapter``, else the team's cha
 - A regular seat can never approve more than the Financial seat of the same chapter: with
   both limits set the lower one applies, and with only the Financial limit set it applies to
   regular seats too, so a claim never skips a level on its way up.
-- National approvers are unlimited: the Treasurer / National Board Member / Administrator /
-  System Manager / HR Manager roles, and anyone holding a Financial seat on the national
-  board chapter. A user with no seat on the claim's chapter is not limited by it.
-- The amount compared is ``total_claimed_amount``, the upper bound of ``total_sanctioned_amount``.
+- Unlimited, and only these (maintainer ruling 2026-10-29, "narrow + fail closed"): the
+  Administrator user, holders of the Treasurer role, a System Manager who is not a
+  Verenigingen Administrator (that profile bundles System Manager but is ruled bound), and
+  anyone holding a Financial seat on the national board chapter. Everyone else is bound by
+  their seat on the claim's chapter, and a user with NO seat there (Staff, National Board
+  Member, Verenigingen Administrator, HR Manager) is bound like a regular seat: refused above
+  the regular limit, so such a claim goes up. Fail-closed applies only where a limit exists:
+  a chapter with no limits set stays unlimited for everyone.
+- The amount compared is what the claim can actually pay out: the larger of
+  ``total_claimed_amount`` and ``total_sanctioned_amount`` plus taxes and charges.
 
 ``get_approval_limit`` is the single place that answers "how much may this user approve for
 this chapter"; the approval gate, the escalation routing and the portal text all read it.
@@ -34,18 +40,6 @@ from frappe.utils import flt, fmt_money
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_name_for_board_access, get_volunteer_for_member
-
-# Roles whose holders are national approvers (the Treasurer profile, the national board and
-# administrators): not bound by any chapter's limits.
-UNLIMITED_ROLES = frozenset(
-    {
-        Roles.TREASURER,
-        Roles.NATIONAL_BOARD_MEMBER,
-        Roles.VERENIGINGEN_ADMIN,
-        Roles.SYSTEM_MANAGER,
-        Roles.HR_MANAGER,
-    }
-)
 
 FINANCIAL = "Financial"
 
@@ -98,8 +92,18 @@ def get_seat_levels(user: str, chapter: str) -> set:
     return levels
 
 
-def _is_national_approver(user: str) -> bool:
-    if UNLIMITED_ROLES.intersection(frappe.get_roles(user)):
+def get_claim_amount(doc) -> float:
+    """What the claim can pay out: tax rows add to the sanctioned amount, so the claimed
+    amount alone would let 500 at a 500 limit plus 400 tax through."""
+    payable = flt(doc.get("total_sanctioned_amount")) + flt(doc.get("total_taxes_and_charges"))
+    return max(flt(doc.get("total_claimed_amount")), payable)
+
+
+def _is_unlimited(user: str) -> bool:
+    roles = frappe.get_roles(user)
+    if user == "Administrator" or Roles.TREASURER in roles:
+        return True
+    if Roles.SYSTEM_MANAGER in roles and Roles.VERENIGINGEN_ADMIN not in roles:
         return True
     national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
     return bool(national) and FINANCIAL in get_seat_levels(user, national)
@@ -107,12 +111,11 @@ def _is_national_approver(user: str) -> bool:
 
 def get_approval_limit(user: str, chapter: Optional[str]) -> Optional[float]:
     """How much ``user`` may approve for a claim of ``chapter``. None = unlimited."""
-    if not chapter or _is_national_approver(user):
+    if not chapter or _is_unlimited(user):
         return None
     levels = get_seat_levels(user, chapter)
-    if not levels:
-        return None
     regular, financial = get_chapter_limits(chapter)
+    # no seat at all is bound like a regular seat (fail closed)
     return financial if FINANCIAL in levels else regular
 
 
@@ -120,7 +123,8 @@ def validate_amount_within_approval_limit(doc, user: str) -> None:
     """Refuse an approval of ``doc`` that is above what ``user`` may approve for its chapter."""
     chapter = get_claim_chapter(doc)
     limit = get_approval_limit(user, chapter)
-    if limit is None or flt(doc.total_claimed_amount) <= limit:
+    amount = get_claim_amount(doc)
+    if limit is None or amount <= limit:
         return
     next_level = (
         _("the national treasurer")
@@ -132,7 +136,7 @@ def validate_amount_within_approval_limit(doc, user: str) -> None:
             "This claim of {0} is above your approval limit of {1} for chapter {2}. "
             "It has to be approved by {3}."
         ).format(
-            fmt_money(flt(doc.total_claimed_amount), currency=doc.get("currency")),
+            fmt_money(amount, currency=doc.get("currency")),
             fmt_money(limit, currency=doc.get("currency")),
             chapter,
             next_level,
@@ -149,7 +153,7 @@ def route_claim_above_limit(doc) -> None:
     refuses an approver who is over their limit).
     """
     chapter = get_claim_chapter(doc)
-    amount = flt(doc.total_claimed_amount)
+    amount = get_claim_amount(doc)
     current = doc.get("expense_approver") or frappe.db.get_value("Employee", doc.employee, "expense_approver")
     if not (chapter and current):
         return
