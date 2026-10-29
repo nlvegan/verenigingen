@@ -356,6 +356,12 @@ def detect_seasonal_patterns():
             months_data[month] = []
         months_data[month].append(pattern.new_members)
 
+    # Same guard as forecast_member_growth(): with no member_since history in the
+    # window there is nothing to average, and the division below raised
+    # ZeroDivisionError out of the whole get_predictive_analytics() call (#1503).
+    if not months_data:
+        return {"error": "Insufficient historical data for seasonal analysis"}
+
     # Calculate average for each month
     overall_avg = sum(sum(counts) for counts in months_data.values()) / sum(
         len(counts) for counts in months_data.values()

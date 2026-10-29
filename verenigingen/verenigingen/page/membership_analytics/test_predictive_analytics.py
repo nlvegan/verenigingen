@@ -65,3 +65,81 @@ class TestPredictiveAnalyticsChurnRate(EnhancedTestCase):
             last_name="Member",
             email=f"pred.churn.{frappe.generate_hash(length=8)}@example.com",
         )
+
+
+class TestPredictiveAnalyticsEmptyHistory(EnhancedTestCase):
+    """#1503: detect_seasonal_patterns() divided by an empty aggregate when no
+    Member had member_since in the last 3 years, failing the whole whitelisted
+    get_predictive_analytics() endpoint with ZeroDivisionError.
+
+    Emptiness is derived, not assumed: the site carries other tests' Members,
+    so every in-window Member's member_since is pushed outside the 3-year
+    window (a direct UPDATE standing in for "a young
+    association" -- the query only reads member_since/status) and the
+    UPDATE is rolled back by tearDown."""
+
+    def setUp(self):
+        super().setUp()
+        # A real row that would be counted if the window were not emptied below.
+        self.create_test_member(
+            first_name="SeasonalEmpty",
+            last_name="Member",
+            email=f"seasonal.empty.{frappe.generate_hash(length=8)}@example.com",
+        )
+        # Uncommitted; EnhancedTestCase.tearDown rolls it back. Only rows inside
+        # detect_seasonal_patterns()'s 3-year window need moving.
+        frappe.db.sql(
+            "UPDATE `tabMember` SET member_since = DATE_SUB(CURDATE(), INTERVAL 10 YEAR)"
+            " WHERE member_since >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR)"
+        )
+
+    def test_precondition_window_is_empty(self):
+        count = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabMember` WHERE member_since >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR)"
+            " AND status != 'Rejected'"
+        )[0][0]
+        self.assertEqual(count, 0)
+
+    def test_detect_seasonal_patterns_reports_insufficient_data(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            detect_seasonal_patterns,
+        )
+
+        result = detect_seasonal_patterns()
+        self.assertIn("error", result)
+        self.assertNotIn("seasonal_indices", result)
+
+    def test_whitelisted_endpoint_survives_empty_history(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            get_predictive_analytics,
+        )
+
+        with self.set_user("Administrator"):
+            result = get_predictive_analytics()
+
+        self.assertIn("error", result["seasonal_patterns"])
+        self.assertIn("error", result["member_growth_forecast"])
+        # the other sections still render
+        self.assertIn("scenarios", result["growth_scenarios"])
+        self.assertIsInstance(result["recommendations"], list)
+
+
+class TestSeasonalPatternsPositiveControl(EnhancedTestCase):
+    """Control for the #1503 guard: a non-empty window must still produce
+    indices, so an always-error guard reddens here."""
+
+    def test_non_empty_window_yields_indices(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            detect_seasonal_patterns,
+        )
+
+        member = self.create_test_member(
+            first_name="SeasonalControl",
+            last_name="Member",
+            email=f"seasonal.control.{frappe.generate_hash(length=8)}@example.com",
+        )
+        frappe.db.set_value("Member", member.name, "member_since", today(), update_modified=False)
+
+        result = detect_seasonal_patterns()
+        self.assertNotIn("error", result)
+        self.assertGreaterEqual(len(result["seasonal_indices"]), 1)
