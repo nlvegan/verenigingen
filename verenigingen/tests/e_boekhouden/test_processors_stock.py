@@ -592,7 +592,9 @@ class TestOpeningStockReconciliationDifferenceAccount(EnhancedTestCase):
                     "doctype": "Account",
                     "account_name": "Decoy Temporary",
                     "company": self.company,
-                    "parent_account": frappe.db.get_value("Account", f"Temporary Differences - {abbr}", "parent_account"),
+                    "parent_account": frappe.db.get_value(
+                        "Account", f"Temporary Differences - {abbr}", "parent_account"
+                    ),
                     "root_type": "Equity",
                     "account_type": "Temporary",
                     "is_group": 0,

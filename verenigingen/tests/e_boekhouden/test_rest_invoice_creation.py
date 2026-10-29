@@ -702,10 +702,11 @@ class TestDefaultWarehouseFixtureAcrossErpnextVersions(_InvoiceClusterBase):
     def _spied_run(self, stock_settings_has_field, company_has_field):
         from unittest import mock
 
-        with self._schema(stock_settings_has_field, company_has_field), mock.patch.object(
-            frappe.db, "set_single_value"
-        ) as set_single, mock.patch.object(frappe.db, "set_value") as set_value, mock.patch.object(
-            frappe.db, "get_single_value", return_value="Stores - OTHER"
+        with (
+            self._schema(stock_settings_has_field, company_has_field),
+            mock.patch.object(frappe.db, "set_single_value") as set_single,
+            mock.patch.object(frappe.db, "set_value") as set_value,
+            mock.patch.object(frappe.db, "get_single_value", return_value="Stores - OTHER"),
         ):
             _point_global_default_warehouse_at_company()
         return set_single, set_value
