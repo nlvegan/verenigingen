@@ -387,6 +387,28 @@ class TestEveryoneWithoutASeatIsRefused(LimitBase):
         self.assertEqual(self.status_of(claim), "Approved")
 
 
+    def test_moving_an_approved_team_claim_to_a_limited_chapters_team_is_refused(self):
+        # custom_chapter is empty on a team claim, so the TEAM decides the chapter: moving the
+        # team is moving the chapter (the custom_chapter route is covered above)
+        staff = self._staffexp_user("Verenigingen Staff", "stg1", extra_roles=("Expense Approver",))
+        self._staffexp_employee(staff)
+        free = self.create_chapter(chapter_name=f"Exp Free {self.token}", region=ensure_test_region())
+        free_team = self.create_test_team(chapter=free.name)
+        limited_team = self.create_test_team(chapter=self.chapter.name)
+        claim = self.amount_claim(self.OVER, team=free_team, expense_approver=staff)
+        self.decide(staff, claim.name, "Approved")  # no limits on `free`
+
+        def move():
+            doc = frappe.get_doc("Expense Claim", claim.name)
+            doc.custom_team = limited_team.name
+            doc.save()
+
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            self.act_as(staff, move)
+        self.assertIn("approval limit", str(ctx.exception))
+        self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "custom_team"), free_team.name)
+
+
 class TestTaxesCountTowardsTheLimit(LimitBase):
     def tax_claim(self, amount, tax):
         claim = self.amount_claim(amount)
@@ -441,6 +463,16 @@ class TestClaimsGoUp(LimitBase):
     def test_a_claim_above_the_financial_limit_is_assigned_to_the_national_treasurer(self):
         claim = self.amount_claim(self.FINANCIAL_LIMIT + 1, expense_approver=self.fin_user)
         self.assertEqual(claim.expense_approver, self.treasurer_user.name)
+
+    def test_a_seatless_staff_designee_over_the_limit_is_routed_to_the_national_treasurer(self):
+        staff = self._staffexp_user("Verenigingen Staff", "stn2", extra_roles=("Expense Approver",))
+        self._staffexp_employee(staff)
+        claim = self.amount_claim(50, expense_approver=staff)  # within the limit: stays with Staff
+        self.assertEqual(claim.expense_approver, staff.name)
+        doc = frappe.get_doc("Expense Claim", claim.name)
+        doc.expenses[0].amount = doc.expenses[0].sanctioned_amount = self.FINANCIAL_LIMIT + 1
+        doc.save()
+        self.assertEqual(doc.expense_approver, self.treasurer_user.name)
 
     def test_a_claim_within_the_limit_stays_with_its_approver(self):
         # control: the routing does not move everything

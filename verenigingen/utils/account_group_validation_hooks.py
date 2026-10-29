@@ -148,6 +148,7 @@ def validate_expense_claim_approval_limit(doc):
             "total_sanctioned_amount",
             "total_taxes_and_charges",
             "custom_chapter",
+            "custom_team",
         )
     ):
         return
