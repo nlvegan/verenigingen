@@ -229,6 +229,28 @@ def _setup_expense_account(company):
     return frappe.db.get_value("Account", {"company": company, "is_group": 0, "root_type": "Expense"}, "name")
 
 
+def _setup_contra_account(company):
+    """Return a non-group, non-Stock Balance Sheet account to act as the contra.
+
+    A Balance Sheet account is valid as a difference account whether or not the
+    company already has Stock Ledger Entries (ERPNext requires one for the first
+    entry), so the processor must pick it over any default.
+    """
+    abbr = frappe.db.get_value("Company", company, "abbr")
+    full = f"EBkh Test Contra - {abbr}"
+    if frappe.db.exists("Account", full):
+        return full
+    parent = frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+    doc = frappe.new_doc("Account")
+    doc.account_name = "EBkh Test Contra"
+    doc.company = company
+    doc.parent_account = parent
+    doc.root_type = "Asset"
+    doc.is_group = 0
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
 def _ensure_current_fiscal_year():
     """Ensure a Fiscal Year covers today's date AND applies to every company.
 
@@ -282,6 +304,7 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
 
     STOCK_LEDGER_ID = 882001
     EXPENSE_LEDGER_ID = 882002
+    CONTRA_LEDGER_ID = 882003
 
     @classmethod
     def setUpClass(cls):
@@ -294,6 +317,8 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
         assert cls.expense_account, f"No Expense account for {cls.company}"
         _persist_ledger_mapping(cls.STOCK_LEDGER_ID, cls.stock_account)
         _persist_ledger_mapping(cls.EXPENSE_LEDGER_ID, cls.expense_account)
+        cls.contra_account = _setup_contra_account(cls.company)
+        _persist_ledger_mapping(cls.CONTRA_LEDGER_ID, cls.contra_account)
 
     def _processor(self):
         return StockProcessor(self.company)
@@ -309,6 +334,82 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
             + random.randint(0, 999)
             + TestStockReconciliationCreateIntegration._id_counter
         )
+
+    def _assert_difference_account_is_not_a_stock_account(self, saved):
+        # ERPNext (version-16, 39f7af1ea3) rejects a Stock account as the
+        # Stock Reconciliation difference account; the stock side is booked
+        # from the Warehouse's inventory account instead.
+        self.assertTrue(saved.expense_account)
+        self.assertNotEqual(saved.expense_account, self.stock_account)
+        self.assertNotEqual(frappe.db.get_value("Account", saved.expense_account, "account_type"), "Stock")
+        self.assertEqual(frappe.db.get_value("Account", saved.expense_account, "company"), self.company)
+
+    def test_difference_account_is_the_mutation_counterparty(self):
+        # The mutation's counterparty ledger is the true contra, so it is used
+        # as the difference account when it is a valid (non-Stock) account.
+        p = self._processor()
+        mut = {
+            "id": self._unique_id(),
+            "type": 7,
+            "date": frappe.utils.today(),
+            "description": "integration contra stock adjustment",
+            "ledgerId": self.STOCK_LEDGER_ID,
+            "rows": [{"ledgerId": self.CONTRA_LEDGER_ID, "amount": 10.0}],
+        }
+        doc = p.process(mut)
+        self.assertIsNotNone(doc, p.debug_info)
+        saved = frappe.get_doc("Stock Reconciliation", doc.name)
+        self.assertEqual(saved.expense_account, self.contra_account)
+        self._assert_difference_account_is_not_a_stock_account(saved)
+
+    def test_difference_account_never_a_stock_account_even_as_counterparty(self):
+        # Control: a Stock account on BOTH sides must not become the difference
+        # account; the resolver falls through to ERPNext's own defaults.
+        p = self._processor()
+        account = p._get_difference_account(self.stock_account)
+        self.assertNotEqual(account, self.stock_account)
+        if account:
+            self.assertNotEqual(frappe.db.get_value("Account", account, "account_type"), "Stock")
+
+    def test_difference_account_falls_back_when_no_counterparty(self):
+        p = self._processor()
+        account = p._get_difference_account(None)
+        self.assertTrue(account, p.debug_info)
+        self.assertNotEqual(frappe.db.get_value("Account", account, "account_type"), "Stock")
+        self.assertEqual(frappe.db.get_value("Account", account, "company"), self.company)
+        # The fallback is recorded, with the reason.
+        self.assertTrue(any("Difference account fallback" in m and account in m for m in p.debug_info))
+
+    def test_receivable_counterparty_is_not_used_as_difference_account(self):
+        # ERPNext demands a party on a Receivable account, which a Stock
+        # Reconciliation cannot give (the mutation would be dropped). Control row:
+        # a REAL Receivable account of the company is the counterparty.
+        receivable = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        self.assertTrue(receivable, "fixture company has no Receivable account")
+        p = self._processor()
+        account = p._get_difference_account(receivable)
+        self.assertTrue(account)
+        self.assertNotEqual(account, receivable)
+        self.assertTrue(any("account type Receivable" in m for m in p.debug_info), p.debug_info)
+
+    def test_payable_counterparty_is_not_used_as_difference_account(self):
+        payable = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Payable", "is_group": 0}, "name"
+        )
+        self.assertTrue(payable, "fixture company has no Payable account")
+        self.assertNotEqual(self._processor()._get_difference_account(payable), payable)
+
+    def test_first_entry_pl_counterparty_fallback_is_recorded(self):
+        # With no Stock Ledger Entry for the company, a P&L counterparty is passed
+        # over; the debug_info must say why so the import-order dependence is visible.
+        if frappe.db.exists("Stock Ledger Entry", {"company": self.company}):
+            self.skipTest("company already has stock ledger entries on this site")
+        p = self._processor()
+        account = p._get_difference_account(self.expense_account)
+        self.assertNotEqual(account, self.expense_account)
+        self.assertTrue(any("no stock ledger yet" in m for m in p.debug_info), p.debug_info)
 
     def test_stock_reconciliation_created_and_submitted_with_content(self):
         p = self._processor()
@@ -331,7 +432,7 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
         self.assertEqual(saved.docstatus, 1)
         self.assertEqual(saved.purpose, "Stock Reconciliation")
         self.assertEqual(saved.company, self.company)
-        self.assertEqual(saved.expense_account, self.stock_account)
+        self._assert_difference_account_is_not_a_stock_account(saved)
 
         # Exactly one stock line, with the expected item/warehouse/qty/valuation.
         self.assertEqual(len(saved.items), 1)
@@ -377,7 +478,7 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
 
         saved = frappe.get_doc("Stock Reconciliation", doc.name)
         self.assertEqual(saved.docstatus, 1)
-        self.assertEqual(saved.expense_account, self.stock_account)
+        self._assert_difference_account_is_not_a_stock_account(saved)
         self.assertEqual(len(saved.items), 1)
         self.assertEqual(saved.items[0].qty, 12.0)
         self.assertEqual(saved.items[0].amount, 12.0)
@@ -410,3 +511,127 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
         # document; a different mutation id must not match.
         self.assertEqual(p.check_duplicate(str(mut_id), "Stock Reconciliation"), saved.name)
         self.assertIsNone(p.check_duplicate(str(mut_id + 1), "Stock Reconciliation"))
+
+
+class TestOpeningStockReconciliationDifferenceAccount(EnhancedTestCase):
+    """The opening-balance path (stock_opening_balance_handler) used to store the
+    Stock account itself as the difference account, which ERPNext refuses."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = _persist_eur_company()
+        cls.stock_account = _setup_stock_account(cls.company)
+        assert cls.stock_account, f"Could not get/create a Stock account for {cls.company}"
+
+    def _run_handler(self):
+        from verenigingen.e_boekhouden.utils.stock_opening_balance_handler import (
+            create_stock_reconciliation_for_opening_balance,
+        )
+
+        debug_info = []
+        result = create_stock_reconciliation_for_opening_balance(
+            [{"account": self.stock_account, "balance": 40.0}], self.company, debug_info
+        )
+        return result, debug_info
+
+    def test_opening_reconciliation_difference_account_is_not_a_stock_account(self):
+        result, debug_info = self._run_handler()
+        self.assertEqual(len(result.get("created_reconciliations", [])), 1, debug_info)
+        saved = frappe.get_doc("Stock Reconciliation", result["created_reconciliations"][0])
+        self.assertEqual(saved.purpose, "Opening Stock")
+        self.assertNotEqual(saved.expense_account, self.stock_account)
+        values = frappe.db.get_value(
+            "Account", saved.expense_account, ["account_type", "report_type", "company"], as_dict=True
+        )
+        self.assertNotEqual(values.account_type, "Stock")
+        # An opening entry needs a Balance Sheet difference account.
+        self.assertEqual(values.report_type, "Balance Sheet")
+        self.assertEqual(values.company, self.company)
+
+    def test_opening_reconciliation_is_idempotent(self):
+        first, debug_info = self._run_handler()
+        self.assertEqual(len(first.get("created_reconciliations", [])), 1, debug_info)
+        second, _ = self._run_handler()
+        self.assertEqual(second["created_reconciliations"], first["created_reconciliations"])
+        self.assertEqual(
+            frappe.db.count(
+                "Stock Reconciliation", {"company": self.company, "purpose": "Opening Stock", "docstatus": 1}
+            ),
+            1,
+        )
+
+    def test_opening_difference_account_is_the_opening_journal_entry_balancing_account(self):
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _get_or_create_temporary_diff_account,
+        )
+
+        # A "Temporary Differences" account takes priority 1 in the Journal Entry's
+        # lookup and differs from ERPNext's Temporary Opening, so the two choices
+        # cannot coincide by accident.
+        abbr = frappe.db.get_value("Company", self.company, "abbr")
+        if not frappe.db.exists("Account", f"Temporary Differences - {abbr}"):
+            parent = frappe.db.get_value(
+                "Account", {"company": self.company, "root_type": "Equity", "is_group": 1}, "name"
+            )
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Temporary Differences",
+                    "company": self.company,
+                    "parent_account": parent,
+                    "root_type": "Equity",
+                    "account_type": "Temporary",
+                    "is_group": 0,
+                }
+            ).insert()
+        decoy_name = f"Decoy Temporary - {abbr}"
+        if not frappe.db.exists("Account", decoy_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Decoy Temporary",
+                    "company": self.company,
+                    "parent_account": frappe.db.get_value(
+                        "Account", f"Temporary Differences - {abbr}", "parent_account"
+                    ),
+                    "root_type": "Equity",
+                    "account_type": "Temporary",
+                    "is_group": 0,
+                }
+            ).insert()
+        expected = _get_or_create_temporary_diff_account(self.company, [])
+        self.assertEqual(expected, f"Temporary Differences - {abbr}")
+        # Precondition: ERPNext's own opening default is a DIFFERENT account here.
+        from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_difference_account
+
+        self.assertNotEqual(get_difference_account("Opening Stock", self.company), expected)
+        result, debug_info = self._run_handler()
+        saved = frappe.get_doc("Stock Reconciliation", result["created_reconciliations"][0])
+        self.assertEqual(saved.expense_account, expected)
+
+    def test_opening_idempotency_matches_a_legacy_row_keyed_on_the_stock_account(self):
+        # Probe shortcut: the legacy shape (expense_account = the stock account) can no
+        # longer be created through ERPNext, so a valid draft is re-pointed with
+        # db.set_value; its item deliberately differs from the handler's item so only
+        # the expense_account key can match.
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _get_or_create_temporary_diff_account,
+        )
+
+        other_item = StockProcessor(self.company)._get_or_create_stock_item("99999 - Legacy Voorraad - EETC")
+        warehouse = StockProcessor(self.company)._get_or_create_warehouse()
+        legacy = frappe.new_doc("Stock Reconciliation")
+        legacy.company = self.company
+        legacy.posting_date = "2018-01-01"
+        legacy.posting_time = "00:00:00"
+        legacy.purpose = "Opening Stock"
+        legacy.expense_account = _get_or_create_temporary_diff_account(self.company, [])
+        legacy.append(
+            "items", {"item_code": other_item, "warehouse": warehouse, "qty": 1, "valuation_rate": 1.0}
+        )
+        legacy.insert()
+        frappe.db.set_value("Stock Reconciliation", legacy.name, "expense_account", self.stock_account)
+
+        result, debug_info = self._run_handler()
+        self.assertEqual(result["created_reconciliations"], [legacy.name], debug_info)
