@@ -2,11 +2,16 @@
  * @fileoverview Account Creation Request: "Cancel Request" button gating (#1635)
  *
  * The condition was `frm.doc.status in ['Requested', 'Queued', 'Processing']`.
- * JS `in` tests array INDICES ('0','1','2','length'), never values, so the
- * button never rendered. The server's `cancel_request` refuses only
- * `Completed`; `Failed` is cancellable (and that is the status an old request
- * is stuck in, see #1614). `Cancelled` is also "accepted" by the server but
- * re-cancelling is meaningless, so the button is not offered there.
+ * JS `in` tests array INDICES, never values, so the button never rendered.
+ *
+ * The server's `cancel_request` refuses only `Completed`, but it merely sets
+ * status=Cancelled; the pipeline (mark_processing/mark_completed/mark_failed)
+ * writes status unconditionally and never checks Cancelled. So cancelling a
+ * request a job can still act on is cosmetic: the job flips it back and still
+ * creates the user. The button is therefore offered only where no job can act:
+ * `Failed` (terminal; also unblocks #1614). `Requested` is excluded because
+ * schedule_retry resets a request to Requested AND enqueues a retry job, and
+ * bulk batches hold Requested ACRs in a queued job.
  *
  * These tests drive the real controller's `refresh` handler.
  */
@@ -48,13 +53,14 @@ describe('Account Creation Request: Cancel Request button (#1635)', () => {
 		return frm.add_custom_button.mock.calls.some((call) => call[0] === 'Cancel Request');
 	}
 
-	['Requested', 'Queued', 'Processing', 'Failed'].forEach((status) => {
+	['Failed'].forEach((status) => {
 		it(`renders Cancel Request for ${status}`, () => {
 			expect(cancelButtonRenderedFor(status)).toBe(true);
 		});
 	});
 
-	['Completed', 'Cancelled'].forEach((status) => {
+	// A job can still act on these, so a "cancel" would be overwritten by the pipeline.
+	['Requested', 'Queued', 'Processing', 'Completed', 'Cancelled'].forEach((status) => {
 		it(`does not render Cancel Request for ${status}`, () => {
 			expect(cancelButtonRenderedFor(status)).toBe(false);
 		});

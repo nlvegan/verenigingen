@@ -24,8 +24,10 @@ frappe.ui.form.on('Account Creation Request', {
 			).addClass('btn-primary');
 		}
 
-		// Server cancel_request refuses only Completed; Cancelled is not worth re-cancelling.
-		if (['Requested', 'Queued', 'Processing', 'Failed'].includes(frm.doc.status)) {
+		// Server cancel_request refuses only Completed, but it just sets status=Cancelled and
+		// the pipeline never checks it. Offer it only where no job can still act (Failed);
+		// Requested can have a retry/bulk-batch job pending (#1635).
+		if (frm.doc.status === 'Failed') {
 			frm.add_custom_button(
 				__('Cancel Request'),
 				() => {
