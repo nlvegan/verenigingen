@@ -261,11 +261,10 @@ class TestChurnRiskChapterScope(MemberOwnershipProbeMixin, EnhancedTestCase):
     of which query would have surfaced it.
 
     Calls analyze_churn_risk() directly rather than through its whitelisted
-    caller get_predictive_analytics(): the latter unconditionally also runs
-    detect_seasonal_patterns(), which raises an unrelated, pre-existing
-    ZeroDivisionError on a fresh/empty test site (confirmed live on
-    test_site_6, filed separately -- not part of #1486's unscoped-listing
-    shape). frappe.get_roles() reflects the caller session either way, so
+    caller get_predictive_analytics(): the latter also runs every other
+    forecast helper, which is unrelated to #1486's unscoped-listing shape.
+    (detect_seasonal_patterns() used to raise ZeroDivisionError on an empty
+    test site, which was the original reason; fixed by #1503.) frappe.get_roles() reflects the caller session either way, so
     calling the helper directly still exercises the same role-based scoping
     this fix adds."""
 

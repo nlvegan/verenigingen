@@ -73,10 +73,10 @@ class TestPredictiveAnalyticsEmptyHistory(EnhancedTestCase):
     get_predictive_analytics() endpoint with ZeroDivisionError.
 
     Emptiness is derived, not assumed: the site carries other tests' Members,
-    so every non-Rejected Member's member_since is pushed outside the 3-year
+    so every in-window Member's member_since is pushed outside the 3-year
     window (a direct UPDATE standing in for "a young
-    association" -- the query only reads member_since/status) and restored
-    afterwards."""
+    association" -- the query only reads member_since/status) and the
+    UPDATE is rolled back by tearDown."""
 
     def setUp(self):
         super().setUp()
@@ -86,16 +86,12 @@ class TestPredictiveAnalyticsEmptyHistory(EnhancedTestCase):
             last_name="Member",
             email=f"seasonal.empty.{frappe.generate_hash(length=8)}@example.com",
         )
-        original = frappe.db.sql("SELECT name, member_since FROM `tabMember`")
-        self.addCleanup(self._restore_member_since, original)
-        frappe.db.sql("UPDATE `tabMember` SET member_since = DATE_SUB(CURDATE(), INTERVAL 10 YEAR)")
-
-    @staticmethod
-    def _restore_member_since(original):
-        # Explicit restore: the harness teardown can already have ended the
-        # transaction, so a savepoint rollback is not reliable here.
-        for name, member_since in original:
-            frappe.db.sql("UPDATE `tabMember` SET member_since = %s WHERE name = %s", (member_since, name))
+        # Uncommitted; EnhancedTestCase.tearDown rolls it back. Only rows inside
+        # detect_seasonal_patterns()'s 3-year window need moving.
+        frappe.db.sql(
+            "UPDATE `tabMember` SET member_since = DATE_SUB(CURDATE(), INTERVAL 10 YEAR)"
+            " WHERE member_since >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR)"
+        )
 
     def test_precondition_window_is_empty(self):
         count = frappe.db.sql(
@@ -126,3 +122,24 @@ class TestPredictiveAnalyticsEmptyHistory(EnhancedTestCase):
         # the other sections still render
         self.assertIn("scenarios", result["growth_scenarios"])
         self.assertIsInstance(result["recommendations"], list)
+
+
+class TestSeasonalPatternsPositiveControl(EnhancedTestCase):
+    """Control for the #1503 guard: a non-empty window must still produce
+    indices, so an always-error guard reddens here."""
+
+    def test_non_empty_window_yields_indices(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            detect_seasonal_patterns,
+        )
+
+        member = self.create_test_member(
+            first_name="SeasonalControl",
+            last_name="Member",
+            email=f"seasonal.control.{frappe.generate_hash(length=8)}@example.com",
+        )
+        frappe.db.set_value("Member", member.name, "member_since", today(), update_modified=False)
+
+        result = detect_seasonal_patterns()
+        self.assertNotIn("error", result)
+        self.assertGreaterEqual(len(result["seasonal_indices"]), 1)
