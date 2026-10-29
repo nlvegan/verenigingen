@@ -125,7 +125,7 @@ def get_volunteer_organizations(volunteer_name: str) -> dict:
     Returns:
         dict: {
             "chapters": [{"name": str, "chapter_name": str, "city": str}, ...],
-            "teams": [{"name": str, "team_name": str}, ...]
+            "teams": [{"name": str, "chapter": str|None, "team_name": str}, ...]
         }
     """
     organizations = {"chapters": [], "teams": []}
@@ -164,7 +164,7 @@ def get_volunteer_organizations(volunteer_name: str) -> dict:
     )
 
     for tm in team_members:
-        team_info = frappe.db.get_value("Team", tm.parent, ["name"], as_dict=True)
+        team_info = frappe.db.get_value("Team", tm.parent, ["name", "chapter"], as_dict=True)
         if team_info:
             # Add team_name field with same value as name for consistency
             team_info["team_name"] = team_info["name"]
@@ -188,16 +188,15 @@ def get_expense_categories() -> list:
 
 
 def get_approval_thresholds() -> dict:
-    """Get approval thresholds for UI guidance.
+    """Per-chapter approval limits, as enforced on approval (#1651).
 
     Returns:
-        dict: {
-            "basic_limit": float,
-            "financial_limit": float,
-            "admin_limit": float
-        }
+        dict: {chapter: {"regular_limit": float|None, "financial_limit": float|None}} for every
+        chapter that sets a limit. A chapter that is absent has no limit.
     """
-    return {"basic_limit": 100.0, "financial_limit": 500.0, "admin_limit": 999999.0}
+    from verenigingen.services.volunteer.expense_approval_limits import get_chapter_thresholds
+
+    return get_chapter_thresholds()
 
 
 def get_national_chapter() -> Optional[dict]:

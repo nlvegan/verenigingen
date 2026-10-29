@@ -20,9 +20,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.core.doctype.system_settings.system_settings import clear_system_settings_cache
 from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import resolves_to
+from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import (
+    resolves_to,
+    routes_get_doc,
+)
 
 
 class TestMandateService(FrappeTestCase):
@@ -37,6 +41,13 @@ class TestMandateService(FrappeTestCase):
     def setUp(self):
         """Set up test fixtures for each test."""
         super().setUp()
+        # Force the System Settings client cache cold. today()/now_datetime() read
+        # System Settings through it, and on a miss the loader calls frappe.get_doc,
+        # so a global get_doc patch would be pickled into the cache (#1724).
+        # Without this the test only fails when shard order happens to leave it cold.
+        # frappe.local.system_settings is the per-request layer in front of it.
+        clear_system_settings_cache()
+        frappe.local.system_settings = None
         # Stand-in for the real INGCheckoutSettings document. Production reads
         # settings via attribute access (self.settings.service_id), so this must
         # be an attribute-accessible object, NOT a plain dict.
@@ -65,16 +76,8 @@ class TestMandateService(FrappeTestCase):
         mock_sepa.account_holder_name = "Test Member"
         mock_sepa.status = "Active"
 
-        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "Member":
-                    return mock_member
-                if doctype == "SEPA Mandate":
-                    return mock_sepa
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"Member": mock_member, "SEPA Mandate": mock_sepa}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), resolves_to("SEPA-00001"):
 
             # Mock Pay.nl client response (the real API returns the id as "code").
             mock_client = MagicMock()
@@ -130,16 +133,8 @@ class TestMandateService(FrappeTestCase):
         mock_sepa.account_holder_name = "Test Member"
         mock_sepa.status = "Active"
 
-        with patch("frappe.get_doc") as mock_get_doc, resolves_to("SEPA-00001"):
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "Member":
-                    return mock_member
-                if doctype == "SEPA Mandate":
-                    return mock_sepa
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"Member": mock_member, "SEPA Mandate": mock_sepa}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), resolves_to("SEPA-00001"):
 
             # Mock Pay.nl client to raise error
             mock_client = MagicMock()
@@ -175,16 +170,8 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 100.00
 
-        with patch("frappe.get_doc") as mock_get_doc:
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "ING Checkout Mandate":
-                    return mock_mandate
-                if doctype == "Sales Invoice":
-                    return mock_invoice
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
 
             # Mock transaction creation
             with patch(
@@ -214,16 +201,8 @@ class TestMandateService(FrappeTestCase):
         mock_invoice = MagicMock()
         mock_invoice.outstanding_amount = 100.00
 
-        with patch("frappe.get_doc") as mock_get_doc:
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "ING Checkout Mandate":
-                    return mock_mandate
-                if doctype == "Sales Invoice":
-                    return mock_invoice
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
@@ -244,16 +223,8 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 0.00
 
-        with patch("frappe.get_doc") as mock_get_doc:
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "ING Checkout Mandate":
-                    return mock_mandate
-                if doctype == "Sales Invoice":
-                    return mock_invoice
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
@@ -276,16 +247,8 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.docstatus = 1
         mock_invoice.outstanding_amount = 100.00
 
-        with patch("frappe.get_doc") as mock_get_doc:
-
-            def get_doc_side_effect(doctype, name=None):
-                if doctype == "ING Checkout Mandate":
-                    return mock_mandate
-                if doctype == "Sales Invoice":
-                    return mock_invoice
-                return MagicMock()
-
-            mock_get_doc.side_effect = get_doc_side_effect
+        docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
