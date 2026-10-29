@@ -255,10 +255,65 @@ class TestChapterJoinRequest(EnhancedTestCase):
         good.submit()
 
         bulk_approve_requests([good.name, bad.name])
+        self._assert_good_approved_bad_pending(good, bad)
 
+    def _assert_good_approved_bad_pending(self, good, bad):
         self.assertEqual(frappe.db.get_value("Chapter Join Request", good.name, "status"), "Approved")
-        self.assertEqual(frappe.db.get_value("Chapter Join Request", bad.name, "status"), "Pending")
+        self.assertTrue(frappe.db.get_value("Chapter Join Request", good.name, "reviewed_by"))
         self.assertEqual([r.enabled for r in self._chapter_member_rows(self.test_member2)], [1])
+        self.assertEqual(frappe.db.get_value("Chapter Join Request", bad.name, "status"), "Pending")
+        self.assertIsNone(frappe.db.get_value("Chapter Join Request", bad.name, "reviewed_by"))
+        self.assertEqual([r.enabled for r in self._chapter_member_rows(self.test_member)], [0])
+
+    def test_bulk_approve_failing_request_first_keeps_the_successes(self):
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        bad = self._pending_request_that_cannot_be_assigned(self.test_member)
+        good = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": self.test_member2.name,
+                "chapter": self.test_chapter.name,
+                "introduction": "Healthy request",
+            }
+        )
+        good.insert()
+        good.submit()
+
+        bulk_approve_requests([bad.name, good.name])
+        self._assert_good_approved_bad_pending(good, bad)
+
+    def test_lock_timeout_during_assignment_leaves_request_pending(self):
+        """#1632 review F1: a 1205 keeps the transaction live, so it must be rolled back too."""
+        from unittest.mock import patch  # Mock justified: injects the DB error no fixture can produce
+
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            approve_join_request,
+        )
+
+        self.expectErrorLog("Failed to approve join request")
+        request = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": self.test_member2.name,
+                "chapter": self.test_chapter.name,
+                "introduction": "Timeout request",
+            }
+        )
+        request.insert()
+        request.submit()
+
+        target = (
+            "verenigingen.services.chapter.chapter_membership_manager."
+            "ChapterMembershipManager.assign_member_to_chapter"
+        )
+        with patch(target, side_effect=frappe.QueryTimeoutError("1205")):
+            result = approve_join_request(request.name)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(frappe.db.get_value("Chapter Join Request", request.name, "status"), "Pending")
 
     def test_member_status_validation(self):
         """Test that only active members can create join requests"""

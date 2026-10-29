@@ -177,15 +177,17 @@ class ChapterJoinRequest(Document):
     def _undo_failed_approval(self, savepoint, error):
         """Roll the Approved save back to *savepoint* and restore the in-memory doc.
 
-        A deadlock already destroyed the savepoint (rolling back to it would raise 1305 and mask
-        the real error), so that one is left to the caller that owns the transaction.
+        Every failure is rolled back, including a 1205 lock timeout: it leaves the transaction
+        and savepoint live, so skipping the rollback would let a swallowing wrapper commit the
+        Approved row (#1632). Only a 1213 deadlock has already destroyed the savepoint;
+        rollback_to_savepoint tolerates that (returns False) instead of masking the real error.
         """
-        from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+        from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
+        if rollback_to_savepoint(savepoint):
+            self.reload()
         if isinstance(error, NON_RESUMABLE_DB_ERRORS):
             raise error
-        frappe.db.rollback(save_point=savepoint)
-        self.reload()
 
     def _failure_reason(self, result):
         """The reason ChapterMembershipManager.assign_member_to_chapter failed.
