@@ -287,7 +287,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
     def test_lock_timeout_during_assignment_leaves_request_pending(self):
         """#1632 review F1: a 1205 keeps the transaction live, so it must be rolled back too."""
-        from unittest.mock import patch  # Mock justified: injects the DB error no fixture can produce
+        from unittest.mock import patch
 
         from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
             approve_join_request,
@@ -309,6 +309,8 @@ class TestChapterJoinRequest(EnhancedTestCase):
             "verenigingen.services.chapter.chapter_membership_manager."
             "ChapterMembershipManager.assign_member_to_chapter"
         )
+        # Mock justified: fault injection of a DB error no fixture can produce; the assertions
+        # exercise approve_request's rollback, not the stub.
         with patch(target, side_effect=frappe.QueryTimeoutError("1205")):
             result = approve_join_request(request.name)
 
