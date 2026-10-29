@@ -100,6 +100,16 @@
   "application_id",
   "application_status",
   "application_date",
+  "magazine_delivery",
+  "starter_guide_delivery",
+  "birth_year",
+  "join_reasons",
+  "join_reason_other",
+  "referral_source",
+  "referral_source_other",
+  "housemate_of_name",
+  "application_consent_at",
+  "application_consent_version",
   "selected_membership_type",
   "application_dues_schedule",
   "is_aspirant",
@@ -318,6 +328,62 @@
    "fieldname": "application_date",
    "fieldtype": "Datetime",
    "label": "Application Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "magazine_delivery",
+   "fieldtype": "Select",
+   "label": "Magazine delivery",
+   "options": "\nDigitaal\nPapier\nBeide\nGeen"
+  },
+  {
+   "fieldname": "starter_guide_delivery",
+   "fieldtype": "Select",
+   "label": "Starter guide delivery",
+   "options": "\nDigitaal\nPapier\nBeide\nGeen"
+  },
+  {
+   "fieldname": "birth_year",
+   "fieldtype": "Int",
+   "label": "Birth year"
+  },
+  {
+   "fieldname": "join_reasons",
+   "fieldtype": "Table MultiSelect",
+   "label": "Join reasons",
+   "options": "Member Join Reason"
+  },
+  {
+   "fieldname": "join_reason_other",
+   "fieldtype": "Data",
+   "label": "Join reason (other)"
+  },
+  {
+   "fieldname": "referral_source",
+   "fieldtype": "Link",
+   "label": "Referral source",
+   "options": "Membership Referral Source"
+  },
+  {
+   "fieldname": "referral_source_other",
+   "fieldtype": "Data",
+   "label": "Referral source (other)"
+  },
+  {
+   "fieldname": "housemate_of_name",
+   "fieldtype": "Data",
+   "label": "Housemate of"
+  },
+  {
+   "fieldname": "application_consent_at",
+   "fieldtype": "Datetime",
+   "label": "Application consent at",
+   "read_only": 1
+  },
+  {
+   "fieldname": "application_consent_version",
+   "fieldtype": "Data",
+   "label": "Application consent version",
    "read_only": 1
   },
   {
