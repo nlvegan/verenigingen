@@ -170,7 +170,7 @@
    "options": "Chapter Role Profile Mapping"
   },
   {
-   "description": "Configure expense approval limits for board members. Leave blank to require all expenses to be approved.",
+   "description": "Configure expense approval limits for board members. Leave a limit blank for no limit.",
    "fieldname": "expense_approval_section",
    "fieldtype": "Section Break",
    "label": "Expense Approval Settings"

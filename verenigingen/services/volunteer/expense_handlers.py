@@ -136,6 +136,18 @@ def on_expense_claim_cancel(doc, method=None):
         )
 
 
+def get_designated_approver_email(doc, employee):
+    """Email of the claim's approver, else the employee's default approver, else None.
+
+    The claim's approver wins: a claim above the default approver's amount limit is
+    re-pointed at the next approver up (#1651). ``expense_approver`` stores the User ID.
+    """
+    claim_approver = doc.get("expense_approver") or employee.expense_approver  # ast-skip: HRMS Employee field
+    if not claim_approver:
+        return None
+    return frappe.db.get_value("User", claim_approver, "email")
+
+
 def notify_expense_approvers(doc, method=None):
     """
     Send notification to expense approvers when an expense claim is submitted.
@@ -155,11 +167,7 @@ def notify_expense_approvers(doc, method=None):
 
         # Get expense approver from employee record
         employee = frappe.get_doc("Employee", doc.employee)
-        approver_email = None
-
-        if employee.expense_approver:
-            # expense_approver field stores the User ID
-            approver_email = frappe.db.get_value("User", employee.expense_approver, "email")
+        approver_email = get_designated_approver_email(doc, employee)
 
         if not approver_email:
             # Fallback: try department approvers

@@ -100,7 +100,7 @@ def validate_expense_claim_approval(doc):
       Expense Claim Workflow, so the exemption cannot be expressed there.
     - Plain Staff may not decide the claim of an employee who is also Staff.
     """
-    if doc.approval_status not in ("Approved", "Rejected"):
+    if doc.approval_status not in ("Approved", "Rejected"):  # ast-skip: HRMS Expense Claim field
         return
     # Re-pointing a decided claim at another employee is a decision about that employee's
     # claim: approve a stranger's claim, then change ``employee`` to your own (or to another
@@ -110,7 +110,7 @@ def validate_expense_claim_approval(doc):
 
     user = frappe.session.user
     user_roles = frappe.get_roles(user)
-    claimant = frappe.db.get_value("Employee", doc.employee, "user_id")
+    claimant = frappe.db.get_value("Employee", doc.employee, "user_id")  # ast-skip: HRMS Expense Claim field
 
     if claimant and claimant == user and Roles.TREASURER not in user_roles:
         frappe.throw(_("You cannot approve or reject your own expense claim."), frappe.PermissionError)
@@ -125,9 +125,44 @@ def validate_expense_claim_approval(doc):
         )
 
 
+def validate_expense_claim_approval_limit(doc):
+    """Refuse an approval above the approver's per-chapter amount limit (#1651).
+
+    Same trigger as the #1606 guard plus the two inputs the limit depends on: the amount and
+    the chapter. Without them, approving a small claim and raising the amount (or moving the
+    claim to a limited chapter) in a second save would never be seen. Rejecting spends
+    nothing, so only an approval is limited.
+    """
+    from verenigingen.services.volunteer.expense_approval_limits import (
+        validate_amount_within_approval_limit,
+    )
+
+    if doc.approval_status != "Approved":  # ast-skip: HRMS Expense Claim field
+        return
+    if not any(
+        doc.has_value_changed(field)
+        for field in (
+            "approval_status",
+            "employee",
+            "total_claimed_amount",
+            "total_sanctioned_amount",
+            "total_taxes_and_charges",
+            "custom_chapter",
+            "custom_team",
+        )
+    ):
+        return
+    validate_amount_within_approval_limit(doc, frappe.session.user)
+
+
 def validate_expense_claim(doc, method):
     """Validate expense claim against account group mappings and chapter access"""
     validate_expense_claim_approval(doc)
+    validate_expense_claim_approval_limit(doc)
+    if doc.approval_status == "Draft" and doc.docstatus == 0:
+        from verenigingen.services.volunteer.expense_approval_limits import route_claim_above_limit
+
+        route_claim_above_limit(doc)
 
     # Auto-populate department from custom_chapter for ERPNext native filtering
     if doc.custom_chapter and not doc.department:  # ast-skip: Custom Field

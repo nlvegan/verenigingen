@@ -181,7 +181,7 @@ input:focus, select:focus, textarea:focus {
                                     class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500">
                                 <option value="">{{ _("Select team/commission...") }}</option>
                                 {% for team in organizations.teams %}
-                                    <option value="{{ team.name }}">{{ team.team_name }}</option>
+                                    <option value="{{ team.name }}" data-chapter="{{ team.chapter or '' }}">{{ team.team_name }}</option>
                                 {% endfor %}
                             </select>
                             <p class="text-sm text-gray-600 mt-1">{{ _("Select the team or commission you were working for when this expense was incurred") }}</p>
@@ -297,28 +297,40 @@ function initExpenseForm() {
     // Set default expense date to today
     $('#expense_date').val(new Date().toISOString().split('T')[0]);
 
-    // Amount change handler for approval level indication
-    $('#amount').on('input', function() {
-        const amount = parseFloat($(this).val()) || 0;
+    // Amount change handler: say who can approve, by the limits the server enforces (#1651).
+    // Rule: a regular board member approves up to the chapter's regular limit, the chapter's
+    // financial board member up to the financial limit, the national treasurer anything.
+    const chapterLimits = {{ approval_thresholds | tojson }};
+    function claimChapter() {
+        const orgType = $('#organization_type').val();
+        if (orgType === 'Chapter') return $('#chapter_select').val();
+        if (orgType === 'Team') return $('#team_select option:selected').data('chapter') || '';
+        return '';
+    }
+    function describeApproval(amount) {
+        const limits = chapterLimits[claimChapter()];
+        if (!limits) {
+            return null;  // national claim or a chapter without limits: nothing to say
+        }
+        if (limits.regular_limit === null || amount <= limits.regular_limit) {
+            return {level: '{{ _("Chapter board") }}', levelClass: 'level-basic',
+                    description: '{{ _("Can be approved by a board member of your chapter") }}'};
+        }
+        if (limits.financial_limit === null || amount <= limits.financial_limit) {
+            return {level: '{{ _("Financial Level") }}', levelClass: 'level-financial',
+                    description: '{{ _("Requires the financial board member of your chapter") }}'};
+        }
+        return {level: '{{ _("National Level") }}', levelClass: 'level-admin',
+                description: '{{ _("Requires the national treasurer") }}'};
+    }
+    $('#amount, #organization_type, #chapter_select, #team_select').on('input change', function() {
+        const amount = parseFloat($('#amount').val()) || 0;
         const approvalInfo = $('#approval-info');
         const approvalText = $('#approval-text');
+        const info = amount > 0 ? describeApproval(amount) : null;
 
-        if (amount > 0) {
-            let level, levelClass, description;
-
-            if (amount <= {{ approval_thresholds.basic_limit }}) {
-                level = '{{ _("Basic Level") }}';
-                levelClass = 'level-basic';
-                description = '{{ _("Can be approved by any active board member") }}';
-            } else if (amount <= {{ approval_thresholds.financial_limit }}) {
-                level = '{{ _("Financial Level") }}';
-                levelClass = 'level-financial';
-                description = '{{ _("Requires board member with financial permissions") }}';
-            } else {
-                level = '{{ _("Admin Level") }}';
-                levelClass = 'level-admin';
-                description = '{{ _("Requires chapter chair or admin-level approval") }}';
-            }
+        if (info) {
+            const level = info.level, levelClass = info.levelClass, description = info.description;
 
             approvalText.html(`
                 <span class="approval-level ${levelClass}">${level}</span>
