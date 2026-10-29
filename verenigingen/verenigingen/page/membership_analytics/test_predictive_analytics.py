@@ -65,3 +65,64 @@ class TestPredictiveAnalyticsChurnRate(EnhancedTestCase):
             last_name="Member",
             email=f"pred.churn.{frappe.generate_hash(length=8)}@example.com",
         )
+
+
+class TestPredictiveAnalyticsEmptyHistory(EnhancedTestCase):
+    """#1503: detect_seasonal_patterns() divided by an empty aggregate when no
+    Member had member_since in the last 3 years, failing the whole whitelisted
+    get_predictive_analytics() endpoint with ZeroDivisionError.
+
+    Emptiness is derived, not assumed: the site carries other tests' Members,
+    so every non-Rejected Member's member_since is pushed outside the 3-year
+    window (a direct UPDATE standing in for "a young
+    association" -- the query only reads member_since/status) and restored
+    afterwards."""
+
+    def setUp(self):
+        super().setUp()
+        # A real row that would be counted if the window were not emptied below.
+        self.create_test_member(
+            first_name="SeasonalEmpty",
+            last_name="Member",
+            email=f"seasonal.empty.{frappe.generate_hash(length=8)}@example.com",
+        )
+        original = frappe.db.sql("SELECT name, member_since FROM `tabMember`")
+        self.addCleanup(self._restore_member_since, original)
+        frappe.db.sql("UPDATE `tabMember` SET member_since = DATE_SUB(CURDATE(), INTERVAL 10 YEAR)")
+
+    @staticmethod
+    def _restore_member_since(original):
+        # Explicit restore: the harness teardown can already have ended the
+        # transaction, so a savepoint rollback is not reliable here.
+        for name, member_since in original:
+            frappe.db.sql("UPDATE `tabMember` SET member_since = %s WHERE name = %s", (member_since, name))
+
+    def test_precondition_window_is_empty(self):
+        count = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabMember` WHERE member_since >= DATE_SUB(CURDATE(), INTERVAL 3 YEAR)"
+            " AND status != 'Rejected'"
+        )[0][0]
+        self.assertEqual(count, 0)
+
+    def test_detect_seasonal_patterns_reports_insufficient_data(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            detect_seasonal_patterns,
+        )
+
+        result = detect_seasonal_patterns()
+        self.assertIn("error", result)
+        self.assertNotIn("seasonal_indices", result)
+
+    def test_whitelisted_endpoint_survives_empty_history(self):
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import (
+            get_predictive_analytics,
+        )
+
+        with self.set_user("Administrator"):
+            result = get_predictive_analytics()
+
+        self.assertIn("error", result["seasonal_patterns"])
+        self.assertIn("error", result["member_growth_forecast"])
+        # the other sections still render
+        self.assertIn("scenarios", result["growth_scenarios"])
+        self.assertIsInstance(result["recommendations"], list)
