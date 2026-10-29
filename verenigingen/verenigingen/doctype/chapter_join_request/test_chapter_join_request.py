@@ -171,6 +171,95 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
         self.assertEqual(initial_count, final_count, "Transaction rollback failed - partial data created")
 
+    def _pending_request_that_cannot_be_assigned(self, member):
+        """A submitted Pending request whose approval's assignment step must fail (#1632).
+
+        Real writers only (no set_value): the member is put in the chapter, then
+        disable_chapter_memberships_safe disables the row, a request is submitted while the
+        member is still Active, and suspend_member_safe suspends the member. Approval then
+        reaches assign_member_to_chapter, which refuses to re-enable a suspended member's row.
+        """
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+            suspend_member_safe,
+        )
+
+        chapter = frappe.get_doc("Chapter", self.test_chapter.name)
+        chapter.append(
+            "members",
+            {"member": member.name, "status": "Active", "enabled": 1, "chapter_join_date": today()},
+        )
+        chapter.save()
+        disable_chapter_memberships_safe(member.name, today(), "test leave")
+        request = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": member.name,
+                "chapter": self.test_chapter.name,
+                "introduction": "Rejoin while suspended",
+            }
+        )
+        request.insert()
+        request.submit()
+        suspend_member_safe(member.name, "test suspension", suspend_user=False, suspend_teams=False)
+        return request
+
+    def _chapter_member_rows(self, member):
+        return frappe.get_all(
+            "Chapter Member",
+            filters={"parent": self.test_chapter.name, "member": member.name},
+            fields=["enabled", "status"],
+        )
+
+    def test_failed_assignment_leaves_request_pending_via_wrapper(self):
+        """#1632: the wrapper swallows the failure, so the Approved save must not outlive it."""
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            approve_join_request,
+        )
+
+        self.expectErrorLog("Failed to approve join request")
+        request = self._pending_request_that_cannot_be_assigned(self.test_member)
+
+        result = approve_join_request(request.name)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(frappe.db.get_value("Chapter Join Request", request.name, "status"), "Pending")
+        self.assertEqual([r.enabled for r in self._chapter_member_rows(self.test_member)], [0])
+
+    def test_failed_assignment_raises_and_resets_in_memory_status(self):
+        request = self._pending_request_that_cannot_be_assigned(self.test_member)
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+
+        with self.assertRaises(frappe.ValidationError):
+            doc.approve_request()
+
+        self.assertEqual(doc.status, "Pending")
+        self.assertIsNone(frappe.db.get_value("Chapter Join Request", request.name, "reviewed_by"))
+
+    def test_bulk_approve_one_failure_keeps_the_successes(self):
+        """#1632: in bulk, a failing request is undone alone; its siblings stay Approved."""
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        bad = self._pending_request_that_cannot_be_assigned(self.test_member)
+        good = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": self.test_member2.name,
+                "chapter": self.test_chapter.name,
+                "introduction": "Healthy request",
+            }
+        )
+        good.insert()
+        good.submit()
+
+        bulk_approve_requests([good.name, bad.name])
+
+        self.assertEqual(frappe.db.get_value("Chapter Join Request", good.name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Chapter Join Request", bad.name, "status"), "Pending")
+        self.assertEqual([r.enabled for r in self._chapter_member_rows(self.test_member2)], [1])
+
     def test_member_status_validation(self):
         """Test that only active members can create join requests"""
         join_request = frappe.get_doc(
