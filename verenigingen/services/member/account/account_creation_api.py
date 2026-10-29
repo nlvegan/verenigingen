@@ -232,6 +232,7 @@ def queue_account_creation_for_member(
             return OperationResult.fail(
                 _("Member must have an email address for account creation"),
                 errors=["No email address provided"],
+                error_code="NO_EMAIL",
                 context={"operation": "queue_member_account", "params": {"member_name": member_name}},
             )
 
@@ -368,6 +369,7 @@ def queue_account_creation_for_volunteer(
             return OperationResult.fail(
                 _("Volunteer must have an email address for account creation"),
                 errors=["No email address provided"],
+                error_code="NO_EMAIL",
                 context={
                     "operation": "queue_volunteer_account",
                     "params": {"volunteer_name": volunteer_name},

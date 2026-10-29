@@ -654,19 +654,21 @@ class TestEnsureUserAccount(EnhancedTestCase):
         to the Error Log, and NOT marked queued. Production runs as the human who
         triggered the sync, so use a Verenigingen Administrator, who lacks
         User-create and is refused by the queue itself."""
+        self.expectErrorLog("MijnRood account creation")
         self._set_create_member_accounts(1)
         member = _create_member_without_user(self, "Refused", "refused@example.org")
         user = self.factory.create_user_with_roles(roles=["Verenigingen Administrator"])
         self.addCleanup(_cleanup_user, user.name)
         errors_before = _refusal_log_count()
 
-        with self.as_user(user.name):
-            result = get_related_records_orchestrator()._ensure_user_account(member.name)
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user(user.name):
+                result = get_related_records_orchestrator()._ensure_user_account(member.name)
 
         # A Verenigingen Administrator is stopped by the high-security tier, which
         # raises; the orchestrator reports that failure and logs it.
         self.assertIn("Account creation failed", result)
-        self.assertIn("permission", result.lower())
+        self.assertIn("access denied", result.lower())
         self.assertEqual(_refusal_log_count(), errors_before + 1)
         self.assertFalse(get_related_records_orchestrator().is_acr_queued(member.name))
         self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 0)
@@ -773,29 +775,47 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
         self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
 
     def test_volunteer_refusal_surfaces_and_is_logged(self):
+        self.expectErrorLog("MijnRood account creation")
         member = _create_member_without_user(self, "VolRefused", "vol-refused@example.org")
         user = self.factory.create_user_with_roles(roles=["Verenigingen Administrator"])
         self.addCleanup(_cleanup_user, user.name)
         errors_before = _refusal_log_count()
 
-        with self.as_user(user.name):
-            result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(member.name)
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user(user.name):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(member.name)
 
         self.assertIn("Account creation failed", result)
+        self.assertIn("access denied", result.lower())
         self.assertEqual(_refusal_log_count(), errors_before + 1)
         self.assertFalse(get_related_records_orchestrator().is_acr_queued(member.name))
 
     def test_dict_refusal_from_the_queue_is_reported_and_logged(self):
         """The queue's own refusal (a serialized dict, not an exception): an
         unknown member is refused with 'Member not found'."""
+        self.expectErrorLog("MijnRood account creation")
         errors_before = _refusal_log_count()
 
-        with self.as_user("Administrator"):
-            result = get_related_records_orchestrator()._ensure_user_account_for_volunteer("MEM-NOPE-1638")
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user("Administrator"):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer("MEM-NOPE-1638")
 
         self.assertEqual(result, "Account creation not queued: Member not found")
         self.assertEqual(_refusal_log_count(), errors_before + 1)
         self.assertFalse(get_related_records_orchestrator().is_acr_queued("MEM-NOPE-1638"))
+
+    def test_refusal_mentioning_mail_is_not_taken_for_the_no_email_skip(self):
+        """Control: only the structured NO_EMAIL code is a silent skip. An unknown
+        member whose NAME contains 'mail' is a real refusal and must be logged."""
+        self.expectErrorLog("MijnRood account creation")
+        errors_before = _refusal_log_count()
+
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user("Administrator"):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer("MEM-mail-1638")
+
+        self.assertEqual(result, "Account creation not queued: Member not found")
+        self.assertEqual(_refusal_log_count(), errors_before + 1)
 
     def test_volunteer_without_email_is_a_silent_skip(self):
         member = _create_member_without_user(self, "VolNoMail", "vol-no-mail@example.org")

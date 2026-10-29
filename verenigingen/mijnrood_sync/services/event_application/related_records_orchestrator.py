@@ -322,7 +322,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             return None, None
 
         error = (result or {}).get("error") or {}
-        if "No email address provided" in (error.get("errors") or []):
+        if error.get("code") == "NO_EMAIL":
             # Maintainer decision (#1638): a member without an email is an expected skip.
             return None, None
         reason = error.get("message") or "Unknown error"
