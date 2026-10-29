@@ -369,10 +369,50 @@ def reprocess_mt940_import(import_name: str):
 
 
 # Number Card API methods for Frappe Dashboard
+def _dashboard_chapter_scope(chapter):
+    """Chapter names a number card may count, or [] when there are none.
+
+    An explicit ``chapter`` must be one the caller may see on the dashboard
+    (``get_user_board_chapters``); an unknown name and a chapter the caller has no
+    access to are refused with the same error, so the card is not an existence oracle
+    (#1666). Without ``chapter`` the scope is every chapter the caller can see.
+    """
+    from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
+
+    visible = [ch["chapter_name"] for ch in get_user_board_chapters()]
+    if chapter:
+        if chapter not in visible:
+            raise PermissionError("You don't have access to this chapter")
+        return [chapter]
+    return visible
+
+
+def _expense_claim_card(filters, chapter):
+    """Count Expense Claims in the card's chapter scope that the caller may list.
+
+    Goes through ``frappe.get_list`` so ``get_expense_claim_permission_query`` applies:
+    a count channel must not disclose claims the list view hides (maintainer ruling on
+    #1606: Staff must not see every claim).
+    """
+    scope = _dashboard_chapter_scope(chapter)
+    if not scope or not frappe.has_permission("Expense Claim", "read"):
+        return {"value": 0, "fieldtype": "Data"}
+
+    rows = frappe.get_list(
+        "Expense Claim",
+        filters={**filters, "custom_chapter": ["in", scope]},
+        fields=[{"COUNT": "name", "as": "total"}],
+    )
+    return {"value": rows[0].total if rows else 0, "fieldtype": "Data"}
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)  # Member count statistics - read-only
 def get_active_members_count(chapter: str | None = None):
     """Get count of active members for dashboard number card"""
+
+    if chapter:
+        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
 
     if not chapter:
         # If no chapter specified, get user's chapters and sum them
@@ -403,6 +443,9 @@ def get_active_members_count(chapter: str | None = None):
 def get_pending_applications_count(chapter: str | None = None):
     """Get count of pending applications for dashboard number card"""
 
+    if chapter:
+        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
+
     if not chapter:
         from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
 
@@ -424,6 +467,9 @@ def get_pending_applications_count(chapter: str | None = None):
 @standard_api(operation_type=OperationType.REPORTING)  # Board member count statistics - read-only
 def get_board_members_count(chapter: str | None = None):
     """Get count of active board members for dashboard number card"""
+
+    if chapter:
+        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
 
     if not chapter:
         from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
@@ -453,6 +499,9 @@ def get_new_members_count(chapter: str | None = None):
     today_date = getdate(today())
     month_start = today_date.replace(day=1)
 
+    if chapter:
+        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
+
     if not chapter:
         from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
 
@@ -480,21 +529,7 @@ def get_new_members_count(chapter: str | None = None):
 def get_filed_expense_claims_count(chapter: str | None = None):
     """Get count of filed expense claims for dashboard number card"""
 
-    if not chapter:
-        # For board members, get claims from their chapters
-        from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
-
-        user_chapters = get_user_board_chapters()
-        if not user_chapters:
-            return {"value": 0, "fieldtype": "Data"}
-
-        # Count all filed expense claims (non-draft status)
-        total = frappe.db.count("Expense Claim", {"approval_status": ["!=", "Draft"]})
-        return {"value": total, "fieldtype": "Data"}
-    else:
-        # For specific chapter (if we add chapter filtering later)
-        count = frappe.db.count("Expense Claim", {"approval_status": ["!=", "Draft"]})
-        return {"value": count, "fieldtype": "Data"}
+    return _expense_claim_card({"approval_status": ["!=", "Draft"]}, chapter)
 
 
 @frappe.whitelist()
@@ -502,21 +537,7 @@ def get_filed_expense_claims_count(chapter: str | None = None):
 def get_approved_expense_claims_count(chapter: str | None = None):
     """Get count of approved expense claims for dashboard number card"""
 
-    if not chapter:
-        # For board members, get approved claims
-        from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
-
-        user_chapters = get_user_board_chapters()
-        if not user_chapters:
-            return {"value": 0, "fieldtype": "Data"}
-
-        # Count approved expense claims
-        total = frappe.db.count("Expense Claim", {"approval_status": "Approved"})
-        return {"value": total, "fieldtype": "Data"}
-    else:
-        # For specific chapter
-        count = frappe.db.count("Expense Claim", {"approval_status": "Approved"})
-        return {"value": count, "fieldtype": "Data"}
+    return _expense_claim_card({"approval_status": "Approved"}, chapter)
 
 
 @frappe.whitelist()
@@ -531,6 +552,9 @@ def get_volunteer_expenses_count(chapter: str | None = None):
     """
     if not frappe.db.exists("DocType", "Volunteer Expense"):
         return {"value": 0, "fieldtype": "Data"}
+
+    if chapter:
+        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
 
     if not chapter:
         from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
