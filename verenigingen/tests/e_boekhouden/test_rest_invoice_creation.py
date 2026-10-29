@@ -96,6 +96,14 @@ def _point_global_default_warehouse_at_company():
             frappe.clear_document_cache("Stock Settings", "Stock Settings")
     if frappe.get_meta("Company").has_field("default_warehouse"):
         frappe.db.set_value("Company", COMPANY, "default_warehouse", own_wh)
+        # On this schema Company.default_warehouse is a Link field, and a NEW
+        # Company inherits the GLOBAL "default_warehouse" default. Persisting our
+        # own warehouse there made every later module's Company creation fail with
+        # "Default Warehouse Stores - EBIC does not belong to company ...". ERPNext
+        # itself clears that global default (move_warehouse_defaults_to_company).
+        if frappe.defaults.get_global_default("default_warehouse"):
+            frappe.defaults.clear_default("default_warehouse")
+        return
     # 2) The GLOBAL "default_warehouse" default (frappe.defaults). ERPNext's
     #    Item.update_defaults_from_item_group falls back to this global default
     #    when creating an item with no item_defaults, so a stray cross-company
@@ -730,3 +738,26 @@ class TestDefaultWarehouseFixtureAcrossErpnextVersions(_InvoiceClusterBase):
         set_single, set_value = self._spied_run(True, False)
         set_single.assert_called_once_with("Stock Settings", "default_warehouse", self._own_warehouse())
         self.assertEqual([c for c in set_value.call_args_list if c.args[:1] == ("Company",)], [])
+
+    def test_new_erpnext_leaves_no_global_default_warehouse_for_other_companies(self):
+        # A stray global default is inherited by every NEW Company on the new schema
+        # (Company.default_warehouse is a Link field), so it must be cleared, never set.
+        from unittest import mock
+
+        frappe.db.set_default("default_warehouse", "Stores - OTHER")
+        with mock.patch.object(frappe.db, "set_default") as set_default:
+            self._spied_run(False, True)
+        set_default.assert_not_called()
+        self.assertFalse(frappe.defaults.get_global_default("default_warehouse"))
+
+    def test_old_erpnext_still_sets_the_global_default_warehouse(self):
+        from unittest import mock
+
+        with (
+            self._schema(True, False),
+            mock.patch.object(frappe.db, "set_single_value"),
+            mock.patch.object(frappe.db, "get_single_value", return_value="x"),
+            mock.patch.object(frappe.db, "set_default") as set_default,
+        ):
+            _point_global_default_warehouse_at_company()
+        set_default.assert_called_once_with("default_warehouse", self._own_warehouse())
