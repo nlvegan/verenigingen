@@ -89,16 +89,37 @@ class TestDashboardClaimCounts(StaffExpenseBase):
             self._listable(self.board_only, self.chapter_a, approval_status=["!=", "Draft"]),
         )
 
-    def test_no_chapter_argument_counts_only_the_callers_chapters(self):
-        # chapter B and the unattributed claim must not be in a chapter-A board member's number
-        self.assertEqual(self._filed(self.board_only), 2)
-        self.assertEqual(self._approved(self.board_only), 1)
+    def test_no_chapter_argument_equals_the_callers_list(self):
+        """The card is the caller's own list: board-only, plain Staff (with a national claim
+        it can list) and full-access roles."""
+        self.set_national(self.chapter_a)  # Staff and the board member sit on A: national claim visible
+        for user in (self.board_only, self.staff, self.treasurer, self.admin):
+            with self.subTest(user=user.name):
+                listed = lambda **f: len(  # noqa: E731
+                    self.act_as(user, lambda: frappe.get_list("Expense Claim", filters=f, pluck="name"))
+                )
+                self.assertEqual(self._filed(user), listed(approval_status=["!=", "Draft"]))
+                self.assertEqual(self._approved(user), listed(approval_status="Approved"))
+        # controls: the oracle is not trivially equal everywhere
+        self.assertEqual(self._filed(self.board_only), 3, "A (2) + the national claim")
+        self.assertGreater(self._filed(self.treasurer), self._filed(self.board_only))
+
+    def test_missing_custom_chapter_field_does_not_raise(self):
+        meta = frappe.get_meta("Expense Claim")
+        original = meta.has_field
+        meta.has_field = lambda f: False if f == "custom_chapter" else original(f)  # Mock justified: simulates an unmigrated site
+        try:
+            self.assertEqual(self._filed(self.board_only, self.chapter_a.name), 0)
+            self.assertGreaterEqual(self._filed(self.board_only), 0)
+        finally:
+            meta.has_field = original
 
     def test_plain_staff_count_follows_the_permission_query(self):
         # Staff boards chapter A: chapter B's claims are hidden from its list, so from its count
         self.assertEqual(self._filed(self.staff, self.chapter_a.name), 2)
         self.assertEqual(self._filed(self.staff, self.chapter_b.name), 0)
         self.assertEqual(self._approved(self.staff, self.chapter_b.name), 0)
+        self.set_national(None)
         self.assertEqual(self._filed(self.staff), 2, "no chapter: still only claims Staff may list")
 
     def test_full_access_role_still_counts_every_chapter(self):

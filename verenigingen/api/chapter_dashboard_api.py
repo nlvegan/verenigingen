@@ -388,21 +388,25 @@ def _dashboard_chapter_scope(chapter):
 
 
 def _expense_claim_card(filters, chapter):
-    """Count Expense Claims in the card's chapter scope that the caller may list.
+    """Count Expense Claims the caller may list, for a number card.
 
-    Goes through ``frappe.get_list`` so ``get_expense_claim_permission_query`` applies:
-    a count channel must not disclose claims the list view hides (maintainer ruling on
-    #1606: Staff must not see every claim).
+    Goes through ``frappe.get_list`` so ``get_expense_claim_permission_query`` applies: a
+    count channel must not disclose claims the list view hides (maintainer ruling on
+    #1606: Staff must not see every claim). With no ``chapter`` the count IS the caller's
+    list (including claims without a chapter), gated on having any dashboard chapter; with
+    one, it is narrowed to that chapter after the access gate.
     """
     scope = _dashboard_chapter_scope(chapter)
     if not scope or not frappe.has_permission("Expense Claim", "read"):
         return {"value": 0, "fieldtype": "Data"}
 
-    rows = frappe.get_list(
-        "Expense Claim",
-        filters={**filters, "custom_chapter": ["in", scope]},
-        fields=[{"COUNT": "name", "as": "total"}],
-    )
+    if chapter:
+        # A site restored from an old snapshot may lack the field until `bench migrate`
+        if not frappe.get_meta("Expense Claim").has_field("custom_chapter"):
+            return {"value": 0, "fieldtype": "Data"}
+        filters = {**filters, "custom_chapter": chapter}
+
+    rows = frappe.get_list("Expense Claim", filters=filters, fields=[{"COUNT": "name", "as": "total"}])
     return {"value": rows[0].total if rows else 0, "fieldtype": "Data"}
 
 
