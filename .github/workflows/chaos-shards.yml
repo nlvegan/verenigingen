@@ -94,7 +94,7 @@ jobs:
     needs: pick-seed
     # Pinned: ubuntu-latest became 26.04, whose mariadb-client requires TLS and the
     # mariadb:10.6 service container offers none ("SSL is required, but the server
-    # does not support it"). Move back to ubuntu-latest only with client TLS handled.
+    # does not support it"). Move back to ubuntu-latest only with client TLS handled (#1706).
     runs-on: ubuntu-24.04
     timeout-minutes: 75
 
