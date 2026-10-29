@@ -6,6 +6,7 @@ instead of trying to update stock accounts directly via Journal Entries.
 """
 
 import frappe
+from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_difference_account
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -49,27 +50,33 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
                 debug_info.append(f"Skipping stock account {account} - zero balance")
                 continue
 
-            # Check if Stock Reconciliation already exists for this account (idempotency)
-            existing = frappe.db.exists(
-                "Stock Reconciliation",
-                {
-                    "company": company,
-                    "purpose": "Opening Stock",
-                    "expense_account": account,
-                    "docstatus": ["in", [0, 1]],  # Draft or Submitted
-                },
-            )
-
-            if existing:
-                debug_info.append(f"Stock Reconciliation already exists for {account}: {existing}, skipping")
-                created_reconciliations.append(existing)
-                continue
-
             # Create or find a default item for this stock account
             item_code = _get_or_create_stock_item_for_account(account, company, debug_info)
 
             if not item_code:
                 debug_info.append(f"Could not create/find item for stock account {account}")
+                continue
+
+            # Idempotency: the stock account itself can no longer be stored as the
+            # reconciliation's expense_account (ERPNext refuses a Stock account as
+            # difference account), so key on the account's stock item instead.
+            existing = frappe.db.sql(
+                """
+                SELECT sr.name FROM `tabStock Reconciliation` sr
+                JOIN `tabStock Reconciliation Item` sri ON sri.parent = sr.name
+                WHERE sr.company = %s AND sr.purpose = 'Opening Stock'
+                    AND sr.docstatus IN (0, 1) AND sri.item_code = %s
+                LIMIT 1
+                """,
+                (company, item_code),
+                pluck=True,
+            )
+
+            if existing:
+                debug_info.append(
+                    f"Stock Reconciliation already exists for {account}: {existing[0]}, skipping"
+                )
+                created_reconciliations.append(existing[0])
                 continue
 
             # Create Stock Reconciliation
@@ -78,7 +85,10 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
             stock_reco.posting_date = "2018-01-01"  # Opening balance date
             stock_reco.posting_time = "00:00:00"
             stock_reco.purpose = "Opening Stock"
-            stock_reco.expense_account = account  # Use the stock account from E-Boekhouden
+            # ERPNext books the stock side from the Warehouse's inventory account;
+            # the difference account must not be a Stock account, and an opening
+            # entry needs a Balance Sheet one: ERPNext's Temporary Opening.
+            stock_reco.expense_account = get_difference_account("Opening Stock", company)
 
             # Calculate quantity based on balance
             # For opening balances, we'll assume a standard rate of €1.00 per unit

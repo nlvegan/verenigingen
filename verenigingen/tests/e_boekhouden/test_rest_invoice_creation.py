@@ -86,10 +86,16 @@ def _point_global_default_warehouse_at_company():
     ) or frappe.db.get_value("Warehouse", {"company": COMPANY, "is_group": 0}, "name")
     if not own_wh:
         return
-    # 1) Stock Settings singleton (ERPNext reads it via cached get_single_value).
-    if frappe.db.get_single_value("Stock Settings", "default_warehouse") != own_wh:
-        frappe.db.set_single_value("Stock Settings", "default_warehouse", own_wh)
-        frappe.clear_document_cache("Stock Settings", "Stock Settings")
+    # 1) The default warehouse singleton. ERPNext (version-16, bd76c2a14f) moved
+    #    it from Stock Settings onto Company.default_warehouse and dropped the
+    #    Stock Settings field, so write whichever side this ERPNext has.
+    if frappe.get_meta("Stock Settings").has_field("default_warehouse"):
+        # ERPNext reads it via cached get_single_value.
+        if frappe.db.get_single_value("Stock Settings", "default_warehouse") != own_wh:
+            frappe.db.set_single_value("Stock Settings", "default_warehouse", own_wh)
+            frappe.clear_document_cache("Stock Settings", "Stock Settings")
+    if frappe.get_meta("Company").has_field("default_warehouse"):
+        frappe.db.set_value("Company", COMPANY, "default_warehouse", own_wh)
     # 2) The GLOBAL "default_warehouse" default (frappe.defaults). ERPNext's
     #    Item.update_defaults_from_item_group falls back to this global default
     #    when creating an item with no item_defaults, so a stray cross-company
@@ -655,3 +661,72 @@ class TestCreateInvoiceLineForTegenrekening(_InvoiceClusterBase):
         self.assertEqual(flt(line["qty"]), 1)
         self.assertEqual(flt(line["rate"]), 42.0)
         self.assertEqual(line["description"], "Donation")
+
+
+class TestDefaultWarehouseFixtureAcrossErpnextVersions(_InvoiceClusterBase):
+    """ERPNext version-16 moved the global default warehouse from Stock Settings to
+    Company.default_warehouse (bd76c2a14f) and dropped the Stock Settings field, which
+    made every class in this module die in setUpClass on CI. The installed ERPNext is
+    older, so the new schema is SIMULATED by patching the metadata lookup
+    (Mock justified: the boundary is the installed ERPNext's schema, not our logic)."""
+
+    def _fake_get_meta(self, stock_settings_has_field, company_has_field):
+        real = frappe.get_meta
+
+        class _Meta:
+            def __init__(self, doctype, flag):
+                self._real = real(doctype)
+                self._flag = flag
+
+            def has_field(self, fieldname):
+                return self._flag if fieldname == "default_warehouse" else self._real.has_field(fieldname)
+
+        def get_meta(doctype, *args, **kwargs):
+            if doctype == "Stock Settings":
+                return _Meta(doctype, stock_settings_has_field)
+            if doctype == "Company":
+                return _Meta(doctype, company_has_field)
+            return real(doctype, *args, **kwargs)
+
+        return get_meta
+
+    def _own_warehouse(self):
+        return frappe.db.get_value(
+            "Warehouse", {"company": COMPANY, "is_group": 0, "warehouse_name": "Stores"}, "name"
+        ) or frappe.db.get_value("Warehouse", {"company": COMPANY, "is_group": 0}, "name")
+
+    def test_new_erpnext_writes_company_default_and_skips_stock_settings(self):
+        from unittest import mock
+
+        own_wh = self._own_warehouse()
+        self.assertTrue(own_wh)
+        # Real Company column standing in for the new schema (DDL; removed on cleanup).
+        if not frappe.get_meta("Company").has_field("default_warehouse"):
+            cf = frappe.get_doc(
+                {
+                    "doctype": "Custom Field",
+                    "dt": "Company",
+                    "fieldname": "default_warehouse",
+                    "fieldtype": "Data",
+                    "label": "Default Warehouse (test stand-in)",
+                }
+            ).insert()
+            self.addCleanup(frappe.delete_doc, "Custom Field", cf.name, force=True)
+        frappe.db.set_value("Company", COMPANY, "default_warehouse", "unset")
+        frappe.db.set_single_value("Stock Settings", "default_warehouse", own_wh)
+        with mock.patch("frappe.get_meta", self._fake_get_meta(False, True)):
+            _point_global_default_warehouse_at_company()
+        self.assertEqual(frappe.db.get_value("Company", COMPANY, "default_warehouse"), own_wh)
+
+    def test_stock_settings_untouched_when_field_is_gone(self):
+        from unittest import mock
+
+        frappe.db.set_single_value("Stock Settings", "default_warehouse", None)
+        with mock.patch("frappe.get_meta", self._fake_get_meta(False, False)):
+            _point_global_default_warehouse_at_company()
+        self.assertFalse(frappe.db.get_single_value("Stock Settings", "default_warehouse"))
+
+    def test_old_erpnext_still_writes_stock_settings(self):
+        frappe.db.set_single_value("Stock Settings", "default_warehouse", None)
+        _point_global_default_warehouse_at_company()
+        self.assertEqual(frappe.db.get_single_value("Stock Settings", "default_warehouse"), self._own_warehouse())
