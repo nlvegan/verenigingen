@@ -374,3 +374,65 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         gone = self._profiles_of(victim)
         self.assertNotIn(self.AUDITOR, gone)
         self.assertIn("Verenigingen Staff", gone)
+
+    # -- the team bulk endpoint's count (#1687) --------------------------------
+
+    def _add_team_member_row(self, team_name, status):
+        """A member with a user and a volunteer, seated on `team_name` with the given row status."""
+        user = self._make_user_holding_profile(None)
+        member = self.create_test_member(user=user, chapter=False)
+        volunteer = self.create_test_volunteer(member=member.name)
+        doc = frappe.get_doc("Team", team_name)
+        doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.today(),
+                "status": status,
+            },
+        )
+        doc.save()
+        return user
+
+    def test_the_team_bulk_endpoint_reports_the_members_it_synced_like_the_chapter_one(self):
+        """#1687: team.js read `members_updated`, which this endpoint never returned (the chapter
+        endpoint does), so the alert always said 0. Same meaning as the chapter's: users whose
+        sync succeeded, whether or not it changed anything.
+
+        Fixture: one member the bulk call CHANGES (row flipped Active with db.set_value, a probe
+        shortcut stated as in _seated_team_member), one already in sync (seated Active through a
+        real save), one Inactive row that must not be counted. 'changed' would give 1, len of the
+        team rows 3, the synced users 2.
+        """
+        team, _changed_user, row = self._seated_team_member(self.AUDITOR)
+        self._add_team_member_row(team, "Active")
+        self._add_team_member_row(team, "Inactive")
+        frappe.db.set_value("Team Member", row, "status", "Active")
+        actor = self._make_user_holding_profile(TREASURER)
+
+        result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
+
+        actions = sorted(r["result"]["action"] for r in result["results"])
+        self.assertEqual(actions, ["already_assigned", "assigned"], "control: one changed, one not")
+        self.assertEqual(result["members_updated"], 2)
+
+        again = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
+        self.assertEqual(again["members_updated"], 2, "an up-to-date member still counts, as in the chapter")
+
+    def test_the_team_bulk_endpoint_reports_zero_when_nothing_was_applied(self):
+        """A refused call (no profile configuration) carries members_updated: 0 like the chapter's."""
+        team = self.factory.create_test_team()
+        self.track_doc("Team", team.name)
+        actor = self._make_user_holding_profile(TREASURER)
+
+        result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["members_updated"], 0)
+
+
+def bulk_assign_team_role_profiles_endpoint():
+    from verenigingen.utils.team_role_profile_manager import bulk_assign_team_role_profiles
+
+    return bulk_assign_team_role_profiles
