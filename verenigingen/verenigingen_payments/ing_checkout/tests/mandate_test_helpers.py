@@ -49,7 +49,9 @@ def routes_get_doc(docs_by_doctype):
     gets a MagicMock, so no real row is inserted.
 
     Call this BEFORE entering `patch("frappe.get_doc", ...)`: it captures the real
-    function at call time.
+    function at call time, so it must be built while `frappe.get_doc` is UNpatched.
+    Building it inside an active patch (or nested in another one) would capture the
+    mock as the "real" function and recurse into it.
     """
     real_get_doc = frappe.get_doc
 
