@@ -110,18 +110,13 @@ class TestSetupTerminationWorkflows(FrappeTestCase):
     """setup_termination_workflows_and_templates() and the workflow side of
     setup_termination_system_integration().
 
-    NOTE: see the task report -- on this site `setup_workflows_corrected()`
-    FAILS to actually persist the "Membership Termination Workflow" because
-    its transitions reference a "Submit" Workflow Action Master that the setup
-    never creates (link validation throws). The function nonetheless returns
-    True / prints "Successfully committed". These tests therefore assert the
-    *observable* behavior (runs without raising, does not duplicate state)
-    rather than a workflow row that the upstream bug prevents from existing.
+    Since #1640 the setup deliberately builds no Membership Termination
+    Workflow (the service layer owns termination status), so these tests
+    assert the observable behaviour: runs without raising, does not duplicate.
     """
 
     def test_workflow_setup_runs_without_raising(self):
-        # Must not propagate any exception even though the underlying workflow
-        # insert fails its link validation upstream.
+        # Must not propagate any exception.
         result = setup_mod.setup_termination_workflows_and_templates()
         self.assertIsNone(result)
 
@@ -155,8 +150,6 @@ class TestSetupTerminationSystemIntegration(FrappeTestCase):
 
     def test_integration_creates_admin_role(self):
         setup_mod.setup_termination_system_integration()
-        # The role-creation step IS reliable (unlike the workflow step, which
-        # is broken upstream -- see TestSetupTerminationWorkflows note).
         self.assertTrue(
             frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN),
             "Integration setup should ensure the Verenigingen Administrator role",
@@ -237,10 +230,9 @@ class TestRunTerminationDiagnostics(FrappeTestCase):
         self.assertIsInstance(result["diagnostics_passed"], bool)
 
     def test_diagnostics_reflect_real_workflow_absence(self):
-        """On this site the Membership Termination Workflow is NOT actually
-        persisted (upstream "Submit" action-master bug -- see report), even
-        after running the full integration. The real doctypes and admin role
-        ARE present. The diagnostics walk every check; because at least one
+        """The Membership Termination Workflow is deliberately NOT built, even
+        after running the full integration (#1640). The real doctypes and admin
+        role ARE present. The diagnostics walk every check; because at least one
         workflow is missing, diagnostics_passed must be False -- and the
         function must still return a well-formed success dict."""
         setup_mod.setup_termination_system_integration()
@@ -253,7 +245,7 @@ class TestRunTerminationDiagnostics(FrappeTestCase):
         self.assertTrue(frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN))
         self.assertFalse(
             frappe.db.exists("Workflow", "Membership Termination Workflow"),
-            "Documents the upstream bug: the workflow is not persisted",
+            "The termination workflow must not be built (#1640)",
         )
 
         result = setup_mod.run_termination_diagnostics()
