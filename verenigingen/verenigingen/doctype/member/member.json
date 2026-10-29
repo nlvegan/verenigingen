@@ -100,6 +100,7 @@
   "application_id",
   "application_status",
   "application_date",
+  "application_door",
   "magazine_delivery",
   "starter_guide_delivery",
   "birth_year",
@@ -427,6 +428,13 @@
    "fieldname": "interested_in_volunteering",
    "fieldtype": "Check",
    "label": "Interested in Volunteering",
+   "read_only": 1
+  },
+  {
+   "fieldname": "application_door",
+   "fieldtype": "Link",
+   "label": "Application Door",
+   "options": "Membership Application Door",
    "read_only": 1
   },
   {
