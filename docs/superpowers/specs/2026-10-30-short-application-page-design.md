@@ -149,7 +149,7 @@ options without a deploy.
 ```
 landing /word-lid ──door──▶ /word-lid/<slug> form ──POST──▶ submission (Unconfirmed)
                                                             │ email with confirm link
-                              /word-lid/bevestig?id&token ◀─┘
+                              /word-lid/bevestig?submission&token ◀─┘
                               page shows a "Bevestig" button ──POST──▶ confirm:
                                   create Address + Member (application_status Pending)
                                   → existing approval queue
