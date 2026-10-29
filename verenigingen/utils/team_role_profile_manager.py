@@ -177,8 +177,24 @@ def bulk_assign_team_role_profiles(team_name: str):
     """
     Bulk assign role profiles to all existing members of a team
     Useful for initial setup or fixing missing assignments
+
+    Returns the manager's result plus ``members_updated`` (team.js reads it, #1687): the
+    distinct users whose role profile sync succeeded, whether or not it changed anything.
+    Stricter than bulk_assign_chapter_board_role_profiles, which also counts a sync that
+    failed (auto_sync_on_role_change returns instead of raising).
     """
-    return _team_manager.bulk_assign_role_profiles(team_name)
+    result = _team_manager.bulk_assign_role_profiles(team_name)
+    result["members_updated"] = _count_synced_members(result)
+    return result
+
+
+def _count_synced_members(result):
+    """Members synced by a bulk run; 0 when the run failed (a rolled-back run applied nothing)."""
+    if not result.get("success"):
+        return 0
+    synced = ("assigned", "already_assigned")
+    users = {r["user"] for r in result.get("results", []) if r["result"].get("action") in synced}
+    return len(users)
 
 
 @frappe.whitelist()
