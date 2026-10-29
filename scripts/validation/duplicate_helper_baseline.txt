@@ -176,7 +176,7 @@ _determine_recurring_status::2  # clone family, 1 near-identical pair(s)
 _discard_probe::2  # clone family, 1 near-identical pair(s)
 _dispatch::2
 _donation::8  # clone family, 2 near-identical pair(s)
-_drop::3  # clone family, 1 near-identical pair(s)
+_drop::2  # clone family, 1 near-identical pair(s)
 _duplicate_key_result::2
 _enable_notifications::3
 _ensure_account::5

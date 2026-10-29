@@ -208,7 +208,7 @@ Mollie webhooks are processed by the background service user (`background.servic
 - Overdue termination requests are processed daily (`process_overdue_termination_requests`).
 - Compliance auditing runs daily (`audit_termination_compliance`).
 - Weekly termination summary reports are generated (`generate_weekly_termination_report`).
-- The Membership Termination Workflow (deployed as a fixture) manages state transitions: Draft -- Pending -- Approved -- Executed.
+- Termination status (Draft -- Pending -- Approved -- Executed) is owned by the termination services; no Membership Termination Workflow is built (#1640).
 - Termination execution uses FOR UPDATE row locks to prevent race conditions (see `services/termination/termination_execution_service.py`).
 
 ### Member Merge
