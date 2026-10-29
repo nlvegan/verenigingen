@@ -556,9 +556,11 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
             get_approval_thresholds,
         )
 
+        # #1651: the hardcoded 100/500 were a false premise (nothing enforced them); the
+        # thresholds are now the per-chapter limits, keyed by chapter
         t = get_approval_thresholds()
-        self.assertEqual(t["basic_limit"], 100.0)
-        self.assertEqual(t["financial_limit"], 500.0)
+        self.assertIsInstance(t, dict)
+        self.assertNotIn("basic_limit", t)
 
     def test_get_national_chapter_none_when_unset(self):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
