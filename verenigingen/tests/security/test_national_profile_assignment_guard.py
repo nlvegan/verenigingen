@@ -393,11 +393,12 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
             },
         )
         doc.save()
-        return user
+        row = doc.team_members[-1].name
+        return user, row
 
-    def test_the_team_bulk_endpoint_reports_the_members_it_synced_like_the_chapter_one(self):
+    def test_the_team_bulk_endpoint_reports_the_members_it_synced(self):
         """#1687: team.js read `members_updated`, which this endpoint never returned (the chapter
-        endpoint does), so the alert always said 0. Same meaning as the chapter's: users whose
+        endpoint does), so the alert always said 0. Users whose
         sync succeeded, whether or not it changed anything.
 
         Fixture: one member the bulk call CHANGES (row flipped Active with db.set_value, a probe
@@ -418,10 +419,97 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         self.assertEqual(result["members_updated"], 2)
 
         again = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
-        self.assertEqual(again["members_updated"], 2, "an up-to-date member still counts, as in the chapter")
+        self.assertEqual(again["members_updated"], 2, "an up-to-date member still counts, it is a sync count, not a change count")
+
+    def _team_with_pending_members(self, count):
+        """A team mapped to AUDITOR with `count` seated members whose rows are Inactive (so the
+        seating save derived nothing), then flipped Active with db.set_value (the probe shortcut
+        stated above), so that the bulk call has a real change to make for each.
+        Returns (team, [(user, row), ...])."""
+        team, first_user, first_row = self._seated_team_member(self.AUDITOR)
+        pending = [(first_user, first_row)]
+        for _ in range(count - 1):
+            pending.append(self._add_team_member_row(team, "Inactive"))
+        for _user, row in pending:
+            frappe.db.set_value("Team Member", row, "status", "Active")
+        return team, pending
+
+    def _call_bulk_failing_for(self, team, failing_user):
+        """Run the endpoint with the User save refused for `failing_user` only.
+
+        Mock justified: no real data shape makes the sync refuse one user's save (the sync is
+        built to succeed for any enabled user), so the failure is injected at the DB boundary,
+        Document.save, for that one User. Everything else, the endpoint, manager, sync and the
+        other users' saves, is real.
+        """
+        from frappe.model.document import Document
+        from unittest.mock import patch
+
+        real_save = Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "User" and doc.name == failing_user:
+                frappe.throw("injected save failure for #1687")
+            return real_save(doc, *args, **kwargs)
+
+        actor = self._make_user_holding_profile(TREASURER)
+        with patch.object(Document, "save", save):  # Mock justified: see docstring
+            return self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
+
+    def test_a_minority_of_failing_members_is_not_counted(self):
+        """2 sync, 1 fails: the run succeeds and members_updated is 2, not len(results) == 3."""
+        team, pending = self._team_with_pending_members(3)
+        failing = pending[2][0]
+
+        result = self._call_bulk_failing_for(team, failing)
+
+        self.assertEqual(len(result["results"]), 3, "control: the failing member is in results")
+        failed = [r["user"] for r in result["results"] if not r["result"]["success"]]
+        self.assertEqual(failed, [failing], "control: exactly the injected member failed")
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["members_updated"], 2)
+
+    def test_a_tied_run_rolls_back_and_reports_zero_members_updated(self):
+        """1 syncs, 1 fails: the manager rolls the run back, so nothing was applied."""
+        team, pending = self._team_with_pending_members(2)
+        ok_user, failing = pending[0][0], pending[1][0]
+        before = self._profiles_of(ok_user)
+
+        result = self._call_bulk_failing_for(team, failing)
+
+        self.assertEqual(
+            sorted(r["result"]["success"] for r in result["results"]), [False, True], "control: a tie"
+        )
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["members_updated"], 0)
+        self.assertEqual(self._profiles_of(ok_user), before, "the rolled-back sync left no profile behind")
+
+    def test_a_user_in_two_active_rows_is_counted_once(self):
+        """The chapter endpoint selects DISTINCT users; the team count must not double-count."""
+        team, pending = self._team_with_pending_members(1)
+        user, row = pending[0]
+        volunteer = frappe.db.get_value("Team Member", row, "volunteer")
+        doc = frappe.get_doc("Team", team)
+        doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer,
+                "team_role": "Team Member",
+                "from_date": frappe.utils.add_days(frappe.utils.today(), -1),
+                "status": "Active",
+            },
+        )
+        doc.save()
+        frappe.db.set_value("Team Member", row, "status", "Active")  # the save reset it (probe shortcut)
+        actor = self._make_user_holding_profile(TREASURER)
+
+        result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
+
+        self.assertEqual([r["user"] for r in result["results"]], [user, user], "control: two rows, one user")
+        self.assertEqual(result["members_updated"], 1)
 
     def test_the_team_bulk_endpoint_reports_zero_when_nothing_was_applied(self):
-        """A refused call (no profile configuration) carries members_updated: 0 like the chapter's."""
+        """A refused call (no profile configuration) carries members_updated: 0."""
         team = self.factory.create_test_team()
         self.track_doc("Team", team.name)
         actor = self._make_user_holding_profile(TREASURER)
