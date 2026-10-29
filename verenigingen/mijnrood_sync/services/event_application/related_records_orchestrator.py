@@ -279,32 +279,59 @@ class MijnRoodRelatedRecordsOrchestrator:
         )
 
         try:
-            result = queue_account_creation_for_member(
+            request_name, refusal = self._queue_account_request(
+                queue_account_creation_for_member,
                 member_name,
                 roles=["Verenigingen Member"],
                 role_profile="Verenigingen Member",
                 priority="Low",
             )
-            if result.success:
+            if request_name:
                 self.mark_acr_queued(member_name)
-                request_name = result.data.get("request_name", "") if result.data else ""
                 self.logger.info(
                     "Queued account creation for member %s (request=%s)",
                     member_name,
                     request_name,
                 )
                 return _("Account creation queued ({0})").format(request_name)
-            else:
-                # Expected skips (no email, duplicate request) — debug only
-                self.logger.debug(
-                    "Account creation skipped for %s: %s",
-                    member_name,
-                    result.error_message,
-                )
-                return None
+            return refusal
         except Exception as e:
-            self.logger.warning("Account creation failed for %s: %s", member_name, e)
+            frappe.log_error(title="MijnRood account creation failed", message=frappe.get_traceback())
             return _("Account creation failed: {0}").format(str(e)[:200])
+
+    def _queue_account_request(self, queue_fn, member_name: str, **kwargs):
+        """Call the ACR queue and read its serialized result.
+
+        ``queue_account_creation_for_member`` is wrapped by ``high_security_api``,
+        which returns ``OperationResult.to_dict()``: a plain dict, so
+        ``result.success`` raises AttributeError (#1638). Same reading as
+        ``create_secure_user_account_for_member``.
+
+        Returns:
+            ``(request_name, None)`` when queued; ``(None, None)`` when a request
+            is already open or the member has no email (expected skips); ``(None, message)``
+            for any other refusal, which is also written to the Error Log
+            (``frappe.logger`` is never read) so it surfaces to the caller.
+        """
+        result = queue_fn(member_name, **kwargs)
+        if result and result.get("success"):
+            return (result.get("data") or {}).get("request_name") or "unknown", None
+
+        context = ((result or {}).get("meta") or {}).get("context") or {}
+        if (context.get("params") or {}).get("existing_request"):
+            return None, None
+
+        error = (result or {}).get("error") or {}
+        if "No email address provided" in (error.get("errors") or []):
+            # Maintainer decision (#1638): a member without an email is an expected skip.
+            return None, None
+        reason = error.get("message") or "Unknown error"
+        detail = "; ".join(str(e) for e in error.get("errors") or [])
+        frappe.log_error(
+            title="MijnRood account creation refused",
+            message=f"Member {member_name}: {reason} {detail}".strip(),
+        )
+        return None, _("Account creation not queued: {0}").format(reason)
 
     def _ensure_membership_and_dues(self, member_name: str, row_data: dict) -> Optional[str]:
         """Create Membership + Dues Schedule for a synced member if eligible.
@@ -500,30 +527,24 @@ class MijnRoodRelatedRecordsOrchestrator:
         )
 
         try:
-            result = queue_account_creation_for_member(
+            request_name, refusal = self._queue_account_request(
+                queue_account_creation_for_member,
                 member_name,
                 roles=["Verenigingen Volunteer"],
                 role_profile="Verenigingen Volunteer",
-                priority="Medium",
+                priority="Normal",
             )
-            if result.success:
+            if request_name:
                 self.mark_acr_queued(member_name)
-                request_name = result.data.get("request_name", "") if result.data else ""
                 self.logger.info(
                     "Queued account creation for volunteer %s (request=%s)",
                     member_name,
                     request_name,
                 )
                 return _("Account creation queued for volunteer ({0})").format(request_name)
-            else:
-                self.logger.debug(
-                    "Account creation skipped for volunteer %s: %s",
-                    member_name,
-                    result.error_message,
-                )
-                return None
+            return refusal
         except Exception as e:
-            self.logger.warning("Account creation failed for volunteer %s: %s", member_name, e)
+            frappe.log_error(title="MijnRood account creation failed", message=frappe.get_traceback())
             return _("Account creation failed: {0}").format(str(e)[:200])
 
     def _create_related_records(self, member_name: str, row_data: dict, event=None) -> list[str]:
