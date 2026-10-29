@@ -24,7 +24,8 @@ frappe.ui.form.on('Account Creation Request', {
 			).addClass('btn-primary');
 		}
 
-		if (frm.doc.status in ['Requested', 'Queued', 'Processing']) {
+		// Server cancel_request refuses only Completed; Cancelled is not worth re-cancelling.
+		if (['Requested', 'Queued', 'Processing', 'Failed'].includes(frm.doc.status)) {
 			frm.add_custom_button(
 				__('Cancel Request'),
 				() => {
