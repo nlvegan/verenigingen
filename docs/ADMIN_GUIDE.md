@@ -467,7 +467,7 @@ cd ~/frappe-bench && bench --site [site_name] clear-cache
 The following data is deployed via fixtures during migration (defined in `hooks/fixtures.py`):
 
 - **Property Setter**: Schema customizations for ERPNext DocTypes (Custom DocPerm grants are applied by `setup/custom_docperm_setup.py`, not fixtures)
-- **Workflow**: Membership Termination Workflow (with states: Draft, Pending, Approved, Executed, etc.)
+- **Status**: Draft, Pending, Approved, Executed, etc. are owned by the termination services; no Membership Termination Workflow is built (#1640)
 - **Roles**: The 6 custom Verenigingen roles listed above
 - **Role Profiles**: The 11 role profiles listed above
 - **Reports**: Termination Audit, Termination Compliance, Membership Revenue Projection

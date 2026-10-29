@@ -1,32 +1,16 @@
 # Integration tests for verenigingen/setup/workflow_setup.py
 #
 # This module runs on every fresh install (execute_after_install ->
-# setup_termination_system_integration -> setup_workflows_corrected) and is the
-# only thing that creates the "Membership Termination Workflow".
+# setup_termination_system_integration -> setup_workflows_corrected).
 #
-# KNOWN PRODUCTION BUG pinned by these tests:
-#   create_workflow_action_masters() creates only the "Execute" Workflow Action
-#   Master ("standard ones should exist"), but the termination workflow's
-#   transitions also reference a "Submit" action -- which is NOT a standard
-#   Frappe/ERPNext master and is NOT in verenigingen/fixtures/
-#   workflow_action_master.json (that fixture ships "Execute" only).
-#   Workflow Transition.action is a Link, so the insert dies on link validation
-#   ("Could not find Row #1: Action: Submit"), secure_document_operation returns
-#   success=False, create_termination_workflow_corrected() logs an Error Log and
-#   returns False -- and setup_workflows_corrected() STILL returns True because
-#   the appeals workflow "succeeds" by skipping. The caller then prints
-#   "Workflows created successfully". Net effect: no termination workflow, ever,
-#   and no visible failure.
+# #1640 (maintainer ruling 2026-10-29): it does NOT build a Membership
+# Termination Workflow. The service layer is the source of truth for termination
+# status; an active workflow on `status` would refuse the services' direct
+# status writes. The tests below pin that no such workflow is built and that
+# setup still reports success.
 #
-# TestTerminationWorkflowDefinition proves the rest of the definition is sound by
-# supplying the missing masters and asserting the workflow then builds correctly
-# and lines up with the Membership Termination Request status field.
-#
-# Isolation: create_termination_workflow_corrected() /
-# create_appeals_workflow_corrected() do NOT commit (secure_document_operation
-# has no commit), so everything they insert is rolled back with the test
-# transaction. setup_workflows_corrected() DOES commit; the only tests that call
-# it are the ones asserting its (non-)effects.
+# setup_workflows_corrected() commits; the tests that call it only assert its
+# (non-)effects on workflows and masters.
 
 from unittest.mock import patch
 
@@ -39,8 +23,6 @@ from verenigingen.utils.secure_operations import SecureOperationResult
 
 TERMINATION_WORKFLOW = "Membership Termination Workflow"
 TARGET_DOCTYPE = "Membership Termination Request"
-# Every action referenced by the termination workflow's transitions.
-TRANSITION_ACTIONS = ["Submit", "Approve", "Reject", "Execute"]
 # Every state referenced by the termination workflow.
 WORKFLOW_STATES = ["Draft", "Pending", "Approved", "Rejected", "Executed"]
 
@@ -71,20 +53,10 @@ class TestWorkflowMasters(FrappeTestCase):
         self.assertEqual(wf.create_workflow_action_masters(), 0)
         self.assertEqual(frappe.db.count("Workflow Action Master"), before)
 
-    def test_action_masters_do_not_cover_the_submit_transition(self):
-        """KNOWN BUG (see module docstring).
-
-        create_workflow_action_masters() creates only "Execute". "Submit" is
-        referenced by four of the termination workflow's transitions but is
-        neither a standard master nor created/shipped anywhere, so it is still
-        absent after the setup has run.
-        """
-        wf.create_workflow_action_masters()
-        self.assertFalse(
-            frappe.db.exists("Workflow Action Master", "Submit"),
-            "If 'Submit' now exists the upstream bug was fixed - update this test "
-            "and the workflow-creation tests below",
-        )
+    def test_termination_workflow_builder_is_gone(self):
+        """#1640: nothing in workflow_setup builds the termination workflow, so
+        no "Submit" action master is needed either."""
+        self.assertFalse(hasattr(wf, "create_termination_workflow_corrected"))
 
 
 class TestWorkflowMasterDuplicateRace(FrappeTestCase):
@@ -209,76 +181,6 @@ class TestValidatePrerequisites(FrappeTestCase):
             wf.Roles = original
 
 
-class TestTerminationWorkflowCreation(FrappeTestCase):
-    """create_termination_workflow_corrected() -- the broken install step."""
-
-    def setUp(self):
-        super().setUp()
-        if frappe.db.exists("Workflow", TERMINATION_WORKFLOW):
-            self.skipTest(
-                f"{TERMINATION_WORKFLOW} already exists on this site; these tests " "cover the creation path"
-            )
-
-    @staticmethod
-    def _drop(doctype, name):
-        if frappe.db.exists(doctype, name):
-            frappe.delete_doc(doctype, name, force=1)
-
-    def _drop_workflow(self):
-        self._drop("Workflow", TERMINATION_WORKFLOW)
-
-    def test_creation_fails_and_persists_nothing_while_submit_master_is_missing(self):
-        """KNOWN BUG (see module docstring): the insert dies on link validation
-        for the 'Submit' action, so the function returns False and no Workflow
-        row is written."""
-        self.assertFalse(frappe.db.exists("Workflow Action Master", "Submit"))
-
-        self.assertFalse(wf.create_termination_workflow_corrected())
-        self.assertFalse(
-            frappe.db.exists("Workflow", TERMINATION_WORKFLOW),
-            "No workflow may be half-written when creation fails",
-        )
-
-    def test_definition_is_valid_once_every_referenced_master_exists(self):
-        """The rest of the definition is sound: supply the missing masters and
-        the workflow builds with all 5 states and all 10 transitions.
-
-        This isolates the failure to the missing 'Submit' Workflow Action Master
-        and simultaneously guards the definition itself (state/transition counts,
-        the state field it drives, and its active flag).
-        """
-        # Everything created here is removed again by addCleanup so the rest of
-        # the suite still sees a site without a termination workflow.
-        self.addCleanup(self._drop_workflow)
-        for action in TRANSITION_ACTIONS:
-            if not frappe.db.exists("Workflow Action Master", action):
-                frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert()
-                self.addCleanup(self._drop, "Workflow Action Master", action)
-        for state in WORKFLOW_STATES:
-            if not frappe.db.exists("Workflow State", state):
-                frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state}).insert()
-                self.addCleanup(self._drop, "Workflow State", state)
-
-        self.assertTrue(
-            wf.create_termination_workflow_corrected(),
-            "With every referenced master present the workflow must be creatable",
-        )
-
-        doc = frappe.get_doc("Workflow", TERMINATION_WORKFLOW)
-        self.assertEqual(doc.document_type, TARGET_DOCTYPE)
-        self.assertEqual(doc.workflow_state_field, "status")
-        self.assertEqual(doc.is_active, 1)
-        self.assertEqual([s.state for s in doc.states], WORKFLOW_STATES)
-        self.assertEqual(len(doc.transitions), 10)
-        # Every state is draft: Membership Termination Request is not submittable,
-        # and Frappe refuses a Workflow that gives such a DocType a submitted state.
-        self.assertFalse(frappe.get_meta(TARGET_DOCTYPE).is_submittable)
-        self.assertEqual(
-            {s.state: s.doc_status for s in doc.states},
-            {"Draft": "0", "Pending": "0", "Approved": "0", "Rejected": "0", "Executed": "0"},
-        )
-
-
 class TestTerminationWorkflowContract(FrappeTestCase):
     """Invariants the workflow definition depends on, independent of whether the
     workflow row can currently be created."""
@@ -314,28 +216,22 @@ class TestAppealsWorkflow(FrappeTestCase):
 class TestSetupWorkflowsCorrected(FrappeTestCase):
     """The orchestrator. NOTE: it calls frappe.db.commit() internally."""
 
-    def test_reports_success_although_the_termination_workflow_is_absent(self):
-        """KNOWN BUG (see module docstring): setup_workflows_corrected() returns
-        True purely because the appeals branch skipped, while the workflow that
-        actually matters was never created. A fresh site therefore ends up with
-        no termination workflow and a green install log.
-
-        Skips rather than fails when the workflow is already present: this class
-        calls setup_workflows_corrected(), which commits internally, so a sibling
-        test (or a site where 'Submit' exists) can leave the workflow behind and
-        turn this into a spurious red that says nothing about the code.
-        """
+    def test_reports_success_and_builds_no_termination_workflow(self):
+        """#1640: setup succeeds, and leaves no Membership Termination Workflow
+        behind. A committed one (e.g. from an older test run) is removed inside
+        the test transaction first, so the assertion is about this run."""
         if frappe.db.exists("Workflow", TERMINATION_WORKFLOW):
-            self.skipTest(
-                f"{TERMINATION_WORKFLOW} already exists on this site - the "
-                "missing-workflow bug this test documents is not reproducible here"
-            )
+            frappe.delete_doc("Workflow", TERMINATION_WORKFLOW, force=1)
+        # Control: supply every master a builder would need (veg11 has "Submit"),
+        # so an absent workflow means "not built", not "link validation failed".
+        for action in ("Submit", "Approve", "Reject", "Execute"):
+            if not frappe.db.exists("Workflow Action Master", action):
+                frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert()
 
-        self.assertTrue(wf.setup_workflows_corrected())
-        self.assertFalse(
-            frappe.db.exists("Workflow", TERMINATION_WORKFLOW),
-            "If the workflow now exists the upstream bug was fixed - update this test",
-        )
+        # commit patched out (infrastructure) so the masters inserted above roll back
+        with patch.object(frappe.db, "commit"):
+            self.assertTrue(wf.setup_workflows_corrected())
+        self.assertFalse(frappe.db.exists("Workflow", TERMINATION_WORKFLOW))
 
     def test_is_idempotent_and_does_not_duplicate_masters(self):
         wf.setup_workflows_corrected()

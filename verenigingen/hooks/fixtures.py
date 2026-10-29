@@ -39,10 +39,6 @@ fixtures = [
     # WORKFLOWS
     # =========================================================================
     {
-        "doctype": "Workflow",
-        "filters": [["name", "in", ["Membership Termination Workflow"]]],
-    },
-    {
         "doctype": "Workflow State",
         "filters": [
             [
