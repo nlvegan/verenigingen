@@ -384,6 +384,50 @@ class TestEnsureVolunteer(EnhancedTestCase):
         # related_records._ensure_user_account_for_volunteer
         mock_acr.assert_called_once_with(member.name)
 
+    def _create_admin_session(self):
+        """Administrator because the queue needs User-create plus the high-security
+        tier; production runs as the human who triggered the sync, and the refusal
+        for a lesser role is covered in test_related_records_orchestrator."""
+        frappe.set_user("Administrator")
+
+    def test_existing_volunteer_added_to_team_gets_an_account_request(self):
+        """#1638 through the real entry point, no stub on the orchestrator: the
+        volunteer ACR used to be refused (invalid priority) and the reason lost."""
+        self._create_admin_session()
+        member = self.factory.create_member(
+            first_name="TeamAcr", last_name="Test", email="team-acr@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+        create_result = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        volunteer_name = create_result.get("volunteer_name") or create_result.get("volunteer")
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+        frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+        get_related_records_orchestrator().reset_acr_dedup()
+
+        def _drop_acrs():
+            for name in frappe.get_all(
+                "Account Creation Request", filters={"source_record": member.name}, pluck="name"
+            ):
+                frappe.delete_doc("Account Creation Request", name, ignore_permissions=True, force=True)
+
+        # Committed by the member cleanup registered before this one (LIFO order).
+        self.addCleanup(_drop_acrs)
+
+        config = {
+            "create_volunteer": True,
+            "verenigingen_role": "Verenigingen Volunteer",
+            "add_to_team": True,
+            "default_team": "Some Team Name",
+        }
+        message = get_volunteer_sync_service()._ensure_volunteer(member.name, config)
+
+        self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 1)
+        self.assertIn("queued", message)
+        self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
+
     def test_returns_failure_when_create_volunteer_returns_failure(self):
         # Force create_volunteer_from_member to return success=False by
         # passing an invalid member_name

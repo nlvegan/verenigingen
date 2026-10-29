@@ -611,39 +611,111 @@ class TestEnsureUserAccount(EnhancedTestCase):
         )
 
     def test_queues_acr_when_enabled_and_no_user(self):
+        """Real queue, real serialized-dict result (#1638): the orchestrator used
+        to read ``result.success`` off that dict and report a failure although
+        the ACR had been created, and never marked it queued."""
         self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "QueueACR", "queue-acr@example.org")
 
-        member = self.factory.create_member(
-            first_name="QueueACR", last_name="Test",
-            email="queue-acr@example.org",
-        )
-        self.addCleanup(_cleanup_member_and_customer, self, member.name)
-        frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+        result = get_related_records_orchestrator()._ensure_user_account(member.name)
 
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.data = {"request_name": "ACR-XYZ-001"}
+        acr = _acr_for(self, member.name)
+        self.assertEqual(acr.priority, "Low")
+        self.assertIn("queued", result)
+        self.assertNotIn("failed", result)
+        self.assertIn(acr.name, result)
+        self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
 
-        # Mock justified: Infrastructure - ACR queueing covered by its own suite
-        with patch(
-            "verenigingen.utils.account_creation_manager.queue_account_creation_for_member",
-            return_value=mock_result,
-        ) as mock_queue:
-            result = get_related_records_orchestrator()._ensure_user_account(
-                member.name
-            )
+    def test_create_related_records_entry_point_reports_queued_account(self):
+        """Same bug through the real entry point the dispatcher calls."""
+        self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "EntryACR", "entry-acr@example.org")
 
-        self.assertIsNotNone(result)
-        self.assertIn("ACR-XYZ-001", result)
-        mock_queue.assert_called_once_with(
-            member.name,
-            roles=["Verenigingen Member"],
-            role_profile="Verenigingen Member",
-            priority="Low",
-        )
-        self.assertTrue(
-            get_related_records_orchestrator().is_acr_queued(member.name)
-        )
+        messages = get_related_records_orchestrator()._create_related_records(member.name, {})
+
+        acr = _acr_for(self, member.name)
+        self.assertEqual([m for m in messages if "ccount" in m], [f"Account creation queued ({acr.name})"])
+        self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
+
+    def test_open_request_is_an_idempotent_skip_not_a_refusal(self):
+        self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "DupACR", "dup-acr@example.org")
+        orch = get_related_records_orchestrator()
+        orch._ensure_user_account(member.name)
+        orch.reset_acr_dedup()
+        errors_before = _refusal_log_count()
+
+        self.assertIsNone(orch._ensure_user_account(member.name))
+        self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 1)
+        self.assertEqual(_refusal_log_count(), errors_before)
+
+    def test_refusal_surfaces_and_is_logged_not_swallowed(self):
+        """Control for the dict reading: a real refusal must be reported, written
+        to the Error Log, and NOT marked queued. Production runs as the human who
+        triggered the sync, so use a Verenigingen Administrator, who lacks
+        User-create and is refused by the queue itself."""
+        self.expectErrorLog("MijnRood account creation")
+        self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "Refused", "refused@example.org")
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Administrator"])
+        self.addCleanup(_cleanup_user, user.name)
+        errors_before = _refusal_log_count()
+
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user(user.name):
+                result = get_related_records_orchestrator()._ensure_user_account(member.name)
+
+        # A Verenigingen Administrator is stopped by the high-security tier, which
+        # raises; the orchestrator reports that failure and logs it.
+        self.assertIn("Account creation failed", result)
+        self.assertIn("access denied", result.lower())
+        self.assertEqual(_refusal_log_count(), errors_before + 1)
+        self.assertFalse(get_related_records_orchestrator().is_acr_queued(member.name))
+        self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 0)
+
+    def test_member_without_email_is_a_silent_skip(self):
+        """Maintainer decision: no email is an expected skip, not a refusal."""
+        self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "NoMail", "no-mail@example.org")
+        frappe.db.set_value("Member", member.name, "email", "", update_modified=False)  # probe shortcut
+        errors_before = _refusal_log_count()
+
+        self.assertIsNone(get_related_records_orchestrator()._ensure_user_account(member.name))
+        self.assertEqual(_refusal_log_count(), errors_before)
+        self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 0)
+
+
+def _create_member_without_user(test, first_name, email):
+    """Member with no User, created under an Administrator session.
+
+    Happy-path tests need Administrator because the queue demands User-create
+    plus the high-security tier. Production runs as the human who triggered the
+    sync; the refusal for a lesser role is covered by its own test."""
+    frappe.set_user("Administrator")
+    member = test.factory.create_member(first_name=first_name, last_name="Test", email=email)
+    test.addCleanup(_cleanup_member_and_customer, test, member.name)
+    test.addCleanup(_cleanup_acrs, member.name)
+    frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+    return member
+
+
+def _acr_for(test, member_name):
+    names = frappe.get_all("Account Creation Request", filters={"source_record": member_name}, pluck="name")
+    test.assertEqual(len(names), 1, "exactly one ACR expected")
+    return frappe.get_doc("Account Creation Request", names[0])
+
+
+def _refusal_log_count():
+    return frappe.db.count(
+        "Error Log",
+        {"method": ["in", ["MijnRood account creation refused", "MijnRood account creation failed"]]},
+    )
+
+
+def _cleanup_acrs(member_name):
+    for name in frappe.get_all("Account Creation Request", filters={"source_record": member_name}, pluck="name"):
+        frappe.delete_doc("Account Creation Request", name, ignore_permissions=True, force=True)
+    # Committed by _cleanup_member_and_customer (cleanups run LIFO).
 
 
 class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
@@ -688,6 +760,70 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
         self.assertFalse(
             get_related_records_orchestrator().is_acr_queued(member.name)
         )
+
+    def test_queues_volunteer_acr_with_a_valid_priority(self):
+        """#1638: priority="Medium" is not an ACR priority, so the queue inserted
+        nothing; the AttributeError then hid the reason."""
+        member = _create_member_without_user(self, "VolQueue", "vol-queue@example.org")
+
+        result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(member.name)
+
+        acr = _acr_for(self, member.name)
+        self.assertEqual(acr.role_profile, "Verenigingen Volunteer")
+        self.assertIn("volunteer", result)
+        self.assertIn(acr.name, result)
+        self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
+
+    def test_volunteer_refusal_surfaces_and_is_logged(self):
+        self.expectErrorLog("MijnRood account creation")
+        member = _create_member_without_user(self, "VolRefused", "vol-refused@example.org")
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Administrator"])
+        self.addCleanup(_cleanup_user, user.name)
+        errors_before = _refusal_log_count()
+
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user(user.name):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(member.name)
+
+        self.assertIn("Account creation failed", result)
+        self.assertIn("access denied", result.lower())
+        self.assertEqual(_refusal_log_count(), errors_before + 1)
+        self.assertFalse(get_related_records_orchestrator().is_acr_queued(member.name))
+
+    def test_dict_refusal_from_the_queue_is_reported_and_logged(self):
+        """The queue's own refusal (a serialized dict, not an exception): an
+        unknown member is refused with 'Member not found'."""
+        self.expectErrorLog("MijnRood account creation")
+        errors_before = _refusal_log_count()
+
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user("Administrator"):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer("MEM-NOPE-1638")
+
+        self.assertEqual(result, "Account creation not queued: Member not found")
+        self.assertEqual(_refusal_log_count(), errors_before + 1)
+        self.assertFalse(get_related_records_orchestrator().is_acr_queued("MEM-NOPE-1638"))
+
+    def test_refusal_mentioning_mail_is_not_taken_for_the_no_email_skip(self):
+        """Control: only the structured NO_EMAIL code is a silent skip. An unknown
+        member whose NAME contains 'mail' is a real refusal and must be logged."""
+        self.expectErrorLog("MijnRood account creation")
+        errors_before = _refusal_log_count()
+
+        with self.assertErrorLog("MijnRood account creation"):
+            with self.as_user("Administrator"):
+                result = get_related_records_orchestrator()._ensure_user_account_for_volunteer("MEM-mail-1638")
+
+        self.assertEqual(result, "Account creation not queued: Member not found")
+        self.assertEqual(_refusal_log_count(), errors_before + 1)
+
+    def test_volunteer_without_email_is_a_silent_skip(self):
+        member = _create_member_without_user(self, "VolNoMail", "vol-no-mail@example.org")
+        frappe.db.set_value("Member", member.name, "email", "", update_modified=False)  # probe shortcut
+        errors_before = _refusal_log_count()
+
+        self.assertIsNone(get_related_records_orchestrator()._ensure_user_account_for_volunteer(member.name))
+        self.assertEqual(_refusal_log_count(), errors_before)
 
     def test_returns_none_when_already_in_acr_queue(self):
         member = self.factory.create_member(
