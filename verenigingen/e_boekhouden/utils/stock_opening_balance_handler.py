@@ -6,7 +6,6 @@ instead of trying to update stock accounts directly via Journal Entries.
 """
 
 import frappe
-from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_difference_account
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -24,6 +23,10 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
     Returns:
         dict: Success status and created document names
     """
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+        _get_or_create_temporary_diff_account,
+    )
+
     if not stock_accounts_data:
         return {"success": True, "message": "No stock accounts to process"}
 
@@ -59,16 +62,18 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
 
             # Idempotency: the stock account itself can no longer be stored as the
             # reconciliation's expense_account (ERPNext refuses a Stock account as
-            # difference account), so key on the account's stock item instead.
+            # difference account), so key on the account's stock item; legacy rows
+            # still carry the stock account as expense_account, so match those too.
             existing = frappe.db.sql(
                 """
                 SELECT sr.name FROM `tabStock Reconciliation` sr
                 JOIN `tabStock Reconciliation Item` sri ON sri.parent = sr.name
                 WHERE sr.company = %s AND sr.purpose = 'Opening Stock'
-                    AND sr.docstatus IN (0, 1) AND sri.item_code = %s
+                    AND sr.docstatus IN (0, 1)
+                    AND (sri.item_code = %s OR sr.expense_account = %s)
                 LIMIT 1
                 """,
-                (company, item_code),
+                (company, item_code, account),
                 pluck=True,
             )
 
@@ -87,8 +92,11 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
             stock_reco.purpose = "Opening Stock"
             # ERPNext books the stock side from the Warehouse's inventory account;
             # the difference account must not be a Stock account, and an opening
-            # entry needs a Balance Sheet one: ERPNext's Temporary Opening.
-            stock_reco.expense_account = get_difference_account("Opening Stock", company)
+            # entry needs a Balance Sheet one. Use the SAME balancing account as
+            # the opening-balance Journal Entry, so the two halves of the opening
+            # balance net out. (The unused _get_or_create_stock_temporary_account
+            # is an Asset account, which would leave the opening equity unbalanced.)
+            stock_reco.expense_account = _get_or_create_temporary_diff_account(company, debug_info)
 
             # Calculate quantity based on balance
             # For opening balances, we'll assume a standard rate of €1.00 per unit

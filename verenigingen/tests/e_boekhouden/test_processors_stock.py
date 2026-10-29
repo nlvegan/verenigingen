@@ -372,10 +372,44 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
             self.assertNotEqual(frappe.db.get_value("Account", account, "account_type"), "Stock")
 
     def test_difference_account_falls_back_when_no_counterparty(self):
-        account = self._processor()._get_difference_account(None)
-        if account:
-            self.assertNotEqual(frappe.db.get_value("Account", account, "account_type"), "Stock")
-            self.assertEqual(frappe.db.get_value("Account", account, "company"), self.company)
+        p = self._processor()
+        account = p._get_difference_account(None)
+        self.assertTrue(account, p.debug_info)
+        self.assertNotEqual(frappe.db.get_value("Account", account, "account_type"), "Stock")
+        self.assertEqual(frappe.db.get_value("Account", account, "company"), self.company)
+        # The fallback is recorded, with the reason.
+        self.assertTrue(any("Difference account fallback" in m and account in m for m in p.debug_info))
+
+    def test_receivable_counterparty_is_not_used_as_difference_account(self):
+        # ERPNext demands a party on a Receivable account, which a Stock
+        # Reconciliation cannot give (the mutation would be dropped). Control row:
+        # a REAL Receivable account of the company is the counterparty.
+        receivable = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        self.assertTrue(receivable, "fixture company has no Receivable account")
+        p = self._processor()
+        account = p._get_difference_account(receivable)
+        self.assertTrue(account)
+        self.assertNotEqual(account, receivable)
+        self.assertTrue(any("account type Receivable" in m for m in p.debug_info), p.debug_info)
+
+    def test_payable_counterparty_is_not_used_as_difference_account(self):
+        payable = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Payable", "is_group": 0}, "name"
+        )
+        self.assertTrue(payable, "fixture company has no Payable account")
+        self.assertNotEqual(self._processor()._get_difference_account(payable), payable)
+
+    def test_first_entry_pl_counterparty_fallback_is_recorded(self):
+        # With no Stock Ledger Entry for the company, a P&L counterparty is passed
+        # over; the debug_info must say why so the import-order dependence is visible.
+        if frappe.db.exists("Stock Ledger Entry", {"company": self.company}):
+            self.skipTest("company already has stock ledger entries on this site")
+        p = self._processor()
+        account = p._get_difference_account(self.expense_account)
+        self.assertNotEqual(account, self.expense_account)
+        self.assertTrue(any("no stock ledger yet" in m for m in p.debug_info), p.debug_info)
 
     def test_stock_reconciliation_created_and_submitted_with_content(self):
         p = self._processor()
@@ -526,3 +560,76 @@ class TestOpeningStockReconciliationDifferenceAccount(EnhancedTestCase):
             ),
             1,
         )
+
+    def test_opening_difference_account_is_the_opening_journal_entry_balancing_account(self):
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _get_or_create_temporary_diff_account,
+        )
+
+        # A "Temporary Differences" account takes priority 1 in the Journal Entry's
+        # lookup and differs from ERPNext's Temporary Opening, so the two choices
+        # cannot coincide by accident.
+        abbr = frappe.db.get_value("Company", self.company, "abbr")
+        if not frappe.db.exists("Account", f"Temporary Differences - {abbr}"):
+            parent = frappe.db.get_value(
+                "Account", {"company": self.company, "root_type": "Equity", "is_group": 1}, "name"
+            )
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Temporary Differences",
+                    "company": self.company,
+                    "parent_account": parent,
+                    "root_type": "Equity",
+                    "account_type": "Temporary",
+                    "is_group": 0,
+                }
+            ).insert()
+        decoy_name = f"Decoy Temporary - {abbr}"
+        if not frappe.db.exists("Account", decoy_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Decoy Temporary",
+                    "company": self.company,
+                    "parent_account": frappe.db.get_value("Account", f"Temporary Differences - {abbr}", "parent_account"),
+                    "root_type": "Equity",
+                    "account_type": "Temporary",
+                    "is_group": 0,
+                }
+            ).insert()
+        expected = _get_or_create_temporary_diff_account(self.company, [])
+        self.assertEqual(expected, f"Temporary Differences - {abbr}")
+        # Precondition: ERPNext's own opening default is a DIFFERENT account here.
+        from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_difference_account
+
+        self.assertNotEqual(get_difference_account("Opening Stock", self.company), expected)
+        result, debug_info = self._run_handler()
+        saved = frappe.get_doc("Stock Reconciliation", result["created_reconciliations"][0])
+        self.assertEqual(saved.expense_account, expected)
+
+    def test_opening_idempotency_matches_a_legacy_row_keyed_on_the_stock_account(self):
+        # Probe shortcut: the legacy shape (expense_account = the stock account) can no
+        # longer be created through ERPNext, so a valid draft is re-pointed with
+        # db.set_value; its item deliberately differs from the handler's item so only
+        # the expense_account key can match.
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _get_or_create_temporary_diff_account,
+        )
+
+        other_item = StockProcessor(self.company)._get_or_create_stock_item("99999 - Legacy Voorraad - EETC")
+        warehouse = StockProcessor(self.company)._get_or_create_warehouse()
+        legacy = frappe.new_doc("Stock Reconciliation")
+        legacy.company = self.company
+        legacy.posting_date = "2018-01-01"
+        legacy.posting_time = "00:00:00"
+        legacy.purpose = "Opening Stock"
+        legacy.expense_account = _get_or_create_temporary_diff_account(self.company, [])
+        legacy.append(
+            "items", {"item_code": other_item, "warehouse": warehouse, "qty": 1, "valuation_rate": 1.0}
+        )
+        legacy.insert()
+        frappe.db.set_value("Stock Reconciliation", legacy.name, "expense_account", self.stock_account)
+
+        result, debug_info = self._run_handler()
+        self.assertEqual(result["created_reconciliations"], [legacy.name], debug_info)

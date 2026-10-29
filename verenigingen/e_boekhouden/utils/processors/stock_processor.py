@@ -262,28 +262,54 @@ class StockProcessor(BaseTransactionProcessor):
 
         The mutation's own counterparty ledger is the true contra, so it goes
         first; then ERPNext's own defaults (Company.stock_adjustment_account,
-        the Temporary account). A candidate must not be a Stock account or a
-        group, and while the company has no Stock Ledger Entry yet ERPNext
-        requires a Balance Sheet account (opening entry rule).
+        the Temporary account). A candidate must not be a Stock account, a
+        Receivable/Payable account (ERPNext demands a party on those, which a
+        Stock Reconciliation cannot give) or a group.
+
+        First-entry decision: while the company has no Stock Ledger Entry yet,
+        ERPNext requires a Balance Sheet difference account, so a P&L
+        counterparty is passed over for a default. Which account a mutation gets
+        therefore depends on whether it is the company's first stock movement
+        (import order); every fallback is recorded in debug_info with its reason.
         """
         from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_difference_account
 
         is_first_entry = not frappe.db.exists("Stock Ledger Entry", {"company": self.company})
-        for account in (
-            counterparty_account,
-            get_difference_account("Stock Reconciliation", self.company),
-            get_difference_account("Opening Stock", self.company),
-        ):
-            values = frappe.db.get_value(
-                "Account", account, ["company", "account_type", "is_group", "report_type"], as_dict=True
+        for position, account in enumerate(
+            (
+                counterparty_account,
+                get_difference_account("Stock Reconciliation", self.company),
+                get_difference_account("Opening Stock", self.company),
             )
-            if not values or values.company != self.company or values.is_group:
-                continue
-            if values.account_type == "Stock":
-                continue
-            if is_first_entry and values.report_type != "Balance Sheet":
-                continue
-            return account
+        ):
+            reason = self._difference_account_refusal(account, is_first_entry)
+            if reason is None:
+                if position:
+                    self.debug_info.append(
+                        f"Difference account fallback: using {account} (counterparty "
+                        f"{counterparty_account or 'None'} not usable)"
+                    )
+                return account
+            if position == 0 and account:
+                self.debug_info.append(f"Counterparty {account} not used as difference account: {reason}")
+        return None
+
+    def _difference_account_refusal(self, account: Optional[str], is_first_entry: bool) -> Optional[str]:
+        """Why ``account`` cannot be the difference account, or None if it can."""
+        values = frappe.db.get_value(
+            "Account",
+            account,
+            ["company", "account_type", "is_group", "report_type"],
+            as_dict=True,
+        )
+        if not values:
+            return "no such account"
+        if values.company != self.company or values.is_group:
+            return "wrong company or group account"
+        if values.account_type in ("Stock", "Receivable", "Payable"):
+            return f"account type {values.account_type}"
+        if is_first_entry and values.report_type != "Balance Sheet":
+            return "company has no stock ledger yet and the account is not Balance Sheet"
         return None
 
     def _get_or_create_warehouse(self) -> Optional[str]:
