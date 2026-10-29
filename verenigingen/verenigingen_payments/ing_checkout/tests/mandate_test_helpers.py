@@ -15,7 +15,7 @@ Resolution itself is covered against real `Member` and `SEPA Mandate` documents 
 `Member` is what hid #623, so nothing here may stand in for a real one.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 
@@ -35,3 +35,30 @@ def resolves_to(mandate_name):
     exists.
     """
     return patch(_RESOLVER, return_value=MandateChoice(frappe._dict(name=mandate_name), 1))
+
+
+def routes_get_doc(docs_by_doctype):
+    """Build a `frappe.get_doc` side_effect that stubs ONLY the doctypes named.
+
+    A bare `patch("frappe.get_doc")` replaces the function for the whole process, so
+    framework code reached from the code under test (`today()` -> System Settings ->
+    `frappe.client_cache` loader -> `frappe.get_doc`) gets the mock too, and on a cold
+    cache the mock is pickled into the cache (`PicklingError`, shard-order dependent).
+    Any other named doctype therefore goes to the REAL `get_doc`. A dict argument
+    (`frappe.get_doc({...})`, i.e. a document being built, as `log_error` does) still
+    gets a MagicMock, so no real row is inserted.
+
+    Call this BEFORE entering `patch("frappe.get_doc", ...)`: it captures the real
+    function at call time.
+    """
+    real_get_doc = frappe.get_doc
+
+    def _get_doc(*args, **kwargs):
+        doctype = args[0] if args else kwargs.get("doctype")
+        if isinstance(doctype, str):
+            if doctype in docs_by_doctype:
+                return docs_by_doctype[doctype]
+            return real_get_doc(*args, **kwargs)
+        return MagicMock()
+
+    return _get_doc
