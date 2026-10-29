@@ -400,10 +400,12 @@ def _expense_claim_card(filters, chapter):
     if not scope or not frappe.has_permission("Expense Claim", "read"):
         return {"value": 0, "fieldtype": "Data"}
 
+    # A site restored from an old snapshot may lack the field until `bench migrate`, and the
+    # permission query itself filters on it for approvers: fail closed on both branches.
+    if not frappe.get_meta("Expense Claim").has_field("custom_chapter"):
+        return {"value": 0, "fieldtype": "Data"}
+
     if chapter:
-        # A site restored from an old snapshot may lack the field until `bench migrate`
-        if not frappe.get_meta("Expense Claim").has_field("custom_chapter"):
-            return {"value": 0, "fieldtype": "Data"}
         filters = {**filters, "custom_chapter": chapter}
 
     rows = frappe.get_list("Expense Claim", filters=filters, fields=[{"COUNT": "name", "as": "total"}])

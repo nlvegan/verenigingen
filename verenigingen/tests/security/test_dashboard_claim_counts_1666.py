@@ -110,7 +110,7 @@ class TestDashboardClaimCounts(StaffExpenseBase):
         meta.has_field = lambda f: False if f == "custom_chapter" else original(f)  # Mock justified: simulates an unmigrated site
         try:
             self.assertEqual(self._filed(self.board_only, self.chapter_a.name), 0)
-            self.assertGreaterEqual(self._filed(self.board_only), 0)
+            self.assertEqual(self._filed(self.board_only), 0)
         finally:
             meta.has_field = original
 
