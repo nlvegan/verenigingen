@@ -737,3 +737,24 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIn("recent_additions", summary)
         self.assertIn("recent_removals", summary)
         self.assertIn("last_updated", summary)
+
+    # ------------------------------------------------------------------ _get_member_name
+
+    def test_get_member_name_returns_the_members_full_name(self):
+        other = self._make_member(first="NameLookup")
+        self.assertEqual(self.manager._get_member_name(other.name), other.full_name)
+
+    def test_get_member_name_falls_back_to_the_id_for_an_unknown_member(self):
+        self.assertEqual(self.manager._get_member_name("MEM-DOES-NOT-EXIST-1743"), "MEM-DOES-NOT-EXIST-1743")
+        # A caller passes member.get("member", ""); that must not resolve to some other row.
+        self.assertEqual(self.manager._get_member_name(""), "")
+
+    def test_get_member_name_reads_one_row_not_the_whole_member(self):
+        """#1743: it used to load the whole Member (one select per child table) to read
+        ``full_name``; a chapter save calls it once per added member."""
+        other = self._make_member(first="NameLookupCost")
+        manager = self.manager
+        # Warm per-process metadata on a different member so the count is the lookup alone.
+        manager._get_member_name(self.member.name)
+        with self.assertQueryCount(1):
+            manager._get_member_name(other.name)
