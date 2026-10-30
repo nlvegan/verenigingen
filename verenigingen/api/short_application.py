@@ -13,6 +13,7 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, get_url
 
 from verenigingen.api.membership_application import _handle_existing_member
+from verenigingen.services.member.application.short_application_confirm import confirm_submission
 from verenigingen.services.member.application.short_application_validation import (
     validate_short_application,
 )
@@ -137,3 +138,12 @@ def _send_already_member_email(email):
             "Neem contact met ons op als je hulp nodig hebt.</p>"
         ),
     )
+
+
+@frappe.whitelist(allow_guest=True)
+@rate_limit(limit=30, seconds=3600)
+@public_api(operation_type=OperationType.MEMBER_DATA)
+@handle_api_error
+def confirm_short_application(submission: str, token: str) -> dict:
+    """Confirm an application from the emailed link. POST only; every refusal looks the same."""
+    return confirm_submission(submission, token)
