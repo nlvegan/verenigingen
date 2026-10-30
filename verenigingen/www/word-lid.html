@@ -28,13 +28,13 @@
     {% for d in doors %}
         <a href="/word-lid/{{ d.slug | e }}" class="wl-card block hover:shadow-lg">
             <h2 class="text-xl font-semibold mb-2">{{ d.title | e }}</h2>
-            <p>{{ (d.card_text or "") | e }}</p>
+            <div>{{ d.card_html | safe }}</div>
         </a>
     {% endfor %}
     </div>
 {% else %}
     <h1 class="text-3xl font-bold mb-2">{{ door.title | e }}</h1>
-    {% if door.intro_text %}<div class="mb-6">{{ door.intro_text }}</div>{% endif %}
+    {% if intro_html %}<div class="mb-6">{{ intro_html | safe }}</div>{% endif %}
 
     <form id="short-application-form" novalidate
           data-door="{{ door.name }}"

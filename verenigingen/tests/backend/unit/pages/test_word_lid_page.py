@@ -136,6 +136,25 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
             self.assertNotIn("<b>x</b>", html)
             self.assertIn("&lt;b&gt;x&lt;/b&gt;", html)
 
+    def test_editor_text_renders_as_sanitized_html(self):
+        editor_value = (
+            '<div class="ql-editor read-mode"><p>Hallo <b>daar</b></p><script>alert(1)</script></div>'
+        )
+        door = self._door(title="Editordeur")
+        # Straight to the column, as an import would: the page must not rely on save-time cleaning.
+        frappe.db.set_value(
+            "Membership Application Door", door.name, {"card_text": editor_value, "intro_text": editor_value}
+        )
+        for label, html in (
+            ("landing", self._page_get("word-lid").get_data(as_text=True)),
+            ("door", self._render_page_html(door.slug)),
+        ):
+            with self.subTest(label):
+                # Booleans, not assertIn: a failure would otherwise print the whole page.
+                self.assertTrue("<b>daar</b>" in html, "editor markup must render as HTML")
+                self.assertFalse("&lt;div" in html, "editor markup must not be shown escaped")
+                self.assertFalse("<script>alert(1)" in html, "script must be stripped")
+
     def test_confirm_page_sends_no_referrer(self):
         html = self._page_get("word-lid/bevestig", submission="x", token="y").get_data(as_text=True)
         self.assertIn('name="referrer" content="no-referrer"', html)

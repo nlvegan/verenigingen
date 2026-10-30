@@ -2,6 +2,7 @@
 
 import frappe
 from frappe import _
+from frappe.utils.html_utils import sanitize_html
 
 DOOR_DOCTYPE = "Membership Application Door"
 FREQUENCIES = ("Monthly", "Annual")
@@ -35,6 +36,8 @@ def _load_landing(context):
         fields=["title", "slug", "card_text"],
         order_by="sort_order asc, title asc",
     )
+    for door in context.doors:
+        door.card_html = _editor_html(door.card_text)
 
 
 def _load_door(context, door_slug):
@@ -44,6 +47,7 @@ def _load_door(context, door_slug):
     door = frappe.get_doc(DOOR_DOCTYPE, door_slug)
     context.door = door
     context.title = door.title
+    context.intro_html = _editor_html(door.intro_text)
     context.hidden = door.hidden()
     context.amount_options = [{"frequency": o.frequency, "amount": o.amount} for o in door.amount_options]
     context.frequencies = [f for f in FREQUENCIES if door.get_template_for(f)]
@@ -51,6 +55,11 @@ def _load_door(context, door_slug):
     context.countries = _available_countries()
     context.join_reasons = _enabled_names("Membership Join Reason", "reason")
     context.referral_sources = _enabled_names("Membership Referral Source", "source")
+
+
+def _editor_html(value):
+    """Text Editor content is HTML: render it, but only after stripping anything unsafe (ruling R16)."""
+    return sanitize_html(value or "", always_sanitize=True)
 
 
 def _minimums(door, frequency):
