@@ -152,7 +152,7 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         address = frappe.get_doc("Address", member.primary_address)
         self.assertEqual(address.address_line1, "Kerkstraat 12 B")
         row = frappe.db.get_value(SUBMISSION, name, ["status", "member", "confirmed_on"], as_dict=True)
-        self.assertEqual((row.status, row.member), ("Confirmed", member.name))
+        self.assertEqual((row.status, row.member), ("Pending Review", member.name))
         self.assertTrue(row.confirmed_on)
 
     def test_get_request_confirms_nothing(self):

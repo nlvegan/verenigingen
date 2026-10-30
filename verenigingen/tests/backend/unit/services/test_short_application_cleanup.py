@@ -70,9 +70,9 @@ class TestShortApplicationCleanup(VereningingenUnitTestCase):
         self.assertGreaterEqual(result["deleted"], 2)
 
     def test_confirmed_rows_are_never_deleted(self):
-        confirmed = self._submission_row({"days": -40}, status="Confirmed")
+        confirmed = self._submission_row({"days": -40}, status="Pending Review")
         sac.expire_and_purge_submissions()
-        self.assertEqual(self._submission_status(confirmed), "Confirmed")
+        self.assertEqual(self._submission_status(confirmed), "Pending Review")
 
     def test_boundaries_are_exact(self):
         just_inside_expiry = self._submission_row({"days": -sac.EXPIRY_DAYS, "minutes": 1})

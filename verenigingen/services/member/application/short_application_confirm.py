@@ -70,7 +70,7 @@ def confirm_submission(submission_name, token) -> dict:
     frappe.db.set_value(
         SUBMISSION,
         submission.name,
-        {"status": "Confirmed", "confirmed_on": now_datetime(), "member": member.name},
+        {"status": "Pending Review", "confirmed_on": now_datetime(), "member": member.name},
     )
     return success()
 
