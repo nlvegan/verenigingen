@@ -547,7 +547,10 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
             raise  # Re-raise since this is critical
 
         # Determine suggested chapter
-        suggested_chapter = determine_chapter_from_application(data)
+        # #1731: a Guest cannot read chapters or save one, so the suggestion runs as the system user.
+        # The chapter name may come straight from the anonymous request, hence the selectable check.
+        with _as_application_system_user(f"Chapter suggestion for application {application_id}"):
+            suggested_chapter = _only_if_selectable_chapter(determine_chapter_from_application(data))
         if suggested_chapter:
             _save_suggested_chapter(member, suggested_chapter, application_id)
 
@@ -560,7 +563,10 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
 
         # Create pending Chapter Member record after member is committed
         if suggested_chapter:
-            _create_pending_chapter_membership_safe(member, suggested_chapter)
+            # Saving the Chapter roster needs rights a Guest lacks. _save_suggested_chapter above opens
+            # its own context and contexts must not nest, so this one is a separate block.
+            with _as_application_system_user(f"Pending chapter membership for application {application_id}"):
+                _create_pending_chapter_membership_safe(member, suggested_chapter)
 
         # Notifications are now handled via Frappe's native Notification system:
         # - "New Membership Application Submitted" notifies administrators
@@ -750,6 +756,28 @@ def _validate_membership_amount(data):
             context={"type": "validation_error", "operation": "submit_application"},
         )
 
+    return None
+
+
+def _as_application_system_user(description):
+    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
+
+    return secure_user_context(get_system_user_for_operation("member_update_during_application"), description)
+
+
+def _only_if_selectable_chapter(chapter_name):
+    """Return chapter_name only if the application form could have offered it, else None.
+
+    The form offers every published chapter; this guard also refuses Inactive and Dissolved ones. The
+    application then writes to the chapter as the system user, so an anonymous caller must not be able to
+    name any other one (unpublished, inactive, dissolved, unknown).
+    Refuse by dropping the suggestion: the application itself still goes through.
+    """
+    if not chapter_name:
+        return None
+    chapter = frappe.db.get_value("Chapter", chapter_name, ["published", "status"], as_dict=True)
+    if chapter and chapter.published and chapter.status == "Active":
+        return chapter_name
     return None
 
 
