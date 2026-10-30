@@ -194,7 +194,7 @@ class DuesScheduleLifecycleService(StatelessService):
         if (
             old_status == "Cancelled"
             and new_status == "Active"
-            and schedule_doc.flags.get("rejoin_reactivation")
+            and schedule_doc.flags.get("rejoin_reactivation") is True
         ):
             return
 
