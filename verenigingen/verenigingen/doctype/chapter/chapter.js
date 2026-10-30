@@ -1693,15 +1693,28 @@ function apply_role_profiles_to_board_members(frm) {
 				freeze: true,
 				freeze_message: __('Applying role profiles to board...'),
 				callback(r) {
+					const failed = (r.message && r.message.failed) || [];
 					if (r.message && r.message.success) {
 						frappe.show_alert(
 							{
-								message: __('Role profiles applied successfully to {0} board members', [
-									r.message.members_updated || 0
-								]),
-								indicator: 'green'
+								message: failed.length
+									? __('Role profiles applied to {0} board members, {1} failed: {2}', [
+											r.message.members_updated || 0,
+											failed.length,
+											failed.map((f) => f.user).join(', ')
+										])
+									: __('Role profiles applied successfully to {0} board members', [
+											r.message.members_updated || 0
+										]),
+								indicator: failed.length ? 'orange' : 'green'
 							},
-							5
+							failed.length ? 10 : 5
+						);
+					} else if (failed.length) {
+						frappe.msgprint(
+							__('Role profile sync failed for: {0}', [
+								failed.map((f) => `${f.user} (${f.error})`).join(', ')
+							])
 						);
 					} else {
 						frappe.msgprint(__('No board members were updated. Please check your chapter configuration.'));
