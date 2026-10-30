@@ -35,7 +35,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
             {
                 "doctype": "Region",
                 "region_name": f"Termination Test Region {suffix}",
-                "region_code": f"T{suffix[:4].upper()}",
+                "region_code": self.unique_region_code(),
             }
         )
         region.insert(ignore_permissions=True)
