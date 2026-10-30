@@ -213,8 +213,9 @@ def _assert_user_may_view_chapter(chapter_name: str) -> None:
 
     #785: this used to live inside the function body that ``cache_with_ttl``
     memoized, so a cache hit returned before it ever executed. Hoisting it out
-    is what lets the payload below go back to a shared (``per_user=False``)
-    cache without reintroducing #782.
+    is what lets the payload below sit behind a cache without reintroducing #782.
+    (That cache was shared in #785 and is per-user again since #1701, because the
+    payload now carries caller-scoped Expense Claim figures.)
     """
     if not chapter_name:
         frappe.throw(_("Chapter name is required"))
@@ -237,11 +238,13 @@ def _chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
     (#785) -- callers must gate access themselves, e.g. via
     ``_assert_user_may_view_chapter``.
 
-    One field DOES vary by caller: ``board_info.members[].is_current_user``.
-    ``get_board_information()`` never reads the session, precisely so this
-    function's output is safe to put behind a shared (``per_user=False``)
-    cache -- see ``_annotate_current_user``, which fills that field in
-    afterwards, per caller, outside the cache.
+    The Expense Claim figures and rows DO vary by caller (#1701): they are read
+    through ``get_list`` as the session user, which is why the cache in front of
+    this function is per-user.
+
+    ``board_info.members[].is_current_user`` also varies by caller.
+    ``get_board_information()`` never reads the session, so that field is filled in
+    afterwards, per caller, by ``_annotate_current_user``.
     """
     dashboard_data = {
         "chapter_info": get_chapter_basic_info(chapter_name),
@@ -265,13 +268,13 @@ def _annotate_current_user(payload: Dict[str, Any]) -> Dict[str, Any]:
     set for the calling user.
 
     Found in skeptical review of #904: ``_chapter_dashboard_payload`` sits behind
-    a shared (``per_user=False``, 120s TTL) cache, so computing this flag inside
-    it (as the pre-#785 code did) freezes whichever caller happened to warm the
-    cache as "you" for every other board member for up to two minutes. Computing
+    a 120s TTL cache (shared when this was written, per-user since #1701), so
+    computing this flag inside it (as the pre-#785 code did) freezes whichever
+    caller warmed a shared entry as "you" for every other board member. Computing
     it here instead, AFTER the cache read, fixes that -- but only if this
     function does not mutate ``payload`` in place: ``cache_with_ttl`` stores the
     dict object by reference, so an in-place write here would leak straight into
-    the shared cache entry and hand the NEXT reader this caller's identity.
+    the cache entry and hand the NEXT reader of that entry this caller's identity.
     Hence the copy.
     """
     current_user = frappe.session.user
@@ -302,7 +305,7 @@ def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
     """Get comprehensive dashboard data for chapter board members (API endpoint).
 
     The access check runs here, uncached, on every call; only the resulting
-    payload is cached and shared (#785). ``is_current_user`` is filled in after
+    payload is cached per user (#1701; shared in #785). ``is_current_user`` is filled in after
     the cache read, per caller -- see ``_annotate_current_user``.
     """
     _assert_user_may_view_chapter(chapter_name)
@@ -386,17 +389,14 @@ def _callers_expense_claims(filters: Dict[str, Any], fields: List[str], order_by
     Verenigingen Staff open any chapter, so Staff saw aggregates and rows of claims the
     #1606 ruling hides from their list (#1701). A figure here equals what the caller could
     ``get_list`` (same rule as the number cards, #1666); a caller with no read right on
-    Expense Claim gets none. ``limit_page_length=0``: ``get_list`` pages at 20, ``get_all``
-    did not, and a silently truncated total is worse than a leak.
+    Expense Claim gets none (``get_list`` would raise, and the tiles would show "--").
 
     The payload that calls this is cached per user (``_cached_chapter_dashboard_payload``):
     a shared entry would hand one caller's view to the next.
     """
     if not frappe.has_permission("Expense Claim", "read"):
         return []
-    return frappe.get_list(
-        "Expense Claim", filters=filters, fields=fields, order_by=order_by, limit_page_length=0
-    )
+    return frappe.get_list("Expense Claim", filters=filters, fields=fields, order_by=order_by)
 
 
 def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
@@ -1015,9 +1015,9 @@ def get_board_information(chapter_name: str) -> Dict[str, Any]:
     """Get board member information.
 
     Deliberately does not read ``frappe.session.user``: this function feeds the
-    dashboard payload that sits behind a shared (``per_user=False``) cache
-    (#785), and a session read here would freeze one caller's identity onto
-    that shared entry for everyone else until the TTL expires (found in
+    dashboard payload that sits behind a TTL cache (shared in #785, per-user
+    since #1701), and a session read here would freeze one caller's identity onto
+    a cache entry until the TTL expires (found in
     skeptical review of #904). ``is_current_user`` is filled in by
     ``_annotate_current_user``, per caller, AFTER the cache read -- so it
     always starts False here.

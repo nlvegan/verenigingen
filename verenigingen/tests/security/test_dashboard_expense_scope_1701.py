@@ -104,8 +104,10 @@ class TestDashboardExpenseScope(StaffExpenseBase):
         self.assertEqual(narrow["key_metrics"]["expenses"]["pending_count"], 0)
 
     # ---------------------------------------------------------------- page size
-    def test_more_than_one_default_page_of_claims_is_counted(self):
-        """frappe.get_list pages at 20 by default; get_all did not. 21 claims must all count."""
+    def test_more_than_twenty_claims_are_all_counted(self):
+        """CONTROL, not a fix pin: the 20-row page default applies to REST/desk callers, not to
+        the Python ``get_list`` used here (measured, review of #1701), so this passes with or
+        without an explicit limit. It guards against a future change that introduces paging."""
         extra = [self.claim(self.volunteer_emp, chapter=self.chapter_a) for _ in range(19)]
         data = self._dash_1701(self.treasurer, self.chapter_a)
         self.assertEqual(len(self._pending_names_1701(data)), 2 + len(extra))
