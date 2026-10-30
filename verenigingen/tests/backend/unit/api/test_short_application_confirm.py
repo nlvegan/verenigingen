@@ -404,6 +404,9 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
             other_type = self.create_test_membership_type()
             frappe.db.set_value("Membership Dues Schedule", self.template, "membership_type", other_type.name)
 
+        def change_frequency(_name):
+            frappe.db.set_value("Membership Dues Schedule", self.template, "billing_frequency", "Annual")
+
         def delete_template(name):
             # The template is linked from the door and its type; deletion is simulated on the payload.
             payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
@@ -414,15 +417,113 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
             ("deleted", delete_template),
             ("untemplated", untemplate),
             ("moved to another type", move_to_other_type),
+            ("frequency changed", change_frequency),
         ):
             with self.subTest(label):
                 saved = frappe.db.get_value(
-                    "Membership Dues Schedule", self.template, ["is_template", "membership_type"], as_dict=True
+                    "Membership Dues Schedule",
+                    self.template,
+                    ["is_template", "membership_type", "billing_frequency"],
+                    as_dict=True,
                 )
                 try:
                     self._assert_stale_template_refused(make_stale)
                 finally:
                     frappe.db.set_value("Membership Dues Schedule", self.template, saved)
+
+    def test_template_edited_to_another_frequency_after_the_door_was_saved_is_refused_at_submit(self):
+        """The door checks slot frequency only when it is saved; the template can still be edited.
+        A Monthly choice must never reach an Annual template (it would bill the amount yearly)."""
+        # Straight to the column, as an import would: saving the template is refused while a door
+        # uses it, so the submit check is what stops this route.
+        frappe.db.set_value("Membership Dues Schedule", self.template, "billing_frequency", "Annual")
+        data = self._confirm_data()
+        frappe.set_user("Guest")
+        try:
+            response = sa.submit_short_application(self.door.name, **data)
+        finally:
+            frappe.set_user(self._previous_user)
+        self.assertEqual(response, {"success": False, "message": "This payment frequency is not available."})
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), 0)
+
+    def test_a_template_a_pending_applicant_chose_cannot_change_frequency(self):
+        """Approval reads the template's frequency when it runs, days after confirm: the template
+        must not change period under an application still waiting for it."""
+        name = self._confirm_submit()
+        response, _log = self._confirm(name)
+        self.assertTrue(response["success"], response)
+        self._track_members()
+        member = frappe.db.get_value(
+            "Member", self._members()[0], ["application_status", "application_dues_schedule"], as_dict=True
+        )
+        self.assertEqual((member.application_status, member.application_dues_schedule), ("Pending", self.template))
+        self._repoint_door_to_another_type()  # so only the applicant still uses the template
+        template = frappe.get_doc("Membership Dues Schedule", self.template)
+        template.billing_frequency = "Annual"
+        with self.assertRaisesRegex(frappe.ValidationError, "pending application"):
+            template.save()
+
+    def test_lost_savepoint_through_the_endpoint_leaves_no_half_written_rows(self):
+        """@handle_api_error turns the re-raise into a returned error, so the request still ends in a
+        commit: the half-written rows must already be gone by then."""
+        from unittest.mock import patch
+
+        from verenigingen.services.member.application import short_application_confirm as sac
+
+        name = self._confirm_submit()
+        savepoints = []
+        real_savepoint = frappe.db.savepoint
+
+        def record_savepoint(save_point):
+            savepoints.append(save_point)
+            return real_savepoint(save_point)
+
+        def write_address_then_lose_savepoint(*_args):
+            # A raw row stands in for whatever the helpers had written when the savepoint went.
+            address = frappe.get_doc(
+                {
+                    "doctype": "Address",
+                    "address_title": "Half written",
+                    "address_line1": "Kerkstraat 12",
+                    "city": "Utrecht",
+                    "country": "Netherlands",
+                    "email_id": self.email,
+                }
+            )
+            address.name = f"Half written {frappe.generate_hash(length=8)}"
+            address.db_insert()
+            frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
+            raise ValueError("write failed after the savepoint was lost")
+
+        self.expectErrorLog("Savepoint rollback skipped")
+        with patch.object(frappe.db, "savepoint", side_effect=record_savepoint), patch.object(
+            sac, "_write_member", side_effect=write_address_then_lose_savepoint
+        ):
+            response, _log = self._confirm(name)
+        self.assertFalse(response.get("success"), response)
+        self.assertEqual(len(savepoints), 1, "control: the code under test took exactly one savepoint")
+        self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), 0)
+        self.assertEqual(self._members(), [])
+
+    def test_reapplication_with_a_blank_mobile_keeps_the_members_number(self):
+        existing = self._rejected_member(self.door)
+        frappe.db.set_value("Member", existing.name, "contact_number", "0699999999")
+        name = self._confirm_submit(mobile_no="")
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self.assertEqual(frappe.db.get_value("Member", existing.name, "contact_number"), "0699999999")
+
+    def test_reapplication_with_a_new_mobile_replaces_the_members_number(self):
+        existing = self._rejected_member(self.door)
+        frappe.db.set_value("Member", existing.name, "contact_number", "0699999999")
+        name = self._confirm_submit(mobile_no="0611111111")
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self.assertEqual(frappe.db.get_value("Member", existing.name, "contact_number"), "0611111111")
 
     def test_lost_savepoint_reraises_instead_of_refusing(self):
         """If the savepoint is gone (a nested commit or a deadlock), nothing was rolled back, so a

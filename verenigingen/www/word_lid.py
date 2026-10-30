@@ -6,6 +6,10 @@ from frappe.utils.html_utils import sanitize_html
 
 DOOR_DOCTYPE = "Membership Application Door"
 FREQUENCIES = ("Monthly", "Annual")
+# The intro sits next to the application form, and each card inside its door's own link: no form
+# that posts elsewhere, and no link nested in the card's link.
+FORM_CONTROL_TAGS = ["form", "input", "button", "select", "textarea"]
+CARD_DISALLOWED_TAGS = FORM_CONTROL_TAGS + ["a"]
 
 
 def get_context(context):
@@ -37,7 +41,7 @@ def _load_landing(context):
         order_by="sort_order asc, title asc",
     )
     for door in context.doors:
-        door.card_html = _editor_html(door.card_text)
+        door.card_html = _editor_html(door.card_text, CARD_DISALLOWED_TAGS)
 
 
 def _load_door(context, door_slug):
@@ -47,7 +51,7 @@ def _load_door(context, door_slug):
     door = frappe.get_doc(DOOR_DOCTYPE, door_slug)
     context.door = door
     context.title = door.title
-    context.intro_html = _editor_html(door.intro_text)
+    context.intro_html = _editor_html(door.intro_text, FORM_CONTROL_TAGS)
     context.hidden = door.hidden()
     context.amount_options = [{"frequency": o.frequency, "amount": o.amount} for o in door.amount_options]
     context.frequencies = [f for f in FREQUENCIES if door.get_template_for(f)]
@@ -57,9 +61,9 @@ def _load_door(context, door_slug):
     context.referral_sources = _enabled_names("Membership Referral Source", "source")
 
 
-def _editor_html(value):
+def _editor_html(value, disallowed_tags):
     """Text Editor content is HTML: render it, but only after stripping anything unsafe (ruling R16)."""
-    return sanitize_html(value or "", always_sanitize=True)
+    return sanitize_html(value or "", always_sanitize=True, disallowed_tags=disallowed_tags)
 
 
 def _minimums(door, frequency):

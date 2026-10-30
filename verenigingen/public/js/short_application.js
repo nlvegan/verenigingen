@@ -20,7 +20,8 @@
 
 	function responseOf(data) {
 		const message = data && data.message;
-		if (message && typeof message === 'object' && 'success' in message) {
+		// @handle_api_error failures carry `error`, not `message`: those get the generic text too.
+		if (message && typeof message === 'object' && 'success' in message && typeof message.message === 'string') {
 			return message;
 		}
 		return { success: false, message: __('Er ging iets mis. Probeer het later opnieuw.') };

@@ -51,6 +51,14 @@ describe('short application post', () => {
 		expect(result.textContent).toBe('Er ging iets mis. Probeer het later opnieuw.');
 	});
 
+	test('an error result without a message gets the generic message', async () => {
+		// @handle_api_error answers 200 with {success: false, error: {...}} and no top-level message.
+		const body = { message: { success: false, error: { message: 'An unexpected error occurred' } } };
+		const { button, result } = await confirmWith(200, body);
+		expect(button.disabled).toBe(false);
+		expect(result.textContent).toBe('Er ging iets mis. Probeer het later opnieuw.');
+	});
+
 	test('a refusal from the server is shown as sent', async () => {
 		const { button, result } = await confirmWith(200, { message: { success: false, message: 'Ongeldig' } });
 		expect(button.disabled).toBe(false);

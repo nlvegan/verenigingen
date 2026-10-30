@@ -165,7 +165,12 @@ def _clean_housemate(data, cleaned):
 def _clean_regular(door, data, cleaned, postal):
     frequency = _text(data, "frequency")
     template = frequency in FREQUENCIES and door.get_template_for(frequency)
-    if not template:
+    # The door checks its slots only when saved; the template itself can be edited later, and a
+    # template of another frequency would bill the chosen amount on the wrong period.
+    if (
+        not template
+        or frappe.db.get_value("Membership Dues Schedule", template, "billing_frequency") != frequency
+    ):
         frappe.throw(_("This payment frequency is not available."))
     amount = _parse_amount(data.get("amount"))
     if amount < door.minimum_for(frequency, postal):

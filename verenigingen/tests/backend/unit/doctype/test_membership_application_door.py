@@ -165,3 +165,27 @@ class TestMembershipApplicationDoor(VereningingenUnitTestCase):
         self.assertEqual(door.hidden(), {"mobile_no", "birth_year"})
         self.assertEqual(door.get_template_for("Monthly"), self._template_of(membership_type))
         self.assertIsNone(door.get_template_for("Annual"))
+
+    def test_a_template_in_a_door_slot_cannot_change_frequency(self):
+        """A slot was checked when the door was saved; changing the template under it afterwards
+        would bill the applicant's chosen amount on another period."""
+        membership_type = self.create_test_membership_type()
+        door = self._save(self._unsaved_door(membership_type))
+        template = frappe.get_doc("Membership Dues Schedule", door.monthly_dues_template)
+        template.billing_frequency = "Annual"
+        with self.assertRaisesRegex(frappe.ValidationError, "application door"):
+            template.save()
+
+    def test_a_template_in_a_door_slot_keeps_its_other_fields_editable(self):
+        membership_type = self.create_test_membership_type()
+        door = self._save(self._unsaved_door(membership_type))
+        template = frappe.get_doc("Membership Dues Schedule", door.monthly_dues_template)
+        template.minimum_amount = (template.minimum_amount or 0) + 1
+        template.save()  # opposite harm: only the frequency is frozen
+
+    def test_a_template_no_door_uses_can_still_change_frequency(self):
+        membership_type = self.create_test_membership_type()
+        template = frappe.get_doc("Membership Dues Schedule", self._second_template(membership_type, "Monthly"))
+        template.billing_frequency = "Annual"
+        template.save()
+        self.assertEqual(frappe.db.get_value("Membership Dues Schedule", template.name, "billing_frequency"), "Annual")

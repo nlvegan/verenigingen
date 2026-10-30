@@ -91,14 +91,23 @@ def _confirmable_submission(submission_name, token):
 
 
 def _submitted_template_still_valid(payload) -> bool:
-    """The submitted template must still be a template of the type snapshotted at submit."""
+    """The submitted template must still be a template of the type snapshotted at submit, and of
+    the frequency the applicant chose."""
     template = payload.get("selected_dues_schedule")
     if not template:  # Housemate: no template, approval falls back to the type's own
         return bool(payload.get("membership_type"))
     row = frappe.db.get_value(
-        "Membership Dues Schedule", template, ["is_template", "membership_type"], as_dict=True
+        "Membership Dues Schedule",
+        template,
+        ["is_template", "membership_type", "billing_frequency"],
+        as_dict=True,
     )
-    return bool(row and row.is_template and row.membership_type == payload.get("membership_type"))
+    return bool(
+        row
+        and row.is_template
+        and row.membership_type == payload.get("membership_type")
+        and row.billing_frequency == payload.get("frequency")
+    )
 
 
 def expire_and_purge_submissions() -> dict:
@@ -148,7 +157,10 @@ def _create_member_with_savepoint(submission, door, payload, existing):
     except Exception:  # swallow-ok: caller-checks
         # Logged below; confirm_submission turns the None into the generic refusal.
         if not rollback_to_savepoint(savepoint):
-            raise  # savepoint already gone, nothing was undone: a refusal would hide half-written rows
+            # Savepoint already gone, so nothing was undone. @handle_api_error returns this error
+            # instead of raising, so the request would still commit the half-written rows.
+            frappe.db.rollback()
+            raise
         frappe.log_error(
             title="Short application confirm failed",
             message=f"Submission {submission.name}\n{frappe.get_traceback()}",
@@ -161,7 +173,7 @@ def _create_member_with_savepoint(submission, door, payload, existing):
 def _write_member(door, payload, existing):
     data = to_helper_payload(payload, door)
     if existing:
-        data.update(_unasked_member_values(existing.name))
+        data.update(_unasked_member_values(existing.name, data))
     else:
         data["opt_out_optional_emails"] = 1  # ruling R14: the short form has no newsletter opt-in
     application_id = generate_application_id()
@@ -175,9 +187,10 @@ def _write_member(door, payload, existing):
     return member
 
 
-def _unasked_member_values(member_name) -> dict:
+def _unasked_member_values(member_name, data) -> dict:
     """The reapplication helper overwrites these from the payload, but the short form never asks
-    them; hand it the Member's current values so a reapplication keeps them."""
+    them (or, for the optional mobile, may be left blank); hand it the Member's current values so
+    a reapplication keeps them."""
     member = frappe.db.get_value(
         "Member",
         member_name,
@@ -187,16 +200,20 @@ def _unasked_member_values(member_name) -> dict:
             "pronouns",
             "accepts_optional_communications",
             "interested_in_volunteering",
+            "contact_number",
         ],
         as_dict=True,
     )
-    return {
+    values = {
         "birth_date": member.birth_date,
         "middle_name": member.middle_name or "",
         "pronouns": member.pronouns or "",
         "opt_out_optional_emails": 0 if member.accepts_optional_communications else 1,
         "interested_in_volunteering": member.interested_in_volunteering or 0,
     }
+    if not data.get("contact_number"):
+        values["contact_number"] = member.contact_number or ""
+    return values
 
 
 def _link_chapter(member, data, application_id):

@@ -58,11 +58,38 @@ class MembershipDuesSchedule(Document):
         self.validate_financial_constraints()
         self.validate_status_transitions()
         self.validate_billing_frequency_consistency()
+        self.validate_template_frequency_not_in_use()
         self.validate_rate_boundaries()
         self.set_billing_day()
         self._initialize_next_invoice_date()
 
         # Note: Old values tracking moved to before_save() to capture actual previous values
+
+    def validate_template_frequency_not_in_use(self):
+        """A template's period is what an applicant's chosen amount is billed on. Once a door slot
+        offers it, or an application waiting for approval chose it, changing the period would bill
+        that amount on another one (the short application's yearly choice billed monthly)."""
+        if not self.is_template or self.is_new() or not self.has_value_changed("billing_frequency"):
+            return
+        door = frappe.db.get_value(
+            "Membership Application Door", {"monthly_dues_template": self.name}
+        ) or frappe.db.get_value("Membership Application Door", {"annual_dues_template": self.name})
+        if door:
+            frappe.throw(
+                frappe._(
+                    "Billing frequency cannot change while application door {0} offers this template."
+                ).format(door)
+            )
+        if frappe.db.exists(
+            "Member",
+            {
+                "application_dues_schedule": self.name,
+                "application_status": ["in", ["Pending", "Under Review", "Payment Pending"]],
+            },
+        ):
+            frappe.throw(
+                frappe._("Billing frequency cannot change while a pending application uses this template.")
+            )
 
     def validate_template_or_instance(self):
         """Validate template vs instance fields"""
