@@ -66,3 +66,14 @@ class TestApplicationAnswerMasters(VereningingenUnitTestCase):
         self.assertEqual(member.birth_year, 1990)
         self.assertEqual([r.join_reason for r in member.join_reasons], ["Voor de dieren"])
         self.assertEqual(member.referral_source, "Via VEGAN Magazine")
+
+    def test_verenigingen_administrator_manages_answer_masters(self):
+        suffix = frappe.generate_hash(length=8)
+        admin = self.create_test_user(f"masters.admin.{suffix}@example.com", roles=["Verenigingen Administrator"])
+        plain = self.create_test_user(f"masters.plain.{suffix}@example.com", roles=[])
+        for doctype in ("Membership Join Reason", "Membership Referral Source"):
+            for ptype in ("read", "write", "create", "delete"):
+                with self.subTest(doctype=doctype, ptype=ptype):
+                    self.assertTrue(frappe.has_permission(doctype, ptype, user=admin.name))
+                    # Control: the grant comes from the role, not from the doctype being open.
+                    self.assertFalse(frappe.has_permission(doctype, ptype, user=plain.name))
