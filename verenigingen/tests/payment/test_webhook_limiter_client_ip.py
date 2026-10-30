@@ -186,3 +186,11 @@ class TestIngIpAllowlistClientIp(_WebhookRequestCase):
         accept the genuine sender, or an always-reject fix would pass above."""
         self._install_real_webhook_request(xff=self.PAYNL_IP)
         self.assertTrue(ing_security.verify_ing_checkout_webhook(b"{}", signature=None))
+
+    def test_client_supplied_x_real_ip_through_a_trusted_proxy_is_not_trusted(self):
+        """nginx here sets no X-Real-IP, so a client-supplied one reaches the app
+        from the trusted proxy. It must neither become the IP nor authenticate."""
+        self._install_real_webhook_request(headers={"X-Real-IP": self.PAYNL_IP})
+        self.assertEqual(ing_security.get_request_ip(), PROXY)
+        with self.assertRaises(ing_security.INGCheckoutWebhookError):
+            ing_security.verify_ing_checkout_webhook(b"{}", signature=None)

@@ -167,6 +167,10 @@ def get_request_ip() -> Optional[str]:
     Pay.nl address passed ``verify_webhook_ip`` and skipped the signature
     requirement (issue #1764).
 
+    SECURITY WARNING: IP-based validation is defense-in-depth only. Always
+    enable signature verification (webhook secret) as the primary security
+    mechanism, and configure the reverse proxy to overwrite X-Forwarded-For.
+
     Returns:
         IP address string or None when there is no request
     """
@@ -238,7 +242,7 @@ def verify_ing_checkout_webhook(
     ip_validated = False
     signature_validated = False
 
-    # Layer 1: IP validation (primary security mechanism)
+    # Layer 1: IP validation (secondary, defense-in-depth; signature is primary)
     if not skip_ip_validation:
         remote_ip = get_request_ip()
         if remote_ip:
