@@ -42,7 +42,7 @@ class TestMollieSubscriptionWebhookRateLimit(EnhancedTestCase):
         self._clear_counters()
 
     def _put_back_original_rule(self):
-        frappe.db.set_value("Critical Operation Rule", RULE, dict(self.original))
+        frappe.db.set_value("Critical Operation Rule", RULE, dict(self.original), update_modified=False)
         self._clear_counters()
         r, keys = _counter_keys()
         self.assertEqual(keys, [], "rate-limit counter leaked")
@@ -72,11 +72,19 @@ class TestMollieSubscriptionWebhookRateLimit(EnhancedTestCase):
             self.assertEqual(row[f], fixture[f], f)
 
     def test_patch_leaves_a_customised_row_alone(self):
-        custom = {"rate_limit_scope": "global", "rate_limit_calls": 77, "rate_limit_period_seconds": 3600}
-        frappe.db.set_value("Critical Operation Rule", RULE, dict(custom))
-        self._run_patch()
-        row = frappe.db.get_value("Critical Operation Rule", RULE, FIELDS, as_dict=True)
-        self.assertEqual(dict(row), custom)
+        """Each of the three guarded fields is varied on its own, so a guard that
+        only looks at one of them (e.g. calls == 30) is caught."""
+        customised = [
+            {"rate_limit_scope": "global", "rate_limit_calls": 77, "rate_limit_period_seconds": 3600},
+            {"rate_limit_scope": "per_user", "rate_limit_calls": 30, "rate_limit_period_seconds": 3600},
+            {"rate_limit_scope": "global", "rate_limit_calls": 30, "rate_limit_period_seconds": 7200},
+        ]
+        for custom in customised:
+            with self.subTest(custom=custom):
+                frappe.db.set_value("Critical Operation Rule", RULE, dict(custom))
+                self._run_patch()
+                row = frappe.db.get_value("Critical Operation Rule", RULE, FIELDS, as_dict=True)
+                self.assertEqual(dict(row), custom)
 
     def test_the_31st_call_through_the_real_decorator_is_not_refused(self):
         """Behaviour: an existing site (old row) after migrate. Calls run as
@@ -93,18 +101,25 @@ class TestMollieSubscriptionWebhookRateLimit(EnhancedTestCase):
         # EnhancedTestCase replaces validate_rate_limits with a stub; this test is
         # about the real limiter, so take the stub off (teardown tolerates a stopped patch).
         self.rate_limit_patch.stop()
-        frappe.flags.in_test = False  # the limiter is bypassed under in_test  # Mock justified: Infrastructure - execution context
-        frappe.local.request = MagicMock(method="POST", environ={"REMOTE_ADDR": "203.0.113.9"})  # Mock justified: Infrastructure - simulated request
-        self.addCleanup(setattr, frappe.flags, "in_test", saved_flag)
-        self.addCleanup(setattr, frappe.local, "request", saved_req)
-        for i in range(old_calls + 1):
-            try:
-                mollie_subscription_webhook()
-            except frappe.PermissionError as e:
-                self.fail(f"call {i + 1} refused: {e}")
-            except Exception as e:  # noqa: BLE001 - only a rate-limit refusal matters here
-                if "Rate limit" in str(e):
-                    self.fail(f"call {i + 1} rate-limited: {e}")
+        # Each call logs a "Mollie Webhook Security Failure" Error Log row (no credentials).
+        self.expectErrorLog("Mollie Webhook Security Failure", "Mollie Security - CRITICAL")
+        # Restored in finally, not addCleanup: cleanups run AFTER the harness tearDown.
+        frappe.flags.in_test = False  # Mock justified: Infrastructure - execution context
+        frappe.local.request = MagicMock(  # Mock justified: Infrastructure - simulated request
+            method="POST", environ={"REMOTE_ADDR": "203.0.113.9"}
+        )
+        try:
+            for i in range(old_calls + 1):
+                try:
+                    mollie_subscription_webhook()
+                except frappe.PermissionError as e:
+                    self.fail(f"call {i + 1} refused: {e}")
+                except Exception as e:  # noqa: BLE001 - only a rate-limit refusal matters here
+                    if "Rate limit" in str(e):
+                        self.fail(f"call {i + 1} rate-limited: {e}")
+        finally:
+            frappe.flags.in_test = saved_flag  # Mock justified: Infrastructure - restore
+            frappe.local.request = saved_req  # Mock justified: Infrastructure - restore
 
         # Control: the real limiter really counted these calls (a stubbed limiter
         # would also "not refuse" and prove nothing).
