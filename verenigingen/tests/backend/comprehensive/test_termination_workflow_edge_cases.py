@@ -15,36 +15,41 @@ import unittest
 class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
     """Test termination workflow edge cases and complex scenarios"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        super().setUpClass()
-        cls.test_records = []
+    def setUp(self):
+        """Build fixtures per test so the per-test rollback/drain owns them.
+
+        These used to be class-level (setUpClass) with FIXED names and a
+        tearDownClass that deleted without committing: the class-level
+        `_rollback_db` cleanup then undid the deletes, so a Region, Chapter,
+        Membership Type and two Members survived every run and the next run died
+        on the duplicate (#1717). The Region guard also looked the row up by
+        `region_name` while Frappe stores the slugified name as both, so it never
+        matched.
+        """
+        super().setUp()
+        suffix = frappe.generate_hash(length=8)
 
         # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
         # ensure backing Region exists before creating the chapter.
-        test_region_name = "Termination Test Region"
-        region_docname = frappe.db.get_value("Region", {"region_name": test_region_name}, "name")
-        if not region_docname:
-            region = frappe.get_doc({
+        region = frappe.get_doc(
+            {
                 "doctype": "Region",
-                "region_name": test_region_name,
-                "region_code": "TTR",
-            })
-            region.insert(ignore_permissions=True)
-            region_docname = region.name
+                "region_name": f"Termination Test Region {suffix}",
+                "region_code": self.unique_region_code(),
+            }
+        )
+        region.insert(ignore_permissions=True)
 
-        cls.chapter = frappe.get_doc(
+        self.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
                 "status": "Active",
-                "region": region_docname,
+                "region": region.name,
                 "introduction": "Termination Workflow Edge Cases test chapter",
             }
         )
-        cls.chapter.name = "Termination Test Chapter"
-        cls.chapter.insert(ignore_permissions=True)
-        cls.test_records.append(cls.chapter)
+        self.chapter.name = f"Termination Test Chapter {suffix}"
+        self.chapter.insert(ignore_permissions=True)
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
         # minimum_amount, role_profile. Look up any Role Profile for the link.
@@ -52,63 +57,38 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
             frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
             or frappe.db.get_value("Role Profile", {}, "name")
         )
-        cls.membership_type = frappe.get_doc(
+        self.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Termination Test Type",
+                "membership_type_name": f"Termination Test Type {suffix}",
                 "description": "Test membership type for termination edge cases",
                 "minimum_amount": 25.0,
                 "role_profile": role_profile,
             }
         )
-        cls.membership_type.insert(ignore_permissions=True)
-        cls.test_records.append(cls.membership_type)
+        self.membership_type.insert(ignore_permissions=True)
 
-        # Create test members
-        cls.member1 = frappe.get_doc(
+        self.member1 = frappe.get_doc(
             {
                 "doctype": "Member",
                 "first_name": "Termination",
                 "last_name": "Test1",
-                "email": "termination1@test.com",
+                "email": f"termination1.{suffix}@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name}
+                "chapter": self.chapter.name}
         )
-        cls.member1.insert()
-        cls.test_records.append(cls.member1)
+        self.member1.insert()
 
-        cls.member2 = frappe.get_doc(
+        self.member2 = frappe.get_doc(
             {
                 "doctype": "Member",
                 "first_name": "Termination",
                 "last_name": "Test2",
-                "email": "termination2@test.com",
+                "email": f"termination2.{suffix}@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name}
+                "chapter": self.chapter.name}
         )
-        cls.member2.insert()
-        cls.test_records.append(cls.member2)
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        # Clean up termination requests first
-        frappe.db.sql(
-            "DELETE FROM `tabMembership Termination Request` WHERE member IN %s",
-            ([cls.member1.name, cls.member2.name],),
-        )
-
-        for record in reversed(cls.test_records):
-            try:
-                record.delete()
-            except Exception:
-                pass
-        super().tearDownClass()
-
-    def setUp(self):
-        """Set up each test"""
-        super().setUp()
-        # EnhancedTestCase handles permissions automatically
+        self.member2.insert()
 
     def tearDown(self):
         """Clean up after each test"""

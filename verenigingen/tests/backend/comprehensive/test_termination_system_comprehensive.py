@@ -50,13 +50,14 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         super().setUp()
         frappe.set_user("Administrator")
         cls = self.__class__
-        cls.cleanup_test_data()
+        # A per-test email, never a fixed one: a fixed address collides with the
+        # row a previous (failed or interrupted) run left behind, and every test
+        # then dies on "User ... is already linked to Member" (#1717).
+        cls.test_user_email = f"test_termination_{frappe.generate_hash(length=8)}@example.com"
+        # addCleanup, not tearDown: a unittest tearDown is skipped when setUp
+        # raises, and create_test_member() raises AFTER its inserts (#1717).
+        self.addCleanup(cls.cleanup_test_data)
         cls.create_test_member()
-
-    def tearDown(self):
-        """Clean up per-test fixtures."""
-        self.__class__.cleanup_test_data()
-        super().tearDown()
 
     @classmethod
     def cleanup_test_data(cls):
@@ -66,8 +67,8 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         # leaves their delete silently blocked (the except below swallows it),
         # and the next create_test_member() then hits a DuplicateEntryError on
         # the fixed User email. Order: termination requests -> volunteer ->
-        # employee -> member -> user.
-        for doctype in ["Membership Termination Request", "Volunteer", "Employee", "Member", "User"]:
+        # employee -> member -> user -> contact.
+        for doctype in ["Membership Termination Request", "Volunteer", "Employee", "Member", "User", "Contact"]:
             try:
                 if doctype == "Member":
                     if frappe.db.exists("Member", cls.test_member_name):
@@ -75,6 +76,14 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
                 elif doctype == "User":
                     if frappe.db.exists("User", cls.test_user_email):
                         frappe.delete_doc("User", cls.test_user_email, force=True)
+                elif doctype == "Contact":
+                    # Member/User/Employee inserts each leave a Contact keyed only by
+                    # this email (no Dynamic Link once the Member is gone). With a
+                    # per-test email that is one orphan per test, per run (#1717).
+                    for contact in frappe.get_all(
+                        "Contact Email", filters={"email_id": cls.test_user_email}, pluck="parent"
+                    ):
+                        frappe.delete_doc("Contact", contact, force=True)
                 elif doctype == "Employee":
                     employees = frappe.get_all("Employee", filters={"user_id": cls.test_user_email})
                     for emp in employees:
@@ -105,6 +114,11 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         user_doc.first_name = "Test"
         user_doc.last_name = "Termination"
         user_doc.enabled = 1
+        # The welcome mail is queued for after_commit and sent by the commit below;
+        # on a site with an enabled default outgoing Email Account that has no SMTP
+        # server (test_site_3's "Jobs") that raises OutgoingEmailError from inside
+        # commit(), after the rows are already durable (#1717).
+        user_doc.flags.no_welcome_mail = True
         user_doc.insert()
 
         # Create member. first_name/last_name are mandatory on Member; this
