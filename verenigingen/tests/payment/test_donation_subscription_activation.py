@@ -1164,9 +1164,9 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
     ``webhookUrl: None``.
 
     The URL must be ``get_webhook_url()`` -- the guest-reachable payment webhook
-    (``mollie/api/webhooks.py::mollie_payment_webhook``) -- and explicitly not
-    ``get_subscription_webhook_url()``: that endpoint is the member-dues machine,
-    unreachable for a donation on three independent counts (#343).
+    (``mollie/api/webhooks.py::mollie_payment_webhook``). Since #1771
+    ``get_subscription_webhook_url()`` resolves to the same endpoint; before it, that
+    method named the non-guest member-dues function (#343).
     """
 
     # ------------------------------------------------------------------ setup

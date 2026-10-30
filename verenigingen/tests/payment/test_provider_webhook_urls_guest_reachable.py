@@ -25,6 +25,10 @@ def _dotted_method(url: str) -> str:
     return path.split("/api/method/", 1)[1]
 
 
+def _inline(method: str) -> str:
+    return frappe.utils.get_url(f"/api/method/{method}")
+
+
 def _provider_urls() -> dict:
     """Every producer of a provider-facing webhook URL, by name.
 
@@ -37,6 +41,7 @@ def _provider_urls() -> dict:
     from verenigingen.verenigingen_payments.ing_checkout.services.mandate_service import MandateService
     from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
     from verenigingen.verenigingen_payments.mollie.services.payment_service import PaymentService
+    from verenigingen.verenigingen_payments.ponto.services.oauth2_service import PontoOAuth2Service
 
     mollie = frappe.get_single("Mollie Settings")
     ponto = frappe.new_doc("Ponto Settings")
@@ -57,6 +62,14 @@ def _provider_urls() -> dict:
         "ING Checkout Settings.webhook_url": ing.webhook_url,
         "ING MandateService mandate": mandates._get_webhook_url("mandate"),
         "ING MandateService direct_debit": mandates._get_webhook_url("direct_debit"),
+        # Inline producers (the URL is built inside a function, so these two are the
+        # literal paths copied from ing_checkout/api/payment.py and
+        # ponto/services/oauth2_service.py::_get_redirect_uri; the latter is the OAuth
+        # redirect a browser lands on, not a server-to-server webhook).
+        "ING payment.py inline webhook_url": _inline(
+            "verenigingen.verenigingen_payments.ing_checkout.api.webhook.handle_payment"
+        ),
+        "Ponto oauth2 redirect": PontoOAuth2Service()._get_redirect_uri(),
     }
 
 
@@ -88,8 +101,8 @@ class TestProviderWebhookUrlsGuestReachable(EnhancedTestCase):
         self.assertNotIn(_members_only_probe, frappe.guest_methods)
 
 
-class TestSubscriptionWebhookDispatch(EnhancedTestCase):
-    """Behavioural: an anonymous Mollie-shaped POST must get past dispatch."""
+class _GuestDispatchMixin:
+    """Posts a Mollie-shaped form body through Frappe's real dispatch gate as Guest."""
 
     def _post_as_guest(self, dotted: str, payment_id: str):
         from frappe.handler import execute_cmd
@@ -116,6 +129,10 @@ class TestSubscriptionWebhookDispatch(EnhancedTestCase):
     def _restore_guest_dispatch_state(old):
         frappe.local.request, frappe.local.form_dict = old[0], old[1]
         frappe.set_user(old[2])
+
+
+class TestSubscriptionWebhookDispatch(_GuestDispatchMixin, EnhancedTestCase):
+    """Behavioural: an anonymous Mollie-shaped POST must get past dispatch."""
 
     def test_anonymous_post_to_the_subscription_webhook_url_is_not_refused_at_dispatch(self):
         from unittest.mock import patch
@@ -148,3 +165,118 @@ class TestSubscriptionWebhookDispatch(EnhancedTestCase):
         authenticated.assert_called_once()
         self.assertIsInstance(result, dict)
         self.assertNotEqual(result.get("status"), "ignored", result)
+
+
+class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTestCase):
+    """The anonymous notification must actually BOOK the payment, not merely get past
+    dispatch: a guest method that authenticates, swallows everything and answers ``ok``
+    passes the dispatch test above and books nothing (reviewer's mutant on #1779).
+
+    Only the Mollie fetch (``PaymentTypeRouter.fetch_payment``) is stubbed. Everything
+    after it is real: classification by ``Member.mollie_subscription_id``,
+    ``DuesPaymentProcessor`` and the Bank Transaction it writes.
+
+    Not asserted: a SECOND identical delivery. It is not idempotent today (it posts an
+    unallocated Payment Entry, "partial_processing"); that predates this change and is
+    tracked in #1780. Pinning either behaviour here would be wrong.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.tests.fixtures.mollie_account_fixtures import (
+            ensure_bank_account_record,
+            provisioned_mollie_settings,
+        )
+
+        self.company = "_Test Company"
+        ctx = provisioned_mollie_settings(company=self.company)
+        accounts = ctx.__enter__()
+        self.addCleanup(ctx.__exit__, None, None, None)
+        # The Bank Transaction is booked against the Bank Account of the clearing GL.
+        ensure_bank_account_record(self.company, accounts["clearing_account"])
+
+        self.member = self.create_test_member(
+            first_name="SubHook",
+            last_name="Member",
+            email=f"subhook.{frappe.generate_hash(length=6)}@example.com",
+        )
+        self.member.reload()
+        self.customer = self.member.customer
+        self.assertTrue(self.customer)
+        self.subscription_id = f"sub_{frappe.generate_hash(length=8)}"
+        self.mollie_customer_id = f"cst_{frappe.generate_hash(length=8)}"
+        frappe.db.set_value(
+            "Member",
+            self.member.name,
+            {"mollie_subscription_id": self.subscription_id, "mollie_customer_id": self.mollie_customer_id},
+            update_modified=False,
+        )
+        self.invoice_name, self.invoice_total = self._unpaid_dues_invoice()
+
+    def _unpaid_dues_invoice(self):
+        income = frappe.get_value("Company", self.company, "default_income_account")
+        item_code = f"Sub Hook Dues {frappe.generate_hash(length=5)}"
+        item = frappe.new_doc("Item")
+        item.item_code = item.item_name = item_code
+        item.item_group = (
+            "Services"
+            if frappe.db.exists("Item Group", "Services")
+            else frappe.get_value("Item Group", {"is_group": 0}, "name")
+        )
+        item.stock_uom = "Unit" if frappe.db.exists("UOM", "Unit") else frappe.get_value("UOM", {}, "name")
+        item.is_stock_item = 0
+        item.insert()
+
+        invoice = frappe.new_doc("Sales Invoice")
+        invoice.customer = self.customer
+        invoice.company = self.company
+        invoice.currency = frappe.get_value("Company", self.company, "default_currency")
+        invoice.member = self.member.name
+        invoice.is_membership_invoice = 1
+        invoice.append("items", {"item_code": item_code, "qty": 1, "rate": 25, "income_account": income})
+        invoice.insert()
+        invoice.submit()
+        return invoice.name, invoice.grand_total
+
+    def test_anonymous_subscription_notification_books_a_bank_transaction_for_the_member(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services.payment_type_router import (
+            PaymentTypeRouter,
+        )
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        # Amount derived from the fixture invoice, not hardcoded.
+        payment = SimpleNamespace(
+            id=payment_id,
+            status="paid",
+            # The company's own currency: the Bank Account's currency must match.
+            amount={
+                "value": f"{self.invoice_total:.2f}",
+                "currency": frappe.get_value("Company", self.company, "default_currency"),
+            },
+            description="",
+            subscription_id=self.subscription_id,
+            customer_id=self.mollie_customer_id,
+            paid_at="2025-04-10T09:00:00+00:00",
+        )
+        url = frappe.get_single("Mollie Settings").get_subscription_webhook_url()
+
+        # developer_mode: the site's test_mode safety check refuses to authenticate a
+        # test-mode webhook on a non-development site, before any booking.
+        with patch.object(PaymentTypeRouter, "fetch_payment", return_value=payment), patch.dict(
+            frappe.conf, {"developer_mode": 1}
+        ):
+            result = self._post_as_guest(_dotted_method(url), payment_id)
+
+        rows = frappe.get_all(
+            "Bank Transaction",
+            filters={"reference_number": payment_id},
+            fields=["name", "deposit", "party_type", "party", "custom_member"],
+        )
+        self.assertEqual(len(rows), 1, f"expected one Bank Transaction for {payment_id}; result: {result}")
+        self.assertEqual(float(rows[0].deposit), float(self.invoice_total))
+        self.assertEqual(rows[0].party_type, "Customer")
+        self.assertEqual(rows[0].party, self.customer)
+        self.assertEqual(rows[0].custom_member, self.member.name)

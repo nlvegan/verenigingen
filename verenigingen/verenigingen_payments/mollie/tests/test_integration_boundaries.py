@@ -71,7 +71,7 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
         settings.update(
             {
                 "api_key": "test_mollie_api_key_12345",
-                "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook",
+                "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.mollie_payment_webhook?env=test",
                 "enabled": 1,
                 "test_mode": 1,
                 "default_currency": "EUR",

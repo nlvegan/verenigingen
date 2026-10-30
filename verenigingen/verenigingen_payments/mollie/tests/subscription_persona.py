@@ -210,9 +210,7 @@ def create_subscription_for_emma(member_name=None):
             "amount": {"currency": "EUR", "value": "25.00"},
             "interval": "1 month",
             "description": f"Monthly membership dues - {member.full_name}",
-            "webhookUrl": frappe.utils.get_url(
-                "/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook"
-            ),
+            "webhookUrl": frappe.get_single("Mollie Settings").get_subscription_webhook_url(),
         }
 
         result = gateway.create_subscription(customer_data, subscription_data)
