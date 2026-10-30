@@ -18,6 +18,7 @@ from verenigingen.services.chapter.chapter_security import (
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 SUBMISSION = "Membership Application Submission"
+BOARD_ROLE = "Verenigingen Chapter Board Member"
 
 
 def _stable(log):
@@ -77,6 +78,41 @@ class TestApplicationRecordPermissions(EnhancedTestCase):
     def test_non_admin_without_a_seat_manages_nothing(self):
         with self.as_role("Verenigingen Member"):
             self.assertFalse(can_user_manage_application_record(self.app_a))
+
+    def test_basic_seat_reads_own_chapter_but_cannot_approve(self):
+        """Read follows ANY active seat (as Member read does); approve needs an Admin-level seat."""
+        basic = self.create_test_board_member(
+            self.chapter_a.name, permissions_level="Basic", role_name="Test Board Basic Reader"
+        )
+        with self.as_user(basic.user):
+            names = frappe.get_list(SUBMISSION, pluck="name")
+            self.assertIn(self.app_a, names)
+            self.assertNotIn(self.app_b, names)
+            self.assertNotIn(self.app_none, names)
+            self.assertTrue(frappe.has_permission(SUBMISSION, "read", doc=self.app_a))
+            self.assertFalse(frappe.has_permission(SUBMISSION, "read", doc=self.app_b))
+            with self.assertRaises(frappe.PermissionError):
+                validate_application_permission_or_throw(self.app_a, "approve")
+
+    def test_board_write_is_refused_even_if_a_site_grants_it(self):
+        """The hook's read/select-only guard. Unobservable on stock DocPerms, so a Custom DocPerm set
+        (a full copy of the standard rows plus board write) stands in for a customised site."""
+        copies = frappe.get_all(
+            "DocPerm", {"parent": SUBMISSION}, ["role", "permlevel", "read", "delete"], order_by="idx"
+        )
+        try:
+            for row in copies:
+                frappe.get_doc(
+                    {"doctype": "Custom DocPerm", "parent": SUBMISSION, "parenttype": "DocType",
+                     "parentfield": "permissions", **row, "write": 1 if row.role == BOARD_ROLE else 0}
+                ).insert()
+            frappe.clear_cache(doctype=SUBMISSION)
+            with self.as_user(self.board_a.user):
+                self.assertTrue(frappe.has_permission(SUBMISSION, "read", doc=self.app_a))
+                self.assertFalse(frappe.has_permission(SUBMISSION, "write", doc=self.app_a))
+        finally:
+            frappe.db.delete("Custom DocPerm", {"parent": SUBMISSION})
+            frappe.clear_cache(doctype=SUBMISSION)
 
     def test_board_role_without_a_seat_sees_nothing(self):
         """The role grants the DocPerm; only a seat scopes the list (a role-only user must get none)."""

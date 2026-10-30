@@ -225,7 +225,9 @@ def can_user_manage_application_record(application_name, user=None):
     holding a seat is get_user_manageable_chapters, the same lookup the member-keyed check uses
     (it deliberately does not require the Chapter itself to be Active, see #1518).
 
-    Admins ("all") may review any application, including one with no chapter. A board member
+    "All" is whatever get_user_manageable_chapters says: System Manager, Verenigingen
+    Administrator, Staff and Verenigingen National Board Member (the same rule the
+    member-keyed approve check has). Admins may review any application, including one with no chapter. A board member
     may review only one whose chapter they manage. An unknown name is False, on the same path
     as a foreign one, so the two cannot be told apart.
     """

@@ -2295,19 +2295,27 @@ def check_app_permission():
 
 
 # --- Membership Application Submission (#1765) ---------------------------------------------
-# A board member reviews an application keyed on the application's own `chapter`. Both
-# handlers defer to chapter_security so the list, the document check and the review endpoints
-# cannot disagree about who holds a seat.
+# Read follows ANY active board seat on the application's chapter, exactly as reading a pending
+# applicant's Member does (has_member_permission -> get_user_chapter_memberships_cached).
+# Approving or rejecting needs an Admin-level seat and is decided by chapter_security
+# (can_user_manage_application_record), not here: this hook only scopes who SEES a row.
+
+
+def _seat_chapters_for_application_read(user):
+    """ "all" for admin/staff/national board, else the chapters of every active seat."""
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    if get_user_manageable_chapters(user) == "all":
+        return "all"
+    return get_user_chapter_memberships_cached(user, get_cache_key())
 
 
 def get_application_permission_query(user):
-    """List scope: all applications for admins, the managed chapters' applications for a board
-    member, nothing for anyone else (a MAS with no chapter is therefore admin-only)."""
-    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
-
+    """List scope: all applications for admins, those of the seat chapters for a board member,
+    nothing for anyone else (a MAS with no chapter is therefore admin-only)."""
     if not user:
         user = frappe.session.user
-    chapters = get_user_manageable_chapters(user)
+    chapters = _seat_chapters_for_application_read(user)
     if chapters == "all":
         return ""
     if not chapters:
@@ -2317,17 +2325,13 @@ def get_application_permission_query(user):
 
 
 def has_application_permission(doc, user=None, ptype=None):
-    """Document scope. Board members are read-only: reviewing goes through the review
-    endpoints, which authorise with validate_application_permission_or_throw."""
-    from verenigingen.services.chapter.chapter_security import (
-        can_user_manage_application_record,
-        get_user_manageable_chapters,
-    )
-
+    """Document scope, read-only for board members; the list query above and this agree."""
     if not user:
         user = frappe.session.user
-    if get_user_manageable_chapters(user) == "all":
+    chapters = _seat_chapters_for_application_read(user)
+    if chapters == "all":
         return True
     if ptype not in ("read", "select"):
         return False
-    return can_user_manage_application_record(doc.name, user)
+    chapter = frappe.db.get_value("Membership Application Submission", doc.name, "chapter")
+    return bool(chapter) and chapter in chapters
