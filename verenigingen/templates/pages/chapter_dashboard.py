@@ -286,12 +286,11 @@ def _annotate_current_user(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@cache_with_ttl(ttl=120, per_user=False)  # Cache for 2 minutes - balance between freshness and
-# performance. per_user=False: get_chapter_dashboard_data() below checks access
-# BEFORE calling this, and annotates the caller-specific is_current_user field
-# AFTER, so the cached payload itself -- which does not vary by who is asking,
-# only which chapter -- can be shared across every authorized viewer of the
-# same chapter instead of one cache entry per board member (#785).
+@cache_with_ttl(ttl=120)  # Cache for 2 minutes - balance between freshness and performance.
+# Per user (the default), NOT shared (#785's per_user=False): the payload carries Expense Claim
+# figures and rows scoped to what the caller may list (#1701), so a shared entry would hand the
+# first caller's view (e.g. a Treasurer's) to Staff. get_chapter_dashboard_data() below still
+# checks access BEFORE calling this, and annotates is_current_user AFTER.
 def _cached_chapter_dashboard_payload(chapter_name: str) -> Dict[str, Any]:
     return _chapter_dashboard_payload(chapter_name)
 
@@ -380,6 +379,26 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     }
 
 
+def _callers_expense_claims(filters: Dict[str, Any], fields: List[str], order_by: Optional[str] = None):
+    """Expense Claims the CALLER may list, for the dashboard's figures and rows.
+
+    ``frappe.get_all`` skips ``get_expense_claim_permission_query``, and the page gate lets
+    Verenigingen Staff open any chapter, so Staff saw aggregates and rows of claims the
+    #1606 ruling hides from their list (#1701). A figure here equals what the caller could
+    ``get_list`` (same rule as the number cards, #1666); a caller with no read right on
+    Expense Claim gets none. ``limit_page_length=0``: ``get_list`` pages at 20, ``get_all``
+    did not, and a silently truncated total is worse than a leak.
+
+    The payload that calls this is cached per user (``_cached_chapter_dashboard_payload``):
+    a shared entry would hand one caller's view to the next.
+    """
+    if not frappe.has_permission("Expense Claim", "read"):
+        return []
+    return frappe.get_list(
+        "Expense Claim", filters=filters, fields=fields, order_by=order_by, limit_page_length=0
+    )
+
+
 def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     """Get basic expense statistics for the chapter"""
     # This one CARRIES the cause instead of raising, unlike its siblings, because
@@ -396,8 +415,7 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     # such fields until its next migrate. Measured on test_site_1 today.)
     try:
         # Get pending expense amount and count for this chapter
-        pending_expenses = frappe.get_all(
-            "Expense Claim",
+        pending_expenses = _callers_expense_claims(
             filters={"custom_chapter": chapter_name, "approval_status": "Draft", "docstatus": 0},
             fields=["total_claimed_amount"],
         )
@@ -411,8 +429,7 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
         today = getdate()
         year_start = today.replace(month=1, day=1)
 
-        ytd_expenses = frappe.get_all(
-            "Expense Claim",
+        ytd_expenses = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": "Approved",
@@ -426,8 +443,7 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
         # Get this month's total
         month_start = today.replace(day=1)
 
-        month_expenses = frappe.get_all(
-            "Expense Claim",
+        month_expenses = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": ["in", ["Draft", "Approved"]],
@@ -604,8 +620,7 @@ def get_pending_expense_approvals(chapter_name: str) -> List[Dict[str, Any]]:
     Your Attention" list instead of just aggregate totals.
     """
     try:
-        return frappe.get_all(
-            "Expense Claim",
+        return _callers_expense_claims(
             filters={"custom_chapter": chapter_name, "approval_status": "Draft", "docstatus": 0},
             fields=[
                 "name",
@@ -631,8 +646,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         year_start = today.replace(month=1, day=1)
 
         # This month's expenses
-        submitted_this_month = frappe.get_all(
-            "Expense Claim",
+        submitted_this_month = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": "Draft",
@@ -642,8 +656,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
             fields=["total_claimed_amount"],
         )
 
-        approved_this_month = frappe.get_all(
-            "Expense Claim",
+        approved_this_month = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": "Approved",
@@ -652,8 +665,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
             fields=["total_claimed_amount"],
         )
 
-        pending_this_month = frappe.get_all(
-            "Expense Claim",
+        pending_this_month = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": "Draft",
@@ -664,8 +676,7 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
         )
 
         # YTD expenses
-        ytd_expenses = frappe.get_all(
-            "Expense Claim",
+        ytd_expenses = _callers_expense_claims(
             filters={
                 "custom_chapter": chapter_name,
                 "approval_status": "Approved",
