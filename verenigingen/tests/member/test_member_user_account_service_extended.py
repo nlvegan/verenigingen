@@ -306,7 +306,7 @@ class TestMemberUserAccountServiceExtended(VereningingenTestCase):
         )
 
     def test_secure_create_existing_request_short_circuits(self):
-        # An existing in-progress/completed ACR makes the helper report
+        # An existing open (Processing) or completed ACR makes the helper report
         # action existing_request without queueing a new one.
         request = frappe.get_doc(
             {
@@ -322,7 +322,7 @@ class TestMemberUserAccountServiceExtended(VereningingenTestCase):
         )
         request.insert()
         self.track_doc("Account Creation Request", request.name)
-        frappe.db.set_value("Account Creation Request", request.name, "status", "In Progress")
+        frappe.db.set_value("Account Creation Request", request.name, "status", "Processing")
 
         result = create_secure_user_account_for_member(self.member)
         self.assertTrue(result.get("success"))
