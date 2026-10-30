@@ -94,6 +94,9 @@ def _create_member(submission, door, payload, existing):
     """Address + Member + answers + chapter behind one savepoint; None (and a log row) on failure."""
     savepoint = "".join(random.sample(string.ascii_lowercase, 10))
     frappe.db.savepoint(savepoint)
+    # Helpers queue their errors/notices in message_log (frappe.throw appends before raising) and a
+    # rollback does not undo that; the guest must only see our own response.
+    kept_messages = len(frappe.local.message_log)
     try:
         return _write_member(door, payload, existing)
     except NON_RESUMABLE_DB_ERRORS:
@@ -106,6 +109,8 @@ def _create_member(submission, door, payload, existing):
             message=f"Submission {submission.name}\n{frappe.get_traceback()}",
         )
         return None
+    finally:
+        del frappe.local.message_log[kept_messages:]
 
 
 def _write_member(door, payload, existing):
@@ -117,11 +122,23 @@ def _write_member(door, payload, existing):
     else:
         member = create_member_from_application(data, application_id, address)
     _set_answers(member, payload, door)
-    suggested_chapter = determine_chapter_from_application(data)
+    _link_chapter(member, data, application_id)
+    return member
+
+
+def _link_chapter(member, data, application_id):
+    """Suggesting a chapter and saving its roster need rights a Guest lacks, so those steps run as the
+    system user. _save_suggested_chapter opens its own context and contexts must not nest."""
+    with _as_system_user(f"Chapter suggestion for application {application_id}"):
+        suggested_chapter = determine_chapter_from_application(data)
     if suggested_chapter:
         _save_suggested_chapter(member, suggested_chapter, application_id)
-        _create_pending_chapter_membership_safe(member, suggested_chapter)
-    return member
+        with _as_system_user(f"Pending chapter membership for application {application_id}"):
+            _create_pending_chapter_membership_safe(member, suggested_chapter)
+
+
+def _as_system_user(description):
+    return secure_user_context(get_system_user_for_operation("member_update_during_application"), description)
 
 
 def to_helper_payload(cleaned: dict, door) -> dict:
@@ -154,12 +171,26 @@ def to_helper_payload(cleaned: dict, door) -> dict:
             selected_dues_schedule=cleaned.get("selected_dues_schedule"),
             custom_contribution_fee=cleaned["amount"],
             uses_custom_amount=1,
-            custom_amount_reason=_("Bedrag gekozen bij aanmelding ({0})").format(door.title),
+            custom_amount_reason=f"Bedrag gekozen bij aanmelding ({door.title})",  # stored text, not UI
             payment_method="sepa_direct_debit" if iban else "bank_transfer",
             iban=iban,
             bank_account_name=cleaned.get("bank_account_name", ""),
         )
     return data
+
+
+def _set_dues_fields(member, payload):
+    """The reapplication helper never reads the template and keeps the old fee; take the new payload's."""
+    member.application_dues_schedule = payload.get("selected_dues_schedule") or None
+    if not payload.get("amount"):  # Housemate: approval falls back to the type's template
+        for field in (
+            "dues_rate",
+            "application_custom_fee",
+            "fee_override_reason",
+            "fee_override_date",
+            "fee_override_by",
+        ):
+            member.set(field, None)
 
 
 def _set_answers(member, payload, door):
@@ -175,6 +206,7 @@ def _set_answers(member, payload, door):
     ):
         member.set(field, payload.get(field) or None)
     member.set("join_reasons", [{"join_reason": reason} for reason in payload.get("join_reasons") or []])
+    _set_dues_fields(member, payload)
     member.application_door = door.name
     member.application_consent_version = payload.get("consent_text_version")
     consent = payload.get("consent_given_at")

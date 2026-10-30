@@ -232,14 +232,36 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self._track_members()
         self.assertEqual(len(self._members()), 1)
 
-    def test_reapplication_updates_existing_member(self):
-        old_door = self._door(monthly_dues_template=self.template)
+    def _stale_template(self):
+        """Another Annual template of the same type, to seed a stale application_dues_schedule."""
+        stale = frappe.copy_doc(frappe.get_doc("Membership Dues Schedule", self.template))
+        stale.schedule_name = f"Stale {frappe.generate_hash(length=6)}"
+        stale.billing_frequency = "Annual"
+        stale.insert()
+        self.track_doc("Membership Dues Schedule", stale.name)
+        return stale.name
+
+    def _rejected_member(self, door):
         existing = self.create_test_member(email=self.email)
         frappe.db.set_value(
             "Member",
             existing.name,
-            {"status": "Pending", "application_status": "Rejected", "application_door": old_door.name},
+            {
+                "status": "Pending",
+                "application_status": "Rejected",
+                "application_door": door.name,
+                "application_dues_schedule": self._stale_template(),
+                "dues_rate": 99,
+                "application_custom_fee": 99,
+                "fee_override_reason": "stale override",
+                "fee_override_date": "2020-01-01",
+            },
         )
+        return existing
+
+    def test_reapplication_updates_existing_member(self):
+        old_door = self._door(monthly_dues_template=self.template)
+        existing = self._rejected_member(old_door)
         name = self._submit()
 
         response, _log = self._confirm(name)
@@ -249,7 +271,25 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         member = frappe.get_doc("Member", existing.name)
         self.assertEqual(member.application_status, "Pending")
         self.assertEqual(member.application_door, self.door.name)
+        self.assertEqual(member.application_dues_schedule, self.door.monthly_dues_template)
+        self.assertEqual(member.dues_rate, self.amount)
+        self.assertEqual(member.application_custom_fee, self.amount)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "member"), existing.name)
+
+    def test_housemate_reapplication_clears_the_old_fee(self):
+        door = self._door(form_shape="Housemate", monthly_dues_template=None)
+        existing = self._rejected_member(door)
+        name = self._submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        member = frappe.get_doc("Member", existing.name)
+        self.assertFalse(member.application_dues_schedule)
+        self.assertFalse(member.application_custom_fee)
+        self.assertFalse(member.dues_rate)
+        self.assertFalse(member.fee_override_reason)
+        self.assertFalse(member.fee_override_date)
 
     def test_member_became_active_meanwhile_gets_identical_refusal_and_expires(self):
         name = self._submit()
@@ -276,6 +316,9 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         response, _log = self._confirm(name)
 
         self.assertEqual(response, REFUSAL)
+        # Helper errors (frappe.throw queues its text before raising) must not reach the guest.
+        self.assertEqual(_log, self._confirm(name, token="0" * 64)[1])
+        self.assertEqual(_log, [])
         self.assertEqual(self._members(), [])
         self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), 0, "address must roll back too")
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Unconfirmed")
@@ -317,3 +360,17 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertFalse(member.application_dues_schedule)
         self.assertFalse(member.application_custom_fee)
         self.assertFalse(member.application_consent_at)
+
+    def test_pending_chapter_membership_is_created_for_a_guest_without_noise(self):
+        self.create_test_chapter(postal_codes="1200-1299", published=1)
+        name = self._submit()
+        chapter_errors = frappe.db.count("Error Log", {"method": ["like", "Chapter%"]})
+
+        response, log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._track_members()
+        self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Chapter%"]}), chapter_errors)
+        rows = frappe.get_all("Chapter Member", {"member": self._members()[0]}, ["status", "parent"])
+        self.assertEqual([row.status for row in rows], ["Pending"])
+        self.assertEqual(log, [])
