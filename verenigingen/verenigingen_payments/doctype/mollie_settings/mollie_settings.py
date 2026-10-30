@@ -440,16 +440,20 @@ class MollieSettings(Document):
 
     def get_subscription_webhook_url(self):
         """
-        Get webhook URL for subscription status updates
+        Get the webhook URL a subscription announces its payments to
+
+        Mollie POSTs ``id=tr_...`` (no credentials, no subscription id) to a
+        subscription's webhookUrl for every payment the subscription creates, so this
+        must be the guest-reachable payment webhook, which fetches the payment from
+        the Mollie API and routes member dues through DuesPaymentProcessor. It used to
+        be ``payment_gateways.mollie_subscription_webhook``: not allow_guest, so every
+        notification was refused at dispatch, and its body needs a subscription id
+        that Mollie's payload never carries (#1771).
 
         Returns:
-            str: Complete subscription webhook URL
+            str: Complete HTTPS webhook URL, carrying the env parameter
         """
-        url = get_url(
-            "/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook"
-        )
-        # Ensure HTTPS using secure URL parsing method
-        return self._ensure_https_url(url)
+        return self._get_webhook_url_for_env("test" if self.test_mode else "live")
 
     def get_redirect_url(self, reference_doctype, reference_docname, payment_id=None):
         """
