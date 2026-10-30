@@ -723,6 +723,28 @@ def create_member_from_application(data, application_id, address=None):
                     raise
 
 
+_STALE_FEE_FIELDS = (
+    "dues_rate",
+    "application_custom_fee",
+    "fee_override_reason",
+    "fee_override_date",
+    "fee_override_by",
+)
+
+
+def _reset_application_dues_choice(member, data):
+    """Replace the dues choice left by an earlier application with this one's (#1730).
+
+    A reapplying Member keeps its row, so the template and any custom fee of the earlier
+    application would otherwise survive: approval would bill the new amount on the old
+    template (or, with no amount, the old fee on the new template). An application that
+    picks nothing falls back to the membership type's default template, as a new one does.
+    """
+    member.application_dues_schedule = data.get("selected_dues_schedule") or None
+    for fieldname in _STALE_FEE_FIELDS:
+        member.set(fieldname, None)
+
+
 def update_member_from_reapplication(member_name, data, application_id, address=None):
     """
     Update existing member record from reapplication data.
@@ -806,7 +828,8 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     # Suppress customer creation messages during reapplication processing
     member._suppress_customer_messages = True
 
-    # Handle custom membership amount
+    # Handle custom membership amount (after the reset: it only ever sets fields)
+    _reset_application_dues_choice(member, data)
     _apply_custom_contribution_fee(member, data, context_label="reapplication")
 
     # Save with proper permissions
