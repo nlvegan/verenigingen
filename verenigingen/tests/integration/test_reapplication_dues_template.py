@@ -370,6 +370,54 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         MembershipCreationService()._ensure_dues_schedule_exists(member_doc, membership, self.membership_type)
         self.assertEqual(frappe.db.get_value("Membership Dues Schedule", schedule_name, "status"), "Cancelled")
 
+    def test_a_later_involuntary_termination_overrides_an_earlier_voluntary_one(self):
+        """Control: the LATEST executed termination decides, as at the Quit reapplication gate.
+
+        A real voluntary Quit leaves the schedule Cancelled. PROBE SHORTCUT: a second,
+        Executed "Expulsion" request is then written directly (the member is already Quit, so
+        the real executor cannot run again) with a later execution_date, and
+        _ensure_dues_schedule_exists is called directly (UNIT-LEVEL) because the gate would
+        refuse this member before approval.
+        """
+        from verenigingen.services.member.approval.membership_creation_service import (
+            MembershipCreationService,
+        )
+
+        member = self._submit_application(f"reapp-{frappe.generate_hash(length=8)}@example.com", None, None)
+        old_membership = self._quit(member)
+        voluntary = frappe.get_all(
+            "Membership Termination Request",
+            filters={"member": member, "status": "Executed", "termination_type": "Voluntary"},
+            pluck="name",
+        )
+        self.assertEqual(len(voluntary), 1, "precondition: the real voluntary termination")
+        later = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": member,
+                "termination_type": "Expulsion",
+                "termination_reason": "later expulsion",
+                "termination_date": today(),
+                "requested_by": frappe.session.user,
+                "request_date": today(),
+                "status": "Executed",
+            }
+        )
+        later.insert()
+        self.track_doc("Membership Termination Request", later.name)
+        frappe.db.set_value(
+            "Membership Termination Request",
+            later.name,
+            {"status": "Executed", "execution_date": add_days(today(), 1)},
+        )
+        member_doc = frappe.get_doc("Member", member)
+        membership = frappe.get_doc("Membership", old_membership)
+        MembershipCreationService()._ensure_dues_schedule_exists(member_doc, membership, self.membership_type)
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", self._schedules(member)[0], "status"),
+            "Cancelled",
+        )
+
     def test_cancelled_to_active_is_still_refused_without_the_rejoin_flag(self):
         """Control: the rejoin flag is the only way out of Cancelled.
 

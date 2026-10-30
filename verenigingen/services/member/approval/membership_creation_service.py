@@ -529,16 +529,13 @@ class MembershipCreationService(StatelessService):
         """A Cancelled schedule left by a voluntary Quit: the only Cancelled one approval reuses (#1741).
 
         The evidence is the one submit_application's _handle_existing_member lets a rejoiner in
-        on. A schedule cancelled any other way (schedule maintenance, an admin) is left alone.
+        on: the LATEST executed termination is Voluntary. A schedule cancelled any other way (schedule maintenance, an admin) is left alone.
         """
         if frappe.db.get_value("Membership Dues Schedule", schedule_name, "status") != "Cancelled":
             return False
-        return bool(
-            frappe.db.exists(
-                "Membership Termination Request",
-                {"member": member_doc.name, "status": "Executed", "termination_type": "Voluntary"},
-            )
-        )
+        from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
+
+        return get_latest_executed_termination_type(member_doc.name) == "Voluntary"
 
     def _reactivate_schedule_for_rejoin(self, schedule_name, member_doc, membership, membership_type):
         """Reuse the earlier schedule for the new membership: new template and amount, billed from now.

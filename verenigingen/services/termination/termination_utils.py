@@ -12,6 +12,21 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 # ===== Your existing functions from paste.txt go here =====
 
 
+def get_latest_executed_termination_type(member_name):
+    """Type of the member's most recently executed termination, or None if there is none.
+
+    The one place that decides "how did this member's last membership end": the Quit
+    reapplication gate and the dues-schedule reuse at approval both read it, so a stale
+    earlier request (a Voluntary one before a later Disciplinary one) cannot make them disagree.
+    """
+    return frappe.db.get_value(
+        "Membership Termination Request",
+        {"member": member_name, "status": "Executed"},
+        "termination_type",
+        order_by="execution_date desc",
+    )
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def validate_termination_readiness(member_name: str):
