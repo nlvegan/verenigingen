@@ -292,7 +292,6 @@ class TestHandleExistingMember(EnhancedTestCase):
         """Quit status but no Executed termination request -> data-integrity block."""
         member = self._make_member(status="Quit", application_status="Approved")
         # No Membership Termination Request exists for this member.
-        self.expectErrorLog("Termination Data Integrity")
         action, error = _handle_existing_member(self._existing(member), {})
         self.assertIsNone(action)
         self.assertFalse(error.success)

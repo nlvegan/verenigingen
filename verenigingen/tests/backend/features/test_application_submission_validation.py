@@ -96,9 +96,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=test_data)
+        result = submit_and_materialise(data=test_data)
 
         # Application should succeed
         self.assertTrue(
@@ -204,9 +204,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,  # No volunteer interest
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=test_data_no_volunteer)
+        result = submit_and_materialise(data=test_data_no_volunteer)
         self.assertTrue(result.get("success"), "Application without volunteer interest should succeed")
 
         if result.get("success"):
@@ -235,7 +235,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,  # With volunteer interest
             "payment_method": "Bank Transfer"}
 
-        result = submit_application(data=test_data_with_volunteer)
+        result = submit_and_materialise(data=test_data_with_volunteer)
         self.assertTrue(result.get("success"), "Application with volunteer interest should succeed")
 
         if result.get("success"):
@@ -271,9 +271,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=invalid_data)
+        result = submit_and_materialise(data=invalid_data)
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
         self.assertIn("error", result, "Error should be reported for invalid membership type")
 
@@ -304,9 +304,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # for this path.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=test_data)
+        result = submit_and_materialise(data=test_data)
 
         if result.get("success"):
             member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
@@ -358,9 +358,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # it when the applicant types an amount instead of using the calculator.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=test_data)
+        result = submit_and_materialise(data=test_data)
 
         if result.get("success"):
             member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
@@ -389,9 +389,9 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(data=test_data)
+        result = submit_and_materialise(data=test_data)
         self.assertTrue(result.get("success"), "Application with special characters should succeed")
 
         if result.get("success"):

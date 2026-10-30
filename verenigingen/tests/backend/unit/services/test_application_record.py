@@ -177,6 +177,7 @@ class ApplicationRecordCase(ApplicationDoorMixin, VereningingenUnitTestCase):
 class TestApplicationRecord(ApplicationRecordCase):
     def test_full_form_submit_creates_no_member(self):
         customers = frappe.db.count("Customer")
+        addresses = frappe.db.count("Address")
         response, _log, _errors = self._submit_full()
 
         self.assertEqual(response["data"], {"status": "confirmation_sent"}, response)
@@ -185,6 +186,7 @@ class TestApplicationRecord(ApplicationRecordCase):
             {"members": 0, "addresses": 0, "chapter_members": 0, "volunteers": 0, "customers": 0},
         )
         self.assertEqual(frappe.db.count("Customer"), customers)
+        self.assertEqual(frappe.db.count("Address"), addresses)
         rows = frappe.get_all(SUBMISSION, {"email": self.email}, ["name", "status", "source"])
         self.assertEqual([(r.status, r.source) for r in rows], [("Unconfirmed", "Full Form")])
         self.track_doc(SUBMISSION, rows[0].name)
@@ -206,16 +208,17 @@ class TestApplicationRecord(ApplicationRecordCase):
         self.assertEqual(frappe.db.count(SUBMISSION), submissions, "no row staged for a member")
 
     def test_full_form_involuntary_and_unclear_terminations_get_the_same_response(self):
-        unknown, unknown_log, _ = self._submit_full()
+        unknown, unknown_log, unknown_errors = self._submit_full()
         self._latest_submission(self.email)
+        self.assertEqual(unknown_errors, 0)
         for label, status in (("Quit without a request", "Quit"), ("unknown status", "Suspended")):
             with self.subTest(label):
                 email = self._unused_email()
                 member = self.create_test_member(email=email)
                 frappe.db.set_value("Member", member.name, {"status": status, "application_status": "Approved"})
-                known, known_log, _errors = self._submit_full(email=email)
+                known, known_log, known_errors = self._submit_full(email=email)
                 self.assertEqual((known, known_log), (unknown, unknown_log))
-                self.expectErrorLog("Termination Data Integrity")
+                self.assertEqual(known_errors, unknown_errors, "an Error Log row is an operator-side oracle")
 
     def test_email_lookups_do_not_reveal_an_existing_member(self):
         """The eligibility and email-validity endpoints answered 'a member with this email exists'."""
@@ -378,3 +381,70 @@ class TestApplicationRecord(ApplicationRecordCase):
         self.assertIn("membership_type", json.loads(short_row.payload))
         self.assertEqual(full_row.source, "Full Form")
         self.assertEqual(json.loads(full_row.payload)["selected_membership_type"], self.membership_type.name)
+
+    def _clock_that_makes_the_generator_pick(self, millis_mod):
+        """Patch ONLY the clock the generator's first attempt reads, so the id it produces first is known.
+        Everything else (the uniqueness check, the retries) is the real code."""
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        fake.datetime.now.return_value.timestamp.return_value = millis_mod / 1000
+        return patch("verenigingen.services.member.core.member_id_service.datetime", fake)
+
+    def test_an_application_id_held_by_another_submission_is_not_reissued(self):
+        """application_id is unique on the submission; the generator only looked at Members."""
+        from verenigingen.services.member.core.member_id_service import generate_application_id
+
+        with self._clock_that_makes_the_generator_pick(4321):
+            first_choice = generate_application_id()
+            held = self._submit_short()
+            frappe.db.set_value(SUBMISSION, held, "application_id", first_choice)
+
+            second_choice = generate_application_id()
+            name = self._submit_short()
+            response, _log = self._confirm_link(name)
+
+        self.assertTrue(first_choice.endswith("-4321"), "control: the patched clock drives the first attempt")
+        self.assertNotEqual(second_choice, first_choice)
+        self.assertTrue(response["success"], response)
+        confirmed = frappe.db.get_value(SUBMISSION, name, "application_id")
+        self.assertTrue(confirmed)
+        self.assertNotEqual(confirmed, first_choice)
+
+    def test_a_pending_row_staff_approved_meanwhile_is_skipped_not_raised(self):
+        """Staff approve the older row after the candidates were read and before it is superseded.
+
+        Probe shortcut, declared: the approval is injected from a hook on the candidate read
+        (`frappe.get_all` on the submissions), because a true second connection is not driven here. The
+        approval itself is the real transition (`set_status` from Pending Review). The code that reads its
+        candidates with a locking query never calls that hook, and then the assertions still hold."""
+        older = self._submit_short()
+        self.assertTrue(self._confirm_link(older)[0]["success"])
+        newer = self._submit_short()
+        real_get_all = frappe.get_all
+
+        def get_all_then_staff_approve(doctype, *args, **kwargs):
+            rows = real_get_all(doctype, *args, **kwargs)
+            if doctype == SUBMISSION and "Pending Review" in json.dumps(args, default=str):
+                frappe.get_doc(SUBMISSION, older, for_update=True).set_status("Approved")
+            return rows
+
+        with patch.object(frappe, "get_all", side_effect=get_all_then_staff_approve):
+            response, _log = self._confirm_link(newer)
+
+        self.assertTrue(response["success"], response)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, newer, "status"), "Pending Review")
+        self.assertIn(frappe.db.get_value(SUBMISSION, older, "status"), ("Approved", "Superseded"))
+
+    def test_an_approved_older_row_is_left_alone(self):
+        older = self._submit_short()
+        self.assertTrue(self._confirm_link(older)[0]["success"])
+        frappe.get_doc(SUBMISSION, older, for_update=True).set_status("Approved")
+        newer = self._submit_short()
+
+        self.assertTrue(self._confirm_link(newer)[0]["success"])
+
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, older, ["status", "superseded_by"], as_dict=True),
+            {"status": "Approved", "superseded_by": None},
+        )

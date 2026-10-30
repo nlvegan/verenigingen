@@ -16,7 +16,7 @@ from verenigingen.api.membership_application import (
     approve_membership_application,
     reject_membership_application,
 )
-from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -172,7 +172,7 @@ class TestMembershipApplication(VereningingenTestCase):
 
     def test_submit_application(self):
         """Test application submission"""
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
 
         self.assertTrue(result["success"])
         self.assertIn("member_record", result["data"])
@@ -210,7 +210,7 @@ class TestMembershipApplication(VereningingenTestCase):
 
         # The eligibility gate deliberately log_error()s the failure detail.
         self.expectErrorLog("Application Eligibility Failed")
-        result = submit_application(**young_data)
+        result = submit_and_materialise(**young_data)
 
         self.assertFalse(result["success"], "a 10-year-old must not be accepted")
         # Message-pinned: assert the AGE rule rejected it, not some unrelated
@@ -227,7 +227,7 @@ class TestMembershipApplication(VereningingenTestCase):
 
     def test_chapter_suggestion(self):
         """Test automatic chapter suggestion"""
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member = frappe.get_doc("Member", result["data"]["member_record"])
 
         # Should suggest Test Chapter based on postal code
@@ -241,7 +241,7 @@ class TestMembershipApplication(VereningingenTestCase):
     def test_approve_application(self):
         """Test application approval workflow"""
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -274,7 +274,7 @@ class TestMembershipApplication(VereningingenTestCase):
     def test_reject_application(self):
         """Test application rejection"""
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Reject application
@@ -293,7 +293,7 @@ class TestMembershipApplication(VereningingenTestCase):
         """Test that an approved application reaches the Approved state and
         provisions the related volunteer record."""
         # Submit and approve application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -311,11 +311,11 @@ class TestMembershipApplication(VereningingenTestCase):
     def test_duplicate_email_prevention(self):
         """Test that duplicate emails are prevented"""
         # Submit first application
-        first_result = submit_application(**self.application_data)
+        first_result = submit_and_materialise(**self.application_data)
         self.assertTrue(first_result["success"])
 
         # Try to submit with same email - should fail or handle reapplication
-        second_result = submit_application(**self.application_data)
+        second_result = submit_and_materialise(**self.application_data)
         # Either fails with error, or handles reapplication scenario
         if not second_result["success"]:
             error = second_result.get("error", {})
@@ -330,7 +330,7 @@ class TestMembershipApplication(VereningingenTestCase):
         # Create an old application
         old_data = self.application_data.copy()
         old_data["email"] = f"old_{self.test_email}"
-        result = submit_application(**old_data)
+        result = submit_and_materialise(**old_data)
 
         # Manually set the application date to 3 weeks ago
         frappe.db.set_value("Member", result["data"]["member_record"], "application_date", add_days(now_datetime(), -21))
@@ -500,7 +500,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                     "postal_code": "1234AB",
                     "country": "Netherlands",
                     "selected_membership_type": "Test Membership"}
-                result = submit_application(data)
+                result = submit_and_materialise(data)
                 results.append(result)
             except Exception as e:
                 errors.append(str(e))
@@ -539,7 +539,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         custom_fee_data["email"] = f"customfee_{self.test_email}"
 
         # Submit application with custom fee
-        result = submit_application(**custom_fee_data)
+        result = submit_and_materialise(**custom_fee_data)
 
         # Verify submission successful
         self.assertTrue(result["success"])
@@ -574,7 +574,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         print("\n🧪 Testing application_id generation...")
 
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Get member and verify application_id exists
@@ -615,7 +615,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             {"name": "Public Speaking", "category": "Communication", "level": "5 - Expert"},
         ]
 
-        result = submit_application(**skills_data)
+        result = submit_and_materialise(**skills_data)
         member_name = result["data"]["member_record"]
         self.track_doc("Member", member_name)
 
@@ -646,7 +646,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         skills_data["email"] = f"emptyskills_{self.test_email}"
 
         # Submit application
-        result = submit_application(**skills_data)
+        result = submit_and_materialise(**skills_data)
         member_name = result["data"]["member_record"]
 
         # Verify member was created
@@ -683,7 +683,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         iban_data["email"] = f"iban_{self.test_email}"
 
         # Submit application
-        result = submit_application(**iban_data)
+        result = submit_and_materialise(**iban_data)
 
         # Verify submission successful
         self.assertTrue(result["success"])
@@ -740,7 +740,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         data["transfer_iban"] = "NL91ABNA0417164300"
         data["transfer_account_name"] = "Transfer Holder"
 
-        result = submit_application(**data)
+        result = submit_and_materialise(**data)
         member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
@@ -772,7 +772,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         data["address_line2"] = "Tweede regel 4B"
         data["state"] = "Noord-Holland"
 
-        result = submit_application(**data)
+        result = submit_and_materialise(**data)
         member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
@@ -784,7 +784,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_contact_number_field_usage(self):
         """Test that contact_number is used instead of mobile_no"""
         # Submit application with contact number
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
 
         # Get created member
         member = frappe.get_doc("Member", result["data"]["member_record"])
@@ -800,7 +800,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_membership_submission_after_approval(self):
         """Test that membership is properly submitted after approval"""
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -828,7 +828,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_invoice_period_dates(self):
         """Test that invoices have proper billing period dates"""
         # Submit and approve application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -852,7 +852,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_no_duplicate_invoices(self):
         """Test that approval doesn't create duplicate invoices"""
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -881,7 +881,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         custom_amount_data["custom_amount_reason"] = "Higher contribution level"
         custom_amount_data["email"] = f"customdup_{self.test_email}"
 
-        result = submit_application(**custom_amount_data)
+        result = submit_and_materialise(**custom_amount_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -976,7 +976,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         print("\n🧪 Testing invoice-dues schedule coordination...")
 
         # Submit application
-        result = submit_application(**self.application_data)
+        result = submit_and_materialise(**self.application_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -1054,7 +1054,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             custom_data["custom_amount_reason"] = f"Custom contribution of €{custom_amount}"
             custom_data["email"] = f"custom{int(custom_amount)}_{self.test_email}"
 
-            result = submit_application(**custom_data)
+            result = submit_and_materialise(**custom_data)
             member_name = result["data"]["member_record"]
 
             # Approve application
@@ -1117,7 +1117,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         standard_data.pop("custom_contribution_fee", None)
         standard_data.pop("uses_custom_amount", None)
 
-        result = submit_application(**standard_data)
+        result = submit_and_materialise(**standard_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -1181,7 +1181,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         custom_data["uses_custom_amount"] = True
         custom_data["email"] = f"billing_custom_{self.test_email}"
 
-        result = submit_application(**custom_data)
+        result = submit_and_materialise(**custom_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -1232,7 +1232,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         standard_data.pop("custom_contribution_fee", None)
         standard_data.pop("uses_custom_amount", None)
 
-        result = submit_application(**standard_data)
+        result = submit_and_materialise(**standard_data)
         member_name = result["data"]["member_record"]
 
         approve_membership_application(member_name)
@@ -1292,7 +1292,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         custom_data["custom_amount_reason"] = "Integration test custom amount"
         custom_data["email"] = f"integration_{self.test_email}"
 
-        result = submit_application(**custom_data)
+        result = submit_and_materialise(**custom_data)
         member_name = result["data"]["member_record"]
 
         # 2. Verify member has custom amount data in fee override field
@@ -1391,7 +1391,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_skills"] = "Event coordination, Public speaking, IT support"
         volunteer_data["email"] = f"volunteer_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
 
         # Verify submission successful
         self.assertTrue(result["success"])
@@ -1420,7 +1420,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["email"] = f"volpay_{self.test_email}"
 
         # Submit and approve application
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -1448,7 +1448,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         non_volunteer_data["email"] = f"nonvol_{self.test_email}"
 
         # Submit and approve application
-        result = submit_application(**non_volunteer_data)
+        result = submit_and_materialise(**non_volunteer_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -1471,7 +1471,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         valid_volunteer_data["volunteer_interests"] = ["Event Planning", "Technical Support"]
         valid_volunteer_data["email"] = f"validvol_{self.test_email}"
 
-        result = submit_application(**valid_volunteer_data)
+        result = submit_and_materialise(**valid_volunteer_data)
         self.assertTrue(result["success"])
 
         member = frappe.get_doc("Member", result["data"]["member_record"])
@@ -1504,7 +1504,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_interests"] = ["fundraising", "outreach"]
         volunteer_data["email"] = f"interestarea_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1529,7 +1529,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_interests"] = "fundraising"
         volunteer_data["email"] = f"stringinterest_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1553,7 +1553,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         self.assertFalse(frappe.db.exists("Volunteer Interest Category", "Totally Made Up Category"))
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1601,7 +1601,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_experience_level"] = "Experienced"
         volunteer_data["email"] = f"availability_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1624,7 +1624,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_availability"] = "Monthly"
         volunteer_data["email"] = f"monthly_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
+        result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1655,7 +1655,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # fallback. The pre-existing "Volunteer - JSON Parsing Error" this fixture's
         # volunteer_skills string produces is unrelated to this fix and expected.
         with self.assertNoErrorLog(ignore=["Volunteer - JSON Parsing Error"]):
-            result = submit_application(**volunteer_data)
+            result = submit_and_materialise(**volunteer_data)
         self.assertTrue(result["success"])
         member_name = result["data"]["member_record"]
 
@@ -1676,7 +1676,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         zero_data["uses_custom_amount"] = True
         zero_data["email"] = f"zero_{self.test_email}"
 
-        result = submit_application(**zero_data)
+        result = submit_and_materialise(**zero_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -1720,7 +1720,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         # This should either fail during submission or be corrected
         try:
-            result = submit_application(**negative_data)
+            result = submit_and_materialise(**negative_data)
             # Check if result indicates failure
             if not result.get("success", False):
                 print(f"✅ Negative amount rejected during submission: {result.get('error', '')}")
@@ -1761,7 +1761,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         large_data["uses_custom_amount"] = True
         large_data["email"] = f"large_{self.test_email}"
 
-        result = submit_application(**large_data)
+        result = submit_and_materialise(**large_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -1824,7 +1824,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         decimal_data["uses_custom_amount"] = True
         decimal_data["email"] = f"decimal_{self.test_email}"
 
-        result = submit_application(**decimal_data)
+        result = submit_and_materialise(**decimal_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -1891,7 +1891,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         first_data["uses_custom_amount"] = True
         first_data["email"] = f"first_reuse_{self.test_email}"
 
-        result1 = submit_application(**first_data)
+        result1 = submit_and_materialise(**first_data)
         member1_name = result1["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -1913,7 +1913,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         second_data["uses_custom_amount"] = True
         second_data["email"] = f"second_reuse_{self.test_email}"
 
-        result2 = submit_application(**second_data)
+        result2 = submit_and_materialise(**second_data)
         member2_name = result2["data"]["member_record"]
 
         approve_membership_application(member2_name)
@@ -1995,7 +1995,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         premium_data["uses_custom_amount"] = True
         premium_data["email"] = f"premium_{self.test_email}"
 
-        result = submit_application(**premium_data)
+        result = submit_and_materialise(**premium_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
@@ -2070,7 +2070,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         edge_data["uses_custom_amount"] = True
         edge_data["email"] = f"edge_{self.test_email}"
 
-        result = submit_application(**edge_data)
+        result = submit_and_materialise(**edge_data)
         member_name = result["data"]["member_record"]
 
         # Approve application
@@ -2150,7 +2150,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         second_member_data["uses_custom_amount"] = True
         second_member_data["email"] = f"edge2_{self.test_email}"
 
-        result2 = submit_application(**second_member_data)
+        result2 = submit_and_materialise(**second_member_data)
         member2_name = result2["data"]["member_record"]
         approve_membership_application(member2_name)
 
@@ -2342,7 +2342,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Utrecht"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Application with chapter selection should succeed")
 
@@ -2364,7 +2364,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["city"] = "Nowheresville"  # City that won't match any chapter
         # No selected_chapter field
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Application without chapter should succeed")
 
@@ -2381,7 +2381,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Non-Existent Chapter"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         # Should either succeed (ignoring invalid chapter) or fail gracefully
         if result["success"]:
@@ -2404,7 +2404,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Unpublished Chapter"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         # Should succeed but unpublished chapter should not be assigned
         self.assertTrue(result["success"], "Application should succeed")
@@ -2492,7 +2492,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["postal_code"] = "9999ZZ"  # Outside any chapter postal range
         application_data["city"] = "Nowheresville"  # City that won't match any chapter
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
         member_name = result["data"]["member_record"]
 
         member = frappe.get_doc("Member", member_name)
@@ -2520,7 +2520,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["uses_custom_amount"] = True
         application_data["custom_amount_reason"] = "Test custom with chapter"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Application with chapter and custom amount should succeed")
 
@@ -2539,7 +2539,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Amsterdam"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
         member_name = result["data"]["member_record"]
 
         # Verify initial assignment
@@ -2638,7 +2638,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = additional_chapter_name
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
         member = frappe.get_doc("Member", result["data"]["member_record"])
 
         primary_chapter = get_member_primary_chapter(member.name)
@@ -2665,7 +2665,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["postal_code"] = "9999ZZ"  # Outside any chapter postal range
         application_data["city"] = "Nowheresville"  # City that won't match any chapter
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Application with empty chapter string should succeed")
 
@@ -2681,7 +2681,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "   "
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Application with whitespace chapter should succeed")
 
@@ -2698,7 +2698,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Utrecht"
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
         member = frappe.get_doc("Member", result["data"]["member_record"])
 
         # Should be able to save with valid chapter
@@ -2784,7 +2784,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = intl_chapter_name
 
-        result = submit_application(**application_data)
+        result = submit_and_materialise(**application_data)
 
         self.assertTrue(result["success"], "Should handle international chapter names")
 
@@ -2884,7 +2884,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         incomplete_data = self.base_data.copy()
         del incomplete_data["email"]
 
-        result = submit_application(**incomplete_data)
+        result = submit_and_materialise(**incomplete_data)
 
         self.assertFalse(result["success"], "Should fail when required field missing")
         self.assertTrue(result.get("error"), "Should have error message")
@@ -2900,7 +2900,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         malformed_data = "not valid json"
 
         try:
-            result = submit_application(data=malformed_data)
+            result = submit_and_materialise(data=malformed_data)
             self.assertFalse(result["success"], "Should handle malformed data gracefully")
         except Exception as e:
             # Should not crash with unhandled exception
@@ -2917,7 +2917,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         long_data["first_name"] = "A" * 1000  # Very long name
         long_data["email"] = f"long_test_{frappe.generate_hash(length=8)}@example.com"
 
-        result = submit_application(**long_data)
+        result = submit_and_materialise(**long_data)
 
         # Should either succeed (with truncation) or fail gracefully
         if result["success"]:
@@ -2940,7 +2940,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         special_data["email"] = f"special_test_{frappe.generate_hash(length=8)}@example.com"
         special_data["address_line1"] = "123 Château de Versailles Straße"
 
-        result = submit_application(**special_data)
+        result = submit_and_materialise(**special_data)
 
         self.assertTrue(result["success"], "Should handle special characters")
 
@@ -2973,7 +2973,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
 
                 data = self.base_data.copy()
                 data["email"] = f"concurrent_{email_suffix}@example.com"
-                result = submit_application(data)
+                result = submit_and_materialise(data)
 
                 with results_lock:
                     results.append(result)
@@ -3050,7 +3050,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         process = psutil.Process(os.getpid())
         memory_before = process.memory_info().rss
 
-        result = submit_application(**large_data)
+        result = submit_and_materialise(**large_data)
 
         # Measure memory after
         memory_after = process.memory_info().rss
@@ -3066,7 +3066,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         """Test recovery from database connection issues"""
         # This is a simulation - in practice, database issues are handled by Frappe
         try:
-            result = submit_application(**self.base_data)
+            result = submit_and_materialise(**self.base_data)
             self.assertTrue(result["success"], "Should handle database operations normally")
             print("✅ Database connection stable")
         except Exception as e:
@@ -3083,7 +3083,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         invalid_data["selected_membership_type"] = "Non-Existent Membership Type"
         invalid_data["email"] = f"invalid_type_{frappe.generate_hash(length=8)}@example.com"
 
-        result = submit_application(**invalid_data)
+        result = submit_and_materialise(**invalid_data)
 
         # Should fail gracefully with appropriate error
         self.assertFalse(result["success"], "Should fail for invalid membership type")

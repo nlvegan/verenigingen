@@ -230,10 +230,10 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
             "payment_method": "Bank Transfer"}
 
         # Import application submission function
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
         try:
-            result = submit_application(data=test_data)
+            result = submit_and_materialise(data=test_data)
 
             # Application should succeed
             self.assertTrue(result.get("success"), f"Application should succeed: {result.get('message')}")

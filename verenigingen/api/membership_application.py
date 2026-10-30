@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 import frappe
 from frappe import _
+from frappe.rate_limiter import rate_limit
 from frappe.utils import cint
 
 from verenigingen.api.membership_application_review import send_rejection_notification
@@ -417,6 +418,7 @@ def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, An
 
 
 @frappe.whitelist(allow_guest=True)
+@rate_limit(limit=10, seconds=3600)  # it mails any address now, like the short form
 @public_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
@@ -546,10 +548,8 @@ def _handle_existing_member(existing_member, data):
         )
 
         if not termination_result:
-            frappe.log_error(
-                f"Member {member_name} has Terminated status but no executed termination request found",
-                "Termination Data Integrity",
-            )
+            # No Error Log row here: this runs for anonymous callers, and a row that only an existing
+            # Quit member's email produces would tell an operator, and anyone reading logs, whose it is.
             return None, OperationResult.fail(
                 _("Please contact us to clarify your membership status before reapplying."),
                 errors=["termination_status_unclear"],

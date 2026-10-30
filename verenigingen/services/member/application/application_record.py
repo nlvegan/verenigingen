@@ -94,14 +94,23 @@ def confirm_application(name, token) -> dict:
 
 def supersede_older(email: str, keep: str) -> int:
     """Every other Pending Review application of this email is replaced by `keep`."""
-    names = frappe.get_all(
-        SUBMISSION, {"email": email, "status": "Pending Review", "name": ["!=", keep]}, pluck="name"
+    # One locking read of every row of this email, in name order, so two confirms for the same email take
+    # the locks in the same order and the second sees the first's result. The status comes from that
+    # locked read: staff may have approved or rejected a row since it was staged, and that row is skipped.
+    rows = frappe.db.sql(
+        f"SELECT name, status FROM `tab{SUBMISSION}` WHERE email = %s ORDER BY name FOR UPDATE",
+        (email,),
+        as_dict=True,
     )
-    for name in names:
-        older = frappe.get_doc(SUBMISSION, name, for_update=True)
+    superseded = 0
+    for row in rows:
+        if row.name == keep or row.status != "Pending Review":
+            continue
+        older = frappe.get_doc(SUBMISSION, row.name)
         older.set_status("Superseded")
         older.db_set("superseded_by", keep)
-    return len(names)
+        superseded += 1
+    return superseded
 
 
 def _record_confirmation(submission, payload):

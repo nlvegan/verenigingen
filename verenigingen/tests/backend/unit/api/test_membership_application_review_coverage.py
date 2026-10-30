@@ -360,9 +360,9 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
         self.membership_type = _ensure_membership_type()
 
     def _submit_application_for_chapter(self, email, chapter_name):
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 
-        result = submit_application(
+        result = submit_and_materialise(
             first_name="CleanupFail",
             last_name=f"Applicant{frappe.generate_hash(length=6)}",
             email=email,
@@ -379,7 +379,7 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
 
     def _applicant_pending_in_both_chapters_via_resubmit(self):
         """Real (unmocked) reproduction, through the actual submission API, of an
-        applicant Pending in two chapters at once: two submit_application() calls
+        applicant Pending in two chapters at once: two submit_and_materialise() calls
         with the SAME email and a different selected_chapter each time. No
         create_pending_chapter_membership call, no db_set of chapter state --
         both Pending rows are the ones production's own resubmit path writes.

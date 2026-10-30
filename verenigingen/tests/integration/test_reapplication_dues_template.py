@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, flt, today
 
-from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
+from verenigingen.tests.utils.legacy_submit import submit_and_materialise
 from verenigingen.api.membership_application_review import (
     approve_membership_application,
     reject_membership_application,
@@ -94,7 +94,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         if amount is not None:
             payload["custom_contribution_fee"] = amount
             payload["uses_custom_amount"] = 1
-        result = submit_application(**payload)
+        result = submit_and_materialise(**payload)
         self.assertTrue(result["success"], f"submit_application failed: {result}")
         return result["data"]["member_record"]
 
