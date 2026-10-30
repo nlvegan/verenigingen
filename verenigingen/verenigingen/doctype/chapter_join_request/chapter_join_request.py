@@ -14,6 +14,10 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
+# Fields approve_request writes; restored on the in-memory doc when the save is rolled back.
+REVIEW_FIELDS = ("status", "reviewed_by", "review_date", "review_notes")
 
 
 class ChapterJoinRequest(Document):
@@ -41,6 +45,28 @@ class ChapterJoinRequest(Document):
         self.validate_chapter_exists()
         self.validate_no_duplicate_request()
         self.validate_not_already_member()
+        self.validate_status_change()
+
+    def validate_status_change(self):
+        """Only approve_request / reject_request may move status (#1704).
+
+        status is allow_on_submit and writable by every role with write access (Member, Staff,
+        Chapter Board Member, Administrator), so a form save or REST PUT could otherwise set
+        Approved with no Chapter Member row, and a REST insert could create a request that is
+        born Approved. The two review methods set flags.review_in_progress; a client cannot.
+        """
+        if self.get_doc_before_save() is None:
+            if self.amended_from:
+                # An amendment copies the cancelled request's status; it needs a fresh review.
+                self.status = "Pending"
+            elif self.status != "Pending":
+                frappe.throw(_("A new join request must start as Pending"))
+        elif self.has_value_changed("status") and not self.flags.review_in_progress:
+            frappe.throw(_("The status can only be changed by approving or rejecting the request"))
+
+    def before_update_after_submit(self):
+        """Frappe runs this, not validate(), when a SUBMITTED request is saved again."""
+        self.validate_status_change()
 
     def validate_field_references(self):
         """Validate that referenced fields exist in target DocTypes"""
@@ -119,9 +145,11 @@ class ChapterJoinRequest(Document):
         # Approved with no membership and no retry path. A savepoint (not a full rollback) undoes
         # only this request, so bulk approval keeps the requests that already succeeded.
         savepoint = "cjr_approve_" + frappe.generate_hash(length=8)
+        before = {field: self.get(field) for field in REVIEW_FIELDS}
         frappe.db.savepoint(savepoint)
         try:
             # Update request status first
+            self.flags.review_in_progress = True
             self.status = "Approved"
             self.reviewed_by = approved_by or frappe.session.user
             self.review_date = today()
@@ -171,21 +199,26 @@ class ChapterJoinRequest(Document):
             }
 
         except Exception as e:
-            self._undo_failed_approval(savepoint, e)
+            self._undo_failed_approval(savepoint, e, before)
             frappe.throw(_("Failed to approve request: {0}").format(str(e)))
 
-    def _undo_failed_approval(self, savepoint, error):
+    def _undo_failed_approval(self, savepoint, error, before):
         """Roll the Approved save back to *savepoint* and restore the in-memory doc.
 
         Every failure is rolled back, including a 1205 lock timeout: it leaves the transaction
         and savepoint live, so skipping the rollback would let a swallowing wrapper commit the
         Approved row (#1632). Only a 1213 deadlock has already destroyed the savepoint;
         rollback_to_savepoint tolerates that (returns False) instead of masking the real error.
+        The server has then rolled the Approved save back too, so the in-memory doc is put back
+        from *before* rather than left claiming Approved (#1703).
         """
-        from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+        from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
+        self.flags.review_in_progress = False
         if rollback_to_savepoint(savepoint):
             self.reload()
+        else:
+            self.update(before)
         if isinstance(error, NON_RESUMABLE_DB_ERRORS):
             raise error
 
@@ -211,6 +244,7 @@ class ChapterJoinRequest(Document):
 
         try:
             # Update request status
+            self.flags.review_in_progress = True
             self.status = "Rejected"
             self.reviewed_by = rejected_by or frappe.session.user
             self.review_date = today()
@@ -503,10 +537,12 @@ def get_chapter_join_requests(chapter_name: str):
 def bulk_approve_requests(request_names):
     """Bulk approve multiple chapter join requests"""
     try:
-        approved_count = 0
+        approved_names = []
         failed_requests = []
+        interrupted_by = None
+        remaining = []
 
-        for request_name in request_names:
+        for position, request_name in enumerate(request_names):
             try:
                 doc = frappe.get_doc("Chapter Join Request", request_name)
 
@@ -516,14 +552,39 @@ def bulk_approve_requests(request_names):
                     continue
 
                 doc.approve_request()
-                approved_count += 1
+                approved_names.append(request_name)
 
+            except NON_RESUMABLE_DB_ERRORS as e:
+                # A deadlock/lock timeout means the database is contended or the transaction is
+                # gone; carrying on would only add more work to the same fate (#1703).
+                interrupted_by = e
+                remaining = list(request_names)[position + 1 :]
+                failed_requests.append(f"{request_name}: {str(e)}")
+                break
             except Exception as e:
                 failed_requests.append(f"{request_name}: {str(e)}")
 
-        message = _("Successfully approved {0} request(s)").format(approved_count)
+        applied_names = approved_names
+        rolled_back_names = []
+        if isinstance(interrupted_by, frappe.QueryDeadlockError):
+            # A 1213 rolls the WHOLE transaction back server-side, so the approvals made earlier
+            # in this loop did not survive either. Report them as not applied instead of as
+            # successes; no commit is added here, the request-level commit has nothing to keep.
+            applied_names, rolled_back_names = [], approved_names
+
+        message = _("Successfully approved {0} request(s)").format(len(applied_names))
         if failed_requests:
             message += _("<br>Failed requests:<br>") + "<br>".join(failed_requests)
+        if interrupted_by is not None:
+            message += _("<br>Bulk approval stopped after a database error ({0}).").format(
+                type(interrupted_by).__name__
+            )
+            if rolled_back_names:
+                message += _("<br>Approvals rolled back, please retry: {0}").format(
+                    ", ".join(rolled_back_names)
+                )
+            if remaining:
+                message += _("<br>Requests not processed: {0}").format(", ".join(remaining))
 
         return message
 
