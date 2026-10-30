@@ -1,6 +1,7 @@
 # Copyright (c) 2025, Verenigingen and Contributors
 # See license.txt
 
+import contextlib
 import unittest
 
 import frappe
@@ -358,11 +359,8 @@ class TestChapterJoinRequest(EnhancedTestCase):
         join_request.insert()
         join_request.submit()
 
-        # Test basic approval status change
-        join_request.status = "Approved"
-        join_request.reviewed_by = "Administrator"
-        join_request.review_notes = "Approved for testing purposes"
-        join_request.save()
+        # Approval goes through approve_request: a bare status edit is refused (#1704)
+        join_request.approve_request(approved_by="Administrator", notes="Approved for testing purposes")
 
         # Verify basic approval fields
         self.assertEqual(join_request.status, "Approved")
@@ -480,6 +478,285 @@ class TestChapterJoinRequest(EnhancedTestCase):
         # Should handle special characters without issues
         join_request.insert()
         self.assertEqual(join_request.introduction, special_introduction)
+
+    # ----- #1704: status is writable only through approve/reject ---------------------------
+
+    WRITE_ROLES = (
+        "Verenigingen Administrator",
+        "Verenigingen Staff",
+        "Verenigingen Member",
+        "Verenigingen Chapter Board Member",
+    )
+
+    def _submitted_request(self, member=None):
+        request = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": (member or self.test_member).name,
+                "chapter": self.test_chapter.name,
+                "introduction": "Status guard request",
+            }
+        )
+        request.insert()
+        request.submit()
+        return request
+
+    def _role_user_email(self, role):
+        """Email of a fresh user holding exactly *role* (via the shared factory)."""
+        return self.factory.create_user_with_roles(roles=[role]).email
+
+    @contextlib.contextmanager
+    def _as_user_with_role(self, role):
+        frappe.set_user(self._role_user_email(role))
+        try:
+            yield
+        finally:
+            frappe.set_user("Administrator")
+
+    def _status_in_db(self, request):
+        return frappe.db.get_value("Chapter Join Request", request.name, "status")
+
+    def test_writer_roles_can_open_a_write_on_the_doc(self):
+        """Control for the guard tests below: each role really passes the doctype write check,
+        and a role outside the permission table does not. Without this, a refusal below could
+        be the permission layer rather than the status guard."""
+        request = self._submitted_request()
+        for role in self.WRITE_ROLES:
+            with self.subTest(role=role):
+                self.assertTrue(
+                    frappe.has_permission(
+                        "Chapter Join Request", "write", doc=request, user=self._role_user_email(role)
+                    )
+                )
+        self.assertFalse(
+            frappe.has_permission(
+                "Chapter Join Request", "write", doc=request, user=self._role_user_email("System Manager")
+            )
+        )
+
+    def test_a_form_save_cannot_set_approved_for_any_writer_role(self):
+        """#1704: the form/REST save path (get_doc + set + save, permission-checked) must not
+        move status by itself. No Chapter Member row exists, so Approved here would be a lie."""
+        for role in self.WRITE_ROLES:
+            with self.subTest(role=role):
+                request = self._submitted_request(self.create_test_member(status="Active"))
+                with self._as_user_with_role(role):
+                    doc = frappe.get_doc("Chapter Join Request", request.name)
+                    doc.status = "Approved"
+                    with self.assertRaises(frappe.ValidationError) as ctx:
+                        doc.save()
+                self.assertIn("approving or rejecting", str(ctx.exception))
+                self.assertEqual(self._status_in_db(request), "Pending")
+
+    def test_rest_set_value_cannot_set_approved_or_rejected(self):
+        """#1704: the frappe.client.set_value channel is the REST PUT shape."""
+        from frappe.client import set_value
+
+        request = self._submitted_request()
+        with self._as_user_with_role("Verenigingen Member"):
+            for target in ("Approved", "Rejected"):
+                with self.assertRaises(frappe.ValidationError):
+                    set_value("Chapter Join Request", request.name, "status", target)
+        self.assertEqual(self._status_in_db(request), "Pending")
+
+    def test_a_new_request_cannot_be_inserted_already_approved(self):
+        """#1704: a REST insert with status Approved is the same harm without needing an edit."""
+        with self._as_user_with_role("Verenigingen Member"):
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Chapter Join Request",
+                    "member": self.test_member.name,
+                    "chapter": self.test_chapter.name,
+                    "introduction": "Born approved",
+                    "status": "Approved",
+                }
+            )
+            with self.assertRaises(frappe.ValidationError):
+                doc.insert()
+
+    def test_other_review_fields_still_save_without_a_status_change(self):
+        """Control: the guard keys on a status CHANGE, not on any post-submit save."""
+        request = self._submitted_request()
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+        doc.review_notes = "note only"
+        doc.save()
+        self.assertEqual(self._status_in_db(request), "Pending")
+
+    def test_approve_and_reject_still_move_status_for_a_non_admin_reviewer(self):
+        """The legitimate paths, through the real controller methods as a Staff user. (The
+        whitelisted wrappers need a security role profile a bare-role test user lacks.)"""
+        to_approve = self._submitted_request(self.test_member)
+        to_reject = self._submitted_request(self.test_member2)
+        with self._as_user_with_role("Verenigingen Staff"):
+            frappe.get_doc("Chapter Join Request", to_approve.name).approve_request()
+            frappe.get_doc("Chapter Join Request", to_reject.name).reject_request(reason="no")
+        self.assertEqual(self._status_in_db(to_approve), "Approved")
+        self.assertEqual(self._status_in_db(to_reject), "Rejected")
+        self.assertEqual([r.enabled for r in self._chapter_member_rows(self.test_member)], [1])
+
+    # ----- #1703: a destroyed transaction in bulk approval ---------------------------------
+
+    def _deadlock_on_assign_for(self, member_name, below_assign=False):
+        """Context manager: assign_member_to_chapter for *member_name* destroys the open
+        savepoint (as a real 1213 does server-side: the rollback itself cannot be performed in
+        a test without taking the fixtures) and raises QueryDeadlockError; others run for real.
+        With below_assign the fault is injected in MemberManager.add_member, beneath the
+        `except Exception` in assign_member_to_chapter that turns it into a failure dict, as a
+        real deadlock in the roster write arrives."""
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.verenigingen.doctype.chapter.managers.member_manager import MemberManager
+
+        real_assign = ChapterMembershipManager.assign_member_to_chapter
+        real_add_member = MemberManager.add_member
+        savepoints = []
+        real_savepoint = frappe.local.db.savepoint
+
+        def recording_savepoint(name):
+            savepoints.append(name)
+            return real_savepoint(name)
+
+        def assign(member_id, *args, **kwargs):
+            if member_id != member_name:
+                return real_assign(member_id, *args, **kwargs)
+            frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
+            raise frappe.QueryDeadlockError("1213")
+
+        def add_member(manager, member_id, *args, **kwargs):
+            if member_id != member_name:
+                return real_add_member(manager, member_id, *args, **kwargs)
+            frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
+            raise frappe.QueryDeadlockError("1213")
+
+        target, replacement = (
+            (MemberManager, dict(attribute="add_member", new=add_member))
+            if below_assign
+            else (ChapterMembershipManager, dict(attribute="assign_member_to_chapter", side_effect=assign))
+        )
+
+        @contextmanager
+        def ctx():
+            # Mock justified: fault injection of a DB deadlock no fixture can produce; the
+            # assertions exercise bulk_approve_requests / approve_request, not the stub.
+            with patch.object(frappe.local.db, "savepoint", recording_savepoint), patch.object(
+                target, **replacement
+            ):
+                yield
+
+        return ctx()
+
+    def test_bulk_approve_stops_at_a_deadlock_and_does_not_claim_the_rolled_back(self):
+        """#1703: after a 1213 the server has rolled the transaction back, so the earlier
+        'approved' request is NOT applied and the loop must not carry on in a fresh one."""
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        first = self._submitted_request(self.test_member)
+        victim = self._submitted_request(self.test_member2)
+        later = self._submitted_request(self.create_test_member(status="Active"))
+
+        with self._deadlock_on_assign_for(self.test_member2.name):
+            message = bulk_approve_requests([first.name, victim.name, later.name])
+
+        self.assertNotIn("Successfully approved 1 request(s)", message)
+        self.assertIn("Successfully approved 0 request(s)", message)
+        self.assertIn(first.name, message.split("rolled back")[-1])
+        self.assertIn(later.name, message.split("not processed")[-1])
+        self.assertEqual(self._status_in_db(later), "Pending")
+
+    def test_bulk_approve_stops_at_a_deadlock_swallowed_below_assign_member(self):
+        """#1703 review F1: a real 1213 in the roster write is swallowed by
+        assign_member_to_chapter into a failure dict, so approve_request sees a plain
+        ValidationError. The vanished savepoint, not the exception type, must stop the loop."""
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        self.expectErrorLog("Error in assign_member_to_chapter")
+        first = self._submitted_request(self.test_member)
+        victim = self._submitted_request(self.test_member2)
+        later = self._submitted_request(self.create_test_member(status="Active"))
+
+        with self._deadlock_on_assign_for(self.test_member2.name, below_assign=True):
+            message = bulk_approve_requests([first.name, victim.name, later.name])
+
+        self.assertIn("Successfully approved 0 request(s)", message)
+        self.assertIn(first.name, message.split("rolled back")[-1])
+        self.assertIn(later.name, message.split("not processed")[-1])
+        self.assertEqual(self._status_in_db(later), "Pending")
+
+    def test_a_swallowed_deadlock_resets_the_in_memory_doc_and_clears_the_flag(self):
+        request = self._submitted_request(self.test_member)
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+        self.expectErrorLog("Error in assign_member_to_chapter")
+
+        with self._deadlock_on_assign_for(self.test_member.name, below_assign=True):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                doc.approve_request()
+
+        self.assertEqual(doc.status, "Pending")
+        self.assertFalse(doc.flags.review_in_progress)
+
+    def test_the_review_flag_does_not_outlive_approve_or_reject(self):
+        """#1704 review F3: a doc object reused after a review must not stay privileged."""
+        approved = frappe.get_doc("Chapter Join Request", self._submitted_request(self.test_member).name)
+        approved.approve_request()
+        self.assertFalse(approved.flags.review_in_progress)
+        approved.status = "Rejected"
+        with self.assertRaises(frappe.ValidationError):
+            approved.save()
+
+        rejected = frappe.get_doc("Chapter Join Request", self._submitted_request(self.test_member2).name)
+        rejected.reject_request(reason="no")
+        self.assertFalse(rejected.flags.review_in_progress)
+
+    def test_bulk_approve_stops_at_a_lock_timeout_but_keeps_the_earlier_approvals(self):
+        """#1703 control: a 1205 leaves the transaction and the earlier savepoints alive
+        (innodb_rollback_on_timeout is OFF here), so only the deadlock path may call earlier
+        approvals rolled back. The loop still stops."""
+        from unittest.mock import patch
+
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        first = self._submitted_request(self.test_member)
+        victim = self._submitted_request(self.test_member2)
+        later = self._submitted_request(self.create_test_member(status="Active"))
+        real_assign = ChapterMembershipManager.assign_member_to_chapter
+
+        def assign(member_id, *args, **kwargs):
+            if member_id == self.test_member2.name:
+                raise frappe.QueryTimeoutError("1205")
+            return real_assign(member_id, *args, **kwargs)
+
+        # Mock justified: fault injection of a lock-wait timeout no fixture can produce.
+        with patch.object(ChapterMembershipManager, "assign_member_to_chapter", side_effect=assign):
+            message = bulk_approve_requests([first.name, victim.name, later.name])
+
+        self.assertIn("Successfully approved 1 request(s)", message)
+        self.assertNotIn("rolled back", message)
+        self.assertIn(later.name, message.split("not processed")[-1])
+        self.assertEqual(self._status_in_db(first), "Approved")
+        self.assertEqual(self._status_in_db(victim), "Pending")
+        self.assertEqual(self._status_in_db(later), "Pending")
+
+    def test_approve_request_resets_the_in_memory_doc_after_a_deadlock(self):
+        """#1703: on the deadlock path there is no savepoint to roll back to, so the doc used
+        to keep status Approved in memory."""
+        request = self._submitted_request(self.test_member)
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+
+        with self._deadlock_on_assign_for(self.test_member.name):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                doc.approve_request()
+
+        self.assertEqual(doc.status, "Pending")
+        self.assertFalse(doc.reviewed_by)
 
 
 if __name__ == "__main__":

@@ -179,12 +179,12 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         # Initial status should be Pending
         self.assertEqual(request.status, "Pending")
 
-        # Test manual status change to Approved
+        # A bare status edit is refused (#1704); approval goes through approve_request
         request.status = "Approved"
-        request.reviewed_by = "Administrator"
-        request.review_date = today()
-        request.review_notes = "Approved for testing"
-        request.save()
+        with self.assertRaises(frappe.ValidationError):
+            request.save()
+        request.reload()
+        request.approve_request(approved_by="Administrator", notes="Approved for testing")
 
         # Verify status change
         self.assertEqual(request.status, "Approved")
