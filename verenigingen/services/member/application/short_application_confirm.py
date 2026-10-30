@@ -147,7 +147,8 @@ def _create_member_with_savepoint(submission, door, payload, existing):
         raise  # the server already discarded the transaction, and the savepoint with it
     except Exception:  # swallow-ok: caller-checks
         # Logged below; confirm_submission turns the None into the generic refusal.
-        rollback_to_savepoint(savepoint)
+        if not rollback_to_savepoint(savepoint):
+            raise  # savepoint already gone, nothing was undone: a refusal would hide half-written rows
         frappe.log_error(
             title="Short application confirm failed",
             message=f"Submission {submission.name}\n{frappe.get_traceback()}",

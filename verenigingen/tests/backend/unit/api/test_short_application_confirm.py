@@ -424,6 +424,34 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
                 finally:
                     frappe.db.set_value("Membership Dues Schedule", self.template, saved)
 
+    def test_lost_savepoint_reraises_instead_of_refusing(self):
+        """If the savepoint is gone (a nested commit or a deadlock), nothing was rolled back, so a
+        refusal would claim a clean failure over half-written rows. The real error must surface."""
+        from unittest.mock import patch
+
+        from verenigingen.services.member.application import short_application_confirm as sac
+
+        name = self._confirm_submit()
+        submission = frappe.get_doc(SUBMISSION, name)
+        savepoints = []
+        real_savepoint = frappe.db.savepoint
+
+        def record_savepoint(save_point):
+            savepoints.append(save_point)
+            return real_savepoint(save_point)
+
+        def write_then_lose_savepoint(*_args):
+            frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
+            raise ValueError("write failed after the savepoint was lost")
+
+        self.expectErrorLog("Savepoint rollback skipped")
+        with patch.object(frappe.db, "savepoint", side_effect=record_savepoint), patch.object(
+            sac, "_write_member", side_effect=write_then_lose_savepoint
+        ):
+            with self.assertRaisesRegex(ValueError, "savepoint was lost"):
+                sac._create_member_with_savepoint(submission, self.door, json.loads(submission.payload), None)
+        self.assertEqual(len(savepoints), 1, "control: the code under test took exactly one savepoint")
+
     def test_approval_creates_monthly_schedule_at_chosen_amount(self):
         from verenigingen.api.membership_application_review import approve_membership_application
 
