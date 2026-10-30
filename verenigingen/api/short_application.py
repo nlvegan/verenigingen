@@ -129,7 +129,7 @@ def _within_daily_mail_cap(email) -> bool:
     digest = hashlib.sha256(email.encode()).hexdigest()
     key = frappe.cache.make_key(f"short_application_mails:{digest}")
     count = frappe.cache.incrby(key, 1)
-    if count == 1:
+    if frappe.cache.ttl(key) == -1:  # first mail, or a request that died before setting it
         frappe.cache.expire(key, 24 * 3600)
     return count <= MAX_MAILS_PER_ADDRESS_PER_DAY
 

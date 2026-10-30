@@ -181,6 +181,16 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         self._submit_times(cap + 1, email=known)
         self.assertEqual(len(self._sent_emails(known)), cap)
 
+    def test_a_cap_counter_left_without_an_expiry_gets_one(self):
+        """A request that died between incrby and expire must not block the address for good."""
+        import hashlib
+
+        key = frappe.cache.make_key(f"short_application_mails:{hashlib.sha256(self.email.encode()).hexdigest()}")
+        frappe.cache.incrby(key, 1)  # what the dead request left behind: a count, no TTL
+        self.assertEqual(frappe.cache.ttl(key), -1, "control: the seeded counter has no expiry")
+        self._submit_times(1)
+        self.assertGreater(frappe.cache.ttl(key), 0)
+
     def test_the_daily_cap_is_per_address(self):
         self._submit_times(sa.MAX_MAILS_PER_ADDRESS_PER_DAY + 1)
         other = f"other.{frappe.generate_hash(length=8).lower()}@example.org"

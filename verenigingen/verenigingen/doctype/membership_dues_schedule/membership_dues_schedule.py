@@ -80,15 +80,18 @@ class MembershipDuesSchedule(Document):
                     "Billing frequency cannot change while application door {0} offers this template."
                 ).format(door)
             )
-        if frappe.db.exists(
+        applicant = frappe.db.get_value(
             "Member",
             {
                 "application_dues_schedule": self.name,
                 "application_status": ["in", ["Pending", "Under Review", "Payment Pending"]],
             },
-        ):
+        )
+        if applicant:
             frappe.throw(
-                frappe._("Billing frequency cannot change while a pending application uses this template.")
+                frappe._(
+                    "Billing frequency cannot change while a pending application ({0}) uses this template."
+                ).format(applicant)
             )
 
     def validate_template_or_instance(self):

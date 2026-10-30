@@ -189,3 +189,18 @@ class TestMembershipApplicationDoor(VereningingenUnitTestCase):
         template.billing_frequency = "Annual"
         template.save()
         self.assertEqual(frappe.db.get_value("Membership Dues Schedule", template.name, "billing_frequency"), "Annual")
+
+    def test_a_template_only_settled_applications_chose_can_still_change_frequency(self):
+        """Only an application still waiting for approval freezes the period: Approved, Rejected and
+        Active members (including imported ones) must not lock a template forever."""
+        membership_type = self.create_test_membership_type()
+        template = self._second_template(membership_type, "Monthly")
+        member = self.create_test_member()
+        for status in ("Approved", "Rejected", "Active"):
+            with self.subTest(status):
+                frappe.db.set_value(
+                    "Member", member.name, {"application_status": status, "application_dues_schedule": template}
+                )
+                doc = frappe.get_doc("Membership Dues Schedule", template)
+                doc.billing_frequency = "Annual" if doc.billing_frequency == "Monthly" else "Monthly"
+                doc.save()
