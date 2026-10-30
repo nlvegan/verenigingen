@@ -53,6 +53,14 @@ class TestMembershipApplicationDoor(VereningingenUnitTestCase):
         with self.assertRaises(frappe.ValidationError):
             self._unsaved_door(membership_type, slug="bevestig").insert()
 
+    def test_door_cannot_be_renamed_past_slug_validation(self):
+        membership_type = self.create_test_membership_type()
+        door = self._save(self._unsaved_door(membership_type))
+        with self.assertRaises(frappe.ValidationError):
+            frappe.rename_doc("Membership Application Door", door.name, "bevestig")
+        self.assertTrue(frappe.db.exists("Membership Application Door", door.name))
+        self.assertFalse(frappe.db.exists("Membership Application Door", "bevestig"))
+
     def test_template_must_belong_to_door_type(self):
         membership_type = self.create_test_membership_type()
         other_type = self.create_test_membership_type()
