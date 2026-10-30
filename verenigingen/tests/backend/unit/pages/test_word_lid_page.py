@@ -140,6 +140,11 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         editor_value = (
             '<div class="ql-editor read-mode"><p>Hallo <b>daar</b></p><script>alert(1)</script></div>'
         )
+        # Spec: both texts are Text Editor fields, so admins write HTML into them.
+        meta = frappe.get_meta("Membership Application Door")
+        self.assertEqual(
+            [meta.get_field(f).fieldtype for f in ("card_text", "intro_text")], ["Text Editor", "Text Editor"]
+        )
         door = self._door(title="Editordeur")
         # Straight to the column, as an import would: the page must not rely on save-time cleaning.
         frappe.db.set_value(

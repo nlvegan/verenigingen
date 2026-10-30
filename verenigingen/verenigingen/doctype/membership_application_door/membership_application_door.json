@@ -85,7 +85,7 @@
   },
   {
    "fieldname": "card_text",
-   "fieldtype": "Small Text",
+   "fieldtype": "Text Editor",
    "label": "Card Text"
   },
   {
