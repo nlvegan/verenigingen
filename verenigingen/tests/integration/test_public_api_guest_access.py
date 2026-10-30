@@ -1028,13 +1028,13 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
         app_path = Path(frappe.get_app_path("verenigingen"))
         return self.find_engine_limited_guest_endpoints([app_path, app_path.parent / "scripts"])
 
-    def _keys_for_two_guests(self, operation):
+    def _keys_for_two_guests(self, operation, scope=None):
         from werkzeug.test import EnvironBuilder
 
         from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
 
         engine = get_rate_limit_engine()
-        scope = engine._get_cor_config(operation)["rate_limit_scope"] or "per_user"
+        scope = scope or engine._get_cor_config(operation)["rate_limit_scope"] or "per_user"
         keys = []
         previous = (getattr(frappe.local, "request", None), frappe.session.user)
         try:
@@ -1050,7 +1050,9 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
     def test_the_scan_finds_the_guest_endpoints_and_the_known_webhooks(self):
         """Control: an empty or truncated scan would make the invariant below vacuous."""
         names = {name for _path, name in self._endpoints()}
-        self.assertGreater(len(names), 50)
+        # 74 names on 2026-10-30 (75 endpoints; `get_payment_methods` exists twice, #1761).
+        # Lower this only for an endpoint deliberately removed, never to absorb a scan regression.
+        self.assertGreaterEqual(len(names), 74)
         for webhook in ("mollie_payment_webhook", "handle_ponto_webhook", "handle_payment"):
             self.assertIn(webhook, names)
 
@@ -1074,22 +1076,8 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
 
     def test_the_detector_would_flag_a_shared_guest_bucket(self):
         """Control: the same comparison, fed a global-scope operation, reports 'shared'."""
-        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
-
-        engine = get_rate_limit_engine()
-        from werkzeug.test import EnvironBuilder
-
-        keys = []
-        previous = (getattr(frappe.local, "request", None), frappe.session.user)
-        try:
-            frappe.set_user("Guest")
-            for ip in ("198.51.100.1", "198.51.100.2"):
-                frappe.local.request = EnvironBuilder(environ_base={"REMOTE_ADDR": ip}).get_request()
-                keys.append(engine._build_cache_key("any_op", "global", "interactive"))
-        finally:
-            frappe.local.request = previous[0]
-            frappe.set_user(previous[1])
-        self.assertEqual(keys[0], keys[1])
+        _scope, (key_1, key_2) = self._keys_for_two_guests("any_op", scope="global")
+        self.assertEqual(key_1, key_2)
 
 
 class TestMembershipApplicationFormAccess(EnhancedTestCase):
