@@ -56,6 +56,8 @@ def validate_short_application(door, data: dict) -> dict:
     """Return the cleaned payload for ``data`` or raise ``frappe.ValidationError``."""
     hidden = door.hidden()
     cleaned = _clean_identity(data)
+    # Snapshot: confirm creates the Member with the type the applicant saw, even if the door changes.
+    cleaned["membership_type"] = door.membership_type
     _check_email_field(cleaned)
     cleaned.update(_clean_optional_questions(data, hidden, cleaned))
     postal = _clean_delivery(data, hidden, cleaned)

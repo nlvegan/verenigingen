@@ -129,6 +129,8 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertEqual(len(members), 1)
         member = frappe.get_doc("Member", members[0])
         self.assertEqual(member.application_status, "Pending")
+        self.assertEqual(payload["membership_type"], self.membership_type.name)
+        self.assertEqual(member.selected_membership_type, self.membership_type.name)
         self.assertEqual(member.application_dues_schedule, self.door.monthly_dues_template)
         self.assertEqual(member.dues_rate, payload["amount"])
         self.assertEqual(member.dues_rate, self.amount)
@@ -296,7 +298,8 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
     def test_creation_failure_rolls_back_and_keeps_submission_unconfirmed(self):
         name = self._confirm_submit()
         payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
-        payload["selected_dues_schedule"] = "No such dues schedule"
+        # Fails at the final Member save, after the Address and Member rows were written.
+        payload["referral_source"] = "No such referral source"
         frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
         errors = frappe.db.count("Error Log")
 
@@ -310,6 +313,73 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), 0, "address must roll back too")
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Unconfirmed")
         self.assertEqual(frappe.db.count("Error Log"), errors + 1)
+
+    def _repoint_door_to_another_type(self):
+        """What an admin can do between submit and confirm: give the door another type and template."""
+        other_type = self.create_test_membership_type()
+        other_template = frappe.db.get_value("Membership Type", other_type.name, "dues_schedule_template")
+        frappe.db.set_value("Membership Dues Schedule", other_template, "billing_frequency", "Monthly")
+        frappe.db.set_value(
+            "Membership Application Door",
+            self.door.name,
+            {"membership_type": other_type.name, "monthly_dues_template": other_template},
+        )
+        return other_type
+
+    def test_door_repointed_after_submit_keeps_the_submitted_type_and_template(self):
+        name = self._confirm_submit()
+        other_type = self._repoint_door_to_another_type()
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._track_members()
+        member = frappe.get_doc("Member", self._members()[0])
+        self.assertNotEqual(other_type.name, self.membership_type.name)
+        self.assertEqual(member.selected_membership_type, self.membership_type.name)
+        self.assertEqual(member.application_dues_schedule, self.template)
+
+    def _assert_stale_template_refused(self, make_stale):
+        name = self._confirm_submit(email=self._new_email())
+        email = frappe.db.get_value(SUBMISSION, name, "email")
+        make_stale(name)
+        reference = self._confirm("does-not-exist")
+        addresses = frappe.db.count("Address", {"email_id": email})
+
+        outcome = self._confirm(name)
+
+        self.assertEqual(outcome, reference)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
+        self.assertEqual(self._members(email), [])
+        self.assertEqual(frappe.db.count("Address", {"email_id": email}), addresses)
+
+    def test_template_no_longer_valid_gets_identical_refusal_and_expires(self):
+        def untemplate(_name):
+            frappe.db.set_value("Membership Dues Schedule", self.template, "is_template", 0)
+
+        def move_to_other_type(_name):
+            other_type = self.create_test_membership_type()
+            frappe.db.set_value("Membership Dues Schedule", self.template, "membership_type", other_type.name)
+
+        def delete_template(name):
+            # The template is linked from the door and its type; deletion is simulated on the payload.
+            payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+            payload["selected_dues_schedule"] = f"Deleted {frappe.generate_hash(length=8)}"
+            frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
+
+        for label, make_stale in (
+            ("deleted", delete_template),
+            ("untemplated", untemplate),
+            ("moved to another type", move_to_other_type),
+        ):
+            with self.subTest(label):
+                saved = frappe.db.get_value(
+                    "Membership Dues Schedule", self.template, ["is_template", "membership_type"], as_dict=True
+                )
+                try:
+                    self._assert_stale_template_refused(make_stale)
+                finally:
+                    frappe.db.set_value("Membership Dues Schedule", self.template, saved)
 
     def test_approval_creates_monthly_schedule_at_chosen_amount(self):
         from verenigingen.api.membership_application_review import approve_membership_application

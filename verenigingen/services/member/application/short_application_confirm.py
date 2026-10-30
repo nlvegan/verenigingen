@@ -52,6 +52,9 @@ def confirm_submission(submission_name, token) -> dict:
     if not submission:
         return refusal()
     payload = json.loads(submission.payload)
+    if not _submitted_template_still_valid(payload):  # ruling R15: the door changed since submit
+        _set_status(submission.name, "Expired")
+        return refusal()
     existing = frappe.db.get_value(
         "Member", {"email": submission.email}, ["name", "status", "application_status"], as_dict=True
     )
@@ -85,6 +88,17 @@ def _confirmable_submission(submission_name, token):
         _set_status(name, "Expired")
         return None
     return submission
+
+
+def _submitted_template_still_valid(payload) -> bool:
+    """The submitted template must still be a template of the type snapshotted at submit."""
+    template = payload.get("selected_dues_schedule")
+    if not template:  # Housemate: no template, approval falls back to the type's own
+        return bool(payload.get("membership_type"))
+    row = frappe.db.get_value(
+        "Membership Dues Schedule", template, ["is_template", "membership_type"], as_dict=True
+    )
+    return bool(row and row.is_template and row.membership_type == payload.get("membership_type"))
 
 
 def expire_and_purge_submissions() -> dict:
@@ -183,7 +197,7 @@ def to_helper_payload(cleaned: dict, door) -> dict:
         if part
     )
     data = {
-        "selected_membership_type": door.membership_type,
+        "selected_membership_type": cleaned["membership_type"],  # the submit-time snapshot (R15)
         "application_source": door.slug,
         "email": cleaned["email"],
         "first_name": cleaned["first_name"],
