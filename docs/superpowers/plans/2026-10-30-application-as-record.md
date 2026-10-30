@@ -71,7 +71,8 @@
     - `rejection_category` Data
     - `superseded_by` Link MAS
   - `door` stops being required, because the full form has no door.
-  - Permissions: read for System Manager, Verenigingen Administrator and Chapter Board Member; write for nobody; changes go through the service.
+  - Permissions: read for System Manager and Verenigingen Administrator; write for nobody; changes go through the service. Chapter Board Member read is added in Task 3, together with the handlers that scope it. Granting it here would let board members read every application until then.
+  - Keep `/word-lid` working in the meantime: the status write in `short_application_confirm.confirm_submission` changes from `"Confirmed"` to `"Pending Review"`. Task 2 replaces that function.
   - `class MembershipApplicationSubmission(Document)` gains `def set_status(self, status: str) -> None`. It allows only these transitions:
     - Unconfirmed → Pending Review / Expired
     - Pending Review → Approved / Rejected / Superseded
@@ -106,7 +107,7 @@
     - Sets `applicant_name`, `membership_type` and `chapter`, then moves the MAS to `Pending Review` and calls `supersede_older(email, keep=name)`.
     - Creates nothing else.
   - `supersede_older(email: str, keep: str) -> int`: every other `Pending Review` MAS with this email becomes `Superseded`, with `superseded_by=keep`.
-  - **The payload is stored in the helper shape.** That is the output of `to_helper_payload` for the short form, and the parsed `submit_application` data for the full form. Task 4 then reads one shape.
+  - **The payload is stored as the form produced it.** For the short form that is the cleaned dict from `validate_short_application`, unchanged from today; `_submitted_template_still_valid` and `_set_answers` read its keys. For the full form it is the parsed `submit_application` data. `source` says which. Task 4 converts at approval with `application_data(application) -> dict`, which returns `to_helper_payload(payload, door)` for `Short Form` and the payload itself for `Full Form`.
 - `submit_application` keeps its validation (required fields, eligibility, amount). Then it calls `stage_application("Full Form", ...)` and returns `{"status": "confirmation_sent"}` with the message "Check your email to confirm your application." Every other response field is removed, including `member_record` and `status_token`.
 - The confirm route stays `/word-lid/bevestig`, so the full form's mail links there too.
 
@@ -140,8 +141,9 @@
 
 **Interfaces:**
 - Produces:
-  - `can_user_manage_application(application_name: str, user=None) -> bool`. True for `Roles.ADMIN_ROLES`; otherwise true when the user holds an active board seat in `MAS.chapter`. A MAS with no chapter can be reviewed by admins only.
-  - `validate_chapter_permission_or_throw(application_name, action, user=None)`. It keeps the same refusal message for an unknown name and a foreign one.
+  - `can_user_manage_application_record(application_name: str, user=None) -> bool`. True for `Roles.ADMIN_ROLES`; otherwise true when the user holds an active board seat in `MAS.chapter`. A MAS with no chapter can be reviewed by admins only.
+  - `validate_application_permission_or_throw(application_name, action, user=None)`. It refuses an unknown name and a foreign one with the same message.
+  - **These are new functions with new names.** Implement the first as `can_user_manage_application_record(application_name, user=None) -> bool`. The member-keyed `can_user_manage_application` / `validate_chapter_permission_or_throw` keep their signatures until Task 9 retires their callers. Changing them in place would break the old approve and reject endpoints in the middle of the branch.
   - `has_application_permission(doc, ptype, user)` and `get_application_permission_query(user)`, registered under `"Membership Application Submission"`.
 - Remove the `include_pending` clause from `_is_member_in_chapters` (`permissions.py:376`). No Pending Chapter Member row is created any more, so the clause has nothing to match.
 
@@ -162,7 +164,8 @@
 - Test: Create `verenigingen/tests/integration/test_application_record_approval.py`
 
 **Interfaces:**
-- Consumes: Task 2's payload shape (helper keys) and Task 3's `validate_chapter_permission_or_throw(application_name, ...)`.
+- Consumes: Task 2's stored payload (`source` plus the form's own dict) and Task 3's `validate_application_permission_or_throw(application_name, action)`.
+- Produces for Task 6: `_writable_values(application, member) -> dict`, the exact `{fieldname: value}` set that `materialise_member` writes onto an existing Member. Blanks and `PROTECTED_FIELDS` are already removed. `materialise_member` must write through this function.
 - Produces:
   - `PROTECTED_FIELDS: frozenset` holds `email`, `status`, `application_status`, `user`, `customer`, `member_id`, `payment_reference`, `fee_override_by`, `fee_override_date`, `fee_override_reason` and `dues_rate`, with the last four honoured only under `_fee_came_from_application`.
   - `materialise_member(application: Document) -> Document`
@@ -308,7 +311,7 @@
 **Files:**
 - Modify: `services/member/approval/application_helpers.py`. Remove `update_member_from_reapplication` (:763), `_reset_application_dues_choice` (:744) and `_sanitize_application_names`, unless `materialise_member` now uses one of them. Remove the submit-time call to `create_volunteer_record`; it moves to Task 4.
 - Remove the deprecated `approve_membership_application` and `reject_membership_application` in `api/membership_application.py:837-939`, together with their tests.
-- Retire the member-keyed whitelisted `approve_membership_application` and `reject_membership_application` in `api/membership_application_review.py`. Task 3 changed `validate_chapter_permission_or_throw` to take an application name, so these endpoints must not stay reachable. Keep `_approve_membership_application_locked` as the internal core that `approve_application` calls. Do the same for `api/background_approval_api.approve_membership_application_background`, which has no JS caller (census §3).
+- Retire the member-keyed whitelisted `approve_membership_application` and `reject_membership_application` in `api/membership_application_review.py`. Delete the member-keyed `can_user_manage_application`, `validate_chapter_permission_or_throw` and `filter_applications_by_permission` together with their last callers; Task 3 added the application-keyed replacements. Keep `_approve_membership_application_locked` as the internal core that `approve_application` calls. Do the same for `api/background_approval_api.approve_membership_application_background`, which has no JS caller (census §3).
 - Exemption: **pure deletion of dead code.** Show it with `grep -rn "<name>" --include=*.py --include=*.js` returning only the deleted definitions and their tests.
 
 - [ ] **Step 1: Grep each symbol and record the hits in the commit body.**
