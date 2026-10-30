@@ -464,7 +464,7 @@ class MembershipCreationService(StatelessService):
         )
         return selected
 
-    def _update_schedule_from_template(self, schedule_name, template_name):
+    def _update_schedule_from_template(self, schedule_name, template_name, member_doc=None):
         """Update an existing schedule to match a different template.
 
         Called when the membership on_submit hook auto-created a schedule using the
@@ -473,9 +473,18 @@ class MembershipCreationService(StatelessService):
         Args:
             schedule_name: Name of the existing schedule to update
             template_name: Name of the template to copy fields from
+            member_doc: When given, the applicant's chosen amount overrides the template's rate
         """
-        template = frappe.get_doc("Membership Dues Schedule", template_name)
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+        self._apply_template_and_amount(schedule, template_name, member_doc)
+        schedule.save()
+        self.logger.info(
+            f"MembershipCreationService: Updated schedule {schedule_name} " f"from template '{template_name}'"
+        )
+
+    def _apply_template_and_amount(self, schedule, template_name, member_doc=None):
+        """Copy the template onto ``schedule`` (unsaved), then the applicant's own amount."""
+        template = frappe.get_doc("Membership Dues Schedule", template_name)
 
         copy_fields = [
             "billing_frequency",
@@ -497,9 +506,63 @@ class MembershipCreationService(StatelessService):
                 setattr(schedule, field, value)
 
         schedule.template_reference = template_name
+        chosen = self._chosen_amount(member_doc)
+        if chosen:
+            schedule.dues_rate = chosen
+
+    def _chosen_amount(self, member_doc):
+        """The amount the applicant (or staff) chose, as the create branch resolves it.
+
+        Member.dues_rate only counts with a fee_override_reason: without one it is the
+        denormalised mirror of the earlier schedule's rate (a rejoiner keeps it), not a choice.
+        """
+        if member_doc is None:
+            return None
+        csv_fee = getattr(member_doc, "csv_import_custom_fee", None)
+        if csv_fee:
+            return csv_fee
+        if getattr(member_doc, "dues_rate", None) and getattr(member_doc, "fee_override_reason", None):
+            return member_doc.dues_rate
+        return None
+
+    def _is_voluntary_quit_rejoin(self, member_doc, schedule_name):
+        """A Cancelled schedule left by a voluntary Quit: the only Cancelled one approval reuses (#1741).
+
+        The evidence is the one submit_application's _handle_existing_member lets a rejoiner in
+        on. A schedule cancelled any other way (schedule maintenance, an admin) is left alone.
+        """
+        if frappe.db.get_value("Membership Dues Schedule", schedule_name, "status") != "Cancelled":
+            return False
+        return bool(
+            frappe.db.exists(
+                "Membership Termination Request",
+                {"member": member_doc.name, "status": "Executed", "termination_type": "Voluntary"},
+            )
+        )
+
+    def _reactivate_schedule_for_rejoin(self, schedule_name, member_doc, membership, membership_type):
+        """Reuse the earlier schedule for the new membership: new template and amount, billed from now.
+
+        The rejoiner who picks no template gets the type's default one, as a new member does.
+        """
+        template_name = self._resolve_dues_template(member_doc, membership_type) or (
+            membership_type.dues_schedule_template
+        )
+        schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+        if template_name:
+            self._apply_template_and_amount(schedule, template_name, member_doc)
+
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        get_dues_schedule_lifecycle_service().reactivate_for_rejoin(
+            schedule, membership.name, membership.start_date
+        )
         schedule.save()
         self.logger.info(
-            f"MembershipCreationService: Updated schedule {schedule_name} " f"from template '{template_name}'"
+            f"MembershipCreationService: Reactivated dues schedule {schedule_name} for rejoining "
+            f"member {member_doc.name} from {membership.start_date}"
         )
 
     def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
@@ -519,6 +582,11 @@ class MembershipCreationService(StatelessService):
         )
 
         if existing_schedule:
+            if self._is_voluntary_quit_rejoin(member_doc, existing_schedule):
+                self._reactivate_schedule_for_rejoin(
+                    existing_schedule, member_doc, membership, membership_type
+                )
+                return
             # Check if applicant selected a different template than what was auto-created
             template_name = self._resolve_dues_template(member_doc, membership_type)
             if template_name:
@@ -526,7 +594,7 @@ class MembershipCreationService(StatelessService):
                     "Membership Dues Schedule", existing_schedule, "template_reference"
                 )
                 if current_ref != template_name:
-                    self._update_schedule_from_template(existing_schedule, template_name)
+                    self._update_schedule_from_template(existing_schedule, template_name, member_doc)
             self.logger.info(
                 f"MembershipCreationService: Dues schedule {existing_schedule} "
                 f"already exists for {member_doc.name}"

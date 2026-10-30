@@ -750,8 +750,9 @@ def _reset_application_dues_choice(member, data):
     picks nothing takes the membership type's default template, as a new one does.
     A fee override set by staff is not the application's and is left alone.
 
-    Scope: Rejected and Pending reapplications. A voluntary-Quit rejoiner's earlier
-    dues schedule is reused at approval (#1737, #1741) and is not addressed here.
+    Scope: Rejected, Pending and voluntary-Quit reapplications. A Quit rejoiner's earlier
+    dues schedule is reused at approval and takes this choice there (#1737, #1741,
+    MembershipCreationService._reactivate_schedule_for_rejoin).
     """
     member.application_dues_schedule = data.get("selected_dues_schedule") or None
     if _fee_came_from_application(member):
