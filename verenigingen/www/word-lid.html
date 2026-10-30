@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title | e }}{% endblock %}
 
 {% block style %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
@@ -26,14 +26,14 @@
     <p class="mb-6 wl-hint">{{ _("Choose the membership that suits you.") }}</p>
     <div class="grid gap-4 md:grid-cols-2">
     {% for d in doors %}
-        <a href="/word-lid/{{ d.slug }}" class="wl-card block hover:shadow-lg">
-            <h2 class="text-xl font-semibold mb-2">{{ d.title }}</h2>
-            <p>{{ d.card_text or "" }}</p>
+        <a href="/word-lid/{{ d.slug | e }}" class="wl-card block hover:shadow-lg">
+            <h2 class="text-xl font-semibold mb-2">{{ d.title | e }}</h2>
+            <p>{{ (d.card_text or "") | e }}</p>
         </a>
     {% endfor %}
     </div>
 {% else %}
-    <h1 class="text-3xl font-bold mb-2">{{ door.title }}</h1>
+    <h1 class="text-3xl font-bold mb-2">{{ door.title | e }}</h1>
     {% if door.intro_text %}<div class="mb-6">{{ door.intro_text }}</div>{% endif %}
 
     <form id="short-application-form" novalidate
@@ -128,7 +128,7 @@
             <div class="mb-4">
                 <label class="wl-label" for="country">{{ _("Country") }} *</label>
                 <select class="wl-input" name="country" id="country">
-                    {% for c in countries %}<option value="{{ c }}" {{ "selected" if c == "Netherlands" else "" }}>{{ c }}</option>{% endfor %}
+                    {% for c in countries %}<option value="{{ c | e }}" {{ "selected" if c == "Netherlands" else "" }}>{{ c | e }}</option>{% endfor %}
                 </select>
             </div>
             <div class="mb-4"><label class="wl-label" for="email">{{ _("Email") }} *</label>
@@ -171,7 +171,7 @@
             <div class="mb-4" id="wl-join-reasons">
                 <span class="wl-label">{{ _("Why do you join? (up to 5)") }}</span>
                 {% for r in join_reasons %}
-                <label class="flex items-center gap-2"><input type="checkbox" name="join_reasons" value="{{ r }}"><span>{{ r }}</span></label>
+                <label class="flex items-center gap-2"><input type="checkbox" name="join_reasons" value="{{ r | e }}"><span>{{ r | e }}</span></label>
                 {% endfor %}
                 <input class="wl-input mt-2" type="text" name="join_reason_other" placeholder="{{ _('Other') }}">
             </div>
@@ -181,7 +181,7 @@
                 <label class="wl-label" for="referral_source">{{ _("How did you find us?") }}</label>
                 <select class="wl-input" name="referral_source" id="referral_source">
                     <option value=""></option>
-                    {% for s in referral_sources %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+                    {% for s in referral_sources %}<option value="{{ s | e }}">{{ s | e }}</option>{% endfor %}
                 </select>
                 <input class="wl-input mt-2" type="text" name="referral_source_other" placeholder="{{ _('Other') }}">
             </div>

@@ -56,6 +56,7 @@
 		if (toggle) {
 			toggle.addEventListener('change', () => {
 				document.getElementById('wl-frequency').value = toggle.checked ? 'Annual' : 'Monthly';
+				resetAmountOnFrequencyChange(form);
 				refresh(state);
 			});
 		}
@@ -118,12 +119,30 @@
 		});
 	}
 
+	// A tier belongs to one frequency. Only the selected frequency's tiers count, so a tier ticked
+	// before switching Monthly/Annual can never be posted for the other period.
 	function chosenAmount(form) {
 		const choice = form.querySelector('input[name="amount_choice"]:checked');
 		if (!choice) {
 			return '';
 		}
-		return choice.value === 'custom' ? document.getElementById('wl-custom-amount').value : choice.value;
+		if (choice.value === 'custom') {
+			return form.querySelector('#wl-custom-amount').value;
+		}
+		const row = choice.closest('label[data-frequency]');
+		return row && row.dataset.frequency === frequencyOf(form) ? choice.value : '';
+	}
+
+	function resetAmountOnFrequencyChange(form) {
+		form.querySelectorAll('label[data-frequency] input[name="amount_choice"]').forEach((radio) => {
+			if (radio.closest('label').dataset.frequency !== frequencyOf(form)) {
+				radio.checked = false;
+			}
+		});
+		const custom = form.querySelector('#wl-custom-amount');
+		if (custom) {
+			custom.value = '';
+		}
 	}
 
 	function collect(state) {
@@ -206,6 +225,8 @@
 			button.disabled = false;
 		}
 	}
+
+	window.ShortApplication = { chosenAmount, resetAmountOnFrequencyChange };
 
 	frappe.ready(init);
 })();

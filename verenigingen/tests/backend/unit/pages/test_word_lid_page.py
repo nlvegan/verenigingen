@@ -143,3 +143,13 @@ class TestWordLidPage(VereningingenUnitTestCase):
         response = self._get("word-lid")
         self.assertEqual(response.status_code, 200)
         self.assertIn(f'href="/word-lid/{door.slug}"', response.get_data(as_text=True))
+
+    def test_door_title_is_rendered_escaped(self):
+        door = self._door(title="Deur <b>x</b>")
+        for html in (self._render(door.slug), self._get("word-lid").get_data(as_text=True)):
+            self.assertNotIn("<b>x</b>", html)
+            self.assertIn("&lt;b&gt;x&lt;/b&gt;", html)
+
+    def test_confirm_page_sends_no_referrer(self):
+        html = self._get("word-lid/bevestig", submission="x", token="y").get_data(as_text=True)
+        self.assertIn('name="referrer" content="no-referrer"', html)
