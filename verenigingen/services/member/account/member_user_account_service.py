@@ -925,7 +925,12 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
         # Check for existing account creation request
         existing_request = frappe.db.get_value(
             "Account Creation Request",
-            {"source_record": member.name, "status": ["in", ["Pending", "In Progress", "Completed"]]},
+            {
+                "source_record": member.name,
+                # The real Account Creation Request statuses; "Pending"/"In Progress" never existed,
+                # so an in-flight request fell through to the queue's refusal (#1639).
+                "status": ["in", ["Requested", "Queued", "Processing", "Completed"]],
+            },
             "name",
         )
 

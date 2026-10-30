@@ -38,9 +38,9 @@ class TestAcrQueueRefusalRecorded(VereningingenTestCase):
             email=f"acrrefuse.{self.h}@test.invalid",
             status="Active",
         )
-        self.failed_request = self._make_failed_acr()
+        self.failed_request = self._insert_acr_in_failed_state()
 
-    def _make_failed_acr(self):
+    def _insert_acr_in_failed_state(self):
         request = frappe.get_doc(
             {
                 "doctype": "Account Creation Request",
@@ -98,7 +98,8 @@ class TestAcrQueueRefusalRecorded(VereningingenTestCase):
         self.assertTrue(response["success"])
         self.assertEqual(response["user_account_status"], "failed")
         # ...but the reviewer is told why, and it is machine-readable.
-        self.assertIn("already exists", response["message"])
+        self.assertIn("ACR_QUEUE_REFUSED", response["message"])
+        self.assertNotIn("already exists", response["message"])  # raw reason stays in the Error Log
         self.assertEqual(response["user_account_error_code"], "ACR_QUEUE_REFUSED")
         self.assertEqual(len(self._refusal_logs()), 1)
 
@@ -114,3 +115,23 @@ class TestAcrQueueRefusalRecorded(VereningingenTestCase):
         self.assertNotEqual(response["user_account_status"], "failed")
         self.assertNotIn("Reason:", response["message"])
         self.assertNotIn("user_account_error_code", response)
+
+    def test_in_flight_request_is_not_a_refusal(self):
+        """F1: a healthy open ACR (real flow: first call queues it) is an existing-request
+        outcome on the second call, not a failure and not an Error Log row."""
+        frappe.db.set_value("Account Creation Request", self.failed_request, "status", "Cancelled")
+        first = create_secure_user_account_for_member(self.member)
+        self.assertEqual((first.get("meta") or {}).get("action"), "queued_secure", msg=first)
+        queued = (first.get("meta") or {}).get("account_request")
+        self.track_doc("Account Creation Request", queued)
+        self.assertIn(
+            frappe.db.get_value("Account Creation Request", queued, "status"),
+            ("Requested", "Queued", "Processing"),
+        )
+
+        with self.assertNoErrorLog():
+            second = create_secure_user_account_for_member(self.member)
+        self.assertTrue(second.get("success"), msg=second)
+        self.assertEqual((second.get("meta") or {}).get("action"), "existing_request")
+        response = _build_approval_response(self.member, frappe._dict(name="INV"), 10, second)
+        self.assertNotEqual(response["user_account_status"], "failed")

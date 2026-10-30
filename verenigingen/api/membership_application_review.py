@@ -493,12 +493,13 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
         user_account_status = "failed"
         user_account_error = user_creation_result.get("error")
         if isinstance(user_account_error, dict):
-            reason = user_account_error.get("message")
-            if user_account_error.get("errors"):
-                reason = "; ".join(str(e) for e in user_account_error["errors"])
-            if reason:
-                message += _(" Reason: {0}").format(reason)
+            # Fixed text only: the raw reason can carry exception text and is rendered by desk JS.
+            # The detail is in the Error Log.
             user_account_error_code = user_account_error.get("code")
+            if user_account_error_code:
+                message += _(" Reason code: {0}. See the Error Log for details.").format(
+                    user_account_error_code
+                )
 
     response = {
         "success": True,
