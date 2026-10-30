@@ -215,3 +215,40 @@ def validate_chapter_permission_or_throw(member_name, action="manage", user=None
             _("You don't have permission to {0} applications for this member's chapter").format(action),
             frappe.PermissionError,
         )
+
+
+def can_user_manage_application_record(application_name, user=None):
+    """Can `user` review this Membership Application Submission?
+
+    Keyed on the application's own `chapter` (#1765), not on a Chapter Member row: the
+    application is not a Member and no Pending Chapter Member row exists for it. Who counts as
+    holding a seat is get_user_manageable_chapters, the same lookup the member-keyed check uses
+    (it deliberately does not require the Chapter itself to be Active, see #1518).
+
+    Admins ("all") may review any application, including one with no chapter. A board member
+    may review only one whose chapter they manage. An unknown name is False, on the same path
+    as a foreign one, so the two cannot be told apart.
+    """
+    if not user:
+        user = frappe.session.user
+
+    manageable_chapters = get_user_manageable_chapters(user)
+    if manageable_chapters == "all":
+        return True
+    if not manageable_chapters:
+        return False
+
+    chapter = frappe.db.get_value("Membership Application Submission", str(application_name), "chapter")
+    return bool(chapter) and chapter in manageable_chapters
+
+
+def validate_application_permission_or_throw(application_name, action="manage", user=None):
+    """Throw PermissionError unless `user` may review the application.
+
+    One message for "not yours" and "does not exist" (existence oracle, #1414/#1436).
+    """
+    if not can_user_manage_application_record(application_name, user):
+        frappe.throw(
+            _("You don't have permission to {0} this application").format(action),
+            frappe.PermissionError,
+        )

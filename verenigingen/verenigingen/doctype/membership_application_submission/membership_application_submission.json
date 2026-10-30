@@ -146,6 +146,10 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "read": 1,
+   "role": "Verenigingen Chapter Board Member"
+  },
+  {
    "delete": 1,
    "read": 1,
    "role": "System Manager"

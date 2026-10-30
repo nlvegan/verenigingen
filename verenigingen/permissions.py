@@ -2292,3 +2292,42 @@ APPS_SCREEN_ROLES = frozenset(
 def check_app_permission():
     """`has_permission` for the `add_to_apps_screen` hook: whether this user sees the tile."""
     return bool(APPS_SCREEN_ROLES.intersection(frappe.get_roles()))
+
+
+# --- Membership Application Submission (#1765) ---------------------------------------------
+# A board member reviews an application keyed on the application's own `chapter`. Both
+# handlers defer to chapter_security so the list, the document check and the review endpoints
+# cannot disagree about who holds a seat.
+
+
+def get_application_permission_query(user):
+    """List scope: all applications for admins, the managed chapters' applications for a board
+    member, nothing for anyone else (a MAS with no chapter is therefore admin-only)."""
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    if not user:
+        user = frappe.session.user
+    chapters = get_user_manageable_chapters(user)
+    if chapters == "all":
+        return ""
+    if not chapters:
+        return "1=0"
+    quoted = ", ".join(frappe.db.escape(chapter) for chapter in chapters)
+    return f"`tabMembership Application Submission`.`chapter` IN ({quoted})"
+
+
+def has_application_permission(doc, user=None, ptype=None):
+    """Document scope. Board members are read-only: reviewing goes through the review
+    endpoints, which authorise with validate_application_permission_or_throw."""
+    from verenigingen.services.chapter.chapter_security import (
+        can_user_manage_application_record,
+        get_user_manageable_chapters,
+    )
+
+    if not user:
+        user = frappe.session.user
+    if get_user_manageable_chapters(user) == "all":
+        return True
+    if ptype not in ("read", "select"):
+        return False
+    return can_user_manage_application_record(doc.name, user)
