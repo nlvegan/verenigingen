@@ -1,0 +1,192 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:slug",
+ "creation": "2026-10-30 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "slug",
+  "enabled",
+  "sort_order",
+  "column_break_door1",
+  "membership_type",
+  "form_shape",
+  "section_texts",
+  "card_text",
+  "intro_text",
+  "section_dues",
+  "monthly_dues_template",
+  "annual_dues_template",
+  "column_break_door2",
+  "allow_custom_amount",
+  "postal_minimum_monthly",
+  "postal_minimum_annual",
+  "amount_options",
+  "section_questions",
+  "hidden_questions"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "description": "Lowercase letters, digits and hyphens. Used in the page URL.",
+   "fieldname": "slug",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Slug",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sort Order"
+  },
+  {
+   "fieldname": "column_break_door1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "membership_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Membership Type",
+   "options": "Membership Type",
+   "reqd": 1
+  },
+  {
+   "default": "Regular",
+   "fieldname": "form_shape",
+   "fieldtype": "Select",
+   "label": "Form Shape",
+   "options": "Regular\nHousemate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_texts",
+   "fieldtype": "Section Break",
+   "label": "Texts"
+  },
+  {
+   "fieldname": "card_text",
+   "fieldtype": "Text Editor",
+   "label": "Card Text"
+  },
+  {
+   "fieldname": "intro_text",
+   "fieldtype": "Text Editor",
+   "label": "Intro Text"
+  },
+  {
+   "fieldname": "section_dues",
+   "fieldtype": "Section Break",
+   "label": "Dues"
+  },
+  {
+   "fieldname": "monthly_dues_template",
+   "fieldtype": "Link",
+   "label": "Monthly Dues Template",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "fieldname": "annual_dues_template",
+   "fieldtype": "Link",
+   "label": "Annual Dues Template",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "fieldname": "column_break_door2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_custom_amount",
+   "fieldtype": "Check",
+   "label": "Allow Custom Amount"
+  },
+  {
+   "default": "0",
+   "description": "Minimum applied when the member wants magazine/starter guide on paper",
+   "fieldname": "postal_minimum_monthly",
+   "fieldtype": "Currency",
+   "label": "Postal Minimum (Monthly)",
+   "options": "EUR"
+  },
+  {
+   "default": "0",
+   "fieldname": "postal_minimum_annual",
+   "fieldtype": "Currency",
+   "label": "Postal Minimum (Annual)",
+   "options": "EUR"
+  },
+  {
+   "fieldname": "amount_options",
+   "fieldtype": "Table",
+   "label": "Amount Options",
+   "options": "Membership Application Door Amount"
+  },
+  {
+   "fieldname": "section_questions",
+   "fieldtype": "Section Break",
+   "label": "Questions"
+  },
+  {
+   "fieldname": "hidden_questions",
+   "fieldtype": "Table",
+   "label": "Hidden Questions",
+   "options": "Membership Application Door Hidden Question"
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Application Door",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "states": []
+}

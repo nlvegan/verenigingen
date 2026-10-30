@@ -288,7 +288,7 @@ class TestChapterDashboardPage(VereningingenTestCase):
         entry for every other viewer (found in skeptical review of #904).
         is_current_user is filled in afterwards, per caller, by
         _annotate_current_user -- see test_is_current_user_is_correct_per_caller_
-        on_a_warm_shared_cache below.
+        on_a_warm_cache below.
         """
         frappe.set_user(self.board_user.name)
         board = cd.get_board_information(self.chapter.name)
@@ -388,7 +388,7 @@ class TestChapterDashboardPage(VereningingenTestCase):
     # caller even though the payload it lives in is now a SHARED cache entry.
     # ------------------------------------------------------------------
 
-    def test_is_current_user_is_correct_per_caller_on_a_warm_shared_cache(self):
+    def test_is_current_user_is_correct_per_caller_on_a_warm_cache(self):
         """Two distinct board members on the same chapter; the second call is
         served from the SAME warm cache entry as the first (per_user=False,
         #785) -- each must still see their OWN row, not the cache-warmer's
@@ -419,7 +419,7 @@ class TestChapterDashboardPage(VereningingenTestCase):
         with mock.patch.object(
             cd, "_chapter_dashboard_payload", wraps=cd._chapter_dashboard_payload
         ) as spy:
-            # First caller warms the shared cache.
+            # First caller warms their cache entry.
             frappe.set_user(self.board_user.name)
             first = cd.get_chapter_dashboard_data(self.chapter.name)
             first_data = first.get("data", first) if isinstance(first, dict) else first
@@ -429,23 +429,28 @@ class TestChapterDashboardPage(VereningingenTestCase):
             )
             self.assertEqual(spy.call_count, 1, "cold cache: the payload must be built once")
 
-            # Second caller reads the SAME warm cache entry (same chapter,
-            # still within the 120s TTL) -- must see THEIR own row flagged,
-            # not the first caller's. The call-count assertion is what proves
-            # this is really the shared entry rather than two independent
-            # builds; without it, the test would prove nothing about the
-            # shared-cache case #904 introduced.
+            # Second, DIFFERENT caller (#1701: the cache is per-user, because the payload
+            # carries Expense Claim figures scoped to what the caller may list). It is
+            # built for them -- a shared entry would hand them the first caller's view --
+            # and must flag THEIR own row, not the first caller's (#904).
             frappe.set_user(second_user.name)
             second = cd.get_chapter_dashboard_data(self.chapter.name)
             second_data = second.get("data", second) if isinstance(second, dict) else second
             self.assertEqual(
-                spy.call_count, 1, "the second call must be served from the shared cache, not rebuilt"
+                spy.call_count, 2, "a different caller must get their own build, not the first caller's entry"
+            )
+
+            # The SAME caller again, within the TTL: served from their warm entry.
+            frappe.set_user(self.board_user.name)
+            cd.get_chapter_dashboard_data(self.chapter.name)
+            self.assertEqual(
+                spy.call_count, 2, "the same caller's second call must be served from the cache"
             )
 
         second_own = [m["email"] for m in second_data["board_info"]["members"] if m["is_current_user"]]
         self.assertEqual(
             second_own,
             [second_email],
-            "the second caller, reading the SAME warm shared cache entry, must "
-            "see their OWN row flagged -- not the first caller's frozen identity",
+            "the second caller must see their OWN row flagged -- not the first caller's "
+            "frozen identity",
         )

@@ -7,7 +7,7 @@ import time
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, today
+from frappe.utils import flt, now_datetime, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name
@@ -723,6 +723,43 @@ def create_member_from_application(data, application_id, address=None):
                     raise
 
 
+_APPLICATION_FEE_STAMP = "Custom amount selected during "
+_OVERRIDE_FIELDS = ("dues_rate", "fee_override_reason", "fee_override_date", "fee_override_by")
+
+
+def _fee_came_from_application(member):
+    """True when dues_rate/fee_override_* are the earlier application's own custom amount.
+
+    _apply_custom_contribution_fee writes dues_rate, application_custom_fee and a reason
+    carrying _APPLICATION_FEE_STAMP together. A staff override saved on the Pending Member
+    changes dues_rate and/or the reason, so it no longer matches and must survive.
+    """
+    return bool(
+        member.application_custom_fee
+        and flt(member.dues_rate) == flt(member.application_custom_fee)
+        and (member.fee_override_reason or "").startswith(_APPLICATION_FEE_STAMP)
+    )
+
+
+def _reset_application_dues_choice(member, data):
+    """Replace the dues choice left by an earlier Rejected/Pending application (#1730).
+
+    A reapplying Member keeps its row, so the template and any custom fee of the earlier
+    application would otherwise survive: approval would bill the new amount on the old
+    template (or, with no amount, the old fee on the new template). An application that
+    picks nothing takes the membership type's default template, as a new one does.
+    A fee override set by staff is not the application's and is left alone.
+
+    Scope: Rejected and Pending reapplications. A voluntary-Quit rejoiner's earlier
+    dues schedule is reused at approval (#1737, #1741) and is not addressed here.
+    """
+    member.application_dues_schedule = data.get("selected_dues_schedule") or None
+    if _fee_came_from_application(member):
+        for fieldname in _OVERRIDE_FIELDS:
+            member.set(fieldname, None)
+    member.application_custom_fee = None
+
+
 def update_member_from_reapplication(member_name, data, application_id, address=None):
     """
     Update existing member record from reapplication data.
@@ -806,7 +843,8 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     # Suppress customer creation messages during reapplication processing
     member._suppress_customer_messages = True
 
-    # Handle custom membership amount
+    # Handle custom membership amount (after the reset: it only ever sets fields)
+    _reset_application_dues_choice(member, data)
     _apply_custom_contribution_fee(member, data, context_label="reapplication")
 
     # Save with proper permissions

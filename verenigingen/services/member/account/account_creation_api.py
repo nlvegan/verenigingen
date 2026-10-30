@@ -58,6 +58,11 @@ def process_account_creation_request(request_name: str) -> OperationResult[Dict[
     try:
         manager = AccountCreationManager(request_name)
         manager.process_complete_pipeline()
+        if manager.cancelled:
+            return OperationResult.ok(
+                {"request_name": request_name, "cancelled": True},
+                message="Account creation request was cancelled; nothing was processed",
+            )
         return OperationResult.ok(
             {"request_name": request_name}, message="Account creation completed successfully"
         )
@@ -742,6 +747,7 @@ def process_bulk_account_creation_batch(
         "total_requests": len(request_names),
         "completed": 0,
         "failed": 0,
+        "cancelled": 0,
         "errors": [],
         "completed_requests": [],
         "failed_requests": [],
@@ -799,7 +805,30 @@ def process_bulk_account_creation_batch(
                         "reason": "already_completed",
                     }
 
+                # A cancelled request must stay cancelled (#1709)
+                if request.status == "Cancelled":
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "cancelled",
+                    }
+
                 if request.status == "Requested":
+                    # A cancel can land between the load above and the save below; save() would
+                    # then fail on the timestamp and count the request as failed (#1709).
+                    if (
+                        frappe.db.get_value(
+                            "Account Creation Request", request_name, "status", for_update=True
+                        )
+                        == "Cancelled"
+                    ):
+                        return {
+                            "success": True,
+                            "request_name": request_name,
+                            "skipped": True,
+                            "reason": "cancelled",
+                        }
                     request.status = "Queued"
                     request.processing_started_at = now()
                     request.save()
@@ -811,6 +840,15 @@ def process_bulk_account_creation_batch(
                 # Commit transaction on success (skip during tests for proper isolation)
                 if not frappe.flags.in_test:
                     frappe.db.commit()
+
+                if manager.cancelled:
+                    # Cancelled mid-batch: not a completion
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "cancelled",
+                    }
 
                 frappe.logger().info(f"Batch {batch_id}: Completed request {request_name}")
                 return {"success": True, "request_name": request_name}
@@ -858,7 +896,10 @@ def process_bulk_account_creation_batch(
 
                 # Update results with thread-safe lock
                 with results_lock:
-                    if result["success"]:
+                    if result.get("reason") == "cancelled":
+                        # Cancelled requests are neither completions nor failures (#1709)
+                        batch_results["cancelled"] += 1
+                    elif result["success"]:
                         batch_results["completed"] += 1
                         batch_results["completed_requests"].append(request_name)
                     else:
@@ -889,7 +930,8 @@ def process_bulk_account_creation_batch(
     # Log batch completion summary
     frappe.logger().info(
         f"Batch {batch_id} completed: {batch_results['completed']} success, "
-        f"{batch_results['failed']} failed out of {batch_results['total_requests']} total"
+        f"{batch_results['failed']} failed, {batch_results['cancelled']} cancelled "
+        f"out of {batch_results['total_requests']} total"
     )
 
     # If there were failures, log them for administrative review

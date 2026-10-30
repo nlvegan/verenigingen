@@ -34307,5 +34307,37 @@
   "batch_rate_limit_calls": 20,
   "batch_rate_limit_period_seconds": 3600,
   "apply_batch_limits_to": "Both"
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "submit_short_application",
+  "operation_name": "submit_short_application",
+  "operation_type": "public",
+  "description": "Guest submit of the short membership application",
+  "enabled": 1,
+  "security_level": "low",
+  "business_context": "Guest endpoint of the short application page (/word-lid); per_ip so one abusive client cannot exhaust the single Guest bucket a per_user rule gives every anonymous visitor (#1034). Matches the endpoint's own frappe @rate_limit.",
+  "required_roles": "",
+  "rate_limit_calls": 10,
+  "rate_limit_period_seconds": 3600,
+  "rate_limit_scope": "per_ip",
+  "audit_level": "minimal",
+  "alert_on_execution": 0
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "confirm_short_application",
+  "operation_name": "confirm_short_application",
+  "operation_type": "public",
+  "description": "Guest confirmation of a short membership application from its emailed link",
+  "enabled": 1,
+  "security_level": "low",
+  "business_context": "Guest endpoint of the short application page (/word-lid); per_ip so one abusive client cannot exhaust the single Guest bucket a per_user rule gives every anonymous visitor (#1034). Matches the endpoint's own frappe @rate_limit.",
+  "required_roles": "",
+  "rate_limit_calls": 30,
+  "rate_limit_period_seconds": 3600,
+  "rate_limit_scope": "per_ip",
+  "audit_level": "minimal",
+  "alert_on_execution": 0
  }
 ]

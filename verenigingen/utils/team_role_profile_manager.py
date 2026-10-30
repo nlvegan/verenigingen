@@ -180,8 +180,9 @@ def bulk_assign_team_role_profiles(team_name: str):
 
     Returns the manager's result plus ``members_updated`` (team.js reads it, #1687): the
     distinct users whose role profile sync succeeded, whether or not it changed anything.
-    Stricter than bulk_assign_chapter_board_role_profiles, which also counts a sync that
-    failed (auto_sync_on_role_change returns instead of raising).
+    Like bulk_assign_chapter_board_role_profiles (#1718), it counts only syncs that succeeded
+    (auto_sync_on_role_change returns a failure instead of raising). Unlike it, a run where
+    the manager rolled back reports 0: the chapter endpoint's per-user writes are independent.
     """
     result = _team_manager.bulk_assign_role_profiles(team_name)
     result["members_updated"] = _count_synced_members(result)

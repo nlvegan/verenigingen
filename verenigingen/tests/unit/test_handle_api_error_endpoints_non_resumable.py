@@ -382,12 +382,18 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
         """Pins the universe size against #481's own measurement (50 whitelisted
         ``@handle_api_error`` endpoints) so a future refactor that silently drops or
         duplicates a decorator combination is caught here rather than by a shrinking
-        offenders list that looks like progress."""
+        offenders list that looks like progress.
+
+        52 since the short application page (#1727) added ``submit_short_application``
+        and ``confirm_short_application``; both are asserted by name so the count cannot
+        stay at 52 by losing one of them while gaining something else."""
         endpoints = list(self._whitelisted_handle_api_error_functions())
+        found = {f"{p.relative_to(APP_ROOT)}:{n.name}" for p, n in endpoints}
         self.assertEqual(
             len(endpoints),
-            50,
-            f"expected 50 whitelisted @handle_api_error endpoints (#481's own count), "
-            f"found {len(endpoints)}: "
-            + ", ".join(f"{p.relative_to(APP_ROOT)}:{n.name}" for p, n in endpoints),
+            52,
+            f"expected 52 whitelisted @handle_api_error endpoints (#481's 50 + #1727's 2), "
+            f"found {len(endpoints)}: " + ", ".join(sorted(found)),
         )
+        for name in ("submit_short_application", "confirm_short_application"):
+            self.assertIn(f"api/short_application.py:{name}", found)

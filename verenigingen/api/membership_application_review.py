@@ -457,6 +457,7 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
     """Build approval response dict with 5-way user account status branching."""
     message = _("Application approved. Invoice sent to applicant.")
     user_account_status = "pending"
+    user_account_error_code = None
 
     if user_creation_result.get("success"):
         if user_creation_result.get("action") in ["created_new", "created_new_immediate"]:
@@ -490,8 +491,17 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
     else:
         message += _(" Note: Could not create user account - member will need manual account creation.")
         user_account_status = "failed"
+        user_account_error = user_creation_result.get("error")
+        if isinstance(user_account_error, dict):
+            # Fixed text only: the raw reason can carry exception text and is rendered by desk JS.
+            # The detail is in the Error Log.
+            user_account_error_code = user_account_error.get("code")
+            if user_account_error_code:
+                message += _(" Reason code: {0}. See the Error Log for details.").format(
+                    user_account_error_code
+                )
 
-    return {
+    response = {
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
@@ -509,6 +519,9 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
             ),
         },
     }
+    if user_account_error_code:
+        response["user_account_error_code"] = user_account_error_code
+    return response
 
 
 @frappe.whitelist()

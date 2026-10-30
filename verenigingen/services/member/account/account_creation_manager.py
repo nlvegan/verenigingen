@@ -43,6 +43,9 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
+from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+    AccountCreationCancelled,
+)
 
 # Placeholder values for stub Employee records created when the source Member
 # has no gender/birth_date on file. ERPNext's Employee.update_user() hook
@@ -70,6 +73,7 @@ class AccountCreationManager:
         self.source_doc = None
         self.created_user = None
         self.created_employee = None
+        self.cancelled = False
 
     def load_request(self):
         """Load and validate the account creation request"""
@@ -93,7 +97,10 @@ class AccountCreationManager:
 
             # Don't validate status here - the background job was queued for a reason
             # Status checks belong in queue_processing(), not in the processing pipeline itself
-            # This allows automatic retries to work without status gymnastics
+            # This allows automatic retries to work without status gymnastics.
+            # The one status the pipeline DOES honour is Cancelled (#1709): a job queued
+            # before the cancel (batch, schedule_retry, a pending enqueue) lands here.
+            self._ensure_not_cancelled()
 
             # Validate permissions and prerequisites
             self.validate_processing_permissions()
@@ -117,6 +124,14 @@ class AccountCreationManager:
 
             frappe.logger().info(f"Account creation completed successfully: {self.request_name}")
 
+        except AccountCreationCancelled:
+            # Not a failure: leave the request Cancelled, create nothing further, no retry.
+            self.cancelled = True
+            frappe.logger().info(f"Account creation stopped, request cancelled: {self.request_name}")
+            # The cancel can land after the user/employee were already created (and committed):
+            # record them so the operator can see what exists.
+            self.request._record_created_records_on_cancelled(self.created_user, self.created_employee)
+
         except Exception as e:
             error_msg = str(e)
             frappe.logger().error(f"Account creation failed for {self.request_name}: {error_msg}")
@@ -131,6 +146,11 @@ class AccountCreationManager:
                     self.schedule_retry()
 
             raise
+
+    def _ensure_not_cancelled(self):
+        """Raise AccountCreationCancelled if the request is Cancelled in the DB right now."""
+        if frappe.db.get_value("Account Creation Request", self.request_name, "status") == "Cancelled":
+            raise AccountCreationCancelled(f"Account creation request {self.request_name} was cancelled")
 
     def _create_user_and_employee_phase(self):
         """Phase 1: Create User and Employee records - tries all subtasks even if some fail (partial success model)"""
@@ -162,6 +182,8 @@ class AccountCreationManager:
             if self.request.pipeline_stage != "Completed":
                 # Wrap role assignment with retry logic for deadlock handling
                 execute_with_deadlock_retry(self.assign_roles_and_profile, "assign_roles_and_profile")
+        except AccountCreationCancelled:
+            raise
         except Exception as e:
             error_msg = f"Role assignment failed: {str(e)[:200]}"
             errors.append(error_msg)
@@ -183,6 +205,8 @@ class AccountCreationManager:
                     frappe.logger().info(
                         f"[ACR PIPELINE] Employee already exists: {self.created_employee}, will reuse"
                     )
+            except AccountCreationCancelled:
+                raise
             except Exception as e:
                 error_msg = f"Employee creation failed: {str(e)[:200]}"
                 errors.append(error_msg)
@@ -372,7 +396,10 @@ class AccountCreationManager:
                 # Partial success - some things worked, some didn't
                 if self.created_user or links_succeeded > 0:
                     # Mark as completed but with warnings
-                    self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+                    if not self.request.mark_completed(
+                        user=self.created_user, employee=self.created_employee
+                    ):
+                        raise AccountCreationCancelled(f"{self.request_name} was cancelled")
                     # Update failure_reason to note partial success
                     combined_errors = "; ".join(all_errors[:5])
                     frappe.db.set_value(
@@ -392,7 +419,8 @@ class AccountCreationManager:
                     raise Exception(f"All tasks failed: {'; '.join(all_errors[:3])}")
             else:
                 # Full success - everything worked
-                self.request.mark_completed(user=self.created_user, employee=self.created_employee)
+                if not self.request.mark_completed(user=self.created_user, employee=self.created_employee):
+                    raise AccountCreationCancelled(f"{self.request_name} was cancelled")
                 frappe.logger().info(
                     f"[ACR PIPELINE] ========== PHASE 2 COMPLETE ========== | "
                     f"ACR: {self.request_name} | All records linked successfully | Links: {links_succeeded}"
@@ -1200,6 +1228,18 @@ class AccountCreationManager:
 
     def schedule_retry(self):
         """Schedule retry for failed request"""
+        # A cancelled request must not be reset to Requested and re-run (#1709).
+        # Fail closed: if the status cannot be read (lock timeout), do not retry, and do not
+        # let this lookup replace the original error the caller is about to re-raise.
+        try:
+            if self.request._locked_status() == "Cancelled":
+                return
+        except Exception:
+            frappe.log_error(
+                title="Account Creation Retry Skipped",
+                message=f"Could not confirm {self.request_name} is not cancelled:\n{traceback.format_exc()}",
+            )
+            return
         # Increment retry count
         current_retry_count = self.request.retry_count or 0
         new_retry_count = current_retry_count + 1

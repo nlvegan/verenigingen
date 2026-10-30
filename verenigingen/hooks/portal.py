@@ -10,3 +10,9 @@ route-only entries for custom template pages cannot survive a migrate.
 
 # Website context update hooks - modify context for all web pages
 update_website_context = ["verenigingen.utils.portal_customization.add_portal_user_roles"]
+
+# Short membership application. "bevestig" must come first: it would otherwise match <door>.
+website_route_rules = [
+    {"from_route": "/word-lid/bevestig", "to_route": "word-lid-bevestig"},
+    {"from_route": "/word-lid/<door>", "to_route": "word-lid"},
+]

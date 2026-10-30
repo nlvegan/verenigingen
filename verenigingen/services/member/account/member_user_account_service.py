@@ -925,7 +925,12 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
         # Check for existing account creation request
         existing_request = frappe.db.get_value(
             "Account Creation Request",
-            {"source_record": member.name, "status": ["in", ["Pending", "In Progress", "Completed"]]},
+            {
+                "source_record": member.name,
+                # The real Account Creation Request statuses; "Pending"/"In Progress" never existed,
+                # so an in-flight request fell through to the queue's refusal (#1639).
+                "status": ["in", ["Requested", "Queued", "Processing", "Completed"]],
+            },
             "name",
         )
 
@@ -968,14 +973,19 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
                 account_request=request_name,
             ).to_dict()
         else:
-            error_msg = (
-                account_result.get("error", {}).get("message", "Unknown error")
-                if account_result
-                else "Unknown error"
+            queue_error = (account_result or {}).get("error") or {}
+            error_msg = queue_error.get("message", "Unknown error")
+            details = [str(e) for e in queue_error.get("errors") or []]
+            # Both callers drop this result (approval approves anyway, by contract), so the
+            # refusal is recorded here, once. frappe.logger() is never read (#1639).
+            frappe.log_error(
+                title="Account Creation Queue Refused",
+                message=f"Member {member.name}: {error_msg} {'; '.join(details)}".strip(),
             )
             return OperationResult.fail(
                 _("Failed to queue account creation request"),
-                errors=[error_msg],
+                errors=[error_msg, *details],
+                error_code=queue_error.get("code") or "ACR_QUEUE_REFUSED",
                 user=None,
                 action="queue_failed",
             ).to_dict()

@@ -80,6 +80,7 @@
    "in_list_view": 1,
    "label": "Status",
    "options": "Pending\nApproved\nRejected",
+   "read_only": 1,
    "reqd": 1
   },
   {

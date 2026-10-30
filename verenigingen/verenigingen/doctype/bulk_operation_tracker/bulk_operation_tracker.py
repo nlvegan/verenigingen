@@ -115,7 +115,9 @@ class BulkOperationTracker(Document):
         """
         inc_success = cint(batch_results.get("completed", 0))
         inc_failed = cint(batch_results.get("failed", 0))
-        inc_processed = inc_success + inc_failed
+        # Cancelled requests are processed (the batch is finished with them) but neither
+        # successful nor failed: processed - successful - failed is the cancelled count.
+        inc_processed = inc_success + inc_failed + cint(batch_results.get("cancelled", 0))
 
         frappe.db.sql(
             """
