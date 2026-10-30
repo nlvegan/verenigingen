@@ -4,6 +4,7 @@ Security-sensitive: the response, the message log and the Error Log must be iden
 not the email belongs to a Member. Only the email that goes out differs.
 """
 
+import hashlib
 import json
 from urllib.parse import urlencode
 
@@ -28,6 +29,10 @@ CONFIRM_PATH = "/word-lid/bevestig"
 MAX_AMOUNT = 10000
 MAX_FREE_TEXT = 140
 CAPPED_TEXT_FIELDS = ("join_reason_other", "referral_source_other")
+# A name browser autofill leaves alone; "website" was filled in for real applicants.
+HONEYPOT_FIELD = "leave_this_empty"
+# Mails this form sends to one address per day, so it cannot be used to flood a mailbox.
+MAX_MAILS_PER_ADDRESS_PER_DAY = 3
 
 
 def build_confirm_url(submission_name: str) -> str:
@@ -42,7 +47,7 @@ def build_confirm_url(submission_name: str) -> str:
 def submit_short_application(door: str, **data) -> dict:
     """Store an unconfirmed application and send the confirmation email."""
     success = {"success": True, "message": _("Check your email to confirm your application.")}
-    if data.get("website"):
+    if data.get(HONEYPOT_FIELD):
         return success  # honeypot: look like success, store and send nothing
     try:
         cleaned = _validated_payload(door, data)
@@ -98,6 +103,8 @@ def _join_reasons(raw) -> list:
 
 def _route(door_name, cleaned):
     email = cleaned["email"]
+    if not _within_daily_mail_cap(email):
+        return  # same response as a sent mail, so the cap says nothing about the address
     existing = frappe.db.get_value(
         "Member", {"email": email}, ["name", "status", "application_status"], as_dict=True
     )
@@ -116,6 +123,15 @@ def _route(door_name, cleaned):
     submission.flags.ignore_permissions = True  # Security: guest write limited to an inert, validated row
     submission.insert()
     _send_confirmation_email(email, submission.name)
+
+
+def _within_daily_mail_cap(email) -> bool:
+    digest = hashlib.sha256(email.encode()).hexdigest()
+    key = frappe.cache.make_key(f"short_application_mails:{digest}")
+    count = frappe.cache.incrby(key, 1)
+    if count == 1:
+        frappe.cache.expire(key, 24 * 3600)
+    return count <= MAX_MAILS_PER_ADDRESS_PER_DAY
 
 
 def _send_confirmation_email(email, submission_name):

@@ -49,7 +49,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
             "iban": IBAN,
             "bank_account_name": "A. Berg",
             "consent": "1",
-            "website": "",
+            "leave_this_empty": "",
         }
         data.update(overrides)
         return data
@@ -146,10 +146,46 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
             self.track_doc(SUBMISSION, name)
         bot = f"bot.{frappe.generate_hash(length=8).lower()}@example.org"
         before = frappe.db.count(SUBMISSION)
-        response, _log = self._submit_form(email=bot, website="http://spam.example")
+        response, _log = self._submit_form(email=bot, leave_this_empty="http://spam.example")
         self.assertEqual(response, expected)
         self.assertEqual(frappe.db.count(SUBMISSION), before)
         self.assertEqual(self._sent_emails(bot), [])
+
+    def test_an_autofilled_website_field_is_not_treated_as_a_bot(self):
+        # The honeypot used to be called "website", a name browser autofill fills in.
+        response, _log = self._submit_form(website="https://anna.example")
+        self.assertTrue(response["success"])
+        rows = frappe.get_all(SUBMISSION, {"email": self.email}, pluck="name")
+        self.assertEqual(len(rows), 1)
+        self.track_doc(SUBMISSION, rows[0])
+        self.assertEqual(len(self._sent_emails(self.email)), 1)
+
+    def _submit_times(self, count, **overrides):
+        responses = [self._submit_form(**overrides)[0] for _ in range(count)]
+        email = overrides.get("email", self.email)
+        for name in frappe.get_all(SUBMISSION, {"email": email}, pluck="name"):
+            self.track_doc(SUBMISSION, name)
+        return responses
+
+    def test_one_address_gets_at_most_the_daily_cap_of_confirmation_mails(self):
+        cap = sa.MAX_MAILS_PER_ADDRESS_PER_DAY
+        responses = self._submit_times(cap + 1)
+        self.assertEqual(len(set(map(json.dumps, responses))), 1)  # the capped call looks the same
+        self.assertEqual(len(self._sent_emails(self.email)), cap)
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), cap)
+
+    def test_the_daily_cap_also_limits_already_a_member_mails(self):
+        known = f"capped.{frappe.generate_hash(length=8).lower()}@example.org"
+        self._existing_member(known, status="Active", application_status="Approved")
+        cap = sa.MAX_MAILS_PER_ADDRESS_PER_DAY
+        self._submit_times(cap + 1, email=known)
+        self.assertEqual(len(self._sent_emails(known)), cap)
+
+    def test_the_daily_cap_is_per_address(self):
+        self._submit_times(sa.MAX_MAILS_PER_ADDRESS_PER_DAY + 1)
+        other = f"other.{frappe.generate_hash(length=8).lower()}@example.org"
+        self._submit_times(1, email=other)
+        self.assertEqual(len(self._sent_emails(other)), 1)
 
     def test_validation_error_is_returned(self):
         response, _log = self._submit_form(iban="")
@@ -203,3 +239,52 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         unknown, _ = self._submit_form(door="bestaat-niet")
         off, _ = self._submit_form(door=disabled.name)
         self.assertEqual(unknown, off)
+
+
+class TestShortApplicationRateLimitIsPerVisitor(VereningingenUnitTestCase):
+    """The security framework's limiter (skipped under test unless forced) must not put every
+    anonymous visitor into one bucket: a per_user rule keys a Guest on the literal "Guest"."""
+
+    def setUp(self):
+        super().setUp()
+        self._previous_user = frappe.session.user
+        self._previous_request = getattr(frappe.local, "request", None)
+        self._clear_buckets()
+
+    def tearDown(self):
+        frappe.local.request = self._previous_request
+        frappe.set_user(self._previous_user)
+        self._clear_buckets()
+        super().tearDown()
+
+    def _clear_buckets(self):
+        # The engine writes raw redis keys (incrby), so frappe.cache.delete_keys, which adds the
+        # site prefix, would not match them.
+        for op in ("submit_short_application", "confirm_short_application"):
+            for key in frappe.cache.keys(f"cor_rate_limit:{frappe.local.site}:*:{op}:*"):
+                frappe.cache.delete(key)
+
+    def _allowed_from(self, ip, operation):
+        from werkzeug.test import EnvironBuilder
+
+        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+        frappe.local.request = EnvironBuilder(environ_base={"REMOTE_ADDR": ip}).get_request()
+        key = f"verenigingen.api.short_application.{operation}"
+        return get_rate_limit_engine().check_rate_limit(key, force_check=True).allowed
+
+    def _assert_second_visitor_still_served(self, operation):
+        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+        frappe.set_user("Guest")
+        limit = get_rate_limit_engine()._get_cor_config(operation)["rate_limit_calls"]
+        for _ in range(limit):
+            self.assertTrue(self._allowed_from("198.51.100.1", operation))
+        self.assertFalse(self._allowed_from("198.51.100.1", operation))  # the limiter is live
+        self.assertTrue(self._allowed_from("198.51.100.2", operation))
+
+    def test_submit_limit_is_per_visitor(self):
+        self._assert_second_visitor_still_served("submit_short_application")
+
+    def test_confirm_limit_is_per_visitor(self):
+        self._assert_second_visitor_still_served("confirm_short_application")
