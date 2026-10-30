@@ -314,7 +314,16 @@ class TestChapterMemberPerformance(EnhancedTestCase):
         # #469 lock itself (see #885's issue for why memoizing the lock instead is NOT safe:
         # frappe.db.rollback() releases locks, so a memo would go stale on a rolled-back
         # savepoint). Do NOT relax this without re-measuring.
-        with self.assertQueryCount(270):
+        #
+        # 270 -> 290 for #1727: Member gained its 9th child table (`join_reasons`, Table
+        # MultiSelect -> Member Join Reason), so each Member load runs one more
+        # `SELECT * FROM tabMember Join Reason`. This save loads each of the 10 members twice:
+        # +20, nothing else. Measured: CI shard 9 counted 289 with exactly 20 such selects
+        # (269 without them); locally the branch gives 294 vs develop's 274, the same +20.
+        # (This bench runs ~5 more queries than CI, so set the cap from CI's figure; #1742.)
+        # The floor is now 289, superseding the 267 above. 290 sits above it and below 299,
+        # where the redundant pre-lock pass above would land.
+        with self.assertQueryCount(290):
             for member in members:
                 chapter.append("members", {"member": member.name, "enabled": 1, "status": "Active"})
             chapter.save()
