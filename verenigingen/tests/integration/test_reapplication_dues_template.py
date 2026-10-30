@@ -377,7 +377,8 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         Executed "Expulsion" request is then written directly (the member is already Quit, so
         the real executor cannot run again) with a later execution_date, and
         _ensure_dues_schedule_exists is called directly (UNIT-LEVEL) because the gate would
-        refuse this member before approval.
+        refuse this member before approval; the new Membership is built by the service's own
+        _create_new_membership rather than through approve_membership_application.
         """
         from verenigingen.services.member.approval.membership_creation_service import (
             MembershipCreationService,
@@ -411,8 +412,12 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
             {"status": "Executed", "execution_date": add_days(today(), 1)},
         )
         member_doc = frappe.get_doc("Member", member)
-        membership = frappe.get_doc("Membership", old_membership)
-        MembershipCreationService()._ensure_dues_schedule_exists(member_doc, membership, self.membership_type)
+        service = MembershipCreationService()
+        # The membership approval really passes: a fresh submitted one. Under an "any Voluntary
+        # request" check the reactivation then SUCCEEDS, so the status assertion is what fails.
+        membership = service._create_new_membership(member_doc, self.membership_type, today(), False)
+        self.assertNotEqual(membership.name, old_membership)
+        service._ensure_dues_schedule_exists(member_doc, membership, self.membership_type)
         self.assertEqual(
             frappe.db.get_value("Membership Dues Schedule", self._schedules(member)[0], "status"),
             "Cancelled",

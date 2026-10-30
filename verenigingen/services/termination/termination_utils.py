@@ -23,7 +23,7 @@ def get_latest_executed_termination_type(member_name):
         "Membership Termination Request",
         {"member": member_name, "status": "Executed"},
         "termination_type",
-        order_by="execution_date desc",
+        order_by="execution_date desc, creation desc",
     )
 
 
