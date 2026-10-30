@@ -18,6 +18,8 @@ class TestShortApplicationCleanup(VereningingenUnitTestCase):
             {"is_template": 1, "membership_type": membership_type.name},
             "name",
         )
+        # The auto-made template is Annual; the door's monthly slot takes only a Monthly one.
+        frappe.db.set_value("Membership Dues Schedule", template, "billing_frequency", "Monthly")
         door = frappe.get_doc(
             {
                 "doctype": "Membership Application Door",

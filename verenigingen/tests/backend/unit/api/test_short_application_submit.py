@@ -22,7 +22,10 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
             {"is_template": 1, "membership_type": self.membership_type.name},
             "name",
         )
-        frappe.db.set_value("Membership Dues Schedule", template, "minimum_amount", 2.5)
+        # The auto-made template is Annual; the door's monthly slot takes only a Monthly one.
+        frappe.db.set_value(
+            "Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"}
+        )
         self.door = self._door(monthly_dues_template=template)
         self.email = f"guest.{frappe.generate_hash(length=8).lower()}@example.org"
         self._previous_user = frappe.session.user

@@ -25,7 +25,12 @@ class TestShortApplicationValidation(ApplicationDoorMixin, VereningingenUnitTest
         )
         self.template_minimum = 2.5
         self.postal_minimum = 5.0
-        frappe.db.set_value("Membership Dues Schedule", template, "minimum_amount", self.template_minimum)
+        # The auto-made template is Annual; the door's monthly slot takes only a Monthly one.
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            template,
+            {"minimum_amount": self.template_minimum, "billing_frequency": "Monthly"},
+        )
         self.template = template
         self.door = self._door(
             monthly_dues_template=template, postal_minimum_monthly=self.postal_minimum

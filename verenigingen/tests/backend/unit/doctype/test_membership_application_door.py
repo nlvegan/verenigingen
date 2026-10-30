@@ -6,12 +6,21 @@ from verenigingen.tests.utils.base import VereningingenUnitTestCase
 
 
 class TestMembershipApplicationDoor(VereningingenUnitTestCase):
-    def _template_of(self, membership_type):
-        return frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"is_template": 1, "membership_type": membership_type.name},
-            "name",
-        )
+    def _template_of(self, membership_type, frequency="Monthly"):
+        """The type's auto-made template, set to `frequency` so it fits the slot it goes in."""
+        # By the type's link, not a filter: a second template of the type would match one too.
+        name = frappe.db.get_value("Membership Type", membership_type.name, "dues_schedule_template")
+        frappe.db.set_value("Membership Dues Schedule", name, "billing_frequency", frequency)
+        return name
+
+    def _second_template(self, membership_type, frequency):
+        """Another template of the same type, with its own billing frequency."""
+        template = frappe.copy_doc(frappe.get_doc("Membership Dues Schedule", self._template_of(membership_type)))
+        template.schedule_name = f"Second {frappe.generate_hash(length=6)}"
+        template.billing_frequency = frequency
+        template.insert()
+        self.track_doc("Membership Dues Schedule", template.name)
+        return template.name
 
     def _unsaved_door(self, membership_type, **fields):
         slug = fields.pop("slug", f"deur-{frappe.generate_hash(length=8).lower()}")
@@ -21,8 +30,9 @@ class TestMembershipApplicationDoor(VereningingenUnitTestCase):
             "slug": slug,
             "membership_type": membership_type.name,
             "form_shape": "Regular",
-            "monthly_dues_template": self._template_of(membership_type),
         }
+        if "monthly_dues_template" not in fields:
+            data["monthly_dues_template"] = self._template_of(membership_type)
         data.update(fields)
         return frappe.get_doc(data)
 
@@ -52,9 +62,51 @@ class TestMembershipApplicationDoor(VereningingenUnitTestCase):
             self._unsaved_door(membership_type, monthly_dues_template=foreign_template).insert()
         with self.assertRaises(frappe.ValidationError):
             self._unsaved_door(
-                membership_type, monthly_dues_template=None, annual_dues_template=foreign_template
+                membership_type,
+                monthly_dues_template=None,
+                annual_dues_template=self._template_of(other_type, "Annual"),
             ).insert()
         self._save(self._unsaved_door(membership_type))
+
+    def test_template_frequency_must_match_its_slot(self):
+        membership_type = self.create_test_membership_type()
+        monthly = self._template_of(membership_type, "Monthly")
+        annual = self._second_template(membership_type, "Annual")
+        with self.assertRaises(frappe.ValidationError):
+            self._unsaved_door(membership_type, monthly_dues_template=annual).insert()
+        with self.assertRaises(frappe.ValidationError):
+            self._unsaved_door(
+                membership_type, monthly_dues_template=None, annual_dues_template=monthly
+            ).insert()
+        door = self._save(
+            self._unsaved_door(membership_type, monthly_dues_template=monthly, annual_dues_template=annual)
+        )
+        self.assertEqual((door.monthly_dues_template, door.annual_dues_template), (monthly, annual))
+
+    def test_amount_option_needs_a_template_for_its_frequency(self):
+        membership_type = self.create_test_membership_type()
+        with self.assertRaises(frappe.ValidationError):
+            self._unsaved_door(
+                membership_type, amount_options=[{"frequency": "Annual", "amount": 60}]
+            ).insert()
+        door = self._save(
+            self._unsaved_door(membership_type, amount_options=[{"frequency": "Monthly", "amount": 10}])
+        )
+        self.assertEqual([row.amount for row in door.amount_options], [10])
+
+    def test_amount_option_below_template_minimum_refused(self):
+        membership_type = self.create_test_membership_type()
+        template = self._template_of(membership_type)
+        minimum = 4.0
+        frappe.db.set_value("Membership Dues Schedule", template, "minimum_amount", minimum)
+        with self.assertRaises(frappe.ValidationError):
+            self._unsaved_door(
+                membership_type, amount_options=[{"frequency": "Monthly", "amount": minimum - 0.5}]
+            ).insert()
+        door = self._save(
+            self._unsaved_door(membership_type, amount_options=[{"frequency": "Monthly", "amount": minimum}])
+        )
+        self.assertEqual([row.amount for row in door.amount_options], [minimum])
 
     def test_non_template_schedule_refused(self):
         membership_type = self.create_test_membership_type()
