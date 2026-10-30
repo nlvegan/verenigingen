@@ -768,8 +768,9 @@ def _as_application_system_user(description):
 def _only_if_selectable_chapter(chapter_name):
     """Return chapter_name only if the application form could have offered it, else None.
 
-    The form lists published chapters; the application then writes to the chapter as the system user, so an
-    anonymous caller must not be able to name any other one (unpublished, inactive, dissolved, unknown).
+    The form offers every published chapter; this guard also refuses Inactive and Dissolved ones. The
+    application then writes to the chapter as the system user, so an anonymous caller must not be able to
+    name any other one (unpublished, inactive, dissolved, unknown).
     Refuse by dropping the suggestion: the application itself still goes through.
     """
     if not chapter_name:

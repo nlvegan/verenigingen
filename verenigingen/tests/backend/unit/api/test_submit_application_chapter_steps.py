@@ -63,16 +63,21 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
     def _setup_errors_since(self, start):
         return frappe.get_all(
             "Error Log",
-            filters={"method": ["like", "Chapter Setup Error%"], "creation": [">=", start]},
+            or_filters=[
+                ["method", "like", "Chapter %"],
+                ["error", "like", "Chapter Setup Error%"],
+                ["error", "like", "Chapter Not Found%"],
+            ],
+            filters={"creation": [">=", start]},
             pluck="name",
         )
 
-    def _chapter(self, **kwargs):
+    def _published_chapter(self, **kwargs):
         kwargs.setdefault("published", 1)
         return self.create_test_chapter(**kwargs)
 
     def test_selected_chapter_gets_a_pending_row_without_an_error(self):
-        chapter = self._chapter()
+        chapter = self._published_chapter()
         start = frappe.utils.now()
         member, messages = self._apply_as_guest(selected_chapter=chapter.name)
 
@@ -85,7 +90,7 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
         )
 
     def test_postal_code_suggestion_works_for_a_guest(self):
-        chapter = self._chapter(postal_codes="8301-8399")
+        chapter = self._published_chapter(postal_codes="8301-8399")
         member, _messages = self._apply_as_guest(postal_code="8345AB")
 
         rows = self._pending_rows(member)
@@ -96,25 +101,34 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
         )
 
     def test_unpublished_chapter_is_refused_and_untouched(self):
-        chapter = self._chapter(published=0)
+        chapter = self._published_chapter(published=0)
         before = frappe.db.get_value("Chapter", chapter.name, "modified")
+        start = frappe.utils.now()
         member, _messages = self._apply_as_guest(selected_chapter=chapter.name)
 
         self.assertEqual(self._pending_rows(member), [])
+        self.assertFalse(self._setup_errors_since(start), "the refused chapter still reached a chapter step")
         self.assertEqual(frappe.db.get_value("Chapter", chapter.name, "modified"), before)
 
     def test_inactive_published_chapter_is_refused(self):
-        chapter = self._chapter(status="Inactive")
+        chapter = self._published_chapter(status="Inactive")
+        start = frappe.utils.now()
         member, _messages = self._apply_as_guest(selected_chapter=chapter.name)
         self.assertEqual(self._pending_rows(member), [])
+        self.assertFalse(self._setup_errors_since(start), "the refused chapter still reached a chapter step")
 
     def test_unknown_chapter_name_is_refused(self):
-        member, _messages = self._apply_as_guest(selected_chapter="No Such Chapter " + frappe.generate_hash(length=6))
+        """Without the guard create_pending_chapter_membership logs 'Chapter Not Found' for this name."""
+        start = frappe.utils.now()
+        member, _messages = self._apply_as_guest(
+            selected_chapter="No Such Chapter " + frappe.generate_hash(length=6)
+        )
         self.assertEqual(self._pending_rows(member), [])
+        self.assertFalse(self._setup_errors_since(start), "the unknown name still reached a chapter step")
 
     def test_other_members_and_chapters_are_left_alone(self):
-        chapter = self._chapter()
-        other_chapter = self._chapter()
+        chapter = self._published_chapter()
+        other_chapter = self._published_chapter()
         bystander = self.create_test_member(
             first_name="Bystander",
             last_name=f"Row{frappe.generate_hash(length=6)}",
