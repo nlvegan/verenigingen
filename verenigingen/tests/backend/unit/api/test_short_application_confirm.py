@@ -20,17 +20,15 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
     def setUp(self):
         super().setUp()
         self.membership_type = self.create_test_membership_type()
-        self.template = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"is_template": 1, "membership_type": self.membership_type.name},
-            "name",
+        # The type's default template stays Annual, so approval falling back to it is visible;
+        # the door gets its own Monthly template.
+        self.type_template = frappe.db.get_value(
+            "Membership Type", self.membership_type.name, "dues_schedule_template"
         )
-        # The type's auto-made template is Annual; the door's *monthly* slot needs a Monthly one.
-        frappe.db.set_value(
-            "Membership Dues Schedule",
-            self.template,
-            {"minimum_amount": 2.5, "billing_frequency": "Monthly"},
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", self.type_template, "billing_frequency"), "Annual"
         )
+        self.template = self._door_template(self.type_template)
         self.template_rate = frappe.db.get_value("Membership Dues Schedule", self.template, "dues_rate")
         self.door = self._door(monthly_dues_template=self.template)
         self.email = self._new_email()
@@ -44,6 +42,14 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         frappe.local.request_ip = self._previous_ip
         frappe.set_user(self._previous_user)
         super().tearDown()
+
+    def _door_template(self, type_template):
+        template = frappe.copy_doc(frappe.get_doc("Membership Dues Schedule", type_template))
+        template.schedule_name = f"Door Monthly {frappe.generate_hash(length=6)}"
+        template.update({"billing_frequency": "Monthly", "minimum_amount": 2.5, "dues_rate": 12})
+        template.insert()
+        self.track_doc("Membership Dues Schedule", template.name)
+        return template.name
 
     def _new_email(self):
         return f"confirm.{frappe.generate_hash(length=8).lower()}@example.org"
@@ -434,9 +440,11 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member_name, "is_template": 0},
-            ["billing_frequency", "dues_rate"],
+            ["billing_frequency", "dues_rate", "template_reference"],
             as_dict=True,
         )
+        self.assertNotEqual(self.template, self.type_template, "control: the door's template is not the default")
+        self.assertEqual(schedule.template_reference, self.door.monthly_dues_template)
         self.assertEqual(schedule.billing_frequency, "Monthly")
         self.assertEqual(schedule.dues_rate, self.amount)
 
