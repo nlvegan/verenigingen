@@ -33,6 +33,7 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollb
 SUBMISSION = "Membership Application Submission"
 CONFIRM_TOKEN_PURPOSE = "application_email_confirmation"
 EXPIRY_DAYS = 7
+PURGE_DAYS = 30
 
 
 def refusal() -> dict:
@@ -84,6 +85,35 @@ def _confirmable_submission(submission_name, token):
         _set_status(name, "Expired")
         return None
     return submission
+
+
+def expire_and_purge_submissions() -> dict:
+    """Daily job: expire Unconfirmed rows past EXPIRY_DAYS, delete Unconfirmed/Expired rows past PURGE_DAYS.
+
+    Cut-offs come from now_datetime() (site clock, same as `creation`). Confirmed rows are
+    kept whatever their age: they are the record of what the member submitted. Nothing links
+    to a submission, so a set-based delete is safe; the scheduler commits after the job.
+    """
+    now = now_datetime()
+    purge_before = add_days(now, -PURGE_DAYS)
+    expire_before = add_days(now, -EXPIRY_DAYS)
+    deleted = _delete_older_than(purge_before)
+    expired = _expire_older_than(expire_before)
+    return {"expired": expired, "deleted": deleted}
+
+
+def _delete_older_than(cutoff) -> int:
+    filters = {"status": ["in", ["Unconfirmed", "Expired"]], "creation": ["<", cutoff]}
+    count = frappe.db.count(SUBMISSION, filters)
+    frappe.db.delete(SUBMISSION, filters)
+    return count
+
+
+def _expire_older_than(cutoff) -> int:
+    names = frappe.get_all(SUBMISSION, {"status": "Unconfirmed", "creation": ["<", cutoff]}, pluck="name")
+    for name in names:
+        _set_status(name, "Expired")
+    return len(names)
 
 
 def _set_status(name, status):
