@@ -1,0 +1,30 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+<style>
+    .wl-button { background: {{ primary_color }}; color: #fff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; }
+    .wl-button:disabled { opacity: .6; }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-xl mx-auto px-4 py-12 text-center">
+    <h1 class="text-2xl font-bold mb-4">{{ _("Confirm your application") }}</h1>
+    <p class="mb-6">{{ _("Press the button to confirm your email address and complete your application.") }}</p>
+    <form id="confirm-form" data-submission="{{ submission | e }}" data-token="{{ token | e }}">
+        <button type="submit" class="wl-button" id="confirm-button">{{ _("Confirm") }}</button>
+    </form>
+    <p class="mt-6" id="confirm-result" role="status"></p>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+frappe.ready(function() {
+    frappe.require(['/assets/verenigingen/js/short_application.js']);
+});
+</script>
+{% endblock %}
