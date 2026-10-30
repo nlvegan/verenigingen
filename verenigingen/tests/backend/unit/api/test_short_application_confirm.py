@@ -265,6 +265,43 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertEqual(member.application_custom_fee, self.amount)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "member"), existing.name)
 
+    def test_reapplication_keeps_member_fields_the_short_form_does_not_ask(self):
+        # Both directions, so neither "always opt out" nor "always opt in" passes.
+        for label, kept in (
+            (
+                "opted out, volunteering",
+                {"accepts_optional_communications": 0, "interested_in_volunteering": 1, "pronouns": "zij/haar"},
+            ),
+            (
+                "opted in, not volunteering",
+                {"accepts_optional_communications": 1, "interested_in_volunteering": 0, "pronouns": "hij/hem"},
+            ),
+        ):
+            with self.subTest(label):
+                self.email = self._new_email()
+                existing = self._rejected_member(self.door)
+                kept = dict(kept, birth_date="1985-04-12", middle_name="Maria")
+                frappe.db.set_value("Member", existing.name, dict(kept))  # set_value adds modified to its dict
+                name = self._confirm_submit()
+
+                response, _log = self._confirm(name)
+
+                self.assertTrue(response["success"], response)
+                member = frappe.db.get_value("Member", existing.name, list(kept), as_dict=True)
+                member.birth_date = str(member.birth_date)
+                self.assertEqual(dict(member), kept)
+
+    def test_new_member_from_short_form_is_opted_out_of_optional_email(self):
+        name = self._confirm_submit()
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._track_members()
+        self.assertEqual(
+            frappe.db.get_value("Member", self._members()[0], "accepts_optional_communications"), 0
+        )
+
     def test_housemate_reapplication_clears_the_old_fee(self):
         door = self._door(form_shape="Housemate", monthly_dues_template=None)
         existing = self._rejected_member(door)

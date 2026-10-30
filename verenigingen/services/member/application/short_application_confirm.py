@@ -159,6 +159,10 @@ def _create_member_with_savepoint(submission, door, payload, existing):
 
 def _write_member(door, payload, existing):
     data = to_helper_payload(payload, door)
+    if existing:
+        data.update(_unasked_member_values(existing.name))
+    else:
+        data["opt_out_optional_emails"] = 1  # ruling R14: the short form has no newsletter opt-in
     application_id = generate_application_id()
     address = create_address_from_application(data)
     if existing:
@@ -168,6 +172,30 @@ def _write_member(door, payload, existing):
     _set_answers(member, payload, door)
     _link_chapter(member, data, application_id)
     return member
+
+
+def _unasked_member_values(member_name) -> dict:
+    """The reapplication helper overwrites these from the payload, but the short form never asks
+    them; hand it the Member's current values so a reapplication keeps them."""
+    member = frappe.db.get_value(
+        "Member",
+        member_name,
+        [
+            "birth_date",
+            "middle_name",
+            "pronouns",
+            "accepts_optional_communications",
+            "interested_in_volunteering",
+        ],
+        as_dict=True,
+    )
+    return {
+        "birth_date": member.birth_date,
+        "middle_name": member.middle_name or "",
+        "pronouns": member.pronouns or "",
+        "opt_out_optional_emails": 0 if member.accepts_optional_communications else 1,
+        "interested_in_volunteering": member.interested_in_volunteering or 0,
+    }
 
 
 def _link_chapter(member, data, application_id):
