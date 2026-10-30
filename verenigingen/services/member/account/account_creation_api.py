@@ -58,6 +58,11 @@ def process_account_creation_request(request_name: str) -> OperationResult[Dict[
     try:
         manager = AccountCreationManager(request_name)
         manager.process_complete_pipeline()
+        if manager.cancelled:
+            return OperationResult.ok(
+                {"request_name": request_name, "cancelled": True},
+                message="Account creation request was cancelled; nothing was processed",
+            )
         return OperationResult.ok(
             {"request_name": request_name}, message="Account creation completed successfully"
         )
@@ -797,6 +802,15 @@ def process_bulk_account_creation_batch(
                         "request_name": request_name,
                         "skipped": True,
                         "reason": "already_completed",
+                    }
+
+                # A cancelled request must stay cancelled (#1709)
+                if request.status == "Cancelled":
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "cancelled",
                     }
 
                 if request.status == "Requested":

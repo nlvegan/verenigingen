@@ -1,0 +1,196 @@
+"""A Cancelled Account Creation Request must stay cancelled (#1709, #1710).
+
+Every writer of ``status`` on the request is driven through its real code path.
+The Member source record is a real fixture; the only patched thing is
+``frappe.enqueue``, the queue boundary (CI has no RQ workers).
+"""
+
+from unittest.mock import patch
+
+import frappe
+
+from verenigingen.services.member.account import account_creation_api as api
+from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
+from verenigingen.tests.utils.base import VereningingenTestCase
+
+
+class TestAccountCreationRequestCancel(VereningingenTestCase):
+    def setUp(self):
+        super().setUp()
+        self.uid = frappe.generate_hash(length=6)
+        self.member = self.create_test_member(
+            first_name="AcrCancel",
+            last_name=f"Member{self.uid}",
+            email=f"acrcancel.member.{self.uid}@test.invalid",
+            status="Active",
+        )
+
+    def _make_request_for_cancel(self):
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": self.member.name,
+                "email": self.member.email,
+                "full_name": self.member.full_name,
+                "priority": "Normal",
+                "role_profile": "Verenigingen Member",
+                "business_justification": "test",
+                "requested_roles": [{"role": "Verenigingen Member"}],
+            }
+        )
+        request.insert()
+        self.track_doc("Account Creation Request", request.name)
+        return request
+
+    def _request_status(self, name):
+        return frappe.db.get_value("Account Creation Request", name, "status")
+
+    def _keep_member_user(self):
+        if frappe.db.exists("User", self.member.email):
+            self.track_doc("User", self.member.email)
+
+    def _cancelled(self, reason="not wanted"):
+        request = self._make_request_for_cancel()
+        request.cancel_request(reason=reason)
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        return frappe.get_doc("Account Creation Request", request.name)
+
+    # --- #1709: the pipeline entry -------------------------------------------------
+
+    def test_control_uncancelled_request_still_creates_the_user(self):
+        request = self._make_request_for_cancel()
+        api.process_account_creation_request(request.name)
+        self._keep_member_user()
+        self.assertEqual(self._request_status(request.name), "Completed")
+        self.assertTrue(frappe.db.exists("User", self.member.email))
+
+    def test_cancelled_request_creates_no_user_and_stays_cancelled(self):
+        request = self._cancelled()
+        result = api.process_account_creation_request(request.name)
+        self._keep_member_user()
+        self.assertTrue(result["success"], msg=result)
+        self.assertFalse(frappe.db.exists("User", self.member.email))
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    def test_cancelled_request_with_an_existing_user_links_nothing(self):
+        """Resumed request (user exists, stages done): no mark_processing runs, so only the
+        entry check keeps the link phase from writing Member.user."""
+        request = self._make_request_for_cancel()
+        user = frappe.get_doc(
+            {"doctype": "User", "email": self.member.email, "first_name": "Pre", "send_welcome_email": 0}
+        ).insert(ignore_permissions=True)
+        self.track_doc("User", user.name)
+        frappe.db.set_value(
+            "Account Creation Request",
+            request.name,
+            {"created_user": user.name, "pipeline_stage": "Completed"},
+        )
+        frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="stop")
+        self.assertFalse(frappe.db.get_value("Member", self.member.name, "user"))
+        api.process_account_creation_request(request.name)
+        self.assertFalse(frappe.db.get_value("Member", self.member.name, "user"))
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    # --- #1709: every status writer -------------------------------------------------
+
+    def test_mark_processing_refuses_a_cancelled_request(self):
+        request = self._cancelled()
+        with self.assertRaises(frappe.ValidationError):
+            request.mark_processing("User Creation")
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    def test_mark_failed_does_not_overwrite_cancelled(self):
+        request = self._cancelled(reason="operator said stop")
+        request.mark_failed("late pipeline error", "Role Assignment")
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        self.assertNotIn(
+            "late pipeline error", frappe.db.get_value("Account Creation Request", request.name, "failure_reason") or ""
+        )
+
+    def test_mark_completed_does_not_overwrite_cancelled_but_records_what_was_made(self):
+        request = self._cancelled()
+        request.mark_completed(user="Administrator")
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "created_user"), "Administrator"
+        )
+
+    def test_schedule_retry_does_not_reset_cancelled_or_enqueue(self):
+        request = self._cancelled()
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue:
+            manager.schedule_retry()
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        enqueue.assert_not_called()
+
+    def test_retry_and_queue_endpoints_refuse_cancelled(self):
+        request = self._cancelled()
+        with self.assertRaises(frappe.ValidationError):
+            request.retry_processing()
+        with self.assertRaises(frappe.ValidationError):
+            request.queue_processing()
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    def test_cancel_between_stages_stops_the_pipeline(self):
+        """A cancel landing after User Creation stops it at the next stage.
+
+        The cancel is issued from inside the real ``create_user_account`` wrapper,
+        i.e. after the user exists and before roles are assigned.
+        """
+        # execute_with_deadlock_retry logs the (re-raised) cancel as an "Operation Error"
+        self.expectErrorLog("Operation Error")
+        request = self._make_request_for_cancel()
+        real_create = AccountCreationManager.create_user_account
+
+        def create_then_cancel(manager):
+            real_create(manager)
+            frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="mid-flight")
+
+        with patch.object(AccountCreationManager, "create_user_account", create_then_cancel):
+            api.process_account_creation_request(request.name)
+        self._keep_member_user()
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        self.assertIsNone(frappe.db.get_value("Account Creation Request", request.name, "completed_at"))
+        # stopped at the Role Assignment check: the requested role was never granted
+        self.assertNotIn("Verenigingen Member", frappe.get_roles(self.member.email))
+        self.assertNotEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "pipeline_stage"), "Completed"
+        )
+
+    # --- cancel_request itself -------------------------------------------------------
+
+    def test_cancel_uses_the_db_status_not_a_stale_copy(self):
+        request = self._make_request_for_cancel()
+        stale = frappe.get_doc("Account Creation Request", request.name)
+        request.mark_completed()
+        with self.assertRaises(frappe.ValidationError):
+            stale.cancel_request(reason="too late")
+        self.assertEqual(self._request_status(request.name), "Completed")
+
+    # --- #1710: the original failure reason survives a cancel ------------------------
+
+    def test_cancelling_a_failed_request_keeps_the_original_error(self):
+        request = self._make_request_for_cancel()
+        request.mark_failed("SMTP exploded at stage 2", "Role Assignment")
+        frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="duplicate of ACR-x")
+        row = frappe.db.get_value(
+            "Account Creation Request", request.name, ["status", "failure_reason"], as_dict=True
+        )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertIn("SMTP exploded at stage 2", row.failure_reason)
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Account Creation Request", "reference_name": request.name},
+            pluck="content",
+        )
+        self.assertTrue(any("duplicate of ACR-x" in (c or "") for c in comments), comments)
+
+    def test_cancel_reason_is_kept_when_there_was_no_error(self):
+        request = self._make_request_for_cancel()
+        request.cancel_request(reason="changed my mind")
+        self.assertIn(
+            "changed my mind", frappe.db.get_value("Account Creation Request", request.name, "failure_reason")
+        )
