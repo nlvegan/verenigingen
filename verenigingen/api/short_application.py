@@ -13,7 +13,10 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, get_url
 
 from verenigingen.api.membership_application import _handle_existing_member
-from verenigingen.services.member.application.short_application_confirm import confirm_submission
+from verenigingen.services.member.application.short_application_confirm import (
+    CONFIRM_TOKEN_PURPOSE,
+    confirm_submission,
+)
 from verenigingen.services.member.application.short_application_validation import (
     validate_short_application,
 )
@@ -21,7 +24,6 @@ from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
-CONFIRM_TOKEN_PURPOSE = "application_email_confirmation"
 CONFIRM_PATH = "/word-lid/bevestig"
 MAX_AMOUNT = 10000
 MAX_FREE_TEXT = 140
