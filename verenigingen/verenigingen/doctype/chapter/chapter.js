@@ -1694,6 +1694,7 @@ function apply_role_profiles_to_board_members(frm) {
 				freeze_message: __('Applying role profiles to board...'),
 				callback(r) {
 					const failed = (r.message && r.message.failed) || [];
+					const skipped = (r.message && r.message.skipped) || [];
 					if (r.message && r.message.success) {
 						frappe.show_alert(
 							{
@@ -1701,7 +1702,7 @@ function apply_role_profiles_to_board_members(frm) {
 									? __('Role profiles applied to {0} board members, {1} failed: {2}', [
 											r.message.members_updated || 0,
 											failed.length,
-											failed.map((f) => f.user).join(', ')
+											failed.map((f) => frappe.utils.escape_html(f.user)).join(', ')
 										])
 									: __('Role profiles applied successfully to {0} board members', [
 											r.message.members_updated || 0
@@ -1713,9 +1714,16 @@ function apply_role_profiles_to_board_members(frm) {
 					} else if (failed.length) {
 						frappe.msgprint(
 							__('Role profile sync failed for: {0}', [
-								failed.map((f) => `${f.user} (${f.error})`).join(', ')
+								failed
+									.map(
+										(f) =>
+											`${frappe.utils.escape_html(f.user)} (${frappe.utils.escape_html(f.error)})`
+									)
+									.join(', ')
 							])
 						);
+					} else if (skipped.length) {
+						frappe.msgprint(__('{0} board members are disabled; nothing to sync', [skipped.length]));
 					} else {
 						frappe.msgprint(__('No board members were updated. Please check your chapter configuration.'));
 					}

@@ -351,6 +351,11 @@ class TestBulkAssignCountsOnlyRealSyncs(EnhancedTestCase):
 
         self.assertEqual(result["members_updated"], 1)
         self.assertEqual(result["failed"], [])
+        self.assertEqual(result["skipped"], [{"user": seated[1][0], "reason": "user_disabled"}])
+
+    def test_a_clean_run_skips_nobody(self):
+        name, _seated = self._chapter_with_board(1)
+        self.assertEqual(self._bulk(name)["skipped"], [])
 
     def test_a_sync_that_returns_none_is_a_failure(self):
         """auto_sync_on_role_change returns None when sync_user_role_profile RAISES (it swallows).

@@ -223,6 +223,7 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
 
     updated = 0
     failed = []
+    skipped = []
     for row in board_members:
         user = row["user"] if isinstance(row, dict) else row.user
         # auto_sync_on_role_change never raises: it RETURNS {"success": False, ...}, or None
@@ -235,7 +236,9 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
             sync = {"success": False, "error": "role profile sync raised (see the log)"}
         if not sync.get("success"):
             failed.append({"user": user, "error": sync.get("error") or "role profile sync failed"})
-        elif not sync.get("skipped"):  # a disabled user is skipped, nothing was synced
+        elif sync.get("skipped"):  # e.g. a disabled user: nothing was synced
+            skipped.append({"user": user, "reason": sync["skipped"]})
+        else:
             updated += 1
 
     _log_failed_board_syncs(chapter_name, failed)
@@ -243,6 +246,7 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
         "success": updated > 0 or len(board_members) == 0,
         "members_updated": updated,
         "failed": failed,
+        "skipped": skipped,
     }
 
 
