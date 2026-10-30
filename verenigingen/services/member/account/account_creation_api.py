@@ -747,6 +747,7 @@ def process_bulk_account_creation_batch(
         "total_requests": len(request_names),
         "completed": 0,
         "failed": 0,
+        "cancelled": 0,
         "errors": [],
         "completed_requests": [],
         "failed_requests": [],
@@ -826,6 +827,15 @@ def process_bulk_account_creation_batch(
                 if not frappe.flags.in_test:
                     frappe.db.commit()
 
+                if manager.cancelled:
+                    # Cancelled mid-batch: not a completion
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "cancelled",
+                    }
+
                 frappe.logger().info(f"Batch {batch_id}: Completed request {request_name}")
                 return {"success": True, "request_name": request_name}
 
@@ -872,7 +882,10 @@ def process_bulk_account_creation_batch(
 
                 # Update results with thread-safe lock
                 with results_lock:
-                    if result["success"]:
+                    if result.get("reason") == "cancelled":
+                        # Cancelled requests are neither completions nor failures (#1709)
+                        batch_results["cancelled"] += 1
+                    elif result["success"]:
                         batch_results["completed"] += 1
                         batch_results["completed_requests"].append(request_name)
                     else:
@@ -903,7 +916,8 @@ def process_bulk_account_creation_batch(
     # Log batch completion summary
     frappe.logger().info(
         f"Batch {batch_id} completed: {batch_results['completed']} success, "
-        f"{batch_results['failed']} failed out of {batch_results['total_requests']} total"
+        f"{batch_results['failed']} failed, {batch_results['cancelled']} cancelled "
+        f"out of {batch_results['total_requests']} total"
     )
 
     # If there were failures, log them for administrative review

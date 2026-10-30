@@ -5,6 +5,8 @@ The Member source record is a real fixture; the only patched thing is
 ``frappe.enqueue``, the queue boundary (CI has no RQ workers).
 """
 
+import threading
+import time
 from unittest.mock import patch
 
 import frappe
@@ -12,6 +14,10 @@ import frappe
 from verenigingen.services.member.account import account_creation_api as api
 from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.verenigingen.doctype.account_creation_request import account_creation_request as acr_module
+from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
+    BulkOperationTracker,
+)
 
 
 class TestAccountCreationRequestCancel(VereningingenTestCase):
@@ -140,8 +146,6 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
         The cancel is issued from inside the real ``create_user_account`` wrapper,
         i.e. after the user exists and before roles are assigned.
         """
-        # execute_with_deadlock_retry logs the (re-raised) cancel as an "Operation Error"
-        self.expectErrorLog("Operation Error")
         request = self._make_request_for_cancel()
         real_create = AccountCreationManager.create_user_account
 
@@ -149,16 +153,26 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
             real_create(manager)
             frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="mid-flight")
 
+        # No expectErrorLog: a cancel is not an error and must not write an Error Log row.
+        errors_before = frappe.db.count("Error Log")
         with patch.object(AccountCreationManager, "create_user_account", create_then_cancel):
             api.process_account_creation_request(request.name)
         self._keep_member_user()
-        self.assertEqual(self._request_status(request.name), "Cancelled")
-        self.assertIsNone(frappe.db.get_value("Account Creation Request", request.name, "completed_at"))
-        # stopped at the Role Assignment check: the requested role was never granted
-        self.assertNotIn("Verenigingen Member", frappe.get_roles(self.member.email))
-        self.assertNotEqual(
-            frappe.db.get_value("Account Creation Request", request.name, "pipeline_stage"), "Completed"
+        row = frappe.db.get_value(
+            "Account Creation Request",
+            request.name,
+            ["status", "completed_at", "pipeline_stage", "created_user"],
+            as_dict=True,
         )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertIsNone(row.completed_at)
+        self.assertNotEqual(row.pipeline_stage, "Completed")
+        # the user that WAS created before the cancel is recorded on the request (F2)
+        self.assertEqual(row.created_user, self.member.email)
+        # stopped at the Role Assignment check: the role was never granted and nothing was linked
+        self.assertNotIn("Verenigingen Member", frappe.get_roles(self.member.email))
+        self.assertFalse(frappe.db.get_value("Member", self.member.name, "user"))
+        self.assertEqual(frappe.db.count("Error Log"), errors_before)
 
     # --- cancel_request itself -------------------------------------------------------
 
@@ -194,3 +208,164 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
         self.assertIn(
             "changed my mind", frappe.db.get_value("Account Creation Request", request.name, "failure_reason")
         )
+
+    # --- the dashboard's server paths (#1710 F1) -------------------------------------
+
+    def test_dashboard_cancel_keeps_the_original_error(self):
+        request = self._make_request_for_cancel()
+        request.mark_failed("SMTP exploded at stage 2", "Role Assignment")
+        acr_module.cancel_account_creation_request(request.name, "dashboard cancel")
+        row = frappe.db.get_value(
+            "Account Creation Request", request.name, ["status", "failure_reason"], as_dict=True
+        )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertIn("SMTP exploded at stage 2", row.failure_reason)
+
+    def test_dashboard_queue_enqueues_and_refuses_a_cancelled_request(self):
+        pending = self._make_request_for_cancel()
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue:
+            acr_module.queue_account_creation_request(pending.name)
+        enqueue.assert_called_once()
+        self.assertEqual(self._request_status(pending.name), "Queued")
+
+        cancelled = self._cancelled()
+        with patch("frappe.enqueue") as enqueue:
+            with self.assertRaises(frappe.ValidationError):
+                acr_module.queue_account_creation_request(cancelled.name)
+        enqueue.assert_not_called()
+        self.assertEqual(self._request_status(cancelled.name), "Cancelled")
+
+    def test_a_save_cannot_revive_a_cancelled_request(self):
+        """frappe.client.set_value (what the dashboard used to call) goes through save()."""
+        request = self._cancelled()
+        with self.assertRaises(frappe.ValidationError):
+            frappe.client.set_value("Account Creation Request", request.name, "status", "Queued")
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    # --- F3: two real connections -----------------------------------------------------
+
+    def _create_rows_visible_to_other_connections(self):
+        """Commit the fixtures so another connection (a worker thread) can see them.
+
+        Load-bearing: the rows are tracked, so EnhancedTestCase's drain deletes them again.
+        """
+        frappe.db.commit()
+
+    def _create_worker_thread(self, fn):
+        site = frappe.local.site
+        box = {}
+
+        def run():
+            try:
+                frappe.connect(site=site)
+                frappe.flags.in_test = True
+                box["result"] = fn()
+                frappe.db.commit()
+            except Exception as e:
+                box["error"] = e
+            finally:
+                frappe.destroy()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        return thread, box
+
+    def test_cancel_blocked_on_the_row_lock_survives_a_concurrent_commit(self):
+        """The job holds the row lock, the cancel blocks on it, the job commits (changing
+        ``modified``) and releases: the cancel must still land, not TimestampMismatchError."""
+        request = self._make_request_for_cancel()
+        name = request.name
+        self._create_rows_visible_to_other_connections()
+        locked, release = threading.Event(), threading.Event()
+
+        def job():
+            frappe.db.get_value("Account Creation Request", name, "status", for_update=True)
+            locked.set()
+            release.wait(30)
+            frappe.db.set_value(
+                "Account Creation Request", name, "pipeline_stage", "User Creation", update_modified=True
+            )
+
+        snapshot_taken = threading.Event()
+
+        def canceller():
+            doc = frappe.get_doc("Account Creation Request", name)  # REPEATABLE READ snapshot
+            snapshot_taken.set()
+            doc.cancel_request(reason="while the job runs")
+            return doc.status
+
+        job_thread, job_box = self._create_worker_thread(job)
+        self.assertTrue(locked.wait(15))
+        cancel_thread, cancel_box = self._create_worker_thread(canceller)
+        # The snapshot predates the job's commit whether or not the cancel has reached the
+        # lock yet, so the assertion below does not depend on timing; the pause only makes the
+        # blocked-on-FOR-UPDATE ordering the usual one.
+        self.assertTrue(snapshot_taken.wait(15))
+        time.sleep(1)
+        release.set()
+        job_thread.join(30)
+        cancel_thread.join(30)
+
+        self.assertNotIn("error", job_box)
+        self.assertNotIn("error", cancel_box, cancel_box.get("error"))
+        self.assertEqual(cancel_box["result"], "Cancelled")
+        frappe.db.rollback()  # leave the main connection's snapshot
+        self.assertEqual(self._request_status(name), "Cancelled")
+
+    # --- F4: the bulk batch counts a cancel separately --------------------------------
+
+    def _run_batch(self, request_name):
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=1, batch_size=25
+        )
+        self.track_doc("Bulk Operation Tracker", tracker.name)
+        self._create_rows_visible_to_other_connections()
+        result = api.process_bulk_account_creation_batch([request_name], "batch-cancel", 1, tracker.name)
+        self._keep_member_user()
+        tracker_row = frappe.db.get_value(
+            "Bulk Operation Tracker",
+            tracker.name,
+            ["successful_records", "failed_records", "processed_records"],
+            as_dict=True,
+        )
+        return result["data"], tracker_row
+
+    def test_batch_counts_a_request_cancelled_before_it_ran_as_cancelled(self):
+        request = self._cancelled()
+        self._create_rows_visible_to_other_connections()
+        data, tracker = self._run_batch(request.name)
+        self.assertEqual((data["completed"], data["failed"], data["cancelled"]), (0, 0, 1))
+        self.assertEqual((tracker.successful_records, tracker.failed_records), (0, 0))
+        self.assertEqual(tracker.processed_records, 1)
+        self.assertFalse(frappe.db.exists("User", self.member.email))
+
+    def test_batch_counts_a_request_cancelled_mid_batch_as_cancelled(self):
+        request = self._make_request_for_cancel()
+        self._create_rows_visible_to_other_connections()
+        real_create = AccountCreationManager.create_user_account
+
+        def create_then_cancel(manager):
+            real_create(manager)
+            frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="mid-batch")
+
+        with patch.object(AccountCreationManager, "create_user_account", create_then_cancel):
+            data, tracker = self._run_batch(request.name)
+        self.assertEqual((data["completed"], data["failed"], data["cancelled"]), (0, 0, 1))
+        self.assertEqual((tracker.successful_records, tracker.failed_records), (0, 0))
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    # --- F6: a failing lock read must not mask the original error ----------------------
+
+    def test_a_lock_timeout_in_the_guards_does_not_raise_over_the_original_error(self):
+        request = self._make_request_for_cancel()
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+        lock_timeout = frappe.QueryTimeoutError("Lock wait timeout exceeded")
+        # Mock justified: injecting a 1205 lock-wait timeout, which cannot be produced on demand
+        with patch.object(type(request), "_locked_status", side_effect=lock_timeout):
+            self.expectErrorLog("Account Creation Retry Skipped")
+            with patch("frappe.enqueue") as enqueue:
+                manager.request.mark_failed("original error", "User Creation")  # must not raise
+                manager.schedule_retry()  # must not raise, and fails closed: no retry
+        enqueue.assert_not_called()

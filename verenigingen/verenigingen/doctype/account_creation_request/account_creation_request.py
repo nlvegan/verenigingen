@@ -48,7 +48,10 @@ class AccountCreationCancelled(frappe.ValidationError):
 
     A ValidationError so callers that only know ValidationError still refuse; the
     pipeline catches it by name and must NOT mark the request Failed or retry it.
+    ``expected_stop`` tells retry helpers this is a normal stop, not an error to log.
     """
+
+    expected_stop = True
 
 
 class AccountCreationRequest(Document):
@@ -60,11 +63,22 @@ class AccountCreationRequest(Document):
 
     def validate(self):
         """Validate account creation request"""
+        self.validate_cancelled_stays_cancelled()
         self.sanitize_inputs()
         self.validate_permissions()
         self.validate_email_uniqueness()
         self.validate_source_record()
         self.set_defaults()
+
+    def validate_cancelled_stays_cancelled(self):
+        """A Cancelled request cannot be revived by a save (e.g. frappe.client.set_value) (#1709)."""
+        if self.is_new():
+            return
+        if (
+            frappe.db.get_value(self.doctype, self.name, "status") == "Cancelled"
+            and self.status != "Cancelled"
+        ):
+            frappe.throw(_("Request {0} was cancelled and cannot be reopened").format(self.name))
 
     def sanitize_inputs(self):
         """Sanitize inputs to prevent XSS and SQL injection"""
@@ -591,14 +605,15 @@ class AccountCreationRequest(Document):
 
     def mark_failed(self, error_message, stage=None):
         """Mark request as failed with error details"""
-        # Never overwrite a cancel (and its reason) with a late pipeline error (#1709).
-        if self._locked_status() == "Cancelled":
-            frappe.logger().info(f"Not marking cancelled request {self.name} as failed: {error_message}")
-            return
-
         # Use db_set to avoid validation and timestamp issues during failure marking
         # This is critical for error handling - we must succeed even if source record is gone
         try:
+            # Never overwrite a cancel (and its reason) with a late pipeline error (#1709).
+            # Inside the try so a lock timeout cannot mask the original error being handled.
+            if self._locked_status() == "Cancelled":
+                frappe.logger().info(f"Not marking cancelled request {self.name} as failed: {error_message}")
+                return
+
             updates = {
                 "status": "Failed",
                 "failure_reason": str(error_message)[:1000],  # Truncate to avoid DB field limits
@@ -649,25 +664,50 @@ class AccountCreationRequest(Document):
         The pipeline honours Cancelled (#1709). Note a job already past its last
         ``mark_processing`` check can still finish: see AccountCreationManager.
         """
-        # Decide on the DB status, not this possibly stale copy.
-        current_status = self._locked_status()
-        if current_status == "Completed":
+        # One locked (current, not snapshot) read of both fields: the decision and the
+        # error we must keep come from the DB, not from this possibly stale copy.
+        row = frappe.db.get_value(
+            self.doctype, self.name, ["status", "failure_reason"], for_update=True, as_dict=True
+        )
+        if row.status == "Completed":
             frappe.throw(_("Cannot cancel completed request"))
-        if current_status == "Cancelled":
+        if row.status == "Cancelled":
             frappe.throw(_("Request is already cancelled"))
 
-        self.reload()
-        original_failure = self.failure_reason
-        self.status = "Cancelled"
+        updates = {"status": "Cancelled"}
         # Keep the original error: it is the diagnostic (#1710). The cancel reason goes
         # to a comment then; with no error to protect it stays in failure_reason.
-        if reason and not original_failure:
-            self.failure_reason = f"Cancelled: {reason}"
-        self.save()
-        if reason and original_failure:
+        if reason and not row.failure_reason:
+            updates["failure_reason"] = f"Cancelled: {reason}"
+
+        # A plain write, not save(): after a blocked FOR UPDATE a reload() would read the
+        # REPEATABLE READ snapshot and save() would then fail TimestampMismatchError
+        # against the real row when the job committed meanwhile.
+        modified = now()
+        frappe.db.set_value(self.doctype, self.name, updates, modified=modified)
+        self.update(updates)
+        self.modified = modified
+        if reason and row.failure_reason:
             self.add_comment("Info", _("Cancelled: {0}").format(reason))
 
         frappe.logger().info(f"Account creation request cancelled: {self.name}")
+
+
+@frappe.whitelist()
+def cancel_account_creation_request(request_name: str, reason: str | None = None):
+    """Dashboard entry point: cancel through ``cancel_request`` so the original error is kept."""
+    request = frappe.get_doc("Account Creation Request", request_name)
+    request.check_permission("write")
+    request.cancel_request(reason=reason)
+    return {"success": True, "status": "Cancelled"}
+
+
+@frappe.whitelist()
+def queue_account_creation_request(request_name: str):
+    """Dashboard entry point: queue through ``queue_processing`` (status guarded, enqueued)."""
+    request = frappe.get_doc("Account Creation Request", request_name)
+    request.check_permission("write")
+    return request.queue_processing()
 
 
 @frappe.whitelist()

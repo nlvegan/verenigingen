@@ -24,9 +24,8 @@ frappe.ui.form.on('Account Creation Request', {
 			).addClass('btn-primary');
 		}
 
-		// Server cancel_request refuses only Completed, but it just sets status=Cancelled and
-		// the pipeline never checks it. Offer it only where no job can still act (Failed);
-		// Requested can have a retry/bulk-batch job pending (#1635).
+		// The pipeline honours Cancelled (#1709), but only Failed is offered here: Cancel on a
+		// running request is a product decision (#1635). The dashboard offers it on the others.
 		if (frm.doc.status === 'Failed') {
 			frm.add_custom_button(
 				__('Cancel Request'),

@@ -128,6 +128,9 @@ class AccountCreationManager:
             # Not a failure: leave the request Cancelled, create nothing further, no retry.
             self.cancelled = True
             frappe.logger().info(f"Account creation stopped, request cancelled: {self.request_name}")
+            # The cancel can land after the user/employee were already created (and committed):
+            # record them so the operator can see what exists.
+            self.request._record_created_records_on_cancelled(self.created_user, self.created_employee)
 
         except Exception as e:
             error_msg = str(e)
@@ -1228,7 +1231,16 @@ class AccountCreationManager:
     def schedule_retry(self):
         """Schedule retry for failed request"""
         # A cancelled request must not be reset to Requested and re-run (#1709).
-        if self.request._locked_status() == "Cancelled":
+        # Fail closed: if the status cannot be read (lock timeout), do not retry, and do not
+        # let this lookup replace the original error the caller is about to re-raise.
+        try:
+            if self.request._locked_status() == "Cancelled":
+                return
+        except Exception:
+            frappe.log_error(
+                title="Account Creation Retry Skipped",
+                message=f"Could not confirm {self.request_name} is not cancelled:\n{traceback.format_exc()}",
+            )
             return
         # Increment retry count
         current_retry_count = self.request.retry_count or 0

@@ -375,6 +375,7 @@ COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # 
 COMMIT_EXEMPT tests/integration/test_account_creation_service_orchestration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_team_background_jobs.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/member/test_account_creation_request_cancel.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/member/test_bulk_account_creation.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/member/test_member_merge.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/patches/test_clear_stale_membership_payment_history_links.py::2  # order-dep-exempt
