@@ -293,7 +293,26 @@ class RateLimitEngine:
             client_ip = self._get_client_ip()
             return f"{prefix}:{client_ip}"
         else:  # per_user (default)
-            return f"{prefix}:{frappe.session.user}"
+            return f"{prefix}:{self._per_user_bucket()}"
+
+    def _per_user_bucket(self) -> str:
+        """Identity a per_user counter is keyed on.
+
+        Every anonymous caller is the literal user "Guest", so keying on the session user
+        put ALL visitors (and the payment webhooks) in ONE bucket per endpoint: the 101st
+        junk request refused everyone, before any signature check ran (#1034). A Guest is
+        therefore keyed on the hardened client IP (get_client_ip, trusted-proxy aware; NOT
+        frappe.local.request_ip, whose leftmost X-Forwarded-For is spoofable). Authenticated
+        users keep their own per-user budget.
+
+        When no IP is determinable ("unknown", or no request at all) the Guests share one
+        labelled bucket. That is deliberate: it still limits (fails closed) rather than
+        leaving the endpoint unthrottled.
+        """
+        user = frappe.session.user
+        if user != "Guest":
+            return user
+        return f"Guest:{self._get_client_ip()}"
 
     def _get_client_ip(self) -> str:
         """
