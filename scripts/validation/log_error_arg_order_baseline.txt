@@ -235,7 +235,6 @@ verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipMa
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.transfer_member_between_chapters::2
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::1
 verenigingen/services/chapter/chapter_reference_manager.py::cleanup_member_chapter_references::1
-verenigingen/services/chapter/chapter_role_profile_manager.py::bulk_assign_chapter_board_role_profiles::1
 verenigingen/services/csv_import/membership_import_service.py::MembershipImportService.create_membership_from_csv::1
 verenigingen/services/document/document_portal_service.py::get_organization_documents_for_template::1
 verenigingen/services/donation/donor_service.py::DonationDonorService.get_or_create_from_public_form::2

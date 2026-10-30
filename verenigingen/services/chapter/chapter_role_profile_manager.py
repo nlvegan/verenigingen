@@ -222,18 +222,42 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
     )
 
     updated = 0
+    failed = []
+    skipped = []
     for row in board_members:
         user = row["user"] if isinstance(row, dict) else row.user
+        # auto_sync_on_role_change never raises: it RETURNS {"success": False, ...}, or None
+        # after swallowing an exception (#1718), so "no exception" is not "synced".
         try:
-            auto_sync_on_role_change(user)
-            updated += 1
+            sync = auto_sync_on_role_change(user)
         except Exception as e:
-            frappe.log_error(
-                f"Role profile sync failed for {user}: {e}",
-                "Bulk Board Role Profile Sync",
-            )
+            sync = {"success": False, "error": str(e)}
+        if sync is None:
+            sync = {"success": False, "error": "role profile sync raised (see the log)"}
+        if not sync.get("success"):
+            failed.append({"user": user, "error": sync.get("error") or "role profile sync failed"})
+        elif sync.get("skipped"):  # e.g. a disabled user: nothing was synced
+            skipped.append({"user": user, "reason": sync["skipped"]})
+        else:
+            updated += 1
 
-    return {"success": updated > 0 or len(board_members) == 0, "members_updated": updated}
+    _log_failed_board_syncs(chapter_name, failed)
+    return {
+        "success": updated > 0 or len(board_members) == 0,
+        "members_updated": updated,
+        "failed": failed,
+        "skipped": skipped,
+    }
+
+
+def _log_failed_board_syncs(chapter_name, failed):
+    if not failed:
+        return
+    frappe.log_error(
+        title="Bulk Board Role Profile Sync",
+        message=f"Role profile sync failed for {len(failed)} board member(s) of {chapter_name}: "
+        + "; ".join(f"{f['user']}: {f['error']}" for f in failed),
+    )
 
 
 @frappe.whitelist()
