@@ -41,6 +41,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.webhook.logging import (
@@ -159,36 +160,20 @@ def get_request_ip() -> Optional[str]:
     """
     Get the IP address of the current request.
 
-    Handles X-Forwarded-For header for reverse proxy setups.
-
-    SECURITY WARNING: X-Forwarded-For and X-Real-IP headers can be spoofed
-    by attackers. IP-based validation is defense-in-depth only. Always enable
-    signature verification (webhook secret) as the primary security mechanism.
-
-    For proper security in production:
-    1. Configure your reverse proxy to overwrite X-Forwarded-For
-    2. Enable webhook signature verification in Verenigingen Payments Settings
-    3. Use IP validation as secondary defense only
+    Resolved by the app's trusted-proxy aware ``get_client_ip``: X-Forwarded-For
+    is only consulted when the connecting address is a trusted proxy, and is
+    walked from the right. The previous implementation took the LEFTMOST
+    X-Forwarded-For entry (or X-Real-IP), both client-controlled, so a spoofed
+    Pay.nl address passed ``verify_webhook_ip`` and skipped the signature
+    requirement (issue #1764).
 
     Returns:
-        IP address string or None
+        IP address string or None when there is no request
     """
     if not hasattr(frappe, "request") or not frappe.request:
         return None
 
-    # Check X-Forwarded-For header (for reverse proxy)
-    forwarded_for = frappe.request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For can contain multiple IPs, take the first (client IP)
-        return forwarded_for.split(",")[0].strip()
-
-    # Check X-Real-IP header
-    real_ip = frappe.request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-
-    # Fall back to remote_addr
-    return frappe.request.remote_addr
+    return get_client_ip()
 
 
 def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
