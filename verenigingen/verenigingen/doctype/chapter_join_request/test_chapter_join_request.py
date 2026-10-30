@@ -596,16 +596,21 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
     # ----- #1703: a destroyed transaction in bulk approval ---------------------------------
 
-    def _deadlock_on_assign_for(self, member_name):
+    def _deadlock_on_assign_for(self, member_name, below_assign=False):
         """Context manager: assign_member_to_chapter for *member_name* destroys the open
         savepoint (as a real 1213 does server-side: the rollback itself cannot be performed in
-        a test without taking the fixtures) and raises QueryDeadlockError; others run for real."""
+        a test without taking the fixtures) and raises QueryDeadlockError; others run for real.
+        With below_assign the fault is injected in MemberManager.add_member, beneath the
+        `except Exception` in assign_member_to_chapter that turns it into a failure dict, as a
+        real deadlock in the roster write arrives."""
         from contextlib import contextmanager
         from unittest.mock import patch
 
         from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.verenigingen.doctype.chapter.managers.member_manager import MemberManager
 
         real_assign = ChapterMembershipManager.assign_member_to_chapter
+        real_add_member = MemberManager.add_member
         savepoints = []
         real_savepoint = frappe.local.db.savepoint
 
@@ -619,12 +624,24 @@ class TestChapterJoinRequest(EnhancedTestCase):
             frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
             raise frappe.QueryDeadlockError("1213")
 
+        def add_member(manager, member_id, *args, **kwargs):
+            if member_id != member_name:
+                return real_add_member(manager, member_id, *args, **kwargs)
+            frappe.db.sql(f"RELEASE SAVEPOINT {savepoints[-1]}")
+            raise frappe.QueryDeadlockError("1213")
+
+        target, replacement = (
+            (MemberManager, dict(attribute="add_member", new=add_member))
+            if below_assign
+            else (ChapterMembershipManager, dict(attribute="assign_member_to_chapter", side_effect=assign))
+        )
+
         @contextmanager
         def ctx():
             # Mock justified: fault injection of a DB deadlock no fixture can produce; the
             # assertions exercise bulk_approve_requests / approve_request, not the stub.
             with patch.object(frappe.local.db, "savepoint", recording_savepoint), patch.object(
-                ChapterMembershipManager, "assign_member_to_chapter", side_effect=assign
+                target, **replacement
             ):
                 yield
 
@@ -649,6 +666,52 @@ class TestChapterJoinRequest(EnhancedTestCase):
         self.assertIn(first.name, message.split("rolled back")[-1])
         self.assertIn(later.name, message.split("not processed")[-1])
         self.assertEqual(self._status_in_db(later), "Pending")
+
+    def test_bulk_approve_stops_at_a_deadlock_swallowed_below_assign_member(self):
+        """#1703 review F1: a real 1213 in the roster write is swallowed by
+        assign_member_to_chapter into a failure dict, so approve_request sees a plain
+        ValidationError. The vanished savepoint, not the exception type, must stop the loop."""
+        from verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request import (
+            bulk_approve_requests,
+        )
+
+        self.expectErrorLog("Error in assign_member_to_chapter")
+        first = self._submitted_request(self.test_member)
+        victim = self._submitted_request(self.test_member2)
+        later = self._submitted_request(self.create_test_member(status="Active"))
+
+        with self._deadlock_on_assign_for(self.test_member2.name, below_assign=True):
+            message = bulk_approve_requests([first.name, victim.name, later.name])
+
+        self.assertIn("Successfully approved 0 request(s)", message)
+        self.assertIn(first.name, message.split("rolled back")[-1])
+        self.assertIn(later.name, message.split("not processed")[-1])
+        self.assertEqual(self._status_in_db(later), "Pending")
+
+    def test_a_swallowed_deadlock_resets_the_in_memory_doc_and_clears_the_flag(self):
+        request = self._submitted_request(self.test_member)
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+        self.expectErrorLog("Error in assign_member_to_chapter")
+
+        with self._deadlock_on_assign_for(self.test_member.name, below_assign=True):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                doc.approve_request()
+
+        self.assertEqual(doc.status, "Pending")
+        self.assertFalse(doc.flags.review_in_progress)
+
+    def test_the_review_flag_does_not_outlive_approve_or_reject(self):
+        """#1704 review F3: a doc object reused after a review must not stay privileged."""
+        approved = frappe.get_doc("Chapter Join Request", self._submitted_request(self.test_member).name)
+        approved.approve_request()
+        self.assertFalse(approved.flags.review_in_progress)
+        approved.status = "Rejected"
+        with self.assertRaises(frappe.ValidationError):
+            approved.save()
+
+        rejected = frappe.get_doc("Chapter Join Request", self._submitted_request(self.test_member2).name)
+        rejected.reject_request(reason="no")
+        self.assertFalse(rejected.flags.review_in_progress)
 
     def test_bulk_approve_stops_at_a_lock_timeout_but_keeps_the_earlier_approvals(self):
         """#1703 control: a 1205 leaves the transaction and the earlier savepoints alive

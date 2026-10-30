@@ -201,24 +201,31 @@ class ChapterJoinRequest(Document):
         except Exception as e:
             self._undo_failed_approval(savepoint, e, before)
             frappe.throw(_("Failed to approve request: {0}").format(str(e)))
+        finally:
+            self.flags.review_in_progress = False
 
     def _undo_failed_approval(self, savepoint, error, before):
         """Roll the Approved save back to *savepoint* and restore the in-memory doc.
 
         Every failure is rolled back, including a 1205 lock timeout: it leaves the transaction
         and savepoint live, so skipping the rollback would let a swallowing wrapper commit the
-        Approved row (#1632). Only a 1213 deadlock has already destroyed the savepoint;
-        rollback_to_savepoint tolerates that (returns False) instead of masking the real error.
-        The server has then rolled the Approved save back too, so the in-memory doc is put back
-        from *before* rather than left claiming Approved (#1703).
+        Approved row (#1632). rollback_to_savepoint returns False when the savepoint is already
+        gone. That is the signal that the transaction was destroyed (a 1213 deadlock), and it is
+        independent of the exception's type: assign_member_to_chapter swallows a deadlock from
+        the roster write into a {"success": False} dict, so the error arriving here is an
+        ordinary ValidationError (#1703). The server has rolled the Approved save back too, so
+        the in-memory doc is put back from *before*, and a QueryDeadlockError is raised so
+        bulk approval can stop. (A nested commit also removes the savepoint; the work is then
+        committed rather than rolled back, which is why the caller must not retry blindly.)
         """
         from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
-        self.flags.review_in_progress = False
         if rollback_to_savepoint(savepoint):
             self.reload()
         else:
             self.update(before)
+            if not isinstance(error, frappe.QueryDeadlockError):
+                raise frappe.QueryDeadlockError(str(error)) from error
         if isinstance(error, NON_RESUMABLE_DB_ERRORS):
             raise error
 
@@ -275,6 +282,8 @@ class ChapterJoinRequest(Document):
         except Exception as e:
             frappe.log_error(f"Failed to reject join request: {str(e)}")
             frappe.throw(_("Failed to reject request: {0}").format(str(e)))
+        finally:
+            self.flags.review_in_progress = False
 
     def notify_chapter_board(self):
         """Send notification to chapter board members about new join request"""
