@@ -961,6 +961,137 @@ class TestCriticalOperationRulesExist(EnhancedTestCase):
                 print(f"  ... and {len(missing_rules) - 20} more")
 
 
+class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
+    """#1034: every ``allow_guest=True`` endpoint that is rate limited by the security
+    engine must give two different anonymous callers two different counters.
+
+    Behavioural, not "a rule row exists": a per_user rule used to key every Guest on the
+    literal "Guest", so one visitor's junk traffic (or a flood at a payment webhook URL)
+    refused everybody. Endpoints are found by AST (including ``scripts/``), not text grep,
+    and each one's rule is resolved the way the engine resolves it.
+    """
+
+    # Framework decorators that run the rate-limit engine.
+    ENGINE_DECORATORS = {
+        "api_security_framework", "critical_api", "high_security_api", "standard_api",
+        "self_service_api", "utility_api", "public_api", "development_only_api", "webhook_api",
+    }
+    # Guest endpoints deliberately on ONE shared (global) counter, e.g. high-volume provider
+    # webhooks with a generous ceiling. A new guest endpoint on a global rule must be added
+    # here on purpose.
+    DELIBERATELY_GLOBAL = {
+        "handle_payment_webhook",
+        "handle_refund_webhook",
+        "handle_mollie_payment_webhook",
+        "mollie_subscription_webhook",
+    }
+
+    @staticmethod
+    def _decorator_name(node):
+        target = node.func if isinstance(node, ast.Call) else node
+        return target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", None)
+
+    @classmethod
+    def _is_guest_whitelist(cls, node):
+        return (
+            isinstance(node, ast.Call)
+            and cls._decorator_name(node) == "whitelist"
+            and any(
+                kw.arg == "allow_guest" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+                for kw in node.keywords
+            )
+        )
+
+    @classmethod
+    def find_engine_limited_guest_endpoints(cls, roots):
+        """[(relative path, function name)] for allow_guest functions behind an engine decorator."""
+        found = []
+        for root in roots:
+            for path in sorted(Path(root).rglob("*.py")):
+                parts = set(path.parts)
+                if "tests" in parts or path.name.startswith("test_") or "node_modules" in parts:
+                    continue
+                try:
+                    tree = ast.parse(path.read_text())
+                except (SyntaxError, UnicodeDecodeError):
+                    continue
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    if not any(cls._is_guest_whitelist(d) for d in node.decorator_list):
+                        continue
+                    if any(cls._decorator_name(d) in cls.ENGINE_DECORATORS for d in node.decorator_list):
+                        found.append((str(path), node.name))
+        return found
+
+    def _endpoints(self):
+        app_path = Path(frappe.get_app_path("verenigingen"))
+        return self.find_engine_limited_guest_endpoints([app_path, app_path.parent / "scripts"])
+
+    def _keys_for_two_guests(self, operation):
+        from werkzeug.test import EnvironBuilder
+
+        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+        engine = get_rate_limit_engine()
+        scope = engine._get_cor_config(operation)["rate_limit_scope"] or "per_user"
+        keys = []
+        previous = (getattr(frappe.local, "request", None), frappe.session.user)
+        try:
+            frappe.set_user("Guest")
+            for ip in ("198.51.100.1", "198.51.100.2"):
+                frappe.local.request = EnvironBuilder(environ_base={"REMOTE_ADDR": ip}).get_request()
+                keys.append(engine._build_cache_key(operation, scope, "interactive"))
+        finally:
+            frappe.local.request = previous[0]
+            frappe.set_user(previous[1])
+        return scope, keys
+
+    def test_the_scan_finds_the_guest_endpoints_and_the_known_webhooks(self):
+        """Control: an empty or truncated scan would make the invariant below vacuous."""
+        names = {name for _path, name in self._endpoints()}
+        self.assertGreater(len(names), 50)
+        for webhook in ("mollie_payment_webhook", "handle_ponto_webhook", "handle_payment"):
+            self.assertIn(webhook, names)
+
+    def test_two_anonymous_callers_never_share_a_rate_limit_counter(self):
+        shared = []
+        scopes = set()
+        for path, operation in self._endpoints():
+            scope, (key_1, key_2) = self._keys_for_two_guests(operation)
+            scopes.add(scope)
+            if key_1 == key_2 and not (scope == "global" and operation in self.DELIBERATELY_GLOBAL):
+                shared.append(f"{operation} ({scope}) {key_1}  [{path}]")
+        self.assertEqual(
+            shared,
+            [],
+            f"{len(shared)} guest endpoint(s) put every anonymous caller in ONE rate-limit bucket "
+            "(#1034). Give them a per_ip rule, or list a global one in DELIBERATELY_GLOBAL.",
+        )
+        # Control: both per-caller scopes were actually exercised, so this is not all-global.
+        self.assertIn("per_ip", scopes)
+        self.assertIn("per_user", scopes)
+
+    def test_the_detector_would_flag_a_shared_guest_bucket(self):
+        """Control: the same comparison, fed a global-scope operation, reports 'shared'."""
+        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+        engine = get_rate_limit_engine()
+        from werkzeug.test import EnvironBuilder
+
+        keys = []
+        previous = (getattr(frappe.local, "request", None), frappe.session.user)
+        try:
+            frappe.set_user("Guest")
+            for ip in ("198.51.100.1", "198.51.100.2"):
+                frappe.local.request = EnvironBuilder(environ_base={"REMOTE_ADDR": ip}).get_request()
+                keys.append(engine._build_cache_key("any_op", "global", "interactive"))
+        finally:
+            frappe.local.request = previous[0]
+            frappe.set_user(previous[1])
+        self.assertEqual(keys[0], keys[1])
+
+
 class TestMembershipApplicationFormAccess(EnhancedTestCase):
     """
     End-to-end test for membership application form access.

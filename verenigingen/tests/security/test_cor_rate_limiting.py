@@ -4,6 +4,7 @@ COR (Critical Operation Rule) Rate Limiting Integration Tests
 These tests verify that COR-based rate limiting actually enforces limits.
 """
 
+import contextlib
 import sys
 from contextlib import contextmanager
 from unittest.mock import MagicMock
@@ -12,7 +13,7 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
-from verenigingen.utils.security.rate_limit_engine import ExecutionContext
+from verenigingen.utils.security.rate_limit_engine import ExecutionContext, get_rate_limit_engine
 
 
 def _get_fresh_framework():
@@ -534,6 +535,158 @@ def _guest_request_from_ip(ip: str):
                 delattr(frappe.local, "request")
         else:
             frappe.local.request = original_request  # Mock justified: Infrastructure - restore
+
+
+@contextlib.contextmanager
+def _wsgi_request(remote_addr: str, forwarded_for: str = None, user: str = "Guest"):
+    """A real werkzeug request (not a stub) from ``remote_addr``, as ``user``.
+
+    Real environ so the engine's get_client_ip() runs unmodified. ``frappe.local.request_ip``
+    is set the way frappe.auth does (leftmost X-Forwarded-For, else the peer), so a fix that
+    wrongly reads it sees the spoofable value.
+    """
+    from werkzeug.test import EnvironBuilder
+
+    headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else {}
+    request = EnvironBuilder(environ_base={"REMOTE_ADDR": remote_addr}, headers=headers).get_request()
+    original = (
+        getattr(frappe.local, "request", None),
+        getattr(frappe.local, "request_ip", None),
+        frappe.session.user,
+    )
+    try:
+        frappe.local.request = request  # Mock justified: Infrastructure - execution context
+        frappe.local.request_ip = (forwarded_for or remote_addr).split(",")[0].strip()
+        frappe.set_user(user)
+        yield
+    finally:
+        frappe.local.request, frappe.local.request_ip = original[0], original[1]
+        frappe.set_user(original[2])
+
+
+class TestGuestPerUserScopeKeysOnClientIp(EnhancedTestCase):
+    """#1034: a per_user rule keyed every anonymous caller on the literal "Guest", so all
+    visitors (and the payment webhooks) shared ONE bucket per endpoint and call 101 from
+    anyone was refused before any signature check ran. A Guest is now keyed on the hardened
+    client IP; authenticated users stay per-user."""
+
+    OP = "zz_unruled_guest_probe_1034"  # no rule of its own -> _generic_api_fallback, per_user
+
+    def setUp(self):
+        super().setUp()
+        self.engine = get_rate_limit_engine()
+        self._clear()
+
+    def tearDown(self):
+        self._clear()
+        super().tearDown()
+
+    def _clear(self):
+        # Raw redis keys: frappe.cache.delete_keys (site-prefixing) would not match them.
+        for key in frappe.cache.keys(f"cor_rate_limit:{frappe.local.site}:*{self.OP}*"):
+            frappe.cache.delete(key)
+
+    def _key(self, scope="per_user"):
+        return self.engine._build_cache_key(self.OP, scope, "interactive")
+
+    def _check(self):
+        return self.engine.check_rate_limit(self.OP, force_check=True)
+
+    def test_the_probe_operation_really_is_on_the_per_user_fallback(self):
+        """Control for every test below: they only mean something if this holds."""
+        cfg = self.engine._get_cor_config(self.OP)
+        self.assertEqual(cfg["rate_limit_scope"], "per_user")
+        self.assertEqual(cfg["rate_limit_calls"], 100)
+
+    def test_guests_from_different_ips_get_different_keys(self):
+        with _wsgi_request("198.51.100.1"):
+            first = self._key()
+        with _wsgi_request("198.51.100.2"):
+            second = self._key()
+        self.assertNotEqual(first, second)
+        self.assertIn("198.51.100.1", first)
+        self.assertIn("198.51.100.2", second)
+
+    def test_one_guest_ip_exhausting_its_budget_does_not_refuse_another(self):
+        limit = self.engine._get_cor_config(self.OP)["rate_limit_calls"]
+        with _wsgi_request("198.51.100.1"):
+            for _ in range(limit):
+                self.assertTrue(self._check().allowed)
+            refused = self._check()
+            self.assertFalse(refused.allowed)  # the limiter is live for this IP
+            self.assertEqual(refused.current_count, limit + 1)
+        with _wsgi_request("198.51.100.2"):
+            fresh = self._check()
+        self.assertTrue(fresh.allowed, fresh.reason)
+        self.assertEqual(fresh.current_count, 1)
+
+    def test_the_same_guest_ip_still_shares_one_bucket(self):
+        with _wsgi_request("198.51.100.1"):
+            self.assertEqual(self._check().current_count, 1)
+            self.assertEqual(self._check().current_count, 2)
+
+    def test_a_spoofed_forwarded_for_does_not_mint_a_new_bucket(self):
+        """No trusted proxy is configured, so XFF is attacker data. frappe.local.request_ip
+        (leftmost XFF) is the spoofable value that must NOT be used."""
+        with _wsgi_request("198.51.100.1", forwarded_for="203.0.113.7"):
+            first = self._key()
+        with _wsgi_request("198.51.100.1", forwarded_for="203.0.113.8"):
+            second = self._key()
+        self.assertEqual(first, second)
+        self.assertIn("198.51.100.1", first)
+
+    def test_behind_the_bench_proxy_guests_are_keyed_on_the_forwarded_client(self):
+        """Production shape here: gunicorn sees nginx (127.0.0.1) and nginx overwrites
+        X-Forwarded-For with the real peer. Loopback is a trusted proxy by default."""
+        with _wsgi_request("127.0.0.1", forwarded_for="203.0.113.7"):
+            first = self._key()
+        with _wsgi_request("127.0.0.1", forwarded_for="203.0.113.8"):
+            second = self._key()
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.endswith(":Guest:203.0.113.7"), first)
+
+    def test_authenticated_users_stay_keyed_per_user_not_per_ip(self):
+        with _wsgi_request("198.51.100.1", user="Administrator"):
+            at_ip_1 = self._key()
+        with _wsgi_request("198.51.100.2", user="Administrator"):
+            at_ip_2 = self._key()
+        self.assertEqual(at_ip_1, at_ip_2, "a logged-in user keeps one budget wherever they connect from")
+        self.assertTrue(at_ip_1.endswith(":Administrator"))
+        with _wsgi_request("198.51.100.1", user="Administrator"):
+            admin = self._key()
+        with _wsgi_request("198.51.100.1", user="Guest"):
+            guest = self._key()
+        self.assertNotEqual(admin, guest, "two callers on one IP, one logged in, must not share a bucket")
+
+    def test_per_ip_and_global_scopes_are_unchanged_for_a_guest(self):
+        with _wsgi_request("198.51.100.1"):
+            per_ip_1, global_1 = self._key("per_ip"), self._key("global")
+        with _wsgi_request("198.51.100.2"):
+            per_ip_2, global_2 = self._key("per_ip"), self._key("global")
+        self.assertNotEqual(per_ip_1, per_ip_2)
+        self.assertEqual(global_1, global_2)
+        self.assertTrue(per_ip_1.endswith(":198.51.100.1"))
+
+    def test_a_guest_with_no_determinable_ip_shares_one_labelled_bucket(self):
+        """Conscious choice: when get_client_ip() has nothing ("unknown" / no request) the Guest
+        falls back to ONE shared bucket, still limited (fail closed), not unlimited. The key says
+        so, so it is greppable and cannot collide with a real IP."""
+        with _wsgi_request(""):  # a peer address of "" is what get_client_ip calls unknown
+            blank = self._key()
+        with _wsgi_request("198.51.100.1"):
+            frappe.local.request = None  # Mock justified: Infrastructure - no HTTP request at all
+            no_request = self._key()
+        self.assertTrue(blank.endswith(":Guest:unknown"), blank)
+        self.assertTrue(no_request.endswith(":Guest:test_environment"), no_request)
+
+    def test_headers_read_the_same_key_the_check_writes(self):
+        limit = self.engine._get_cor_config(self.OP)["rate_limit_calls"]
+        with _wsgi_request("198.51.100.1"):
+            for _ in range(3):
+                self._check()
+            self.assertEqual(self.engine.get_rate_limit_headers(self.OP)["X-RateLimit-Remaining"], str(limit - 3))
+        with _wsgi_request("198.51.100.2"):
+            self.assertEqual(self.engine.get_rate_limit_headers(self.OP)["X-RateLimit-Remaining"], str(limit))
 
 
 class TestRetryPaymentRateLimitScope(EnhancedTestCase):
