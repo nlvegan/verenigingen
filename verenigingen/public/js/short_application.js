@@ -11,11 +11,19 @@
 				method,
 				type: 'POST',
 				args,
-				callback: (r) =>
-					resolve(r.message || { success: false, message: __('Something went wrong. Please try again.') }),
-				error: () => resolve({ success: false, message: __('Something went wrong. Please try again.') })
+				// website.js answers callback/error only on 200/417; `always` runs on every outcome,
+				// so a 429, 403 or 5xx also ends the wait instead of leaving the button disabled.
+				always: (data) => resolve(responseOf(data))
 			});
 		});
+	}
+
+	function responseOf(data) {
+		const message = data && data.message;
+		if (message && typeof message === 'object' && 'success' in message) {
+			return message;
+		}
+		return { success: false, message: __('Er ging iets mis. Probeer het later opnieuw.') };
 	}
 
 	function init() {
