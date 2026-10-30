@@ -815,6 +815,20 @@ def process_bulk_account_creation_batch(
                     }
 
                 if request.status == "Requested":
+                    # A cancel can land between the load above and the save below; save() would
+                    # then fail on the timestamp and count the request as failed (#1709).
+                    if (
+                        frappe.db.get_value(
+                            "Account Creation Request", request_name, "status", for_update=True
+                        )
+                        == "Cancelled"
+                    ):
+                        return {
+                            "success": True,
+                            "request_name": request_name,
+                            "skipped": True,
+                            "reason": "cancelled",
+                        }
                     request.status = "Queued"
                     request.processing_started_at = now()
                     request.save()

@@ -461,6 +461,12 @@ class AccountCreationRequest(Document):
         # Check queue depth and throttle if necessary (prevent queue overload)
         self._wait_for_queue_capacity()
 
+        # The wait above can sleep for a minute: a cancel may have landed in it. Re-read
+        # under the row lock right before the write so it cannot be overwritten (#1709).
+        current_status = self._locked_status()
+        if current_status not in ["Requested", "Failed"]:
+            frappe.throw(_("Request cannot be processed in status: {0}").format(current_status))
+
         # Update status using direct DB operation to avoid timestamp conflicts
         updates = {
             "status": "Queued",
@@ -495,7 +501,8 @@ class AccountCreationRequest(Document):
     def retry_processing(self):
         """Retry a failed account creation request"""
         # Get fresh data from database to avoid timestamp conflicts
-        current_status = frappe.db.get_value(self.doctype, self.name, "status")
+        # (locked, so a cancel cannot land between this check and the write below)
+        current_status = self._locked_status()
         if current_status != "Failed":
             frappe.throw(_("Only failed requests can be retried"))
 
@@ -650,10 +657,14 @@ class AccountCreationRequest(Document):
         return frappe.db.get_value(self.doctype, self.name, "status", for_update=True)
 
     def _record_created_records_on_cancelled(self, user, employee):
-        updates = {"created_user": user, "created_employee": employee}
-        for field, value in updates.items():
-            if value:
-                frappe.db.set_value(self.doctype, self.name, field, value, update_modified=True)
+        updates = {
+            field: value
+            for field, value in {"created_user": user, "created_employee": employee}.items()
+            if value
+        }
+        if not updates:
+            return
+        frappe.db.set_value(self.doctype, self.name, updates, update_modified=True)
         frappe.db.commit()
 
     @frappe.whitelist()

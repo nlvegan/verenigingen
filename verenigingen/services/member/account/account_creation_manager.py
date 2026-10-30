@@ -426,8 +426,6 @@ class AccountCreationManager:
                     f"ACR: {self.request_name} | All records linked successfully | Links: {links_succeeded}"
                 )
 
-        except AccountCreationCancelled:
-            raise
         except Exception as e:
             frappe.logger().error(
                 f"[ACR PIPELINE] ========== PHASE 2 FAILED ========== | "

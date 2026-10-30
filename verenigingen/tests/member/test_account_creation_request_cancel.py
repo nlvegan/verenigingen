@@ -31,9 +31,8 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
             status="Active",
         )
 
-    def _make_request_for_cancel(self):
-        request = frappe.get_doc(
-            {
+    def _make_request_for_cancel(self, **overrides):
+        data = {
                 "doctype": "Account Creation Request",
                 "request_type": "Member",
                 "source_record": self.member.name,
@@ -43,11 +42,17 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
                 "role_profile": "Verenigingen Member",
                 "business_justification": "test",
                 "requested_roles": [{"role": "Verenigingen Member"}],
-            }
-        )
+        }
+        data.update(overrides)
+        request = frappe.get_doc(data)
         request.insert()
         self.track_doc("Account Creation Request", request.name)
         return request
+
+    def _assert_no_retry_enqueued(self, enqueue):
+        """Frappe itself enqueues unrelated jobs (user emails); only a pipeline retry matters."""
+        retries = [c for c in enqueue.call_args_list if "process_account_creation_request" in str(c)]
+        self.assertEqual(retries, [])
 
     def _request_status(self, name):
         return frappe.db.get_value("Account Creation Request", name, "status")
@@ -364,8 +369,124 @@ class TestAccountCreationRequestCancel(VereningingenTestCase):
         lock_timeout = frappe.QueryTimeoutError("Lock wait timeout exceeded")
         # Mock justified: injecting a 1205 lock-wait timeout, which cannot be produced on demand
         with patch.object(type(request), "_locked_status", side_effect=lock_timeout):
-            self.expectErrorLog("Account Creation Retry Skipped")
+            self.expectErrorLog("Account Creation Retry Skipped", "Critical ACR Failure Marking Error")
             with patch("frappe.enqueue") as enqueue:
                 manager.request.mark_failed("original error", "User Creation")  # must not raise
                 manager.schedule_retry()  # must not raise, and fails closed: no retry
         enqueue.assert_not_called()
+
+    # --- N1: a cancel landing while queue_processing waits for queue capacity ---------
+
+    def _cancel_during_queue_wait(self, request_name):
+        def cancel_while_waiting(_request):
+            frappe.get_doc("Account Creation Request", request_name).cancel_request(reason="during the wait")
+
+        return patch.object(
+            type(frappe.get_doc("Account Creation Request", request_name)),
+            "_wait_for_queue_capacity",
+            cancel_while_waiting,
+        )
+
+    def test_a_cancel_during_the_queue_capacity_wait_is_not_overwritten(self):
+        request = self._make_request_for_cancel()
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue, self._cancel_during_queue_wait(request.name):
+            with self.assertRaises(frappe.ValidationError):
+                acr_module.queue_account_creation_request(request.name)
+        enqueue.assert_not_called()
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    def test_a_cancel_during_the_wait_of_a_retry_is_not_overwritten(self):
+        """retry_processing resets to Requested, then queue_processing waits and writes."""
+        request = self._make_request_for_cancel()
+        request.mark_failed("first failure", "User Creation")
+        retry = frappe.get_doc("Account Creation Request", request.name)
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue, self._cancel_during_queue_wait(request.name):
+            with self.assertRaises(frappe.ValidationError):
+                retry.retry_processing()
+        enqueue.assert_not_called()
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+
+    # --- F4 / N1: the batch loses the race at the Requested -> Queued save -----------
+
+    def test_batch_counts_a_cancel_between_load_and_queue_as_cancelled(self):
+        request = self._make_request_for_cancel()
+        self._create_rows_visible_to_other_connections()
+        real_load = type(request).load_from_db
+        fired = []
+
+        def load_then_cancel(doc):
+            real_load(doc)
+            if threading.current_thread() is not threading.main_thread() and doc.name == request.name:
+                if not fired:
+                    fired.append(1)
+                    # same connection as the worker: the cancel lands after the load
+                    frappe.db.set_value("Account Creation Request", request.name, "status", "Cancelled")
+
+        # Mock justified: executes the cancel inside the worker's load-to-save window
+        with patch.object(type(request), "load_from_db", load_then_cancel):
+            data, tracker = self._run_batch(request.name)
+        self.assertTrue(fired, "the cancel was never injected")
+        self.assertEqual((data["completed"], data["failed"], data["cancelled"]), (0, 0, 1))
+        self.assertEqual(tracker.processed_records, 1)
+
+    # --- N2: cancels at the pipeline steps the earlier tests did not reach ------------
+
+    def test_cancel_inside_the_employee_step_stops_before_linking(self):
+        """Cancel lands after Role Assignment, so the Employee Creation check refuses it. The
+        swallow-and-continue handler must not eat that, or the link phase writes Member.user."""
+        request = self._make_request_for_cancel(create_employee_record=1)
+        real_assign = AccountCreationManager.assign_roles_and_profile
+
+        def assign_then_cancel(manager):
+            real_assign(manager)
+            frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="employee step")
+
+        errors_before = frappe.db.count("Error Log")
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue:
+            with patch.object(AccountCreationManager, "assign_roles_and_profile", assign_then_cancel):
+                result = api.process_account_creation_request(request.name)
+        self._keep_member_user()
+        self.assertTrue(result["data"].get("cancelled"), result)
+        self.assertEqual(self._request_status(request.name), "Cancelled")
+        self.assertFalse(frappe.db.get_value("Member", self.member.name, "user"))
+        self.assertIsNone(frappe.db.get_value("Account Creation Request", request.name, "created_employee"))
+        self.assertEqual(frappe.db.count("Error Log"), errors_before)
+        self._assert_no_retry_enqueued(enqueue)
+
+    def test_cancel_just_before_mark_completed_is_reported_as_cancelled(self):
+        request = self._make_request_for_cancel()
+        real_complete = type(request).mark_completed
+
+        def cancel_then_complete(doc, *args, **kwargs):
+            frappe.get_doc("Account Creation Request", request.name).cancel_request(reason="at the end")
+            return real_complete(doc, *args, **kwargs)
+
+        errors_before = frappe.db.count("Error Log")
+        # Mock justified: queue boundary, CI has no RQ workers
+        with patch("frappe.enqueue") as enqueue:
+            with patch.object(type(request), "mark_completed", cancel_then_complete):
+                result = api.process_account_creation_request(request.name)
+        self._keep_member_user()
+        # reported as cancelled, not as "completed successfully", and not retried or logged
+        self.assertTrue(result["data"].get("cancelled"), result)
+        row = frappe.db.get_value(
+            "Account Creation Request", request.name, ["status", "completed_at", "created_user"], as_dict=True
+        )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertIsNone(row.completed_at)
+        self.assertEqual(row.created_user, self.member.email)
+        self.assertEqual(frappe.db.count("Error Log"), errors_before)
+        self._assert_no_retry_enqueued(enqueue)
+
+    def test_recording_nothing_on_a_cancelled_request_does_not_commit(self):
+        request = self._cancelled()
+        # Mock justified: observing that no commit is issued
+        with patch("frappe.db.commit") as commit:
+            request._record_created_records_on_cancelled(None, None)
+        commit.assert_not_called()
+        with patch("frappe.db.commit") as commit:
+            request._record_created_records_on_cancelled("Administrator", None)
+        commit.assert_called_once()
