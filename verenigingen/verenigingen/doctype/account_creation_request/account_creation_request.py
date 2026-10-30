@@ -43,6 +43,17 @@ def safe_log_error(message, title=None):
     frappe.log_error(title=safe_title, message=safe_message)
 
 
+class AccountCreationCancelled(frappe.ValidationError):
+    """Raised by the pipeline when the request was cancelled: stop, create nothing more.
+
+    A ValidationError so callers that only know ValidationError still refuse; the
+    pipeline catches it by name and must NOT mark the request Failed or retry it.
+    ``expected_stop`` tells retry helpers this is a normal stop, not an error to log.
+    """
+
+    expected_stop = True
+
+
 class AccountCreationRequest(Document):
     """Account Creation Request DocType Controller"""
 
@@ -52,11 +63,22 @@ class AccountCreationRequest(Document):
 
     def validate(self):
         """Validate account creation request"""
+        self.validate_cancelled_stays_cancelled()
         self.sanitize_inputs()
         self.validate_permissions()
         self.validate_email_uniqueness()
         self.validate_source_record()
         self.set_defaults()
+
+    def validate_cancelled_stays_cancelled(self):
+        """A Cancelled request cannot be revived by a save (e.g. frappe.client.set_value) (#1709)."""
+        if self.is_new():
+            return
+        if (
+            frappe.db.get_value(self.doctype, self.name, "status") == "Cancelled"
+            and self.status != "Cancelled"
+        ):
+            frappe.throw(_("Request {0} was cancelled and cannot be reopened").format(self.name))
 
     def sanitize_inputs(self):
         """Sanitize inputs to prevent XSS and SQL injection"""
@@ -439,6 +461,12 @@ class AccountCreationRequest(Document):
         # Check queue depth and throttle if necessary (prevent queue overload)
         self._wait_for_queue_capacity()
 
+        # The wait above can sleep for a minute: a cancel may have landed in it. Re-read
+        # under the row lock right before the write so it cannot be overwritten (#1709).
+        current_status = self._locked_status()
+        if current_status not in ["Requested", "Failed"]:
+            frappe.throw(_("Request cannot be processed in status: {0}").format(current_status))
+
         # Update status using direct DB operation to avoid timestamp conflicts
         updates = {
             "status": "Queued",
@@ -473,7 +501,8 @@ class AccountCreationRequest(Document):
     def retry_processing(self):
         """Retry a failed account creation request"""
         # Get fresh data from database to avoid timestamp conflicts
-        current_status = frappe.db.get_value(self.doctype, self.name, "status")
+        # (locked, so a cancel cannot land between this check and the write below)
+        current_status = self._locked_status()
         if current_status != "Failed":
             frappe.throw(_("Only failed requests can be retried"))
 
@@ -508,6 +537,12 @@ class AccountCreationRequest(Document):
 
     def mark_processing(self, stage=None):
         """Mark request as processing and update stage"""
+        # A cancelled request must never be flipped back to Processing (#1709). The row
+        # lock taken here is held until the pipeline's next commit, so a cancel cannot
+        # slip in between this check and the write below.
+        if self._locked_status() == "Cancelled":
+            raise AccountCreationCancelled(_("Account creation request {0} was cancelled").format(self.name))
+
         # Use db_set to avoid validation and timestamp issues
         try:
             updates = {
@@ -535,7 +570,15 @@ class AccountCreationRequest(Document):
             frappe.throw(_("Failed to mark request as processing: {0}").format(str(e)))
 
     def mark_completed(self, user=None, employee=None):
-        """Mark request as completed successfully"""
+        """Mark request as completed successfully.
+
+        Returns True if the request is now Completed, False if it was cancelled in the
+        meantime: the status then stays Cancelled (#1709) and only the user/employee that
+        WERE created are recorded, so the operator can see what the cancel came too late for.
+        """
+        if self._locked_status() == "Cancelled":
+            self._record_created_records_on_cancelled(user, employee)
+            return False
         # Use db_set to avoid validation and timestamp issues during completion
         # This is safe because we're only updating status fields, not business logic
         try:
@@ -561,6 +604,7 @@ class AccountCreationRequest(Document):
             self.reload()
 
             frappe.logger().info(f"Account creation request completed: {self.name}")
+            return True
 
         except Exception as e:
             frappe.logger().error(f"Failed to mark request as completed: {str(e)}")
@@ -571,6 +615,12 @@ class AccountCreationRequest(Document):
         # Use db_set to avoid validation and timestamp issues during failure marking
         # This is critical for error handling - we must succeed even if source record is gone
         try:
+            # Never overwrite a cancel (and its reason) with a late pipeline error (#1709).
+            # Inside the try so a lock timeout cannot mask the original error being handled.
+            if self._locked_status() == "Cancelled":
+                frappe.logger().info(f"Not marking cancelled request {self.name} as failed: {error_message}")
+                return
+
             updates = {
                 "status": "Failed",
                 "failure_reason": str(error_message)[:1000],  # Truncate to avoid DB field limits
@@ -602,19 +652,73 @@ class AccountCreationRequest(Document):
                 "Critical ACR Failure Marking Error",
             )
 
+    def _locked_status(self):
+        """Current status read from the DB under a row lock, never from this in-memory copy."""
+        return frappe.db.get_value(self.doctype, self.name, "status", for_update=True)
+
+    def _record_created_records_on_cancelled(self, user, employee):
+        updates = {
+            field: value
+            for field, value in {"created_user": user, "created_employee": employee}.items()
+            if value
+        }
+        if not updates:
+            return
+        frappe.db.set_value(self.doctype, self.name, updates, update_modified=True)
+        frappe.db.commit()
+
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def cancel_request(self, reason=None):
-        """Cancel an account creation request"""
-        if self.status in ["Completed"]:
-            frappe.throw(_("Cannot cancel completed request"))
+        """Cancel an account creation request.
 
-        self.status = "Cancelled"
-        if reason:
-            self.failure_reason = f"Cancelled: {reason}"
-        self.save()
+        The pipeline honours Cancelled (#1709). Note a job already past its last
+        ``mark_processing`` check can still finish: see AccountCreationManager.
+        """
+        # One locked (current, not snapshot) read of both fields: the decision and the
+        # error we must keep come from the DB, not from this possibly stale copy.
+        row = frappe.db.get_value(
+            self.doctype, self.name, ["status", "failure_reason"], for_update=True, as_dict=True
+        )
+        if row.status == "Completed":
+            frappe.throw(_("Cannot cancel completed request"))
+        if row.status == "Cancelled":
+            frappe.throw(_("Request is already cancelled"))
+
+        updates = {"status": "Cancelled"}
+        # Keep the original error: it is the diagnostic (#1710). The cancel reason goes
+        # to a comment then; with no error to protect it stays in failure_reason.
+        if reason and not row.failure_reason:
+            updates["failure_reason"] = f"Cancelled: {reason}"
+
+        # A plain write, not save(): after a blocked FOR UPDATE a reload() would read the
+        # REPEATABLE READ snapshot and save() would then fail TimestampMismatchError
+        # against the real row when the job committed meanwhile.
+        modified = now()
+        frappe.db.set_value(self.doctype, self.name, updates, modified=modified)
+        self.update(updates)
+        self.modified = modified
+        if reason and row.failure_reason:
+            self.add_comment("Info", _("Cancelled: {0}").format(reason))
 
         frappe.logger().info(f"Account creation request cancelled: {self.name}")
+
+
+@frappe.whitelist()
+def cancel_account_creation_request(request_name: str, reason: str | None = None):
+    """Dashboard entry point: cancel through ``cancel_request`` so the original error is kept."""
+    request = frappe.get_doc("Account Creation Request", request_name)
+    request.check_permission("write")
+    request.cancel_request(reason=reason)
+    return {"success": True, "status": "Cancelled"}
+
+
+@frappe.whitelist()
+def queue_account_creation_request(request_name: str):
+    """Dashboard entry point: queue through ``queue_processing`` (status guarded, enqueued)."""
+    request = frappe.get_doc("Account Creation Request", request_name)
+    request.check_permission("write")
+    return request.queue_processing()
 
 
 @frappe.whitelist()

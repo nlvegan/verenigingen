@@ -526,7 +526,8 @@ def execute_with_deadlock_retry(
 
             # Only retry on deadlock errors
             if not is_deadlock_error(e):
-                if log_errors:
+                # A deliberate stop (e.g. AccountCreationCancelled) is not an error to log
+                if log_errors and not getattr(e, "expected_stop", False):
                     frappe.log_error(
                         f"{operation_name} failed with non-deadlock error: {str(e)}",
                         "Operation Error",

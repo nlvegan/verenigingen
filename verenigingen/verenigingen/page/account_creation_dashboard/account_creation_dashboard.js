@@ -366,28 +366,18 @@ function retry_request(request_name) {
 // ESLint can't see; it is intentionally a global page handler.
 // eslint-disable-next-line no-unused-vars
 function queue_request(request_name) {
+	// Through queue_processing: status-guarded (a Cancelled request is refused) and enqueued
 	frappe.call({
-		method: 'frappe.client.set_value',
+		method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.queue_account_creation_request',
 		args: {
-			doctype: 'Account Creation Request',
-			name: request_name,
-			fieldname: 'status',
-			value: 'Queued'
+			request_name
 		},
 		callback() {
-			frappe.call({
-				method: 'verenigingen.utils.account_creation_manager.process_account_creation_request',
-				args: {
-					request_name
-				},
-				callback() {
-					frappe.show_alert({
-						message: 'Request queued for processing',
-						indicator: 'blue'
-					});
-					load_dashboard_data();
-				}
+			frappe.show_alert({
+				message: 'Request queued for processing',
+				indicator: 'blue'
 			});
+			load_dashboard_data();
 		}
 	});
 }
@@ -397,15 +387,12 @@ function queue_request(request_name) {
 // eslint-disable-next-line no-unused-vars
 function cancel_request(request_name) {
 	frappe.prompt('Cancellation reason:', (data) => {
+		// Through cancel_request: keeps a Failed request's original error (#1710)
 		frappe.call({
-			method: 'frappe.client.set_value',
+			method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.cancel_account_creation_request',
 			args: {
-				doctype: 'Account Creation Request',
-				name: request_name,
-				fieldname: {
-					status: 'Cancelled',
-					failure_reason: `Cancelled: ${data.value}`
-				}
+				request_name,
+				reason: data.value
 			},
 			callback() {
 				frappe.show_alert({
