@@ -38,10 +38,10 @@ class TestMollieSubscriptionWebhookRateLimit(EnhancedTestCase):
         super().setUp()
         self.original = frappe.db.get_value("Critical Operation Rule", RULE, FIELDS, as_dict=True)
         self.assertIsNotNone(self.original, "rule row missing on this site")
-        self.addCleanup(self._restore)
+        self.addCleanup(self._put_back_original_rule)
         self._clear_counters()
 
-    def _restore(self):
+    def _put_back_original_rule(self):
         frappe.db.set_value("Critical Operation Rule", RULE, dict(self.original))
         self._clear_counters()
         r, keys = _counter_keys()
