@@ -96,7 +96,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=test_data)
 
@@ -204,7 +204,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,  # No volunteer interest
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=test_data_no_volunteer)
         self.assertTrue(result.get("success"), "Application without volunteer interest should succeed")
@@ -271,7 +271,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=invalid_data)
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
@@ -304,7 +304,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # for this path.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=test_data)
 
@@ -358,7 +358,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # it when the applicant types an amount instead of using the calculator.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=test_data)
 
@@ -389,7 +389,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=test_data)
         self.assertTrue(result.get("success"), "Application with special characters should succeed")

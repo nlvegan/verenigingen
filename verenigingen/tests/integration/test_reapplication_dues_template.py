@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, flt, today
 
-from verenigingen.api.membership_application import submit_application
+from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 from verenigingen.api.membership_application_review import (
     approve_membership_application,
     reject_membership_application,

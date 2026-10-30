@@ -55,8 +55,8 @@ def test_membership_application():
     Returns:
         dict: Application submission result containing:
             - success (bool): Whether the application was processed successfully
-            - member_record (str): Created member document name if successful
-            - application_id (str): Application tracking ID if successful
+            - data.status (str): "confirmation_sent" once the application is staged (#1765: no
+              Member is created until the application is confirmed and approved)
             - error (str): Error message if submission failed
             - issues (list): Detailed validation issues if any
 
@@ -100,8 +100,7 @@ def test_membership_application():
 
         if result.get("success"):
             print("\n✅ Success! Application submitted.")
-            print(f"Member record: {result.get('member_record')}")
-            print(f"Application ID: {result.get('application_id')}")
+            print(f"Staged: {(result.get('data') or {}).get('status')}")
         else:
             print(f"\n❌ Failed: {result.get('error', 'Unknown error')}")
             if "message" in result:

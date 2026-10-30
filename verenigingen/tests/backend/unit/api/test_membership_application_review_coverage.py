@@ -360,7 +360,7 @@ class TestRejectMembershipApplicationChapterCleanup(EnhancedTestCase):
         self.membership_type = _ensure_membership_type()
 
     def _submit_application_for_chapter(self, email, chapter_name):
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(
             first_name="CleanupFail",

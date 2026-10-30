@@ -15,8 +15,8 @@ from verenigingen.api.member_management import add_member_to_chapter_roster
 from verenigingen.api.membership_application import (
     approve_membership_application,
     reject_membership_application,
-    submit_application,
 )
+from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase

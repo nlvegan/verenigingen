@@ -51,7 +51,7 @@ class TestApplicationSubmission(VereningingenTestCase):
 
         # Call the API method that handles form submissions
         result = frappe.call(
-            "verenigingen.api.membership_application.submit_application", **form_data
+            "verenigingen.tests.utils.legacy_submit.submit_and_materialise", **form_data
         )
 
         # Verify result

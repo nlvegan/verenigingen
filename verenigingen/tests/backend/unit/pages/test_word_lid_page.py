@@ -93,7 +93,7 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         self.assertLess(routes.index("/word-lid/bevestig"), routes.index("/word-lid/<door>"))
 
     def test_confirm_page_get_renders_button_and_writes_nothing(self):
-        from verenigingen.api import short_application as sa
+        from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
         from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
         door = self._door()
@@ -107,7 +107,7 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
             }
         ).insert()
         self.track_doc(SUBMISSION, submission.name)
-        token = generate_guest_return_token(sa.CONFIRM_TOKEN_PURPOSE, submission.name)
+        token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, submission.name)
         response = self._page_get("word-lid/bevestig", submission=submission.name, token=token)
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)

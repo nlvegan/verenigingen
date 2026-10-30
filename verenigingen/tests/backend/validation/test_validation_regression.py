@@ -130,7 +130,7 @@ class TestValidationRegression(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         # This should NOT fail with volunteer status validation error
         result = submit_application(data=test_data)
@@ -244,7 +244,7 @@ class TestValidationRegression(EnhancedTestCase):
             "selected_membership_type": "INVALID_MEMBERSHIP_TYPE",
             "interested_in_volunteering": 1}
 
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         result = submit_application(data=invalid_data)
 

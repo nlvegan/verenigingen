@@ -6,6 +6,10 @@ import quopri
 import frappe
 
 from verenigingen.api import short_application as sa
+from verenigingen.services.member.application.application_record import (
+    MAX_MAILS_PER_ADDRESS_PER_DAY,
+    build_confirm_url,
+)
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 
@@ -99,7 +103,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         self.track_doc(SUBMISSION, row[0].name)
         mails = self._sent_emails(self.email)
         self.assertEqual(len(mails), 1)
-        self.assertIn(frappe.utils.get_url(sa.build_confirm_url(row[0].name)), mails[0].message.replace("&amp;", "&"))
+        self.assertIn(frappe.utils.get_url(build_confirm_url(row[0].name)), mails[0].message.replace("&amp;", "&"))
 
     def test_active_member_email_gets_same_response_and_no_link_email(self):
         new_response, new_log = self._submit_form()
@@ -168,7 +172,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         return responses
 
     def test_one_address_gets_at_most_the_daily_cap_of_confirmation_mails(self):
-        cap = sa.MAX_MAILS_PER_ADDRESS_PER_DAY
+        cap = MAX_MAILS_PER_ADDRESS_PER_DAY
         responses = self._submit_times(cap + 1)
         self.assertEqual(len(set(map(json.dumps, responses))), 1)  # the capped call looks the same
         self.assertEqual(len(self._sent_emails(self.email)), cap)
@@ -177,7 +181,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
     def test_the_daily_cap_also_limits_already_a_member_mails(self):
         known = f"capped.{frappe.generate_hash(length=8).lower()}@example.org"
         self._existing_member(known, status="Active", application_status="Approved")
-        cap = sa.MAX_MAILS_PER_ADDRESS_PER_DAY
+        cap = MAX_MAILS_PER_ADDRESS_PER_DAY
         self._submit_times(cap + 1, email=known)
         self.assertEqual(len(self._sent_emails(known)), cap)
 
@@ -192,7 +196,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         self.assertGreater(frappe.cache.ttl(key), 0)
 
     def test_the_daily_cap_is_per_address(self):
-        self._submit_times(sa.MAX_MAILS_PER_ADDRESS_PER_DAY + 1)
+        self._submit_times(MAX_MAILS_PER_ADDRESS_PER_DAY + 1)
         other = f"other.{frappe.generate_hash(length=8).lower()}@example.org"
         self._submit_times(1, email=other)
         self.assertEqual(len(self._sent_emails(other)), 1)

@@ -398,41 +398,59 @@ class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
             "selected_membership_type": self.membership_type,
         }
 
-    def test_rejected_email_reapplication_now_succeeds(self):
-        """Rejected applicant reapplies with same email -> reaches reapplication path."""
-        email, member = self._make_existing(status="Rejected", application_status="Rejected")
-        result = submit_application(**self._reapply_data(email))
-        # No longer blocked at the gate: the application succeeds and reuses the
-        # existing member record (no duplicate Member created).
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(result["data"]["member_record"], member.name)
-        # Exactly one Member with this email (no duplicate hijack/creation).
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+    def _staged_for(self, email):
+        rows = frappe.get_all("Membership Application Submission", {"email": email}, pluck="name")
+        for name in rows:
+            self.track_doc("Membership Application Submission", name)
+        return rows
 
-    def test_pending_email_reapplication_now_succeeds(self):
-        """Pending applicant reapplies with same email -> reaches reapplication path."""
-        email, member = self._make_existing(status="Pending", application_status="Pending")
-        result = submit_application(**self._reapply_data(email))
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(result["data"]["member_record"], member.name)
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+    def _assert_reapplication_is_staged_and_member_untouched(self, status, application_status):
+        email, member = self._make_existing(status=status, application_status=application_status)
+        before = frappe.db.get_value("Member", member.name, ["first_name", "last_name", "modified"], as_dict=True)
+        data = self._reapply_data(email)
 
-    def test_active_member_email_still_blocked(self):
-        """Active member's email is still blocked (no reapplication/hijack)."""
+        result = submit_application(**data)
+
+        self.assertTrue(result["success"], msg=json.dumps(result))
+        self.assertEqual(result["data"], {"status": "confirmation_sent"})
+        self.assertEqual(len(self._staged_for(email)), 1)
+        # #1765/#1740: the submitted names do not reach the existing Member.
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["first_name", "last_name", "modified"], as_dict=True),
+            before,
+        )
+        self.assertNotEqual(before.last_name, data["last_name"], "control: the submitted name differs")
+
+    def test_rejected_email_reapplication_is_staged(self):
+        """Rejected applicant reapplies with the same email: the application is staged."""
+        self._assert_reapplication_is_staged_and_member_untouched("Rejected", "Rejected")
+
+    def test_pending_email_reapplication_is_staged(self):
+        self._assert_reapplication_is_staged_and_member_untouched("Pending", "Pending")
+
+    def test_active_member_email_gets_the_response_of_a_new_email(self):
+        """An Active member's email is not refused any more (that reply told an anonymous caller the
+        email is a member): same response as a new email, nothing staged, the owner is mailed instead."""
         email, member = self._make_existing(status="Active", application_status="Approved")
+        new_email = f"fresh-{frappe.generate_hash(length=8)}@example.com"
+        fresh = submit_application(**self._reapply_data(new_email))
+        self._staged_for(new_email)
+
         result = submit_application(**self._reapply_data(email))
-        self.assertFalse(result["success"], msg=json.dumps(result))
-        self.assertIn("already_active_member", json.dumps(result))
-        # The existing active member is untouched - still exactly one record.
+
+        for response in (fresh, result):
+            response.pop("timestamp", None)
+        self.assertEqual(result, fresh)
+        self.assertEqual(self._staged_for(email), [])
         self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
 
-    def test_brand_new_email_still_works(self):
-        """A brand-new (unused) email still submits successfully."""
+    def test_brand_new_email_is_staged_without_a_member(self):
         email = f"fresh-{frappe.generate_hash(length=8)}@example.com"
         result = submit_application(**self._reapply_data(email))
         self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
-        self.track_doc("Member", result["data"]["member_record"])
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 0)
+        self.assertEqual(len(self._staged_for(email)), 1)
 
 
 # ---------------------------------------------------------------------------

@@ -1524,16 +1524,9 @@ class _MembershipApplication {
 		successHTML += '<div class="success-icon mb-4">';
 		successHTML += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
 		successHTML += '</div>';
-		successHTML += '<h2 class="text-success">Application Submitted Successfully!</h2>';
-
-		if (result.application_id) {
-			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
-			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
-			successHTML += '<p>Please save this ID for future reference.</p>';
-			successHTML += '</div>';
-		}
-
-		successHTML += '<p class="lead">Thank you for your application.</p>';
+		successHTML += '<h2 class="text-success">Check your email</h2>';
+		// #1765: nothing is created until the applicant confirms by email, so there is no ID to show.
+		successHTML += '<p class="lead">Check your email to confirm your application.</p>';
 		successHTML += '</div>';
 
 		// Fix: Use ID selector instead of class selector
@@ -4240,34 +4233,9 @@ class _UIManager {
 		successHTML += '<div class="success-icon mb-4">';
 		successHTML += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
 		successHTML += '</div>';
-		successHTML += '<h2 class="text-success">Application Submitted Successfully!</h2>';
-
-		// Display application ID if available
-		if (result.application_id) {
-			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
-			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
-			successHTML += '<p>Please save this ID for future reference.</p>';
-			successHTML += '</div>';
-		}
-
-		successHTML += '<p class="lead">Thank you for your application. ';
-
-		if (result.payment_url) {
-			successHTML += 'You will be redirected to complete payment.</p>';
-			successHTML += '<div class="mt-4">';
-			successHTML += '<div class="spinner-border text-primary" role="status">';
-			successHTML += '<span class="sr-only">Loading...</span>';
-			successHTML += '</div>';
-			successHTML += '</div>';
-		} else {
-			successHTML += 'You will receive an email with next steps.</p>';
-			successHTML += '<div class="mt-4">';
-			successHTML += `<a href="/application-status?id=${result.member_record}&token=${result.status_token}" class="btn btn-primary">`;
-			successHTML += 'Check Application Status';
-			successHTML += '</a>';
-			successHTML += '</div>';
-		}
-
+		successHTML += '<h2 class="text-success">Check your email</h2>';
+		// #1765: nothing is created until the applicant confirms by email, so there is no ID or status link.
+		successHTML += '<p class="lead">Check your email to confirm your application.</p>';
 		successHTML += '</div>';
 
 		$('.membership-application-form').html(successHTML);

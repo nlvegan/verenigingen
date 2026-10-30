@@ -230,7 +230,7 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
             "payment_method": "Bank Transfer"}
 
         # Import application submission function
-        from verenigingen.api.membership_application import submit_application
+        from verenigingen.tests.utils.legacy_submit import submit_and_materialise as submit_application
 
         try:
             result = submit_application(data=test_data)
