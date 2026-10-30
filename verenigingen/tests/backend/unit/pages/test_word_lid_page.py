@@ -5,13 +5,13 @@ from frappe.website.serve import get_response
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
+from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 
-DOOR = "Membership Application Door"
 SUBMISSION = "Membership Application Submission"
 
 
-class TestWordLidPage(VereningingenUnitTestCase):
+class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
     def setUp(self):
         super().setUp()
         self.membership_type = self.create_test_membership_type()
@@ -20,6 +20,7 @@ class TestWordLidPage(VereningingenUnitTestCase):
             {"is_template": 1, "membership_type": self.membership_type.name},
             "name",
         )
+        self.door_extra = {"annual_dues_template": self.template}
         self._previous_user = frappe.session.user
         self._previous_request = getattr(frappe.local, "request", None)
         frappe.form_dict.pop("door", None)
@@ -32,22 +33,7 @@ class TestWordLidPage(VereningingenUnitTestCase):
         frappe.form_dict.pop("door", None)
         super().tearDown()
 
-    def _door(self, **fields):
-        data = {
-            "doctype": DOOR,
-            "title": "Testdeur",
-            "slug": f"deur-{frappe.generate_hash(length=8).lower()}",
-            "membership_type": self.membership_type.name,
-            "form_shape": "Regular",
-            "enabled": 1,
-            "annual_dues_template": self.template,
-        }
-        data.update(fields)
-        door = frappe.get_doc(data).insert()
-        self.track_doc(DOOR, door.name)
-        return door
-
-    def _context(self, door=None):
+    def _page_context(self, door=None):
         from verenigingen.www import word_lid
 
         frappe.form_dict.pop("door", None)
@@ -55,7 +41,7 @@ class TestWordLidPage(VereningingenUnitTestCase):
             frappe.form_dict["door"] = door
         return word_lid.get_context(frappe._dict())
 
-    def _get(self, path, **query):
+    def _page_get(self, path, **query):
         """GET a public page as Guest through the real router (route rules need a request)."""
         # Dynamic route rules are only evaluated when a request exists.
         frappe.local.request = Request(EnvironBuilder(path=f"/{path}", query_string=query).get_environ())
@@ -68,8 +54,8 @@ class TestWordLidPage(VereningingenUnitTestCase):
             for key in query:
                 frappe.form_dict.pop(key, None)
 
-    def _render(self, slug):
-        response = self._get(f"word-lid/{slug}")
+    def _render_page_html(self, slug):
+        response = self._page_get(f"word-lid/{slug}")
         self.assertEqual(response.status_code, 200)
         return response.get_data(as_text=True)
 
@@ -77,7 +63,7 @@ class TestWordLidPage(VereningingenUnitTestCase):
         first = self._door(title="Eerste", sort_order=-20)
         second = self._door(title="Tweede", sort_order=-10)
         disabled = self._door(title="Uit", sort_order=-30, enabled=0)
-        slugs = [d.slug for d in self._context().doors]
+        slugs = [d.slug for d in self._page_context().doors]
         self.assertLess(slugs.index(first.slug), slugs.index(second.slug))
         self.assertNotIn(disabled.slug, slugs)
 
@@ -85,17 +71,17 @@ class TestWordLidPage(VereningingenUnitTestCase):
         disabled = self._door(enabled=0)
         for slug in (disabled.slug, "bestaat-niet"):
             with self.assertRaises(frappe.PageDoesNotExistError):
-                self._context(slug)
+                self._page_context(slug)
         enabled = self._door()
-        context = self._context(enabled.slug)
+        context = self._page_context(enabled.slug)
         self.assertEqual(context.door.name, enabled.name)
         self.assertEqual(context.hidden, set())
 
     def test_hidden_question_not_rendered(self):
         shown = self._door()
         hiding = self._door(hidden_questions=[{"question": "birth_year"}])
-        self.assertIn('name="birth_year"', self._render(shown.slug))
-        html = self._render(hiding.slug)
+        self.assertIn('name="birth_year"', self._render_page_html(shown.slug))
+        html = self._render_page_html(hiding.slug)
         self.assertNotIn('name="birth_year"', html)
         self.assertIn('name="first_name"', html)
 
@@ -122,7 +108,7 @@ class TestWordLidPage(VereningingenUnitTestCase):
         ).insert()
         self.track_doc(SUBMISSION, submission.name)
         token = generate_guest_return_token(sa.CONFIRM_TOKEN_PURPOSE, submission.name)
-        response = self._get("word-lid/bevestig", submission=submission.name, token=token)
+        response = self._page_get("word-lid/bevestig", submission=submission.name, token=token)
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('id="confirm-button"', html)
@@ -131,8 +117,8 @@ class TestWordLidPage(VereningingenUnitTestCase):
         self.assertFalse(frappe.db.get_value(SUBMISSION, submission.name, "member"))
 
     def test_housemate_form_asks_for_paying_member_not_payment_details(self):
-        regular = self._render(self._door().slug)
-        housemate = self._render(self._door(form_shape="Housemate").slug)
+        regular = self._render_page_html(self._door().slug)
+        housemate = self._render_page_html(self._door(form_shape="Housemate").slug)
         self.assertIn('name="iban"', regular)
         self.assertNotIn('name="housemate_of_name"', regular)
         self.assertIn('name="housemate_of_name"', housemate)
@@ -140,16 +126,16 @@ class TestWordLidPage(VereningingenUnitTestCase):
 
     def test_landing_page_renders_without_door(self):
         door = self._door(title="Landingdeur")
-        response = self._get("word-lid")
+        response = self._page_get("word-lid")
         self.assertEqual(response.status_code, 200)
         self.assertIn(f'href="/word-lid/{door.slug}"', response.get_data(as_text=True))
 
     def test_door_title_is_rendered_escaped(self):
         door = self._door(title="Deur <b>x</b>")
-        for html in (self._render(door.slug), self._get("word-lid").get_data(as_text=True)):
+        for html in (self._render_page_html(door.slug), self._page_get("word-lid").get_data(as_text=True)):
             self.assertNotIn("<b>x</b>", html)
             self.assertIn("&lt;b&gt;x&lt;/b&gt;", html)
 
     def test_confirm_page_sends_no_referrer(self):
-        html = self._get("word-lid/bevestig", submission="x", token="y").get_data(as_text=True)
+        html = self._page_get("word-lid/bevestig", submission="x", token="y").get_data(as_text=True)
         self.assertIn('name="referrer" content="no-referrer"', html)

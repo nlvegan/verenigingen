@@ -8,6 +8,7 @@ from werkzeug.wrappers import Request
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.api import short_application as sa
+from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 
 IBAN = "NL91ABNA0417164300"
@@ -15,7 +16,7 @@ SUBMISSION = "Membership Application Submission"
 REFUSAL = {"success": False, "message": "This confirmation link is invalid or has expired."}
 
 
-class TestShortApplicationConfirm(VereningingenUnitTestCase):
+class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCase):
     def setUp(self):
         super().setUp()
         self.membership_type = self.create_test_membership_type()
@@ -47,21 +48,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
     def _new_email(self):
         return f"confirm.{frappe.generate_hash(length=8).lower()}@example.org"
 
-    def _door(self, **fields):
-        data = {
-            "doctype": "Membership Application Door",
-            "title": "Testdeur",
-            "slug": f"deur-{frappe.generate_hash(length=8).lower()}",
-            "membership_type": self.membership_type.name,
-            "form_shape": "Regular",
-            "enabled": 1,
-        }
-        data.update(fields)
-        door = frappe.get_doc(data).insert()
-        self.track_doc("Membership Application Door", door.name)
-        return door
-
-    def _data(self, **overrides):
+    def _confirm_data(self, **overrides):
         data = {
             "first_name": "Anna",
             "tussenvoegsel": "van",
@@ -86,9 +73,9 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         data.update(overrides)
         return data
 
-    def _submit(self, door=None, **overrides):
+    def _confirm_submit(self, door=None, **overrides):
         """Submit as Guest through the real endpoint; return the submission name."""
-        data = self._data(**overrides)
+        data = self._confirm_data(**overrides)
         frappe.set_user("Guest")
         try:
             response = sa.submit_short_application((door or self.door).name, **data)
@@ -130,7 +117,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
 
     def test_valid_post_creates_one_pending_member_with_answers(self):
         reason = self._reason()
-        name = self._submit(join_reasons=[reason])
+        name = self._confirm_submit(join_reasons=[reason])
         payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
         self.assertNotEqual(self.amount, self.template_rate, "control: the amount must differ from the template")
 
@@ -161,16 +148,16 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertTrue(row.confirmed_on)
 
     def test_get_request_confirms_nothing(self):
-        name = self._submit()
+        name = self._confirm_submit()
         response, _log = self._confirm(name, method="GET")
         self.assertEqual(response, REFUSAL)
         self.assertEqual(self._members(), [])
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Unconfirmed")
 
     def test_refusals_are_identical(self):
-        wrong_token = self._submit()
-        expired = self._submit(email=self._new_email())
-        done = self._submit(email=self._new_email())
+        wrong_token = self._confirm_submit()
+        expired = self._confirm_submit(email=self._new_email())
+        done = self._confirm_submit(email=self._new_email())
         self._confirm(done)
         self._track_members_of(done)
         frappe.db.set_value(SUBMISSION, expired, "creation", add_days(now_datetime(), -8), update_modified=False)
@@ -197,7 +184,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
             self.track_doc("Member", member)
 
     def test_second_confirm_creates_nothing(self):
-        name = self._submit()
+        name = self._confirm_submit()
         first, _log = self._confirm(name)
         self.assertTrue(first["success"], first)
         self._track_members()
@@ -211,8 +198,8 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), addresses)
 
     def test_second_submission_same_email_does_not_duplicate_member(self):
-        first = self._submit()
-        second = self._submit()
+        first = self._confirm_submit()
+        second = self._confirm_submit()
         self.assertNotEqual(first, second)
         self.assertTrue(self._confirm(first)[0]["success"])
         self._track_members()
@@ -225,7 +212,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertEqual(frappe.db.get_value(SUBMISSION, second, "member"), self._members()[0])
 
     def test_door_disabled_after_submit_still_confirms(self):
-        name = self._submit()
+        name = self._confirm_submit()
         frappe.db.set_value("Membership Application Door", self.door.name, "enabled", 0)
         response, _log = self._confirm(name)
         self.assertTrue(response["success"], response)
@@ -262,7 +249,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
     def test_reapplication_updates_existing_member(self):
         old_door = self._door(monthly_dues_template=self.template)
         existing = self._rejected_member(old_door)
-        name = self._submit()
+        name = self._confirm_submit()
 
         response, _log = self._confirm(name)
 
@@ -279,7 +266,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
     def test_housemate_reapplication_clears_the_old_fee(self):
         door = self._door(form_shape="Housemate", monthly_dues_template=None)
         existing = self._rejected_member(door)
-        name = self._submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")
+        name = self._confirm_submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")
 
         response, _log = self._confirm(name)
 
@@ -292,7 +279,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertFalse(member.fee_override_date)
 
     def test_member_became_active_meanwhile_gets_identical_refusal_and_expires(self):
-        name = self._submit()
+        name = self._confirm_submit()
         existing = self.create_test_member(email=self.email)
         frappe.db.set_value("Member", existing.name, {"status": "Active", "application_status": "Approved"})
         emails = frappe.db.count("Email Queue")
@@ -307,7 +294,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
         self.assertEqual(frappe.db.count("Email Queue"), emails)
 
     def test_creation_failure_rolls_back_and_keeps_submission_unconfirmed(self):
-        name = self._submit()
+        name = self._confirm_submit()
         payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
         payload["selected_dues_schedule"] = "No such dues schedule"
         frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
@@ -327,7 +314,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
     def test_approval_creates_monthly_schedule_at_chosen_amount(self):
         from verenigingen.api.membership_application_review import approve_membership_application
 
-        name = self._submit()
+        name = self._confirm_submit()
         self.assertTrue(self._confirm(name)[0]["success"])
         self._track_members()
         member_name = self._members()[0]
@@ -348,7 +335,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
 
     def test_housemate_confirms_without_amount_or_consent(self):
         door = self._door(form_shape="Housemate", monthly_dues_template=None)
-        name = self._submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")
+        name = self._confirm_submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")
 
         response, _log = self._confirm(name)
 
@@ -363,7 +350,7 @@ class TestShortApplicationConfirm(VereningingenUnitTestCase):
 
     def test_pending_chapter_membership_is_created_for_a_guest_without_noise(self):
         self.create_test_chapter(postal_codes="1200-1299", published=1)
-        name = self._submit()
+        name = self._confirm_submit()
         chapter_errors = frappe.db.count("Error Log", {"method": ["like", "Chapter%"]})
 
         response, log = self._confirm(name)

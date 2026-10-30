@@ -61,7 +61,7 @@ def confirm_submission(submission_name, token) -> dict:
             _set_status(submission.name, "Expired")
             return refusal()
     door = frappe.get_doc("Membership Application Door", submission.door)
-    member = _create_member(submission, door, payload, existing)
+    member = _create_member_with_savepoint(submission, door, payload, existing)
     if not member:
         return refusal()
     frappe.db.set_value(
@@ -120,7 +120,7 @@ def _set_status(name, status):
     frappe.db.set_value(SUBMISSION, name, "status", status, update_modified=False)
 
 
-def _create_member(submission, door, payload, existing):
+def _create_member_with_savepoint(submission, door, payload, existing):
     """Address + Member + answers + chapter behind one savepoint; None (and a log row) on failure."""
     savepoint = "".join(random.sample(string.ascii_lowercase, 10))
     frappe.db.savepoint(savepoint)

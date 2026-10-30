@@ -54,7 +54,7 @@ def submit_short_application(door: str, **data) -> dict:
 
 def _validated_payload(door_name, data) -> dict:
     door = _enabled_door(door_name)
-    cleaned = validate_short_application(door, _normalise(data))
+    cleaned = validate_short_application(door, _clean_submission_input(data))
     if (cleaned.get("amount") or 0) > MAX_AMOUNT:
         frappe.throw(_("Enter a valid amount."))
     return cleaned
@@ -69,7 +69,7 @@ def _enabled_door(door_name):
     return frappe.get_doc("Membership Application Door", door_name)
 
 
-def _normalise(data) -> dict:
+def _clean_submission_input(data) -> dict:
     """Coerce raw request input into the shapes the validator expects."""
     data = dict(data)
     for field in CAPPED_TEXT_FIELDS:

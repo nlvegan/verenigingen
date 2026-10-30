@@ -33,11 +33,11 @@ SOURCES = [
 
 
 def execute():
-    _seed("Membership Join Reason", "reason", REASONS)
-    _seed("Membership Referral Source", "source", SOURCES)
+    _seed_masters("Membership Join Reason", "reason", REASONS)
+    _seed_masters("Membership Referral Source", "source", SOURCES)
 
 
-def _seed(doctype, fieldname, values):
+def _seed_masters(doctype, fieldname, values):
     for value in values:
         if not frappe.db.exists(doctype, value):
             frappe.get_doc({"doctype": doctype, fieldname: value, "enabled": 1}).insert(

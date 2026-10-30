@@ -56,7 +56,7 @@ def validate_short_application(door, data: dict) -> dict:
     """Return the cleaned payload for ``data`` or raise ``frappe.ValidationError``."""
     hidden = door.hidden()
     cleaned = _clean_identity(data)
-    _validate_email(cleaned)
+    _check_email_field(cleaned)
     cleaned.update(_clean_optional_questions(data, hidden, cleaned))
     postal = _clean_delivery(data, hidden, cleaned)
     if door.form_shape == "Housemate":
@@ -82,7 +82,7 @@ def _clean_identity(data) -> dict:
     return cleaned
 
 
-def _validate_email(cleaned):
+def _check_email_field(cleaned):
     if not validate_email_address(cleaned["email"]):
         frappe.throw(_("Enter a valid email address."))
 
