@@ -247,13 +247,15 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         )
 
         payment_id = f"tr_{frappe.generate_hash(length=10)}"
-        # Amount derived from the fixture invoice, not hardcoded.
+        # The paid amount deliberately differs from the invoice total, so a deposit
+        # taken from the invoice (or a constant) cannot pass for one taken from Mollie.
+        paid_amount = round(float(self.invoice_total) + 1.37, 2)
         payment = SimpleNamespace(
             id=payment_id,
             status="paid",
             # The company's own currency: the Bank Account's currency must match.
             amount={
-                "value": f"{self.invoice_total:.2f}",
+                "value": f"{paid_amount:.2f}",
                 "currency": frappe.get_value("Company", self.company, "default_currency"),
             },
             description="",
@@ -263,10 +265,10 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         )
         url = frappe.get_single("Mollie Settings").get_subscription_webhook_url()
 
-        # developer_mode: the site's test_mode safety check refuses to authenticate a
-        # test-mode webhook on a non-development site, before any booking.
+        # allow_mollie_test_mode: the site's test_mode safety check refuses to authenticate
+        # a test-mode webhook on a non-development site, before any booking.
         with patch.object(PaymentTypeRouter, "fetch_payment", return_value=payment), patch.dict(
-            frappe.conf, {"developer_mode": 1}
+            frappe.conf, {"allow_mollie_test_mode": 1}
         ):
             result = self._post_as_guest(_dotted_method(url), payment_id)
 
@@ -276,7 +278,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             fields=["name", "deposit", "party_type", "party", "custom_member"],
         )
         self.assertEqual(len(rows), 1, f"expected one Bank Transaction for {payment_id}; result: {result}")
-        self.assertEqual(float(rows[0].deposit), float(self.invoice_total))
+        self.assertEqual(float(rows[0].deposit), paid_amount)
         self.assertEqual(rows[0].party_type, "Customer")
         self.assertEqual(rows[0].party, self.customer)
         self.assertEqual(rows[0].custom_member, self.member.name)
