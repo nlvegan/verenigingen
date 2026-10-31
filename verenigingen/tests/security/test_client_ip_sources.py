@@ -16,8 +16,7 @@ Probe shortcuts: Pay.nl's consent IP is asserted on the payload builder's output
 (``_build_mandate_payload``), which is the dict ``create_mandate_for_member`` posts;
 the full create flow needs live Pay.nl settings. Bank settings are a SimpleNamespace
 returned by a patched ``frappe.get_single`` (no Bank Integration Settings row exists on a
-test site). Site config here: test_site_7 has developer_mode=1; the assertions do not
-depend on it.
+test site).
 """
 
 import ast
@@ -42,9 +41,9 @@ class _RequestCase(VereningingenTestCase):
         super().setUp()
         self._orig_request = getattr(frappe.local, "request", None)
         self._orig_request_ip = getattr(frappe.local, "request_ip", None)
-        self.addCleanup(self._restore)
+        self.addCleanup(self._restore_bound_request_state)
 
-    def _restore(self):
+    def _restore_bound_request_state(self):
         frappe.local.request = self._orig_request  # Mock justified: execution-context state, restoring the request the harness had
         frappe.local.request_ip = self._orig_request_ip  # Mock justified: execution-context state
 
@@ -65,7 +64,7 @@ class _RequestCase(VereningingenTestCase):
 
 
 class TestPayNlConsentIp(_RequestCase):
-    def _payload(self):
+    def _consent_mandate_payload(self):
         from verenigingen.verenigingen_payments.ing_checkout.services.mandate_service import MandateService
 
         svc = MandateService()
@@ -78,16 +77,16 @@ class TestPayNlConsentIp(_RequestCase):
 
     def test_spoofed_leftmost_xff_is_not_sent_as_consent_ip(self):
         self._install_behind_proxy_with_spoof()
-        self.assertEqual(self._payload()["customer"]["ipAddress"], REAL_CLIENT)
+        self.assertEqual(self._consent_mandate_payload()["customer"]["ipAddress"], REAL_CLIENT)
 
     def test_direct_client_ip_is_recorded_when_there_is_no_proxy(self):
         # not a trusted proxy: a forged XFF must lose to the connecting address
         self._install(REAL_CLIENT, SPOOF)
-        self.assertEqual(self._payload()["customer"]["ipAddress"], REAL_CLIENT)
+        self.assertEqual(self._consent_mandate_payload()["customer"]["ipAddress"], REAL_CLIENT)
 
     def test_placeholder_for_background_callers_without_a_request(self):
         self._no_request()
-        self.assertEqual(self._payload()["customer"]["ipAddress"], "0.0.0.0")
+        self.assertEqual(self._consent_mandate_payload()["customer"]["ipAddress"], "0.0.0.0")
 
 
 class TestBankPsuIp(_RequestCase):
@@ -193,18 +192,18 @@ class TestAuditRecordsIp(_RequestCase):
 class TestNoSpoofableIpSourcesRemain(VereningingenTestCase):
     """Census: raw IP sources are read only by client_ip.py (and listed exceptions)."""
 
-    TOKENS = {"request_ip", "REMOTE_ADDR", "X-Forwarded-For", "HTTP_X_FORWARDED_FOR", "X-Real-IP"}
+    TOKENS = {"request_ip", "REMOTE_ADDR", "X-Forwarded-For", "HTTP_X_FORWARDED_FOR", "X-Real-IP", "remote_addr", "access_route"}
     # path suffix -> reason it may read a raw source
     ALLOWED = {
         "utils/security/client_ip.py": "the canonical resolver itself",
         "verenigingen_payments/mollie/utils/security.py": (
             "validate_webhook_origin takes a bare header dict and has no production caller"
-            " (only tests); tracked separately"
+            " (only tests); tracked on #1211"
         ),
     }
 
     @staticmethod
-    def _app_root():
+    def _verenigingen_package_dir():
         return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def _hits(self, source, tokens=None):
@@ -223,12 +222,14 @@ class TestNoSpoofableIpSourcesRemain(VereningingenTestCase):
             "b = getattr(frappe.local, 'request_ip', None)\n"
             "c = environ.get('REMOTE_ADDR')\n"
             "d = frappe.get_request_header('X-Forwarded-For')\n"
+            "e = frappe.local.request.remote_addr\n"
+            "f = request.access_route\n"
         )
-        self.assertEqual(len(self._hits(src)), 4)
+        self.assertEqual(len(self._hits(src)), 6)
         self.assertEqual(self._hits("x = 'docstring mentioning REMOTE_ADDR here'"), [])
 
     def test_only_the_resolver_reads_raw_ip_sources(self):
-        root = self._app_root()
+        root = self._verenigingen_package_dir()
         found = {}
         for base in (root, os.path.join(os.path.dirname(root), "scripts")):
             for dirpath, dirnames, files in os.walk(base):
