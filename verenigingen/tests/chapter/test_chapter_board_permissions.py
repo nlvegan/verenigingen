@@ -29,6 +29,29 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # then fails link validation. Passing the returned docname avoids that.
 
 
+
+def _seat_through_chapter_save(chapter_name, volunteer, chapter_role):
+    """Seat a volunteer the way production does: append the board row to the Chapter and save it.
+
+    Since #1672 the board role comes from the role-profile sync that Chapter.on_update flushes;
+    a standalone `Chapter Board Member` insert (child row with parent set) never runs it, and no
+    production path inserts board rows standalone (frappe.client.insert routes a child row
+    through its parent's save). These tests used the standalone shape and only passed through
+    the direct grant #1672 removed.
+    """
+    chapter = frappe.get_doc("Chapter", chapter_name)
+    chapter.append(
+        "board_members",
+        {
+            "volunteer": volunteer,
+            "chapter_role": chapter_role,
+            "from_date": frappe.utils.today(),
+            "is_active": 1,
+        },
+    )
+    chapter.save()
+    return next(row for row in chapter.board_members if row.volunteer == volunteer and row.is_active)
+
 class TestChapterBoardPermissions(EnhancedTestCase):
     """
     Test Chapter Board Member permissions system
@@ -106,33 +129,9 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         self.secretary_role.save()
 
         # Create board positions
-        self.board_position_1 = frappe.get_doc(
-            {
-                "doctype": "Chapter Board Member",
-                "parent": self.chapter_1.name,
-                "parenttype": "Chapter",
-                "parentfield": "board_members",
-                "volunteer": self.volunteer_1.name,
-                "chapter_role": self.treasurer_role.name,
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            }
-        )
-        self.board_position_1.insert()
+        self.board_position_1 = _seat_through_chapter_save(self.chapter_1.name, self.volunteer_1.name, self.treasurer_role.name)
 
-        self.board_position_2 = frappe.get_doc(
-            {
-                "doctype": "Chapter Board Member",
-                "parent": self.chapter_2.name,
-                "parenttype": "Chapter",
-                "parentfield": "board_members",
-                "volunteer": self.volunteer_2.name,
-                "chapter_role": self.secretary_role.name,
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            }
-        )
-        self.board_position_2.insert()
+        self.board_position_2 = _seat_through_chapter_save(self.chapter_2.name, self.volunteer_2.name, self.secretary_role.name)
 
         # Add members to chapters
         self.add_member_to_chapter(self.board_member_1.name, self.chapter_1.name)
@@ -385,19 +384,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         )
 
         # Create board position
-        board_member = frappe.get_doc(
-            {
-                "doctype": "Chapter Board Member",
-                "parent": self.test_chapter.name,
-                "parenttype": "Chapter",
-                "parentfield": "board_members",
-                "volunteer": self.test_volunteer.name,
-                "chapter_role": self.test_role.name,
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            }
-        )
-        board_member.insert()
+        board_member = _seat_through_chapter_save(self.test_chapter.name, self.test_volunteer.name, self.test_role.name)
 
         # Verify role was assigned
         has_role = DocumentExistenceValidator.check_document_exists(
@@ -410,19 +397,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         """Test that Chapter Board Member role is removed when all board positions are deleted"""
 
         # Create board position
-        board_member = frappe.get_doc(
-            {
-                "doctype": "Chapter Board Member",
-                "parent": self.test_chapter.name,
-                "parenttype": "Chapter",
-                "parentfield": "board_members",
-                "volunteer": self.test_volunteer.name,
-                "chapter_role": self.test_role.name,
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            }
-        )
-        board_member.insert()
+        board_member = _seat_through_chapter_save(self.test_chapter.name, self.test_volunteer.name, self.test_role.name)
 
         # Verify role was assigned
         has_role_before = DocumentExistenceValidator.check_document_exists(
@@ -430,8 +405,10 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         )
         self.assertTrue(has_role_before, "Role should be assigned after board position creation")
 
-        # Delete board position
-        board_member.delete()
+        # Delete board position (the real path: remove the row and save the Chapter)
+        chapter = frappe.get_doc("Chapter", self.test_chapter.name)
+        chapter.remove(next(r for r in chapter.board_members if r.name == board_member.name))
+        chapter.save()
 
         # Verify role was removed
         has_role_after = DocumentExistenceValidator.check_document_exists(
@@ -454,19 +431,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
             )
             volunteer = self.create_test_volunteer(member.name)
 
-            board_member = frappe.get_doc(
-                {
-                    "doctype": "Chapter Board Member",
-                    "parent": self.test_chapter.name,
-                    "parenttype": "Chapter",
-                    "parentfield": "board_members",
-                    "volunteer": volunteer.name,
-                    "chapter_role": self.test_role.name,
-                    "from_date": frappe.utils.today(),
-                    "is_active": 1,
-                }
-            )
-            board_member.insert()
+            board_member = _seat_through_chapter_save(self.test_chapter.name, volunteer.name, self.test_role.name)
 
         # Run bulk synchronization
         updated_count = update_all_chapter_board_roles()
