@@ -27,8 +27,8 @@
         "next_action_email_template": null,
         "state": "Pending Verification",
         "style": "Warning",
-        "update_field": "status",
-        "update_value": "Pending Verification"
+        "update_field": null,
+        "update_value": null
       },
       {
         "allow_edit": "Verenigingen Administrator",
@@ -93,7 +93,7 @@
         "action": "Complete Agreement",
         "allow_self_approval": 1,
         "allowed": "System Manager",
-        "condition": "frappe.utils.date_diff(doc.end_date, frappe.utils.today()) <= 0",
+        "condition": "doc.end_date and frappe.utils.get_datetime(doc.end_date) <= frappe.utils.now_datetime()",
         "next_state": "Completed",
         "state": "Active"
       },
