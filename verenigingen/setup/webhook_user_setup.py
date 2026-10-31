@@ -129,7 +129,10 @@ def generate_webhook_user_email():
 
     try:
         configured = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
-        if configured:
+        # A setting naming Administrator is never honoured (#1876): get_service_user refuses
+        # it, so keeping it would leave every gateway webhook refusing. Fall through to the
+        # canonical user, which configure_webhook_user_in_settings then writes.
+        if configured and configured != "Administrator":
             # One-time normalisation: `webhook-user-<n>@<this site>` is the fingerprint
             # of the old counter bug. Keeping it would canonicalise that artefact
             # forever and make every future reader re-diagnose it. Only rewrite when

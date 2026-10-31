@@ -55,6 +55,8 @@ class TestGetServiceUserNeverAdministrator(EnhancedTestCase):
             "unset": lambda: self._configure(None),
             "nonexistent": lambda: self._configure(GHOST),
             "disabled": lambda: frappe.db.set_value("User", EMAIL, "enabled", 0),
+            # an operator (or a stale value) naming Administrator IS an elevation: refused too
+            "administrator": lambda: self._configure("Administrator"),
         }
 
     def test_configured_and_enabled_user_is_returned(self):
@@ -200,6 +202,23 @@ class TestWebhookUserSetupGuarantee(EnhancedTestCase):
         rows = frappe.db.count("Error Log")
         self.assertTrue(w.ensure_webhook_user()["success"])
         self.assertEqual(frappe.db.count("Error Log"), rows)
+
+    def test_a_setting_that_names_administrator_is_repaired_to_the_webhook_user(self):
+        """Ruling: never Administrator. A setting naming it is refused by get_service_user
+        (unit tests above) AND converged by setup, which would otherwise keep honouring it."""
+        from verenigingen.setup.webhook_user_setup import generate_webhook_user_email, setup_webhook_user
+
+        canonical = self.user
+        frappe.db.set_single_value(SETTINGS, "webhook_user", "Administrator")
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        self.assertNotEqual(generate_webhook_user_email(), "Administrator")
+
+        self.assertTrue(setup_webhook_user()["success"])
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        repaired = frappe.db.get_single_value(SETTINGS, "webhook_user")
+        self.assertNotEqual(repaired, "Administrator")
+        self.assertEqual(repaired, canonical)
+        self.assertEqual(get_service_user(SETTINGS, "webhook_user", "Svc Test 1876"), canonical)
 
     def test_the_migrate_hook_runs_the_non_silent_entry_point(self):
         self.assertIn(

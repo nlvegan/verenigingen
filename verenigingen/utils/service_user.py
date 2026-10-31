@@ -29,6 +29,9 @@ def _lookup_service_user(settings_doctype: str, user_field: str) -> tuple[str | 
         configured = frappe.db.get_single_value(settings_doctype, user_field)
         if not configured:
             return None, f"{user_field} is not set in {settings_doctype}"
+        if configured == "Administrator":
+            # The ruling is never Administrator, whether by fallback or by configuration.
+            return None, f"{user_field} in {settings_doctype} names Administrator, which is never used"
         if frappe.db.get_value("User", configured, "enabled"):
             return configured, ""
         return None, f"'{configured}' is disabled or does not exist"
@@ -50,7 +53,7 @@ def get_service_user(
 
     Reads a user from a settings DocType and validates it exists and is enabled. It never
     elevates: no Administrator fallback, whatever the reason (unset, disabled, deleted,
-    or a lookup that raises). Writes no Error Log row and does not raise; a caller that
+    or a lookup that raises). A setting that names Administrator counts as no user. Writes no Error Log row and does not raise; a caller that
     must refuse without a user uses ``require_service_user``.
 
     Args:

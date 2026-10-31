@@ -160,7 +160,10 @@ CORE_GRANTS = (
             "email",
         ),
     ),
-    ("Bank Transaction", "Verenigingen Webhook User", ("read", "write", "create", "submit")),
+    # cancel (#1876): the webhook has no Administrator fallback any more, and
+    # _withdraw_bank_transaction cancels the Bank Transaction when a refund/chargeback Journal
+    # Entry fails to post. Without it that cleanup left a live phantom withdrawal.
+    ("Bank Transaction", "Verenigingen Webhook User", ("read", "write", "create", "submit", "cancel")),
     (
         "Journal Entry",
         "Accounts Manager",
