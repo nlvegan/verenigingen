@@ -177,6 +177,55 @@ class CommitExemptionVisibilityTest(unittest.TestCase):
         self.assertNotIn("# order-dependence", line, line)
 
 
+class ImplicitCommitCallsTest(unittest.TestCase):
+    """#1513: frappe.db methods that commit internally escape the per-test rollback
+    exactly like db.commit(), but the detector only matched a `db.commit` suffix.
+    Each call below was measured on a test site to make an uncommitted row survive
+    db.rollback() (sql_ddl, truncate, rename_table, change_column_type, add_unique,
+    sql(auto_commit=True)); the rest were read from frappe's source."""
+
+    COMMITTING = [
+        "frappe.db.sql_ddl('CREATE TABLE IF NOT EXISTS `tabX` (id int)')",
+        "frappe.db.truncate('X')",
+        "frappe.db.rename_table('X', 'Y')",
+        "frappe.db.rename_column('X', 'a', 'b')",
+        "frappe.db.change_column_type('X', 'a', 'bigint')",
+        "frappe.db.add_index('X', ['a'])",
+        "frappe.db.add_unique('X', ['a'])",
+        "frappe.db.updatedb('X')",
+        "frappe.db.sql('select 1', auto_commit=True)",
+    ]
+
+    def _kinds(self, body, func="test_a"):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "test_probe.py")
+            with open(path, "w") as fh:
+                fh.write("import frappe\n\n\ndef %s():\n    %s\n" % (func, body))
+            return [f.kind for f in _load_scanner_module().discover_findings(tmp)]
+
+    def test_every_committing_call_is_a_commit_finding(self):
+        for call in self.COMMITTING:
+            with self.subTest(call=call):
+                self.assertEqual(self._kinds(call), ["COMMIT"])
+
+    def test_the_same_calls_in_a_cleanup_helper_are_exempt_not_dropped(self):
+        for call in self.COMMITTING:
+            with self.subTest(call=call):
+                self.assertEqual(self._kinds(call, "_cleanup_x"), ["COMMIT_EXEMPT"])
+
+    def test_non_committing_db_calls_are_not_flagged(self):
+        for call in (
+            "frappe.db.sql('SELECT 1')",
+            "frappe.db.sql('SELECT 1', auto_commit=False)",
+            "frappe.db.sql('ALTER TABLE `tabX` ADD c int')",  # raw DDL: see _COMMITTING_DB_CALLS
+            "frappe.db.get_value('X', 'a', 'b')",
+            "frappe.db.has_index('tabX', 'a')",
+            "frappe.db.rollback()",
+        ):
+            with self.subTest(call=call):
+                self.assertEqual(self._kinds(call), [])
+
+
 class SelfCheckControlTest(unittest.TestCase):
     """The mandatory control (#851/#825 aftermath): the scanner must never be able to
     silently report 0 findings again. Prove the self-check both passes against the
