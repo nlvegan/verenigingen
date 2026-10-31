@@ -228,11 +228,7 @@ class CommunicationManager(BaseManager):
 
         Returns True if at least one email was queued.
         """
-        enabled = self._board_lifecycle_notifications_enabled()
-        print(
-            f"\nDEBUG notify_board_of_member_joined: member_id={member_id}, enabled={enabled}, board_members={len(self.chapter_doc.board_members)}"
-        )
-        if not enabled:
+        if not self._board_lifecycle_notifications_enabled():
             return False
 
         transfer = frappe.flags.get("chapter_transfer") or {}
@@ -312,9 +308,6 @@ class CommunicationManager(BaseManager):
             recipients = []
             seen: set = set()
             for board_row in self.chapter_doc.board_members or []:
-                print(
-                    f"DEBUG board_row: is_active={board_row.is_active}, email={board_row.email!r}, volunteer={board_row.volunteer!r}"
-                )
                 if not board_row.is_active:
                     continue
                 email = board_row.email
@@ -322,7 +315,6 @@ class CommunicationManager(BaseManager):
                     recipients.append(email)
                     seen.add(email)
 
-            print(f"DEBUG _dispatch_board_lifecycle_notification: recipients={recipients}")
             if not recipients:
                 return False
 
