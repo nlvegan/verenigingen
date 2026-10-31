@@ -139,10 +139,11 @@ class TestChapterAssignmentService(EnhancedTestCase):
         """#1590: the refusal reason names the member's status only for a caller who can read the Member."""
         member = self._suspended_member_with_disabled_row()
         board = self.create_test_board_member(self.chapter.name)
-        self.assertFalse(frappe.has_permission("Member", "read", doc=member.name, user=board.user))
         before = frappe.session.user
         frappe.set_user(board.user)
         try:
+            # Control: this caller really cannot read the Member.
+            self.assertFalse(frappe.has_permission("Member", "read", doc=member.name))
             result = self._get_service().assign_member(member.name, self.chapter.name)
         finally:
             frappe.set_user(before)
