@@ -128,7 +128,8 @@ class TestHandlePayment(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_payment()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_missing_object_returns_400(self):
         self._install_request(body=b'{"id": "EX-NOOBJ"}')
@@ -146,8 +147,8 @@ class TestHandlePayment(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_payment()
         mock_proc.assert_called_once()
-        # Success response carries the order id + processing result.
-        self.assertIn("EX-OK", str(result))
+        # #1804: the ack carries neither the order id nor the processing result.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_rolls_back_and_500(self):
         self._install_request(body=b'{"id": "EX-ERR", "object": {"reference": "X", "status": {}}}')
@@ -193,7 +194,8 @@ class TestHandleMandate(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_mandate()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_success(self):
         self._install_request(body=b'{"id": "MAND-OK", "object": {"status": "active"}}')
@@ -203,7 +205,7 @@ class TestHandleMandate(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_mandate()
         mock_proc.assert_called_once()
-        self.assertIn("MAND-OK", str(result))
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_500(self):
         self._install_request(body=b'{"id": "MAND-ERR", "object": {"status": "x"}}')
@@ -245,7 +247,8 @@ class TestHandleDirectDebit(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_direct_debit()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_success(self):
         self._install_request(body=b'{"id": "DEBIT-OK", "object": {"status": "completed"}}')
@@ -255,7 +258,7 @@ class TestHandleDirectDebit(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_direct_debit()
         mock_proc.assert_called_once()
-        self.assertIn("DEBIT-OK", str(result))
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_500(self):
         self._install_request(body=b'{"id": "DEBIT-ERR", "object": {"status": "x"}}')
