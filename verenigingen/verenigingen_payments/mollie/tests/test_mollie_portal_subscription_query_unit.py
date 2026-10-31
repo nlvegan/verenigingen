@@ -59,6 +59,7 @@ class TestMolliePortalSubscriptionQueryUnit(PortalSelfServiceTestMixin, Enhanced
         super().setUp()
         self._env_patch = patch(_ENV_DETECT, return_value=EnvironmentLevel.DEVELOPMENT)
         self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
 
     def tearDown(self):
         self._env_patch.stop()
