@@ -40,9 +40,11 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
             "email": f"rc-{frappe.generate_hash(length=8)}@example.com",
             "birth_date": "1990-01-01",
             "address_line1": "1 Test Street",
-            "city": "Amsterdam",
-            # Outside every chapter's postal range a test creates, so no chapter is SUGGESTED;
-            # the precondition assertions below check that rather than trusting it.
+            # A city and postal code no chapter can match, so no chapter is SUGGESTED at submit:
+            # suggest_chapter_for_member also matches on the CITY, and CI shards carry shared
+            # chapters such as "Test Amsterdam Chapter" (this used "Amsterdam" and went red in CI).
+            # The precondition assertions below still check it rather than trusting it.
+            "city": f"Nergenshuizen-{frappe.generate_hash(length=6)}",
             "postal_code": "9999ZZ",
             "country": "Netherlands",
             "selected_membership_type": self.membership_type,
