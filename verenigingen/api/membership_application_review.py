@@ -84,6 +84,18 @@ def _check_member_exists_for_review(member_name, operation_label):
         frappe.throw(_("Invalid member reference"))
 
 
+def _refuse_unknown_chapter(chapter):
+    """#1860 (maintainer ruling): refuse an approval that names a chapter that does not exist,
+    before anything is written. It used to approve the member with no chapter row. Shared with
+    the application-record approval path (#1765), so both refuse with one message.
+
+    Call it after the permission gate, as with _check_member_exists_for_review: chapter names are
+    published, so this reveals nothing to a caller who got that far.
+    """
+    if chapter and not frappe.db.exists("Chapter", chapter):
+        frappe.throw(_("Chapter {0} does not exist").format(chapter))
+
+
 def _throw_membership_deletion_blocked(membership):
     """#1264 round 2: deleting a draft Membership during rejection can raise
     LinkExistsError if a Membership Dues Schedule linked to it is still
@@ -657,6 +669,7 @@ def approve_membership_application(
 
     validate_chapter_permission_or_throw(member_name, "approve")
     _check_member_exists_for_review(member_name, "approval")
+    _refuse_unknown_chapter(chapter)
 
     # Serialize concurrent approvals of the SAME member with a per-member advisory
     # lock. Without it, concurrent approvals each pass the idempotency guard while
