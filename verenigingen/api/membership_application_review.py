@@ -721,13 +721,6 @@ def _approve_membership_application_locked(
     membership_type = resolve_membership_type(member, membership_type)
     validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
-    # Assign member to chapter
-    assign_member_to_chapter(member, chapter)
-    if chapter:
-        member.reload()
-        member.update_current_chapter_display()
-        member.save()
-
     # Set the selected membership type in memory (will be saved during membership creation)
     try:
         member.selected_membership_type = membership_type
@@ -753,6 +746,16 @@ def _approve_membership_application_locked(
     membership = member.create_membership_on_approval(
         create_invoice=create_invoice, approval_fields=approval_fields
     )
+
+    # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
+    # add_member derives a NEW row's enabled/status from the Member's current status; run
+    # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
+    # activation step below (it only flips 'Pending' rows) never repaired.
+    assign_member_to_chapter(member, chapter)
+    if chapter:
+        member.reload()
+        member.update_current_chapter_display()
+        member.save()
 
     # Activate any pre-existing pending Chapter Member rows. The application
     # form creates a Chapter Member row in status "Pending" when the applicant
