@@ -50,7 +50,6 @@ class AuditEmitter:
     # Functions that never need audit logging (status checks)
     SKIP_AUDIT_FUNCTIONS = [
         "can_suspend_member",
-        "get_suspension_status",
         "can_terminate_member",
         "is_chapter_management_enabled",
         "check_donor_exists",

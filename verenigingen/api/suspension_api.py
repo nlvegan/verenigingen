@@ -223,40 +223,6 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_suspension_status(member_name: str) -> OperationResult[Dict[str, Any]]:
-    """
-    Get suspension status for a member (admin/staff use only)
-    """
-    try:
-        from verenigingen.utils.termination_integration import get_member_suspension_status
-
-        status_data = get_member_suspension_status(member_name)
-        return OperationResult.ok(status_data, message=_("Suspension status retrieved successfully"))
-    except frappe.PermissionError as e:
-        # Return graceful error instead of throwing exception
-        frappe.log_error(
-            f"Permission denied for {frappe.session.user} to get suspension status of {member_name}: {str(e)}",
-            "Suspension API Permission Error",
-        )
-        return OperationResult.fail(
-            _("Access denied. This function requires administrative privileges."),
-            error_code="PERMISSION_DENIED",
-            data={
-                "required_action": _(
-                    "Please contact an administrator if you need to check suspension status."
-                )
-            },
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting suspension status for member {member_name}: {str(e)}\n{traceback.format_exc()}",
-            "Admin Suspension Status Error",
-        )
-        return OperationResult.fail(_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR")
-
-
-@frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
 def can_suspend_member(member_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
