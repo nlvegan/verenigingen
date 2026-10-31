@@ -198,9 +198,15 @@ class PontoPaymentLink(Document):
             formatted_description = self.format_description(self.description)
 
         # Build redirect URI for callback
+        # The cancel_token proves, on the guest-reachable callback, that an
+        # `error=access_denied` comes from the browser we sent to Ponto (#1815).
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import CANCEL_TOKEN_PURPOSE
+
+        cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
         callback_url = get_url(
             f"/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"
-            f"?payment_link={self.name}"
+            f"?payment_link={self.name}&cancel_token={cancel_token}"
         )
 
         try:

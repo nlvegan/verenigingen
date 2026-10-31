@@ -25,8 +25,14 @@ import frappe
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import public_api
+from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
 from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.service_user import get_service_user
+
+# Scopes the signed `cancel_token` minted into the redirect_uri at signing start
+# (PontoPaymentRequest.create_ponto_payment). A different purpose string from the #1055
+# payment-success token, so neither verifies as the other.
+CANCEL_TOKEN_PURPOSE = "ponto_payment_request_cancel"
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -37,7 +43,11 @@ def payment_callback():
 
     Query Parameters:
         payment_request: Name of the Ponto Payment Request document
-        error, error_description: sent by Ponto on a failed signing; IGNORED (#1815)
+        error: `access_denied` cancels a Pending request ONLY with a valid `cancel_token`
+            (minted into the redirect_uri at signing start); any other error, or a missing
+            or invalid token, is ignored (#1815)
+        error_description: ignored
+        cancel_token: signed proof that this browser was sent to Ponto for this request
 
     Returns:
         Redirect to appropriate page based on result
@@ -63,10 +73,12 @@ def payment_callback():
         frappe.local.response["location"] = get_url("/desk")
         return
 
-    # The query string is attacker-controlled (this is an allow_guest GET), so nothing in it
-    # decides a status: not `error`, not `error_description` (#1815). Ponto is the authority,
-    # and `refresh_status()` asks it. A signing the user abandoned stays Pending until Ponto
-    # (or the webhook) says otherwise.
+    # The query string is attacker-controlled (this is an allow_guest GET), so no status comes
+    # from it (#1815), with ONE ruled exception: `error=access_denied` plus a valid
+    # `cancel_token` (HMAC of this request's name, minted when signing started) marks a
+    # Pending request Cancelled. Everything else asks Ponto, the authority, via
+    # `refresh_status()`. Requests created before the token existed carry none and so
+    # always take the Ponto path.
     #
     # Known and unknown names must be indistinguishable to the caller, so both redirect to the
     # same document URL, and the messages `refresh_status()` raises are dropped from the
@@ -76,7 +88,8 @@ def payment_callback():
 
     try:
         if frappe.db.exists("Ponto Payment Request", payment_request_name):
-            _refresh_from_ponto(payment_request_name)
+            if not _cancel_if_proved(payment_request_name):
+                _refresh_from_ponto(payment_request_name)
         else:
             frappe.logger().warning("Payment callback for unknown request")
 
@@ -92,6 +105,22 @@ def payment_callback():
         )
         frappe.local.response["type"] = "redirect"
         frappe.local.response["location"] = get_url("/desk")
+
+
+def _cancel_if_proved(payment_request_name):
+    """Cancel a Pending request on a token-proved access_denied. True when it did."""
+    args = frappe.request.args
+    if args.get("error") != "access_denied":
+        return False
+    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_request_name, args.get("cancel_token")):
+        return False
+    doc = frappe.get_doc("Ponto Payment Request", payment_request_name)
+    if doc.status != "Pending":
+        return False
+    doc.status = "Cancelled"
+    # The webhook user has write permission on Ponto Payment Request (added 2026-01-10).
+    doc.save()
+    return True
 
 
 def _refresh_from_ponto(payment_request_name):
