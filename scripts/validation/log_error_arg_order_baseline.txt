@@ -77,7 +77,7 @@ verenigingen/api/member/financial_api.py::sync_member_dues_rate::1
 verenigingen/api/member/sepa_api.py::create_and_link_mandate_enhanced::1
 verenigingen/api/member/sepa_api.py::setup_sepa_direct_debit::1
 verenigingen/api/member_management.py::_sanitize_member_filters::1
-verenigingen/api/member_management.py::add_member_to_chapter_roster::2
+verenigingen/api/member_management.py::add_member_to_chapter_roster::1
 verenigingen/api/member_management.py::bulk_assign_members_to_chapters::1
 verenigingen/api/member_management.py::get_members_without_chapter::1
 verenigingen/api/membership_application.py::_create_pending_chapter_membership_safe::1

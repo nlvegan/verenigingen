@@ -323,7 +323,13 @@ class TestChapterMemberPerformance(EnhancedTestCase):
         # (This bench runs ~5 more queries than CI, so set the cap from CI's figure; #1742.)
         # The floor is now 289, superseding the 267 above. 290 sits above it and below 299,
         # where the redundant pre-lock pass above would land.
-        with self.assertQueryCount(290):
+        #
+        # 290 -> 205 for #1743: `_get_member_name` reads one row instead of loading each
+        # Member in full (9 child-table selects each), so the 10-member save drops by 90.
+        # Measured on test_site_2 with develop 0ff1da804 merged in: develop 294 -> branch 204
+        # (same command). CI should read ~199 (#1742). 205 sits above both, and the
+        # redundant pre-lock pass (+10) would still trip it.
+        with self.assertQueryCount(205):
             for member in members:
                 chapter.append("members", {"member": member.name, "enabled": 1, "status": "Active"})
             chapter.save()

@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, today
+from frappe.utils import cstr, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -18,6 +18,8 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Fields approve_request writes; restored on the in-memory doc when the save is rolled back.
 REVIEW_FIELDS = ("status", "reviewed_by", "review_date", "review_notes")
+# The review audit trail; written only by approve_request / reject_request (#1745).
+AUDIT_FIELDS = ("reviewed_by", "review_date", "review_notes", "rejection_reason")
 
 
 class ChapterJoinRequest(Document):
@@ -48,21 +50,38 @@ class ChapterJoinRequest(Document):
         self.validate_status_change()
 
     def validate_status_change(self):
-        """Only approve_request / reject_request may move status (#1704).
+        """Only approve_request / reject_request may move status or write the review trail
+        (#1704, #1745).
 
-        status is allow_on_submit and writable by every role with write access (Member, Staff,
-        Chapter Board Member, Administrator), so a form save or REST PUT could otherwise set
-        Approved with no Chapter Member row, and a REST insert could create a request that is
-        born Approved. The two review methods set flags.review_in_progress; a client cannot.
+        status and the review fields (who reviewed, when, why) are allow_on_submit and writable
+        by every role with write access (Member, Staff, Chapter Board Member, Administrator), so
+        a form save or REST PUT could otherwise set Approved with no Chapter Member row, or
+        rewrite who approved a request afterwards, and a REST insert could create a request that
+        is born Approved or born reviewed. The two review methods set flags.review_in_progress; a
+        client cannot.
         """
         if self.get_doc_before_save() is None:
             if self.amended_from:
-                # An amendment copies the cancelled request's status; it needs a fresh review.
+                # An amendment copies the cancelled request; it needs a fresh review.
                 self.status = "Pending"
+                for field in AUDIT_FIELDS:
+                    self.set(field, None)
             elif self.status != "Pending":
                 frappe.throw(_("A new join request must start as Pending"))
-        elif self.has_value_changed("status") and not self.flags.review_in_progress:
-            frappe.throw(_("The status can only be changed by approving or rejecting the request"))
+            elif any(self.get(field) for field in AUDIT_FIELDS):
+                frappe.throw(_("A new join request cannot carry a review"))
+        elif not self.flags.review_in_progress:
+            if self.has_value_changed("status"):
+                frappe.throw(_("The status can only be changed by approving or rejecting the request"))
+            if self._audit_field_changed():
+                frappe.throw(_("The review details can only be set by approving or rejecting the request"))
+
+    def _audit_field_changed(self):
+        """True when a review field differs from the saved row. NULL and "" count as equal: a form
+        round-trip sends "" for a field the database holds as NULL (e.g. review_notes on a rejected
+        request), and refusing that would block a save that changes nothing."""
+        before = self.get_doc_before_save()
+        return any(cstr(self.get(f)) != cstr(before.get(f)) for f in AUDIT_FIELDS)
 
     def before_update_after_submit(self):
         """Frappe runs this, not validate(), when a SUBMITTED request is saved again."""

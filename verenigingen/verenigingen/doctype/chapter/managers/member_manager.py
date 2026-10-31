@@ -271,6 +271,21 @@ class MemberManager(BaseManager):
                 "Member added", {"member": member_id, "member_name": member_doc.full_name, "enabled": enabled}
             )
 
+            # Report what was actually written, not that the branch ran (#1582, same
+            # contract as the re-enable branch above). The row exists, but when the
+            # caller asked for an enabled member and the derived row is disabled the
+            # member is as invisible to the board as before the call, so every
+            # consumer (assign_member_to_chapter's tracking-field update and its
+            # "has been assigned" toast, bulk_add_members' count) must not read it as
+            # a success. A caller who asked for enabled=False got what they asked for.
+            if enabled and not chapter_enabled:
+                return {
+                    "success": False,
+                    "message": self._added_disabled_message(member_doc),
+                    "member": new_member,
+                    "action": "added_disabled",
+                }
+
             return {
                 "success": True,
                 "message": _("Member added successfully"),
@@ -1162,16 +1177,34 @@ class MemberManager(BaseManager):
         """Get member name, with caching"""
         if member_id not in self.member_cache:
             try:
-                member_doc = frappe.get_doc("Member", member_id)
-                self.member_cache[member_id] = member_doc.full_name
+                # One row, not the whole Member and its child tables (#1743). A missing
+                # Member gives None here where get_doc raised, so it falls back the same way.
+                row = frappe.db.get_value("Member", member_id, ["name", "full_name"], as_dict=True)
+                self.member_cache[member_id] = row.full_name if row else member_id
             except Exception:
                 self.member_cache[member_id] = member_id
 
         return self.member_cache[member_id]
 
+    @staticmethod
+    def _caller_may_read_member(member_doc) -> bool:
+        """Whether the current user may see this Member's status (#1590). A chapter
+        board approver can reach add_member without read access to the Member."""
+        return bool(frappe.has_permission("Member", "read", doc=member_doc.name))
+
+    def _added_disabled_message(self, member_doc) -> str:
+        """The failure text for a new row that came out disabled. The member's status
+        is named only to a caller who may read the Member, as #1591 does for
+        not_reenabled; anyone else gets the same refusal without it."""
+        if not self._caller_may_read_member(member_doc):
+            return _("The member was added to this chapter, but disabled")
+        return _(
+            "Member {0} was added to this chapter disabled: their status ({1}) keeps them disabled"
+        ).format(self._get_member_name(member_doc.name), member_doc.status)
+
     def _validate_member_data(self, member_doc, introduction: str = None, website_url: str = None):
         """Validate member data"""
-        if member_doc.status != "Active":
+        if member_doc.status != "Active" and self._caller_may_read_member(member_doc):
             frappe.msgprint(
                 _("Warning: Member {0} is not active (status: {1})").format(
                     member_doc.full_name, member_doc.status

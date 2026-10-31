@@ -94,10 +94,17 @@ class TestMollieSettingsCoverage(EnhancedTestCase):
         self.assertIn("mollie_payment_webhook", test_url)
 
     def test_subscription_webhook_url(self):
-        """Subscription webhook URL is HTTPS and targets the subscription endpoint."""
+        """Subscription webhook URL is HTTPS and targets the guest-reachable payment webhook.
+
+        The old premise (the URL must name ``mollie_subscription_webhook``) encoded #1771:
+        that function is not allow_guest, so Mollie's anonymous POST was refused. The
+        reachability of every provider URL is pinned in
+        tests/payment/test_provider_webhook_urls_guest_reachable.py.
+        """
         url = self.settings.get_subscription_webhook_url()
         self.assertTrue(url.startswith("https://"))
-        self.assertIn("mollie_subscription_webhook", url)
+        self.assertIn("mollie_payment_webhook", url)
+        self.assertNotIn("mollie_subscription_webhook", url)
 
     def test_update_webhook_urls_populates_fields(self):
         """update_webhook_urls writes the computed per-env URLs onto the document."""

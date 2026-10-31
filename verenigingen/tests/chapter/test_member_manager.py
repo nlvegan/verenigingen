@@ -101,14 +101,51 @@ class TestMemberManager(VereningingenTestCase):
     def test_add_member_inactive_member_is_disabled_in_chapter(self):
         # Members who are not Active should be force-disabled / Inactive in the
         # chapter regardless of the requested enabled flag.
+        #
+        # #1582: the row is created, but the call must NOT report success -- the
+        # member is exactly as invisible to the board as if nothing had been added
+        # (same contract as #1564's re-enable branch).
         suspended = self._make_member(status="Suspended", first="Suspended")
         result = self.manager.add_member(suspended.name, enabled=True, notify=False)
-        self.assertTrue(result["success"])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["action"], "added_disabled")
 
         self._reload_chapter()
         row = self.manager._find_chapter_member(suspended.name)
         self.assertFalse(row.enabled)
         self.assertEqual(row.status, "Inactive")
+
+    def test_add_member_new_row_reports_disabled_outcome_for_every_non_active_status(self):
+        # #1582: every status _derive_membership_status maps to (0, Inactive).
+        # Real flow: create_test_member(status=...) then add_member; the row's
+        # actual state is read back and must agree with the reported outcome.
+        for status in ("Pending", "Suspended", "Quit", "Deceased"):
+            with self.subTest(status=status):
+                member = self._make_member(status=status, first=f"New{status}")
+                result = self.manager.add_member(member.name, enabled=True, notify=False)
+                self._reload_chapter()
+                row = self.manager._find_chapter_member(member.name)
+                self.assertIsNotNone(row)
+                self.assertFalse(row.enabled)
+                self.assertFalse(result["success"], result)
+                self.assertEqual(result["action"], "added_disabled")
+
+    def test_add_member_new_row_explicit_disabled_request_is_still_success(self):
+        # Control for #1582: the caller ASKED for enabled=False on an Active
+        # member, so a disabled row is the requested outcome, not a failure. A
+        # fix keyed on the row's enabled flag alone would break this.
+        result = self.manager.add_member(self.member.name, enabled=False, notify=False)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action"], "added")
+        self._reload_chapter()
+        self.assertFalse(self.manager._find_chapter_member(self.member.name).enabled)
+
+    def test_add_member_new_row_outcome_names_status_to_a_reader(self):
+        # #1582: a caller who may read the Member is told why (an unreadable caller
+        # is covered in the join-request coverage tests, which need a board seat).
+        suspended = self._make_member(status="Suspended", first="Disclose")
+        result = self.manager.add_member(suspended.name, enabled=True, notify=False)
+        self.assertIn("Suspended", result["message"])
 
     def test_add_member_honours_explicit_join_date(self):
         result = self.manager.add_member(self.member.name, join_date="2024-01-15", notify=False)
@@ -737,3 +774,24 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIn("recent_additions", summary)
         self.assertIn("recent_removals", summary)
         self.assertIn("last_updated", summary)
+
+    # ------------------------------------------------------------------ _get_member_name
+
+    def test_get_member_name_returns_the_members_full_name(self):
+        other = self._make_member(first="NameLookup")
+        self.assertEqual(self.manager._get_member_name(other.name), other.full_name)
+
+    def test_get_member_name_falls_back_to_the_id_for_an_unknown_member(self):
+        self.assertEqual(self.manager._get_member_name("MEM-DOES-NOT-EXIST-1743"), "MEM-DOES-NOT-EXIST-1743")
+        # A caller passes member.get("member", ""); that must not resolve to some other row.
+        self.assertEqual(self.manager._get_member_name(""), "")
+
+    def test_get_member_name_reads_one_row_not_the_whole_member(self):
+        """#1743: it used to load the whole Member (one select per child table) to read
+        ``full_name``; a chapter save calls it once per added member."""
+        other = self._make_member(first="NameLookupCost")
+        manager = self.manager
+        # Warm per-process metadata on a different member so the count is the lookup alone.
+        manager._get_member_name(self.member.name)
+        with self.assertQueryCount(1):
+            manager._get_member_name(other.name)

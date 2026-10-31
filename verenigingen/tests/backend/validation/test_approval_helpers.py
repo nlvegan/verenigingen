@@ -210,11 +210,16 @@ class TestBuildApprovalResponse(EnhancedTestCase):
         invoice = frappe._dict(name="SINV-001")
         billing_amount = 25.0
 
+        # Same shape as create_secure_user_account_for_member's OperationResult.to_dict():
+        # action / account_request are nested under "meta" (#1739).
         user_result = {"success": success}
+        meta = {}
         if action:
-            user_result["action"] = action
+            meta["action"] = action
         if account_request:
-            user_result["account_request"] = account_request
+            meta["account_request"] = account_request
+        if meta:
+            user_result["meta"] = meta
 
         return _build_approval_response(member, invoice, billing_amount, user_result)
 

@@ -429,8 +429,9 @@ def add_member_to_chapter_roster(member_name, new_chapter):
 
             if not result.get("success"):
                 frappe.log_error(
-                    f"Failed to add member {member_name} to chapter {new_chapter}: {result.get('error')}",
-                    "Chapter Roster Update Error",
+                    title="Chapter Roster Update Error",
+                    message=f"Failed to add member {member_name} to chapter {new_chapter}: "
+                    f"{result.get('error') or result.get('message')}",
                 )
 
     except Exception as e:

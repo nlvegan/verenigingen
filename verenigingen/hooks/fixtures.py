@@ -66,7 +66,21 @@ fixtures = [
     },
     {
         "doctype": "Workflow Action Master",
-        "filters": [["workflow_action_name", "in", ["Execute"]]],
+        "filters": [
+            [
+                "workflow_action_name",
+                "in",
+                [
+                    "Execute",
+                    # Periodic Donation Agreement Workflow (#1700)
+                    "Submit for Verification",
+                    "Verify and Activate",
+                    "Return to Draft",
+                    "Complete Agreement",
+                    "Cancel Agreement",
+                ],
+            ]
+        ],
     },
     # =========================================================================
     # ROLES AND PROFILES

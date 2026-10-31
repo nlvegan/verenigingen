@@ -394,6 +394,16 @@ def _activate_volunteer_if_requested(member, activate_as_volunteer):
     return should_activate_volunteer
 
 
+def _account_meta(user_creation_result):
+    """The account outcome's ``action`` / ``account_request`` live under ``meta``.
+
+    ``create_secure_user_account_for_member`` returns ``OperationResult.to_dict()``, which
+    nests them there; reading them at the top level never matched (#1739). The failure dicts
+    built in ``_create_user_account_safe`` have no ``meta`` and yield ``{}``.
+    """
+    return user_creation_result.get("meta") or {}
+
+
 def _create_user_account_safe(member, should_activate_volunteer):
     """Create user account with error handling. Non-critical - approval continues on failure."""
     user_creation_result = {"success": False, "error": "Not attempted"}
@@ -410,13 +420,14 @@ def _create_user_account_safe(member, should_activate_volunteer):
 
     # AccountCreationManager handles all user document management
     # including role assignment, refreshing, and linking - no manual intervention needed
-    if user_creation_result.get("action") == "queued_secure":
+    account_meta = _account_meta(user_creation_result)
+    if account_meta.get("action") == "queued_secure":
         frappe.logger().info(
             f"User account creation queued for member {member.name} - AccountCreationManager will handle all user setup"
         )
     elif user_creation_result.get("success"):
         frappe.logger().info(
-            f"User account {'linked' if user_creation_result.get('action') == 'linked_existing' else 'processed'} for member {member.name}"
+            f"User account {'linked' if account_meta.get('action') == 'linked_existing' else 'processed'} for member {member.name}"
         )
 
     return user_creation_result
@@ -458,22 +469,23 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
     message = _("Application approved. Invoice sent to applicant.")
     user_account_status = "pending"
     user_account_error_code = None
+    account_meta = _account_meta(user_creation_result)
 
     if user_creation_result.get("success"):
-        if user_creation_result.get("action") in ["created_new", "created_new_immediate"]:
+        if account_meta.get("action") in ["created_new", "created_new_immediate"]:
             message += _(" User account created for portal access.")
             user_account_status = "created"
-            if user_creation_result.get("action") == "created_new_immediate":
+            if account_meta.get("action") == "created_new_immediate":
                 # Show success message for immediate processing
                 frappe.msgprint(
                     _("✅ User account created successfully! The member can now log in to the portal."),
                     title=_("Account Created"),
                     indicator="green",
                 )
-        elif user_creation_result.get("action") == "linked_existing":
+        elif account_meta.get("action") == "linked_existing":
             message += _(" Linked to existing user account.")
             user_account_status = "linked"
-        elif user_creation_result.get("action") == "queued_secure":
+        elif account_meta.get("action") == "queued_secure":
             message += _(
                 " User account creation queued for secure background processing"
                 " - member will receive portal access within 2-3 minutes."
@@ -510,11 +522,11 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
         "user_account_status": user_account_status,
         # Enhanced progress tracking for better UX
         "progress_tracking": {
-            "account_request_id": user_creation_result.get("account_request"),
+            "account_request_id": account_meta.get("account_request"),
             "estimated_completion": "2-3 minutes" if user_account_status == "queued" else None,
             "tracking_url": (
-                f"/app/account-creation-request/{user_creation_result.get('account_request')}"
-                if user_creation_result.get("account_request")
+                f"/app/account-creation-request/{account_meta.get('account_request')}"
+                if account_meta.get("account_request")
                 else None
             ),
         },

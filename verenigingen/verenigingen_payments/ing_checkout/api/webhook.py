@@ -27,6 +27,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -142,7 +143,7 @@ def handle_payment():
 
     try:
         # STEP 0: Rate limiting (before any expensive operations)
-        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        ip_address = get_client_ip()
         # Use event ID from form data if available
         webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
 
@@ -307,7 +308,7 @@ def handle_mandate():
 
     try:
         # STEP 0: Rate limiting (before any expensive operations)
-        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        ip_address = get_client_ip()
         webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
 
         rate_limiter = get_webhook_rate_limiter()
@@ -423,7 +424,7 @@ def handle_direct_debit():
 
     try:
         # STEP 0: Rate limiting (before any expensive operations)
-        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        ip_address = get_client_ip()
         webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
 
         rate_limiter = get_webhook_rate_limiter()

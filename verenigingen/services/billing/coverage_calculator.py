@@ -83,6 +83,7 @@ class CoverageCalculator(StatelessService):
             self.custom_frequency_unit = getattr(schedule_doc, "custom_frequency_unit", None)
             self.member_name = schedule_doc.member
             self.next_invoice_date = getattr(schedule_doc, "next_invoice_date", None)
+            self.coverage_anchor_date = getattr(schedule_doc, "coverage_anchor_date", None)
         else:
             # Utility-only mode - schedule-specific methods will fail
             self.schedule_name = None
@@ -91,6 +92,7 @@ class CoverageCalculator(StatelessService):
             self.custom_frequency_unit = None
             self.member_name = None
             self.next_invoice_date = None
+            self.coverage_anchor_date = None
 
     # ========== Primary Public API ==========
 
@@ -298,7 +300,7 @@ class CoverageCalculator(StatelessService):
             member_doc = frappe.get_doc("Member", self.member_name)
 
         if not member_doc.customer:
-            return None
+            return self._floor_at_coverage_anchor(None)
 
         # Query for the absolute latest submitted invoice with coverage dates
         latest_invoice = frappe.db.sql(
@@ -315,9 +317,22 @@ class CoverageCalculator(StatelessService):
             as_dict=True,
         )
 
-        if latest_invoice:
-            return latest_invoice[0].custom_coverage_end_date
-        return None
+        latest_end = latest_invoice[0].custom_coverage_end_date if latest_invoice else None
+        return self._floor_at_coverage_anchor(latest_end)
+
+    def _floor_at_coverage_anchor(self, latest_end):
+        """Coverage that ended before the schedule's anchor is not chained onto.
+
+        A rejoining member's earlier invoices end before the new membership starts. Building on
+        them would bill every month in between as catch-up, so the day before the anchor stands
+        in for them. Once an invoice reaches the anchor this changes nothing.
+        """
+        if not self.coverage_anchor_date:
+            return latest_end
+        before_anchor = add_days(getdate(self.coverage_anchor_date), -1)
+        if latest_end is None or getdate(latest_end) < before_anchor:
+            return before_anchor
+        return latest_end
 
     # ========== Utility Methods ==========
 
