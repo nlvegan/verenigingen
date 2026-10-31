@@ -574,13 +574,142 @@ class TestChapterJoinRequest(EnhancedTestCase):
             with self.assertRaises(frappe.ValidationError):
                 doc.insert()
 
-    def test_other_review_fields_still_save_without_a_status_change(self):
-        """Control: the guard keys on a status CHANGE, not on any post-submit save."""
+    def test_a_post_submit_save_that_changes_no_review_field_still_works(self):
+        """Control: the guards key on a CHANGE to a review field, not on any post-submit save.
+        (Replaces a control that saved review_notes by hand; #1745 makes that a refusal, as the
+        notes are audit data - the premise "a bare notes edit is fine" was the defect.)"""
         request = self._submitted_request()
         doc = frappe.get_doc("Chapter Join Request", request.name)
-        doc.review_notes = "note only"
         doc.save()
         self.assertEqual(self._status_in_db(request), "Pending")
+
+    # ----- #1745: the review audit trail is writable only through approve/reject ----------
+
+    def test_saving_an_already_reviewed_request_unchanged_still_works(self):
+        """Control with a real row for the wrong behaviour: the review fields are POPULATED here,
+        so a guard that refuses "any review field set" (instead of "changed") would fire."""
+        request = self._submitted_request()
+        request.reject_request(reason="no")
+        before = self._review_fields_in_db(request)
+        self.assertTrue(all(before[:2]) and before[3])
+        doc = frappe.get_doc("Chapter Join Request", request.name)
+        doc.save()
+        self.assertEqual(self._review_fields_in_db(request), before)
+
+    REVIEW_AUDIT_FIELDS = ("reviewed_by", "review_date", "review_notes", "rejection_reason")
+
+    def _review_fields_in_db(self, request):
+        return frappe.db.get_value("Chapter Join Request", request.name, list(self.REVIEW_AUDIT_FIELDS))
+
+    def _forged_value(self, field):
+        return {"reviewed_by": "Guest", "review_date": "2001-01-01"}.get(field, "forged")
+
+    def test_a_form_save_cannot_write_a_review_field_for_any_writer_role(self):
+        """#1745: get_doc + set + save, permission-checked, on a Pending AND on a reviewed request."""
+        pending = self._submitted_request()
+        reviewed = self._submitted_request(self.test_member2)
+        reviewed.approve_request(notes="genuine note")
+        for request in (pending, reviewed):
+            before = self._review_fields_in_db(request)
+            for role in self.WRITE_ROLES:
+                for field in self.REVIEW_AUDIT_FIELDS:
+                    with self.subTest(request=request.name, role=role, field=field):
+                        with self._as_user_with_role(role):
+                            doc = frappe.get_doc("Chapter Join Request", request.name)
+                            doc.set(field, self._forged_value(field))
+                            with self.assertRaises(frappe.ValidationError) as ctx:
+                                doc.save()
+                        self.assertIn("approving or rejecting", str(ctx.exception))
+                        self.assertEqual(self._review_fields_in_db(request), before)
+
+    def test_an_empty_string_for_a_null_review_field_is_not_a_review_change(self):
+        """#1745 review F1: a form round-trip sends "" for a field the DB holds as NULL. A rejected
+        request has review_notes NULL (only rejection_reason is written), so saving "" there is
+        not a change and must not be refused."""
+        request = self._submitted_request()
+        request.reject_request(reason="no")
+        self.assertIsNone(self._review_fields_in_db(request)[2])  # review_notes really NULL
+        for role in self.WRITE_ROLES:
+            with self.subTest(role=role):
+                with self._as_user_with_role(role):
+                    doc = frappe.get_doc("Chapter Join Request", request.name)
+                    doc.review_notes = ""
+                    doc.save()
+
+    def test_rest_set_value_cannot_write_a_review_field(self):
+        """#1745: the frappe.client.set_value channel is the REST PUT shape."""
+        from frappe.client import set_value
+
+        request = self._submitted_request()
+        before = self._review_fields_in_db(request)
+        with self._as_user_with_role("Verenigingen Staff"):
+            for field in self.REVIEW_AUDIT_FIELDS:
+                with self.assertRaises(frappe.ValidationError):
+                    set_value("Chapter Join Request", request.name, field, self._forged_value(field))
+        self.assertEqual(self._review_fields_in_db(request), before)
+
+    def test_a_new_request_cannot_be_inserted_with_a_review_trail(self):
+        """#1745: a REST insert can write review fields as easily as an edit can."""
+        for field in self.REVIEW_AUDIT_FIELDS:
+            with self.subTest(field=field):
+                with self._as_user_with_role("Verenigingen Member"):
+                    doc = frappe.get_doc(
+                        {
+                            "doctype": "Chapter Join Request",
+                            "member": self.test_member.name,
+                            "chapter": self.test_chapter.name,
+                            "introduction": "Born reviewed",
+                            field: self._forged_value(field),
+                        }
+                    )
+                    with self.assertRaises(frappe.ValidationError):
+                        doc.insert()
+
+    def test_approve_and_reject_still_write_the_review_trail(self):
+        """The legitimate writers, through the real controller methods as a Staff user."""
+        to_approve = self._submitted_request(self.test_member)
+        to_reject = self._submitted_request(self.test_member2)
+        with self._as_user_with_role("Verenigingen Staff"):
+            reviewer = frappe.session.user
+            frappe.get_doc("Chapter Join Request", to_approve.name).approve_request(notes="welcome")
+            frappe.get_doc("Chapter Join Request", to_reject.name).reject_request(reason="not eligible")
+        approved = frappe.db.get_value(
+            "Chapter Join Request",
+            to_approve.name,
+            ["reviewed_by", "review_date", "review_notes"],
+            as_dict=True,
+        )
+        self.assertEqual(
+            (approved.reviewed_by, str(approved.review_date), approved.review_notes),
+            (reviewer, today(), "welcome"),
+        )
+        rejected = frappe.db.get_value(
+            "Chapter Join Request",
+            to_reject.name,
+            ["reviewed_by", "review_date", "rejection_reason"],
+            as_dict=True,
+        )
+        self.assertEqual(
+            (rejected.reviewed_by, str(rejected.review_date), rejected.rejection_reason),
+            (reviewer, today(), "not eligible"),
+        )
+
+    def test_an_amendment_does_not_inherit_the_cancelled_requests_review_trail(self):
+        """#1745: amend copies the cancelled request, review fields included; the amendment needs a
+        fresh review, as status already does (#1704). Without clearing, the new insert's blank-
+        trail rule would refuse every amendment of a reviewed request."""
+        request = self._submitted_request()
+        request.reject_request(reason="first review")  # (an approval would make them a member)
+        request.reload()
+        self.assertTrue(request.rejection_reason and request.reviewed_by and request.review_date)
+        request.cancel()
+        amended = frappe.copy_doc(frappe.get_doc("Chapter Join Request", request.name))
+        amended.amended_from = request.name
+        amended.docstatus = 0  # what the Amend button does; copy_doc keeps the cancelled 2
+        amended.insert()
+        self.assertEqual(
+            [amended.get(f) for f in self.REVIEW_AUDIT_FIELDS], [None] * len(self.REVIEW_AUDIT_FIELDS)
+        )
 
     def test_approve_and_reject_still_move_status_for_a_non_admin_reviewer(self):
         """The legitimate paths, through the real controller methods as a Staff user. (The
