@@ -464,12 +464,14 @@ class TestRejectApplication(ApprovalCase):
 
     def test_reject_new_applicant_creates_nothing(self):
         name = self._stage_and_confirm()
-        before = {dt: frappe.db.count(dt) for dt in ("Member", "Address", "Customer", "Contact")}
+        doctypes = ("Member", "Address", "Customer", "Contact", "Volunteer", "Chapter Member", "Chapter Membership History")
+        before = {dt: frappe.db.count(dt) for dt in doctypes}
 
         result = self._reject_as(name, rejection_category="Other", internal_notes="staff only")
 
         self.assertTrue(result["success"], result)
         self.assertEqual(before, {dt: frappe.db.count(dt) for dt in before})
+        self.assertEqual(frappe.db.count("Volunteer", {"email": self.email}), 0)
         self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
         row = frappe.db.get_value(
             SUBMISSION, name, ["status", "reviewed_by", "review_date", "review_notes", "rejection_category"], as_dict=True
@@ -542,6 +544,46 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual((calls[0]["reference_doctype"], calls[0]["reference_name"]), (SUBMISSION, name))
         self.assertEqual(calls[0]["context"]["rejection_category"], "Other")
         self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
+
+    def _reject_with_mail_service(self, name, **service):
+        from verenigingen.services.communication.email_service import EmailService
+
+        # Mock justified: External Service - the mail service's outcome is the input under test
+        with patch.object(EmailService, "send_templated_email", **service):
+            return self._reject_as(name)
+
+    def test_mail_failure_is_reported_logged_and_keeps_the_rejection(self):
+        from verenigingen.utils.operation_result import OperationResult
+
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Rejection mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]})
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+
+        result = self._reject_with_mail_service(name, return_value=OperationResult.fail("smtp boom"))
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]}), errors + 1)
+        self.assertIn("smtp boom", frappe.get_all("Error Log", {"method": ["like", "Rejection mail failed%"]}, "error", order_by="creation desc", limit=1)[0].error)
+
+    def test_mail_service_raising_is_reported_logged_and_keeps_the_rejection(self):
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Rejection mail raised")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail raised%"]})
+
+        result = self._reject_with_mail_service(name, side_effect=RuntimeError("service down"))
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+        self.assertFalse(result["mail_sent"])
+        self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail raised%"]}), errors + 1)
 
     def test_invalid_email_template_refused_before_anything_is_written(self):
         name = self._stage_and_confirm()

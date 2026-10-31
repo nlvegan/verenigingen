@@ -935,10 +935,46 @@ def reject_application(
                 "rejection_category": sanitized["rejection_category"],
             }
         )
-    send_application_rejection_notification(
-        application, sanitized["reason"], sanitized["email_template"], sanitized["rejection_category"]
+    if not _notify_rejection_reporting_failure(application, sanitized):
+        message = _(
+            "Application rejected, but the notification mail could not be sent. Contact the applicant."
+        )
+        frappe.msgprint(message, indicator="orange", alert=True)
+        return {"success": True, "mail_sent": False, "message": message}
+    return {
+        "success": True,
+        "mail_sent": True,
+        "message": _("Application rejected. Notification sent to applicant."),
+    }
+
+
+def _notify_rejection_reporting_failure(application, sanitized) -> bool:
+    """Mail the applicant; False (and an Error Log row) when the mail failed or the service raised.
+
+    The rejection stays committed either way: the decision is made, a mail is a side effect, and rolling
+    back would make the reviewer redo a decision because an SMTP-side service failed. The reviewer is told
+    instead (the caller turns False into a visible message).
+    """
+    try:
+        result = send_application_rejection_notification(
+            application, sanitized["reason"], sanitized["email_template"], sanitized["rejection_category"]
+        )
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # the server already discarded the transaction: the rejection is gone, so do not report success
+    except Exception:  # swallow-ok: caller-checks (False is reported to the reviewer; traceback logged)
+        frappe.log_error(
+            title=f"Rejection mail raised for application {application.name}", message=frappe.get_traceback()
+        )
+        return False
+    if result.success:
+        return True
+    frappe.log_error(
+        title=f"Rejection mail failed for application {application.name}",
+        message="; ".join(result.errors or [])
+        or result.error_message
+        or "no error detail from the email service",
     )
-    return {"success": True, "message": _("Application rejected. Notification sent to applicant.")}
+    return False
 
 
 def _rejection_review_notes(sanitized):
@@ -1169,7 +1205,7 @@ def send_approval_notification(member, invoice, membership_type):
 
 def send_rejection_notification(member, reason, email_template=None, rejection_category=None):
     """Send rejection notification to applicant using specified template - MIGRATED to unified EmailService"""
-    _send_rejection_email(
+    result = _send_rejection_email(
         member,
         reason,
         email_template,
@@ -1178,6 +1214,10 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         reference_doctype="Member",
         reference_name=member.name,
     )
+    if not result.success:  # legacy member-keyed path, unchanged; retired in Task 9
+        frappe.logger("membership_review").warning(
+            f"Failed to send rejection notification to {member.email}: {'; '.join(result.errors)}"
+        )
 
 
 def send_application_rejection_notification(
@@ -1191,7 +1231,7 @@ def send_application_rejection_notification(
         first_name=payload.get("first_name"),
         full_name=application.applicant_name,
     )
-    _send_rejection_email(
+    return _send_rejection_email(
         applicant,
         reason,
         email_template,
@@ -1235,10 +1275,7 @@ def _send_rejection_email(
         notification_key="member_application_rejected",
     )
 
-    if not result.success:
-        frappe.logger("membership_review").warning(
-            f"Failed to send rejection notification to {member.email}: {'; '.join(result.errors)}"
-        )
+    return result
 
 
 @frappe.whitelist()
