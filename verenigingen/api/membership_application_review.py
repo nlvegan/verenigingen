@@ -222,16 +222,23 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        if result.get("success"):
-            frappe.logger().info(f"Assigned member {member.name} to chapter {chapter}")
-        else:
-            frappe.logger().warning(
-                f"Chapter assignment returned non-success: {result.get('error', 'Unknown error')}"
+        # already_exists is the ordinary case of approving with the applicant's own chapter (its
+        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
+        # nowhere anyone reads (#1797).
+        if not result.get("success") and result.get("action") != "already_exists":
+            frappe.log_error(
+                title="Approval Chapter Assignment Failed",
+                message=f"Member {member.name}, chapter {chapter}: "
+                f"{result.get('error') or result.get('message') or 'unknown error'}",
             )
 
-    except Exception as e:
-        # Non-critical error - log but don't fail the approval
-        frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
+    except Exception:
+        # Non-critical: the approval still proceeds, but the failure must be visible.
+        frappe.log_error(
+            title="Approval Chapter Assignment Failed",
+            message=f"Member {member.name}, chapter {chapter}:\n{frappe.get_traceback()}",
+        )
 
 
 def _handle_idempotent_approval(member_name):

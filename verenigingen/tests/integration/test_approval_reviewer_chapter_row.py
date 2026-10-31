@@ -97,6 +97,39 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         chosen = self.create_test_chapter(published=1)
         member = self._apply_as_guest(selected_chapter=chosen.name)
 
+        start = frappe.utils.now()
         self._approve(member, chosen.name)
 
         self.assertEqual(self._rows(member), {chosen.name: (1, "Active")})
+        # The assignment answers already_exists here (the row is the applicant's own); that is
+        # benign, so it must not be logged as a failure on every ordinary approval.
+        self.assertEqual(self._assignment_failures_since(start), [])
+
+    def _assignment_failures_since(self, start):
+        return frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", start], "method": ASSIGNMENT_FAILURE_TITLE},
+            fields=["name", "error"],
+        )
+
+    def test_an_assignment_the_approval_could_not_make_is_logged(self):
+        """A chapter the assignment refuses (here: one that does not exist; approval checks
+        the member and the caller's chapter permission, not the chapter's existence) leaves
+        the member approved with no row. That used to be reported only through
+        frappe.logger().warning, which nobody reads; it must reach the Error Log."""
+        ghost = f"No Such Chapter {frappe.generate_hash(length=6)}"
+        member = self._apply_as_guest()
+        self.expectErrorLog(ASSIGNMENT_FAILURE_TITLE)  # silences tearDown; the assert below checks
+        start = frappe.utils.now()
+
+        with self.assertErrorLog(ASSIGNMENT_FAILURE_TITLE):
+            self._approve(member, ghost)
+
+        self.assertEqual(self._rows(member), {})
+        failures = self._assignment_failures_since(start)
+        self.assertEqual(len(failures), 1, msg=str(failures))
+        self.assertIn(ghost, failures[0].error)
+        self.assertIn(member, failures[0].error)
+
+
+ASSIGNMENT_FAILURE_TITLE = "Approval Chapter Assignment Failed"
