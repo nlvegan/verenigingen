@@ -85,17 +85,26 @@ def _check_member_exists_for_review(member_name, operation_label):
 
 
 def _refuse_unknown_chapter(chapter):
-    """#1860 (maintainer ruling): refuse an approval that names a chapter that does not exist,
-    before anything is written. It used to approve the member with no chapter row. Shared with
-    the application-record approval path (#1765), so both refuse with one message.
+    """Refuse, before anything is written, an approval that names a chapter the caller may not
+    assign. Shared with the application-record approval path (#1765), so both refuse alike.
 
-    Called after the permission gate, as _check_member_exists_for_review is. NOTE: that gate checks
-    the MEMBER's chapters, not the chapter being assigned, so for a chapter-scoped caller this
-    message does reveal whether an (unpublished) chapter name exists. That, and whether a scoped
-    caller may assign a chapter it does not manage, is tracked separately (see the #1860 PR).
+    #1860 (maintainer ruling): a chapter that does not exist is refused (it used to approve the
+    member with no chapter row).
+    #1908 (maintainer ruling): a chapter-scoped approver (get_user_manageable_chapters() is not
+    "all") may only assign a chapter it manages. Both cases get the SAME message, so a scoped
+    caller cannot tell an unknown chapter from an existing one it does not manage (otherwise the
+    refusal would reveal unpublished chapter names).
     """
-    if chapter and not frappe.db.exists("Chapter", chapter):
-        frappe.throw(_("Chapter {0} does not exist").format(chapter))
+    if not chapter:
+        return
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    manageable = get_user_manageable_chapters()
+    assignable = frappe.db.exists("Chapter", chapter) and (
+        manageable == "all" or chapter in (manageable or [])
+    )
+    if not assignable:
+        frappe.throw(_("Chapter {0} cannot be assigned").format(chapter))
 
 
 def _throw_membership_deletion_blocked(membership):

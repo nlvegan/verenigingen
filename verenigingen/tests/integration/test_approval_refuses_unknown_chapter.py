@@ -17,7 +17,9 @@ from verenigingen.tests.backend.unit.api.test_membership_application_coverage im
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
+class _ApprovalFixtures(EnhancedTestCase):
+    """Shared setup; holds no tests of its own, so subclasses do not re-run each other's."""
+
     def setUp(self):
         super().setUp()
         from verenigingen.tests.setup import ensure_member_test_masters
@@ -25,7 +27,7 @@ class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
         ensure_member_test_masters()
         self.membership_type = _ensure_test_membership_type()
 
-    def _apply_as_guest(self):
+    def _apply_as_guest(self, selected_chapter=None):
         data = {
             "first_name": "Unknown",
             "last_name": f"Chapter{frappe.generate_hash(length=6)}",
@@ -38,6 +40,8 @@ class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
             "country": "Netherlands",
             "selected_membership_type": self.membership_type,
         }
+        if selected_chapter:
+            data["selected_chapter"] = selected_chapter
         frappe.set_user("Guest")
         self.addCleanup(frappe.set_user, "Administrator")
         result = submit_application(**data)
@@ -47,11 +51,13 @@ class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
         self.track_doc("Member", member)
         return member
 
+
+class TestApprovalRefusesUnknownChapter(_ApprovalFixtures):
     def test_an_unknown_chapter_is_refused_before_anything_is_written(self):
         ghost = f"No Such Chapter {frappe.generate_hash(length=6)}"
         member = self._apply_as_guest()
 
-        with self.assertRaisesRegex(frappe.ValidationError, "does not exist"):
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
             approve_membership_application(
                 member_name=member, membership_type=self.membership_type, chapter=ghost
             )
@@ -89,5 +95,56 @@ class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
         member = self._apply_as_guest()
 
         approve_membership_application(member_name=member, membership_type=self.membership_type, chapter=None)
+
+        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
+
+
+class TestScopedApproverMayOnlyAssignManagedChapters(_ApprovalFixtures):
+    """#1908 (maintainer ruling 2026-10-31): a chapter-scoped approver may NOT assign a chapter it
+    does not manage, and is refused IDENTICALLY to a nonexistent chapter, so the refusal does not
+    reveal which (unpublished) chapter names exist."""
+
+    def setUp(self):
+        super().setUp()
+        self.own = self.create_test_chapter(published=1)
+        self.foreign = self.create_test_chapter(published=0)
+        self.board = self.create_test_board_member(self.own.name)
+
+    def _refusal_as_board(self, member, chapter):
+        before = len(frappe.local.message_log)
+        with self.set_user(self.board.user):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                approve_membership_application(
+                    member_name=member, membership_type=self.membership_type, chapter=chapter
+                )
+        log = []
+        for entry in frappe.local.message_log[before:]:
+            entry = json.loads(entry) if isinstance(entry, str) else dict(entry)
+            entry.pop("__frappe_exc_id", None)  # a random per-call id, not a channel difference
+            log.append({k: str(v).replace(chapter, "<C>") for k, v in entry.items()})
+        del frappe.local.message_log[before:]
+        return type(ctx.exception), str(ctx.exception).replace(chapter, "<C>"), log
+
+    def test_a_foreign_chapter_is_refused_exactly_like_an_unknown_one(self):
+        member = self._apply_as_guest(selected_chapter=self.own.name)
+
+        foreign = self._refusal_as_board(member, self.foreign.name)
+        unknown = self._refusal_as_board(member, f"No Such Chapter {frappe.generate_hash(length=6)}")
+
+        self.assertIn("cannot be assigned", foreign[1])
+        self.assertEqual(foreign, unknown)
+        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Pending")
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"member": member, "parent": self.foreign.name})
+        )
+
+    def test_the_approvers_own_chapter_is_still_assignable(self):
+        """Control: the scoped approver can approve into the chapter they manage."""
+        member = self._apply_as_guest(selected_chapter=self.own.name)
+
+        with self.set_user(self.board.user):
+            approve_membership_application(
+                member_name=member, membership_type=self.membership_type, chapter=self.own.name
+            )
 
         self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
