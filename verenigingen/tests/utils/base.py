@@ -42,6 +42,7 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 
 
@@ -74,6 +75,9 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # in one process, on one DB connection, and frappe.db.rollback()
         # never touches session state.
         guard_session_variables(cls)
+
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
 
         cls._ensure_test_environment()
         cls._track_created_docs = []
