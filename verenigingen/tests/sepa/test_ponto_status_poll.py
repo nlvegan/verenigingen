@@ -25,7 +25,11 @@ Usage:
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import inspect
+import json
+
 import frappe
+import requests
 from frappe.utils import add_to_date, now_datetime, today
 from rq.timeouts import JobTimeoutException
 
@@ -37,6 +41,7 @@ from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_paym
     PontoPaymentRequest,
 )
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
+from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
 PAY_CLIENT = "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client"
@@ -158,6 +163,9 @@ class _PollBase(EnhancedTestCase):
         with patch(PAY_CLIENT, return_value=pay), patch(LINK_CLIENT, return_value=link):
             frappe.get_attr(JOB)()
         return pay, link
+
+    def _all_ponto_errors(self):
+        return ERROR_TITLE_PREFIX, "Ponto status poll stopped early", "status refresh failed"
 
     def _poll_errors(self):
         return frappe.db.count("Error Log", {"method": ["like", f"{ERROR_TITLE_PREFIX}%"]})
@@ -470,9 +478,6 @@ class TestPontoStatusPoll(_PollBase):
             [c.args[0] for c in link.get_payment_request.call_args_list],
         )
 
-    def _all_ponto_errors(self):
-        return ERROR_TITLE_PREFIX, "Ponto status poll stopped early", "status refresh failed"
-
     def test_outage_failures_in_front_do_not_starve_the_other_doctype(self):
         """Probe E (review): 3 Requests whose client raises + 1 healthy Link. Requests-first
         every run polled the Link never. The doctype order now alternates."""
@@ -498,24 +503,25 @@ class TestPontoStatusPoll(_PollBase):
         self.assertEqual(links_polled, [link.ponto_request_id])
         self.assertEqual(frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"}), 0)
 
-    def test_each_client_error_class_is_classified_on_its_type_not_its_message(self):
-        outage = [
+    def test_classification_on_exception_classes_not_message_text(self):
+        """Class-level cases only. The wrapper-built chains that matter are driven through the
+        REAL clients in TestRealClientClassification below."""
+        for exc in [
             PontoRateLimitError("slow down"),
             PontoAPIError("boom", status_code=503),
-            PontoAPIError("could not connect"),  # PontoClient.get wraps a transport failure like this
             ConnectionError("x"),
             TimeoutError("x"),
-        ]
-        data = [
+            requests.ConnectionError("x"),
+        ]:
+            with self.subTest(exc=repr(exc)):
+                self.assertTrue(status_poll_service._is_outage(exc))
+        for exc in [
             PontoAPIError("outage outage 503 connection", status_code=404),  # misleading text
             PontoAPIError("bad", status_code=422),
             ValueError("503"),
             frappe.ValidationError("connection refused"),
-        ]
-        for exc in outage:
-            with self.subTest(exc=repr(exc)):
-                self.assertTrue(status_poll_service._is_outage(exc))
-        for exc in data:
+            PontoAPIError("Missing 'id' field"),  # status-less, nothing deeper: data (ruling)
+        ]:
             with self.subTest(exc=repr(exc)):
                 self.assertFalse(status_poll_service._is_outage(exc))
 
@@ -553,6 +559,15 @@ class TestPontoStatusPoll(_PollBase):
             status_poll_service.RUN_BUDGET_SECONDS + status_poll_service.MAX_ROW_SECONDS,
             status_poll_service.QUEUE_TIMEOUT_SECONDS,
         )
+
+    def test_max_row_seconds_covers_the_clients_real_retry_and_timeout_settings(self):
+        """MAX_ROW_SECONDS is derived from the client's settings here, not just asserted."""
+        retry = PontoClient.DEFAULT_RETRY_CONFIG
+        request_timeout = inspect.signature(PontoClient.get).parameters["timeout"].default
+        token_timeout = 30  # PontoTokenManager's token POST ("timeout": 30 in token_manager.py)
+        backoff = sum(min(retry.base_delay * 2**i, retry.max_delay) for i in range(retry.max_attempts - 1))
+        worst = retry.max_attempts * request_timeout + 2 * backoff + token_timeout  # 2x: jitter allowance
+        self.assertGreaterEqual(status_poll_service.MAX_ROW_SECONDS, worst)
 
     def test_cursor_resumes_after_the_last_attempted_row_of_an_early_stop(self):
         """Stopping early must not skip the unattempted rows: the next run starts right
@@ -674,3 +689,116 @@ class TestLinkPaymentEntryViaPoll(_PollBase):
         self._run_job(link=client)
         client.get_payment_request.assert_not_called()
         self.assertEqual(self._payment_entries(link), entries)
+
+
+class TestCursorIsBoundNotSpliced(_PollBase):
+    def test_a_cursor_name_with_a_quote_and_backslash_cannot_reach_the_sql_text(self):
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(3)]
+        nasty = frappe._dict(name="x' OR 1=1 -- \\", creation=add_to_date(now_datetime(), days=-30))
+        frappe.cache().set_value(status_poll_service._cursor_cache_key("Ponto Payment Request"), nasty)
+        statuses, id_field = ["Pending", "Signed"], "ponto_payment_id"
+        with patch.object(status_poll_service, "BATCH_LIMIT", 10):
+            batch = status_poll_service._next_batch("Ponto Payment Request", statuses, id_field)
+        # Cursor older than every row: all three come back, in order, and nothing raised.
+        self.assertEqual([r.name for r in batch if r.name in {d.name for d in rows}], [d.name for d in rows])
+
+
+def _response(status, body=None, headers=None):
+    response = requests.Response()
+    response.status_code = status
+    response._content = body if isinstance(body, bytes) else json.dumps(
+        body if body is not None else {"errors": [{"code": "c", "detail": "d"}]}
+    ).encode()
+    response.headers.update({"Content-Type": "application/json", **(headers or {})})
+    response.url = "https://ponto.invalid/x"
+    return response
+
+
+HEALTHY = {"data": {"id": "x", "attributes": {"status": "signed", "signedAt": "2026-01-01T00:00:00Z"}}}
+
+
+class TestRealClientClassification(_PollBase):
+    """Fault injected BELOW every layer that rewrites it (#1924): the real
+    PontoPaymentClient / PontoBetaalverzoekClient / PontoClient run, and only
+    ``requests.Session.get`` (and the token manager and sleep) are stubbed. The wrappers
+    re-raise a status-less PontoAPIError, so only the root cause still knows 404 vs 503."""
+
+    # name -> (what Session.get does, expected outage?)
+    CASES = {
+        "404": (lambda: _response(404), False),
+        "400": (lambda: _response(400), False),
+        "422": (lambda: _response(422), False),
+        "401": (lambda: _response(401), True),
+        "429": (lambda: _response(429, headers={"Retry-After": "3"}), True),
+        "500": (lambda: _response(500), True),
+        "503": (lambda: _response(503), True),
+        "connection error": (requests.ConnectionError("refused"), True),
+        "timeout": (requests.Timeout("slow"), True),
+        "200 garbage": (lambda: _response(200, b"<html>not json</html>"), False),
+    }
+
+    def _fake_get(self, behaviour):
+        def fake_get(session, url, **kwargs):
+            if isinstance(behaviour, Exception):
+                raise behaviour
+            return behaviour()
+
+        return fake_get
+
+    def _real_clients(self, behaviour):
+        """Context managers stubbing only the transport, token and sleep."""
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        token = stack.enter_context(patch("verenigingen.verenigingen_payments.ponto.core.ponto_client.PontoTokenManager"))
+        token.return_value.get_valid_token.return_value = "token"
+        stack.enter_context(patch.object(requests.Session, "get", self._fake_get(behaviour)))
+        stack.enter_context(patch("time.sleep"))
+        return stack
+
+    def test_each_failure_is_classified_through_the_real_request_client(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        for name, (behaviour, outage) in self.CASES.items():
+            with self.subTest(case=name, doctype="request"):
+                row = self._make_poll_request("Pending")
+                with self._real_clients(behaviour):
+                    got = status_poll_service._refresh_one(row.doctype, row.name)
+                self.assertEqual(got, status_poll_service.OUTAGE if outage else status_poll_service.DATA_ERROR)
+
+    def test_each_failure_is_classified_through_the_real_betaalverzoek_client(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        cases = dict(self.CASES)
+        cases["200 empty data"] = (lambda: _response(200, {"data": {}}), False)
+        for name, (behaviour, outage) in cases.items():
+            with self.subTest(case=name, doctype="link"):
+                row = self._make_poll_link("Pending Authorization")
+                with self._real_clients(behaviour):
+                    got = status_poll_service._refresh_one(row.doctype, row.name)
+                self.assertEqual(got, status_poll_service.OUTAGE if outage else status_poll_service.DATA_ERROR)
+
+    def test_poison_404_rows_never_starve_the_healthy_rows(self):
+        """Review's poison404 probe: 7 Ponto-404 Requests and 3 healthy ones. Every healthy
+        row must be polled on every run; the 404s must not trip the outage stop."""
+        self.expectErrorLog(*self._all_ponto_errors())
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(10)]
+        poison = {d.ponto_payment_id for d in rows[:7]}
+
+        def fake_get(session, url, **kwargs):
+            payment_id = url.rsplit("/", 1)[-1]
+            return _response(404) if payment_id in poison else _response(200, HEALTHY)
+
+        stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        for _run in range(3):
+            seen = []
+
+            def recording(session, url, **kwargs):
+                seen.append(url.rsplit("/", 1)[-1])
+                return fake_get(session, url, **kwargs)
+
+            with patch("verenigingen.verenigingen_payments.ponto.core.ponto_client.PontoTokenManager") as tm:
+                tm.return_value.get_valid_token.return_value = "token"
+                with patch.object(requests.Session, "get", recording), patch("time.sleep"):
+                    frappe.get_attr(JOB)()
+            healthy = {d.ponto_payment_id for d in rows[7:]}
+            self.assertTrue(healthy <= set(seen), "a healthy row was not polled")
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"}), stops_before)

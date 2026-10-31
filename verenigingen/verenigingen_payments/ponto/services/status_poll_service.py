@@ -26,9 +26,7 @@ import time
 
 import frappe
 import requests
-from frappe.query_builder import Order
-from frappe.query_builder.functions import Count
-from frappe.utils import add_to_date, get_datetime, now_datetime
+from frappe.utils import add_to_date, now_datetime
 from rq.timeouts import JobTimeoutException
 
 from verenigingen.utils.transaction_errors import (
@@ -102,35 +100,50 @@ def poll_open_ponto_payment_statuses():
     _refresh_batches(_rotated(batches))
 
 
-def _open_query(doctype, statuses, id_field):
-    table = frappe.qb.DocType(doctype)
-    ponto_id = table[id_field]
-    return table, (
-        frappe.qb.from_(table)
-        .where(table.docstatus != 2)  # a cancelled doc cannot be saved
-        .where(table.status.isin(statuses))
-        .where(ponto_id.isnotnull() & (ponto_id != ""))
-        .where(table.creation >= add_to_date(now_datetime(), days=-STALENESS_WINDOW_DAYS))
+def _open_where(doctype, statuses, id_field):
+    """(FROM/WHERE sql, params) for the open rows. ``doctype`` and ``id_field`` come from the
+    module's own ``_POLLED`` constants, never from a caller; every VALUE is a bound parameter."""
+    sql = (
+        f"FROM `tab{doctype}` WHERE docstatus != 2 AND status IN %(statuses)s "
+        f"AND `{id_field}` IS NOT NULL AND `{id_field}` != '' AND creation >= %(since)s"
     )
+    params = {
+        "statuses": tuple(statuses),
+        "since": add_to_date(now_datetime(), days=-STALENESS_WINDOW_DAYS),
+    }
+    return sql, params
 
 
 def _open_count(doctype, statuses, id_field):
-    _table, query = _open_query(doctype, statuses, id_field)
-    return query.select(Count("*")).run()[0][0]
+    sql, params = _open_where(doctype, statuses, id_field)
+    return frappe.db.sql(f"SELECT COUNT(*) {sql}", params)[0][0]
 
 
 def _cursor_cache_key(doctype):
     return f"ponto_status_poll_cursor:{doctype}"
 
 
-def _open_rows_page(doctype, statuses, id_field, where, limit):
-    """Open rows ordered by (creation, name); ``where(table)`` adds the cursor condition."""
-    table, query = _open_query(doctype, statuses, id_field)
-    query = query.select(table.name, table.creation).orderby(table.creation, order=Order.asc)
-    query = query.orderby(table.name, order=Order.asc).limit(limit)
-    if where is not None:
-        query = query.where(where(table))
-    return [frappe._dict(name=name, creation=creation) for name, creation in query.run()]
+def _open_rows_page(doctype, statuses, id_field, cursor_condition, cursor, limit):
+    """Open rows ordered by (creation, name). ``cursor_condition`` is one of the fixed SQL
+    fragments below; the cursor's values are bound parameters (a name containing a quote or a
+    backslash must not reach the SQL text)."""
+    sql, params = _open_where(doctype, statuses, id_field)
+    if cursor is not None:
+        sql += f" AND {cursor_condition}"
+        params.update(cursor_creation=cursor.creation, cursor_name=cursor.name)
+    params["limit"] = int(limit)
+    rows = frappe.db.sql(
+        f"SELECT name, creation {sql} ORDER BY creation ASC, name ASC LIMIT %(limit)s", params
+    )
+    return [frappe._dict(name=name, creation=creation) for name, creation in rows]
+
+
+_AFTER_CURSOR = (
+    "(creation > %(cursor_creation)s OR (creation = %(cursor_creation)s AND name > %(cursor_name)s))"
+)
+_UP_TO_CURSOR = (
+    "(creation < %(cursor_creation)s OR (creation = %(cursor_creation)s AND name <= %(cursor_name)s))"
+)
 
 
 def _next_batch(doctype, statuses, id_field):
@@ -145,24 +158,11 @@ def _next_batch(doctype, statuses, id_field):
     """
     cursor = frappe.cache().get_value(_cursor_cache_key(doctype))
     if not cursor:
-        return _open_rows_page(doctype, statuses, id_field, None, BATCH_LIMIT)
-    after = _open_rows_page(
-        doctype,
-        statuses,
-        id_field,
-        lambda t: (t.creation > cursor.creation) | ((t.creation == cursor.creation) & (t.name > cursor.name)),
-        BATCH_LIMIT,
-    )
+        return _open_rows_page(doctype, statuses, id_field, None, None, BATCH_LIMIT)
+    after = _open_rows_page(doctype, statuses, id_field, _AFTER_CURSOR, cursor, BATCH_LIMIT)
     if len(after) >= BATCH_LIMIT:
         return after
-    head = _open_rows_page(
-        doctype,
-        statuses,
-        id_field,
-        lambda t: (t.creation < cursor.creation)
-        | ((t.creation == cursor.creation) & (t.name <= cursor.name)),
-        BATCH_LIMIT - len(after),
-    )
+    head = _open_rows_page(doctype, statuses, id_field, _UP_TO_CURSOR, cursor, BATCH_LIMIT - len(after))
     return after + head
 
 
@@ -270,19 +270,29 @@ def _fatal_in_chain(exc):
 def _is_outage(exc):
     """True for failures that say Ponto (or the path to it) is down or throttling.
 
-    Classified on the exception classes the Ponto client raises, never on message text:
-    transport failures (``PontoClient.get`` wraps ``requests.RequestException`` in a
-    ``PontoAPIError`` with no status code), HTTP 5xx, 429 (``PontoRateLimitError``) and
-    401 (``PontoAuthenticationError``: the token is shared by every row). Other 4xx and
-    local validation/configuration errors are per-row data errors.
+    Classified on exception CLASSES, never message text, and from the ROOT CAUSE outward:
+    the first decisive exception wins. The client wrappers (``get_payment``,
+    ``get_payment_request``) catch everything and re-raise a fresh ``PontoAPIError`` WITHOUT
+    ``status_code`` (#1924), so the outermost exception always looks status-less; only the
+    root still says 404 or 503. This stays correct whether or not #1924 is ever fixed.
+
+    * outage: ``PontoRateLimitError`` (429), ``PontoAuthenticationError`` (401, the token is
+      shared by every row; maintainer ruling), ``requests.RequestException`` (transport),
+      ``ConnectionError``/``TimeoutError``, and a ``PontoAPIError`` with status >= 500;
+    * data: a ``PontoAPIError`` with a lower status (404, 400, 422 ...), a body that is not
+      JSON (requests' ``InvalidJSONError``, a ``RequestException`` subclass that is NOT a
+      transport failure), and anything unrecognised, including a status-less
+      ``PontoAPIError`` with nothing deeper (a parse failure such as "Missing 'id'").
     """
-    for e in _causes(exc):
+    for e in reversed(list(_causes(exc))):
+        if isinstance(e, requests.exceptions.InvalidJSONError):
+            return False
         if isinstance(e, (PontoRateLimitError, PontoAuthenticationError, requests.RequestException)):
             return True
         if isinstance(e, (ConnectionError, TimeoutError)):
             return True
-        if isinstance(e, PontoAPIError) and (e.status_code is None or e.status_code >= 500):
-            return True
+        if isinstance(e, PontoAPIError) and e.status_code is not None:
+            return e.status_code >= 500
     return False
 
 
