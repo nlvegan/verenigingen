@@ -88,17 +88,9 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         self.assertEqual(frappe.local.response.http_status_code, 503)
         self.assertIn("Retry-After", frappe.local.response)
 
-        # Verify error response structure
-        self.assertEqual(result["status"], "service_unavailable")
-        self.assertIn("Mollie API unavailable", result["message"])
-        self.assertEqual(result["payment_id"], self.test_payment_id)
-
-        # Verify debug info only in developer mode
-        if frappe.conf.get("developer_mode"):
-            self.assertIn("debug", result)
-            self.assertIn("refund_check_failed", result["debug"])
-        else:
-            self.assertNotIn("debug", result)
+        # The caller gets an ack only (#1781): the 503 + Retry-After above is the retry
+        # signal; the cause stays server-side, in developer mode too.
+        self.assertEqual(result, {"status": "error"})
 
     def test_partial_api_failure_refund_check_only(self):
         """
@@ -110,14 +102,9 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         with self._force_idempotency_state(state):
             result = handle_payment_webhook(payment_id=self.test_payment_id)
 
-        # Verify partial failure is detected
-        self.assertEqual(result["status"], "service_unavailable")
+        # Verify partial failure is detected: still a retryable 503, body is an ack only.
+        self.assertEqual(result, {"status": "error"})
         self.assertEqual(frappe.local.response.http_status_code, 503)
-
-        # Verify both checks are reported in debug mode
-        if frappe.conf.get("developer_mode"):
-            self.assertTrue(result["debug"]["refund_check_failed"])
-            self.assertFalse(result["debug"]["chargeback_check_failed"])
 
     # NOTE: SQL optimization test removed - mocking frappe.db.sql violates testing standards
     # The SQL optimization is validated through code review and actual performance testing.

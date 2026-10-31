@@ -29,6 +29,28 @@ from ..services.webhook_wrapper_service_unified import get_unified_webhook_servi
 from ..utils.amount_helpers import extract_amount_value
 
 
+def _webhook_ack(messages_before: int, detail: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """The only thing an anonymous webhook caller is told: ``ok`` or ``error`` (#1781).
+
+    Mollie posts a bare ``id=tr_...`` without credentials, so whoever holds a payment id is,
+    to this endpoint, Mollie. Handing the processing result back gave that caller the
+    member, the Bank Transaction, the amount and the member's invoices, and answered
+    differently for an id we know and one we do not. Mollie needs only the status code.
+
+    The HTTP status stays exactly as the handler set it: a non-2xx is what makes Mollie
+    redeliver a payment that genuinely failed, so it is never folded into a 200 here.
+    ``frappe.throw``/``msgprint`` on the way in append to ``message_log`` and the framework
+    would serialise those into the response, so the log is cut back to its length on entry.
+    """
+    del frappe.local.message_log[messages_before:]
+    if detail is not None:
+        # The detail the caller used to receive goes to the Error Log instead. Keywords,
+        # because this app's positional (title, message) order is routinely swapped.
+        frappe.log_error(title="Mollie Webhook Processing Error", message=frappe.as_json(detail))
+    failed = (frappe.local.response.get("http_status_code") or 200) >= 400
+    return {"status": "error" if failed else "ok"}
+
+
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.PUBLIC)
 def handle_payment_webhook(payment_id: Optional[str] = None):
@@ -46,6 +68,7 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
     Returns:
         Dict with processing results
     """
+    messages_before = len(frappe.local.message_log or [])
     try:
         # Get payment ID from parameter or fallback to form_dict (for direct API calls)
         if not payment_id:
@@ -86,21 +109,22 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         if result.get("status") == "error":
             frappe.logger().error(f"❌ Webhook processing failed: {payment_id} - {result.get('message')}")
             frappe.response.http_status_code = 500  # Trigger Mollie retry
-            return result
+            return _webhook_ack(messages_before, detail=result)
         else:
             frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
 
-        return result
+        return _webhook_ack(messages_before)
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Mollie to retry later
         frappe.response.http_status_code = 429
-        return {"status": "rate_limited", "message": str(e)}
+        del frappe.local.message_log[messages_before:]
+        return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie webhook error for {payment_id}: {e}", "Mollie Webhook Error")
         frappe.response.http_status_code = 400
-        return {"status": "error", "message": str(e)}
+        return _webhook_ack(messages_before)
 
     except Exception as e:
         frappe.log_error(
@@ -108,7 +132,7 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
             "Webhook Processing Error",
         )
         frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal processing error"}
+        return _webhook_ack(messages_before)
 
 
 @frappe.whitelist()
@@ -359,6 +383,7 @@ def handle_refund_webhook():
     Returns:
         Dict with refund processing results
     """
+    messages_before = len(frappe.local.message_log or [])
     try:
         # Authenticate webhook: validates signature AND sets user context
         from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
@@ -421,24 +446,25 @@ def handle_refund_webhook():
         if result.get("status") == "error":
             frappe.response.http_status_code = 500
             frappe.logger().error(f"❌ Refund webhook could not book: {result.get('message')}")
-        else:
-            frappe.logger().info("✅ Refund webhook processed successfully")
-        return result
+            return _webhook_ack(messages_before, detail=result)
+        frappe.logger().info("✅ Refund webhook processed successfully")
+        return _webhook_ack(messages_before)
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Mollie to retry later
         frappe.response.http_status_code = 429
-        return {"status": "rate_limited", "message": str(e)}
+        del frappe.local.message_log[messages_before:]
+        return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie refund webhook error: {e}", "Mollie Refund Webhook Error")
         frappe.response.http_status_code = 400
-        return {"status": "error", "message": str(e)}
+        return _webhook_ack(messages_before)
 
     except Exception as e:
         frappe.log_error(f"Unexpected refund webhook error: {e}", "Refund Webhook Processing Error")
         frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal refund processing error"}
+        return _webhook_ack(messages_before)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -453,6 +479,7 @@ def handle_chargeback_webhook():
     Returns:
         Dict with chargeback processing results
     """
+    messages_before = len(frappe.local.message_log or [])
     try:
         # Authenticate webhook: validates signature AND sets user context
         from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
@@ -502,24 +529,25 @@ def handle_chargeback_webhook():
         if result.get("status") == "error":
             frappe.response.http_status_code = 500
             frappe.logger().error(f"❌ Chargeback webhook could not book: {result.get('message')}")
-        else:
-            frappe.logger().info("✅ Chargeback webhook processed successfully")
-        return result
+            return _webhook_ack(messages_before, detail=result)
+        frappe.logger().info("✅ Chargeback webhook processed successfully")
+        return _webhook_ack(messages_before)
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Mollie to retry later
         frappe.response.http_status_code = 429
-        return {"status": "rate_limited", "message": str(e)}
+        del frappe.local.message_log[messages_before:]
+        return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie chargeback webhook error: {e}", "Mollie Chargeback Webhook Error")
         frappe.response.http_status_code = 400
-        return {"status": "error", "message": str(e)}
+        return _webhook_ack(messages_before)
 
     except Exception as e:
         frappe.log_error(f"Unexpected chargeback webhook error: {e}", "Chargeback Webhook Processing Error")
         frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal chargeback processing error"}
+        return _webhook_ack(messages_before)
 
 
 @frappe.whitelist()
