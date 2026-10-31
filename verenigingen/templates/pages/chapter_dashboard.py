@@ -558,6 +558,48 @@ def _pending_application_rows(chapter_name: str) -> List[Dict[str, Any]]:
     ]
 
 
+def get_pending_join_requests(chapter_name: str) -> List[Dict[str, Any]]:
+    """Chapter JOIN requests: Pending Chapter Member rows of members whose own application is not open.
+
+    A join request comes from an existing member (Chapter.join_chapter / request_to_join). A Pending Member's
+    own Pending row belongs to an application, which is approved from the application, so it is not listed:
+    approving it here would flip only the chapter row (#1765, #1867).
+    """
+    from frappe.utils import date_diff, getdate
+
+    rows = frappe.get_all(
+        "Chapter Member",
+        filters={"parent": chapter_name, "status": "Pending"},
+        fields=["member", "chapter_join_date"],
+        order_by="chapter_join_date asc",
+        limit_page_length=0,
+    )
+    members = {
+        m.name: m
+        for m in frappe.get_all(
+            "Member",
+            filters={
+                "name": ["in", [r.member for r in rows if r.member]],
+                "application_status": ["!=", "Pending"],
+            },
+            fields=["name", "full_name"],
+            limit_page_length=0,
+        )
+    }
+    return [
+        {
+            "member": row.member,
+            "full_name": members[row.member].full_name,
+            "chapter_join_date": row.chapter_join_date,
+            "days_pending": (
+                date_diff(getdate(), getdate(row.chapter_join_date)) if row.chapter_join_date else 0
+            ),
+        }
+        for row in rows
+        if row.member in members
+    ]
+
+
 def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     """Get items requiring board attention"""
 
@@ -574,11 +616,14 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     # Get board tasks (placeholder)
     board_tasks = []  # Will be implemented with task management
 
+    join_requests = get_pending_join_requests(chapter_name)
+
     return {
         "membership_applications": pending_apps,
+        "join_requests": join_requests,
         "expense_approvals": pending_expenses,
         "board_tasks": board_tasks,
-        "total_pending": len(pending_apps) + len(pending_expenses) + len(board_tasks),
+        "total_pending": len(pending_apps) + len(join_requests) + len(pending_expenses) + len(board_tasks),
     }
 
 

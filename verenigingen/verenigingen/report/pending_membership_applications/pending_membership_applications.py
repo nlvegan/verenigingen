@@ -61,12 +61,12 @@ def get_data(filters):
 
     The rows come from `pending_review_applications`, i.e. `frappe.get_list` on the application, so
     a board member sees only the chapters of their seats (the MAS permission query) with no hand-made
-    chapter filter here. The report filters narrow that list afterwards.
+    chapter filter here, oldest first (the oldest pending rows matter most). The report filters narrow that list afterwards.
     """
     from verenigingen.services.member.application.pending_applications import pending_review_applications
 
     filters = filters or {}
-    rows = pending_review_applications(chapter=filters.get("chapter"))
+    rows = pending_review_applications(chapter=filters.get("chapter"), oldest_first=True)
     data = [_with_indicator(row) for row in rows if _passes_filters(row, filters)]
     for row in data:
         row["chapter"] = row["chapter"] or "Unassigned"

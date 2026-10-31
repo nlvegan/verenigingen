@@ -193,7 +193,7 @@
                                     {% for app in dashboard_data.pending_actions.membership_applications %}
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
                                             <div class="flex flex-col gap-1">
-                                                <a href="/app/membership-application-submission/{{ app.application|urlencode }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
+                                                <a href="/app/membership-application-review?application={{ app.application|urlencode }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
                                                     {{ app.full_name }}
                                                 </a>
                                                 <small class="text-gray-600 text-sm">{{ _("Applied {0} days ago").format(app.days_pending) }}</small>
@@ -206,6 +206,35 @@
                                                     <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all"
                                                             data-application="{{ app.application }}" onclick="reviewApplication(this.dataset.application)">
                                                         <i class="fa fa-eye mr-1"></i> {{ _("Review Application") }}
+                                                    </button>
+                                                    <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-success-600 text-white hover:bg-success-700 shadow-md hover:shadow-lg transition-all"
+                                                            data-application="{{ app.application }}" onclick="approveApplication(this.dataset.application)">
+                                                        <i class="fa fa-check mr-1"></i> {{ _("Approve") }}
+                                                    </button>
+                                                </div>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+
+                        <!-- Chapter join requests from existing members -->
+                        {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.join_requests %}
+                            <div class="mb-6 last:mb-0">
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-user-plus"></i> {{ _("Chapter Join Requests") }} ({{ dashboard_data.pending_actions.join_requests|length }})</h4>
+                                <ul class="list-none p-0 m-0 space-y-3">
+                                    {% for request in dashboard_data.pending_actions.join_requests %}
+                                        <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-gray-50">
+                                            <div class="flex flex-col gap-1">
+                                                <a href="/app/member/{{ request.member|urlencode }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">{{ request.full_name }}</a>
+                                                <small class="text-gray-600 text-sm">{{ _("Requested {0} days ago").format(request.days_pending) }}</small>
+                                            </div>
+                                            {% if user_board_role and user_board_role.permissions.can_approve_members %}
+                                                <div class="flex gap-2 flex-shrink-0">
+                                                    <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-success-600 text-white hover:bg-success-700 shadow-md hover:shadow-lg transition-all"
+                                                            data-member="{{ request.member }}" onclick="approveJoinRequest(this.dataset.member)">
+                                                        <i class="fa fa-check mr-1"></i> {{ _("Approve") }}
                                                     </button>
                                                 </div>
                                             {% endif %}

@@ -111,6 +111,10 @@ class MembershipApplicationReview {
 		};
 		this.applications = [];
 		this.selected_applications = new Set();
+		// The chapter dashboard links here with ?application=<name> to review that one application.
+		const params = new URLSearchParams(window.location.search);
+		this.focus_application =
+			(frappe.route_options && frappe.route_options.application) || params.get('application') || null;
 	}
 
 	escapeHtml(str) {
@@ -417,6 +421,12 @@ class MembershipApplicationReview {
 			this.filters.days_overdue = $('#filter-days-overdue').val();
 		});
 
+		$wrapper.on('click', '.show-all-applications', (e) => {
+			e.preventDefault();
+			this.focus_application = null;
+			this.load_applications();
+		});
+
 		$wrapper.on('click', '#btn-apply-filters', () => {
 			this.load_applications();
 		});
@@ -600,6 +610,9 @@ class MembershipApplicationReview {
 			});
 
 			this.applications = response.message || [];
+			if (this.focus_application) {
+				this.applications = this.applications.filter((app) => app.name === this.focus_application);
+			}
 			this.render_applications();
 		} catch (error) {
 			console.error('Error loading applications:', error);
@@ -623,8 +636,11 @@ class MembershipApplicationReview {
 			return;
 		}
 
+		const banner = this.focus_application
+			? `<div class="alert alert-info focus-banner">${__('Showing one application.')} <a href="#" class="show-all-applications">${__('Show all pending applications')}</a></div>`
+			: '';
 		const html = this.applications.map((app) => this.render_application_card(app)).join('');
-		$('.applications-list').html(html);
+		$('.applications-list').html(banner + html);
 
 		// Update statistics
 		this.update_local_statistics();
@@ -689,8 +705,17 @@ class MembershipApplicationReview {
 			return;
 		}
 
-		// What approving would change on an existing Member (nothing for a new applicant).
-		// Only Pending Review rows are listed, which is the state the preview is meant for.
+		const dialogFields = [];
+
+		// Possible duplicates of this applicant (name, birth date, IBAN; the exact-email Member is the
+		// applicant themselves and is not reported). Never blocks the approval if the check fails.
+		const duplicateField = await this.duplicate_warning_field(application_name);
+		if (duplicateField.fields.length) {
+			dialogFields.push(...duplicateField.fields);
+		}
+
+		// What approving would change on an existing Member (nothing for a new applicant). A failed
+		// preview must not look like "nothing to change", so the dialog says it could not be loaded.
 		let changesHtml = '';
 		try {
 			const changes = await frappe.call({
@@ -700,9 +725,10 @@ class MembershipApplicationReview {
 			changesHtml = frappe.pages['membership-application-review'].render_application_changes(changes.message);
 		} catch (error) {
 			console.error('Error loading application changes:', error);
+			changesHtml = `<div class="alert alert-danger application-changes-error">${__(
+				'The changes this approval would make could not be loaded. Do not approve until you have reviewed the applicant and the existing member yourself, or reload the page and try again.'
+			)}</div>`;
 		}
-
-		const dialogFields = [];
 		if (changesHtml) {
 			dialogFields.push({
 				fieldtype: 'HTML',
@@ -738,6 +764,15 @@ class MembershipApplicationReview {
 				fieldname: 'create_invoice',
 				label: 'Create Invoice',
 				default: 1
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'activate_as_volunteer',
+				label: __('Activate as Full Volunteer'),
+				default: 0,
+				description: __(
+					'Grant full volunteer access with Employee record for expense claims. If unchecked, only a volunteer interest record will be created.'
+				)
 			}
 		);
 
@@ -754,7 +789,8 @@ class MembershipApplicationReview {
 							membership_type: values.membership_type,
 							chapter: values.chapter,
 							notes: values.notes,
-							create_invoice: values.create_invoice
+							create_invoice: values.create_invoice,
+							activate_as_volunteer: values.activate_as_volunteer || 0
 						}
 					});
 
@@ -774,6 +810,77 @@ class MembershipApplicationReview {
 		});
 
 		dialog.show();
+	}
+
+	/**
+	 * The approve dialog's duplicate-warning fields for an application, from
+	 * check_duplicate_for_application (#1870). Returns {fields, blocking}; a failed check yields no fields.
+	 */
+	async duplicate_warning_field(application_name) {
+		let result;
+		try {
+			result = await frappe.call({
+				method: 'verenigingen.services.member.validation.member_duplicate_detection_service.check_duplicate_for_application',
+				args: { application_name }
+			});
+		} catch (error) {
+			console.error('Error checking duplicates:', error);
+			return { fields: [] };
+		}
+		const duplicates = result?.message;
+		if (!duplicates?.has_duplicates) {
+			return { fields: [] };
+		}
+		const summary = duplicates.summary;
+		const e = (str) => this.escapeHtml(str);
+
+		let warningHtml =
+			'<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 15px;">';
+		warningHtml +=
+			'<h5 style="margin-top: 0; color: #856404;"><i class="fa fa-exclamation-triangle"></i> Potential Duplicate Members Found</h5>';
+		if (summary.high > 0) {
+			warningHtml += `<p style="color: #721c24; font-weight: bold;">${summary.high} high-confidence match(es)</p>`;
+		}
+		if (summary.medium > 0) {
+			warningHtml += `<p style="color: #856404;">${summary.medium} medium-confidence match(es)</p>`;
+		}
+		if (summary.low > 0) {
+			warningHtml += `<p style="color: #666;">${summary.low} low-confidence match(es)</p>`;
+		}
+		const importantMatches = [...duplicates.high_confidence, ...duplicates.medium_confidence];
+		if (importantMatches.length > 0) {
+			warningHtml += '<div style="margin-top: 10px;"><strong>Matches:</strong><ul style="margin-bottom: 5px;">';
+			importantMatches.forEach((match) => {
+				const confidence = Math.round(match.confidence * 100);
+				const details = match.details;
+				// Escape all data: the applicant's own details and the matched member's are user input.
+				warningHtml += `<li>
+					<strong>${e(details.full_name)}</strong> (${confidence}% match)<br>
+					<small style="color: #666;">
+						${e(details.email) || 'No email'} |
+						Status: ${e(details.status) || 'Unknown'} |
+						Reason: ${e(details.reason)}
+						<a href="#Form/Member/${e(match.member_name)}" target="_blank" style="margin-left: 10px;">View Record</a>
+					</small>
+				</li>`;
+			});
+			warningHtml += '</ul></div>';
+		}
+		warningHtml +=
+			'<p style="margin-bottom: 0; margin-top: 10px;"><strong>Please review these matches before approving.</strong></p>';
+		warningHtml += '</div>';
+
+		const fields = [{ fieldtype: 'HTML', fieldname: 'duplicate_warning', options: warningHtml }];
+		if (summary.high > 0) {
+			fields.push({
+				fieldtype: 'Check',
+				fieldname: 'acknowledge_duplicates',
+				label: 'I have reviewed the duplicate matches and want to proceed',
+				reqd: 1,
+				default: 0
+			});
+		}
+		return { fields };
 	}
 
 	async reject_application(application_name) {

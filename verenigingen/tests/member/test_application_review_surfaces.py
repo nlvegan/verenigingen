@@ -9,6 +9,8 @@ Every chapter-scope test seats a real board member in chapter A and puts a REAL 
 (and one with no chapter), so a surface that ignores the permission query has something to leak.
 """
 
+import json
+
 import frappe
 from frappe.utils import add_days, now_datetime
 
@@ -239,7 +241,7 @@ class TestQuickApproveApplication(ApprovalCase):
                 return chapter_dashboard_api.quick_approve_application(name)
 
     def _stable(self, result):
-        payload = dict(result)
+        payload = dict(result.to_dict() if hasattr(result, "to_dict") else result)
         payload.pop("timestamp", None)
         payload["meta"] = {k: v for k, v in payload.get("meta", {}).items() if k != "trace_id"}
         return payload
@@ -265,6 +267,19 @@ class TestQuickApproveApplication(ApprovalCase):
             "Active",
         )
 
+    def _probe(self, name):
+        """(refusal payload minus per-call ids, new message_log entries, Error Log delta) for a board caller."""
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        result = self._quick_approve(name, self.board.user)
+        log = []
+        for entry in list(frappe.local.message_log)[before:]:
+            entry = json.loads(entry) if isinstance(entry, str) else dict(entry)
+            entry.pop("__frappe_exc_id", None)
+            log.append(entry)
+        return self._stable(result), log, frappe.db.count("Error Log") - errors
+
     def test_foreign_and_unknown_application_are_refused_identically(self):
         other = self.factory.ensure_test_chapter(
             f"Test QA Other {frappe.generate_hash(length=6)}", {"short_name": "QAO", "country": "Netherlands"}
@@ -273,13 +288,13 @@ class TestQuickApproveApplication(ApprovalCase):
         unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
 
         self.expectErrorLog()
-        self._quick_approve(unknown, self.board.user)  # warm the permission caches
-        foreign_result = self._quick_approve(foreign, self.board.user)
-        unknown_result = self._quick_approve(unknown, self.board.user)
+        self._probe(unknown)  # warm the permission caches
+        foreign_result = self._probe(foreign)
+        unknown_result = self._probe(unknown)
 
-        self.assertTrue(self._refused(foreign_result), foreign_result)
-        # the per-call timestamp and trace id differ by design; every other channel must not
-        self.assertEqual(self._stable(foreign_result), self._stable(unknown_result))
+        self.assertFalse(foreign_result[0]["success"], foreign_result)
+        # payload (minus the per-call timestamp and trace id), message_log and Error Log delta all match
+        self.assertEqual(foreign_result, unknown_result)
         self.assertEqual(frappe.db.get_value(SUBMISSION, foreign, "status"), "Pending Review")
         self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
 
@@ -327,3 +342,245 @@ class TestQuickApproveApplication(ApprovalCase):
         with self.assertRaises(VPermissionError):
             self._quick_approve(name, plain.email)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+
+class TestStaffAndNationalBoardRead(SurfaceCase):
+    """Ruling AD: Staff and the National Board role read applications (doctype permissions, not a
+    Custom DocPerm), and a caller who may not read gets a refusal, never an empty list or a 0."""
+
+    def _staff_email(self):
+        return f"staff.{frappe.generate_hash(length=6)}@test.invalid"
+
+    def test_staff_sees_the_real_rows_and_count(self):
+        self._seed()
+        with self.as_role("Verenigingen Staff", email=self._staff_email()):
+            names = {row["name"] for row in get_pending_applications()}
+            count = chapter_dashboard_api.get_pending_applications_count(self.chapter_a.name)["value"]
+            overview = get_member_overview(self.chapter_a.name)["pending_applications"]
+        self.assertTrue({self.app_a, self.app_a2, self.app_b, self.app_b2, self.app_none} <= names)
+        self.assertEqual(count, 2, "staff read the real count, not a swallowed refusal")
+        self.assertEqual({r["application"] for r in overview}, {self.app_a, self.app_a2})
+
+    def test_the_national_board_role_alone_reads_every_application(self):
+        """The ROLE alone, without the profile's other roles (the profile also carries Chapter Board
+        Member, which would read through its own DocPerm and mask a missing one): read through get_list,
+        below the endpoint tier gates."""
+        self._seed()
+        email = self._staff_email()
+        self.create_test_user(email, roles=["Verenigingen National Board Member"])
+        with self.as_user(email):
+            names = set(frappe.get_list(SUBMISSION, pluck="name", limit_page_length=0))
+        self.assertTrue({self.app_a, self.app_b, self.app_none} <= names)
+
+    def test_a_caller_who_may_not_read_gets_a_refusal_not_an_empty_list(self):
+        self._seed()
+        # A Volunteer clears the list endpoint's security tier but holds no MAS read permission.
+        with self.as_role("Verenigingen Volunteer", email=self._staff_email()):
+            with self.assertRaises(Exception) as caught:
+                get_pending_applications()
+        self.assertIsInstance(caught.exception, (frappe.PermissionError, VerenigingenPermissionError))
+
+    def test_the_dashboard_payload_does_not_hide_a_refusal_as_zero(self):
+        self._seed()
+        with self.as_role("Verenigingen Volunteer", email=self._staff_email()):
+            with self.assertRaises(frappe.PermissionError):
+                get_member_overview(self.chapter_a.name)
+
+
+class TestJoinRequests(SurfaceCase):
+    """Ruling AA (#1867): a chapter JOIN request from an existing member is its own dashboard list
+    and its own approve action. The request is made through the real Chapter.join_chapter."""
+
+    def setUp(self):
+        super().setUp()
+        self.head_board = self.create_test_board_member(
+            self.chapter_a.name, permissions_level="Admin", role_name="Chapter Head"
+        )
+        self.requester = self.create_test_member(first_name="JoinRequester")
+        self.requester.db_set({"status": "Active", "application_status": "Approved"})
+        from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter
+
+        result = join_chapter(
+            member_name=self.requester.name, chapter_name=self.chapter_a.name, introduction="join test"
+        )
+        self.assertTrue(result.get("success"), result)
+
+    def _row(self):
+        return frappe.db.get_value(
+            "Chapter Member",
+            {"parent": self.chapter_a.name, "member": self.requester.name},
+            ["status", "enabled"],
+            as_dict=True,
+        )
+
+    def test_the_real_request_is_a_pending_row_listed_separately(self):
+        self.assertEqual((self._row().status, self._row().enabled), ("Pending", 1))
+        with self.as_user(self.head_board.user):
+            actions = get_pending_actions(self.chapter_a.name)
+        self.assertEqual([r["member"] for r in actions["join_requests"]], [self.requester.name])
+        self.assertFalse(
+            {r["application"] for r in actions["membership_applications"]} & {self.requester.name},
+            "a join request is not an application",
+        )
+
+    def test_a_legacy_pending_applicant_is_not_listed_as_a_join_request(self):
+        """A Pending Member's own Pending Chapter Member row is an application, which this action
+        would approve by flipping only the chapter row (the #1765 bug); it must not be offered."""
+        applicant = self.create_test_member(first_name="LegacyApplicant")
+        applicant.db_set({"status": "Pending", "application_status": "Pending"})
+        self.add_member_to_test_chapter(applicant.name, self.chapter_a.name)
+        frappe.db.set_value(
+            "Chapter Member", {"parent": self.chapter_a.name, "member": applicant.name}, "status", "Pending"
+        )
+        with self.as_user(self.head_board.user):
+            listed = {r["member"] for r in get_pending_actions(self.chapter_a.name)["join_requests"]}
+        self.assertIn(self.requester.name, listed)
+        self.assertNotIn(applicant.name, listed)
+
+    def test_board_head_approves_the_join_request(self):
+        with self.as_user(self.head_board.user):
+            self.expectErrorLog()
+            result = chapter_dashboard_api.quick_approve_join_request(self.requester.name, self.chapter_a.name)
+        self.assertTrue(result.get("success"), result)
+        self.assertEqual((self._row().status, self._row().enabled), ("Active", 1))
+
+    def test_board_role_without_can_approve_members_is_refused(self):
+        weak = self.create_test_board_member(
+            self.chapter_a.name, permissions_level="Admin", role_name="Test Board Not An Approver"
+        )
+        with self.as_user(weak.user):
+            self.expectErrorLog()
+            result = chapter_dashboard_api.quick_approve_join_request(self.requester.name, self.chapter_a.name)
+        self.assertFalse(result.get("success"), result)
+        self.assertEqual(self._row().status, "Pending")
+
+    def test_a_member_of_another_chapter_cannot_approve_it(self):
+        other_board = self.create_test_board_member(
+            self.chapter_b.name, permissions_level="Admin", role_name="Chapter Head"
+        )
+        with self.as_user(other_board.user):
+            self.expectErrorLog()
+            result = chapter_dashboard_api.quick_approve_join_request(self.requester.name, self.chapter_a.name)
+        self.assertFalse(result.get("success"), result)
+        self.assertEqual(self._row().status, "Pending")
+
+
+class TestDashboardWiring(EnhancedTestCase):
+    """Rulings AE: the dashboard's Review link opens the review page focused on the application and
+    its Approve button calls quick_approve_application. Source check: the dashboard is a website
+    page whose buttons no Python test can click."""
+
+    def _read(self, relative):
+        import os
+
+        with open(os.path.join(frappe.get_app_path("verenigingen"), relative)) as handle:
+            return handle.read()
+
+    def test_review_link_opens_the_review_page_focused_on_the_application(self):
+        template = self._read("templates/pages/chapter_dashboard.html")
+        script = self._read("public/js/chapter_dashboard.js")
+        self.assertIn("/app/membership-application-review?application=", template)
+        self.assertIn("/app/membership-application-review?application=", script)
+        self.assertNotIn("/app/membership-application-submission/", template + script)
+
+    def test_approve_buttons_are_wired_to_the_application_and_join_endpoints(self):
+        template = self._read("templates/pages/chapter_dashboard.html")
+        script = self._read("public/js/chapter_dashboard.js")
+        self.assertIn("approveApplication(", template)
+        self.assertIn("approveJoinRequest(", template)
+        self.assertIn("chapter_dashboard_api.quick_approve_application", script)
+        self.assertIn("chapter_dashboard_api.quick_approve_join_request", script)
+
+
+class TestDuplicateWarning(ApprovalCase):
+    """Ruling AB (#1870): the approve dialog's duplicate warning is fed by the APPLICATION's own name,
+    email, birth date and IBAN (no Member exists yet)."""
+
+    def _check(self, name, user=None):
+        from verenigingen.services.member.validation.member_duplicate_detection_service import (
+            check_duplicate_for_application,
+        )
+
+        with self.as_user(user or self.admin_user.email):
+            return check_duplicate_for_application(name)
+
+    def test_a_lookalike_member_is_reported_and_an_exact_email_match_is_not(self):
+        birth_date = add_days(frappe.utils.today(), -365 * 31)
+        first, last = "Dupe", f"Lookalike{frappe.generate_hash(length=6)}"
+        lookalike = self.create_test_member(
+            first_name=first, last_name=last, birth_date=birth_date,
+            email=f"lookalike.{frappe.generate_hash(length=6)}@example.org",
+        )  # fmt: skip
+        name = self._stage_and_confirm(first_name=first, last_name=last, birth_date=birth_date)
+
+        result = self._check(name)
+        payload = result.to_dict() if hasattr(result, "to_dict") else result
+        data = payload.get("data", payload)
+        matched = {m["member_name"] for m in data["duplicates"]}
+
+        self.assertTrue(data["has_duplicates"], payload)
+        self.assertIn(lookalike.name, matched)
+
+    def test_the_applicants_own_member_is_not_a_duplicate_of_itself(self):
+        existing = self.create_test_member(first_name="Same", last_name="Person", email=self.email)
+        name = self._stage_and_confirm(first_name="Same", last_name="Person")
+
+        data = self._check(name)
+        data = data.to_dict() if hasattr(data, "to_dict") else data
+        data = data.get("data", data)
+
+        self.assertNotIn(existing.name, {m["member_name"] for m in data["duplicates"]})
+
+    def test_unknown_and_foreign_applications_are_refused_identically(self):
+        other = self.factory.ensure_test_chapter(
+            f"Test Dup Other {frappe.generate_hash(length=6)}", {"short_name": "DUO", "country": "Netherlands"}
+        )
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        foreign = self._stage_and_confirm(selected_chapter=other.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        outcomes = []
+        for name in (unknown, foreign, unknown):  # the first call warms the caches
+            with self.assertRaises(frappe.PermissionError) as caught:
+                self._check(name, board.user)
+            outcomes.append(str(caught.exception))
+        self.assertEqual(outcomes[1], outcomes[2])
+
+
+class TestReportOrderAndBulkErrors(SurfaceCase):
+    def test_report_lists_the_oldest_application_first(self):
+        newest = self._application(self.chapter_a.name, days_ago=1)
+        oldest = self._application(self.chapter_a.name, days_ago=20)
+        middle = self._application(self.chapter_a.name, days_ago=9)
+        names = [row["name"] for row in report.execute({"chapter": self.chapter_a.name})[1]]
+        self.assertEqual(names, [oldest, middle, newest])
+
+    def test_bulk_approve_does_not_loop_on_after_a_deadlock(self):
+        """A deadlock (1213) destroys the transaction; carrying on to the next application would run on a
+        dead transaction. Mock justified: a deadlock cannot be forced from one connection."""
+        from unittest.mock import patch
+
+        from verenigingen.pages.membership_applications import bulk_approve_applications
+
+        calls = []
+
+        def deadlock(name, **_kwargs):
+            calls.append(name)
+            raise frappe.QueryDeadlockError("forced")
+
+        with patch("verenigingen.api.membership_application_review.approve_application", deadlock):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                bulk_approve_applications(json.dumps(["a1", "a2"]), "Any Type")
+        self.assertEqual(calls, ["a1"], "the second application must not be attempted")
+
+    def test_bulk_approve_reports_an_ordinary_failure_and_continues(self):
+        from unittest.mock import patch
+
+        from verenigingen.pages.membership_applications import bulk_approve_applications
+
+        def refuse(name, **_kwargs):
+            raise frappe.ValidationError("no")
+
+        with patch("verenigingen.api.membership_application_review.approve_application", refuse):
+            result = bulk_approve_applications(json.dumps(["a1", "a2"]), "Any Type")
+        self.assertEqual([f["application"] for f in result["failed"]], ["a1", "a2"])

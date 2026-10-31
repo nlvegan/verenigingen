@@ -127,14 +127,13 @@ class TestGetUserChapterAccess(NationalChapterAccessBase):
 
 
 class TestPendingApplicationsChapterScope(NationalChapterAccessBase):
-    """report.pending_membership_applications scope (#1765).
+    """report.pending_membership_applications scope (#1765, ruling AC / #1868).
 
-    The report used to open up to see-all for a board member whose ONLY chapter was the configured
-    national board chapter (get_user_chapter_filter, now removed with the Member-based query). It now
-    reads applications through the MAS permission query: a seat scopes the rows to that seat's chapter
-    whether or not the chapter is the national one; the "Verenigingen National Board Member" ROLE (Ruling
-    O) is what sees all. This pins the new rule and the control that the national setting alone widens
-    nothing. Whether a national-chapter SEAT should still see all is tracked in a follow-up issue.
+    Before #1765 the report opened up to see-all (including unassigned) for a board member whose ONLY
+    accessible chapter was the configured national board chapter (get_user_chapter_filter, pinned here).
+    The application read scope keeps that: a seat in the configured `national_board_chapter` counts as
+    "all" for READ in `_seat_chapters_for_application_read`, shared by the list, the dashboard and the
+    report. Without the setting the same seat is scoped to its own chapter (the control).
     """
 
     def _application(self, chapter):
@@ -153,14 +152,15 @@ class TestPendingApplicationsChapterScope(NationalChapterAccessBase):
         application.set_status("Pending Review")
         return application.name
 
-    def test_national_chapter_seat_is_scoped_to_its_chapter(self):
+    def _report_names(self):
         from verenigingen.verenigingen.report.pending_membership_applications.pending_membership_applications import (
             execute,
         )
 
-        other = self.create_chapter(
-            chapter_name=f"Nat Other {self.token}", region=self._ensure_region()
-        )
+        return {row["name"] for row in execute({})[1]}
+
+    def test_national_only_member_sees_all(self):
+        other = self.create_chapter(chapter_name=f"Nat Other {self.token}", region=self._ensure_region())
         own_application = self._application(self.national_like_chapter.name)
         other_application = self._application(other.name)
         unassigned = self._application(None)
@@ -168,10 +168,35 @@ class TestPendingApplicationsChapterScope(NationalChapterAccessBase):
         original_user = frappe.session.user
         try:
             frappe.set_user(self.board_user.name)
-            for national in (None, self.national_like_chapter.name):
-                self._set_national_chapter(national)
-                names = {row["name"] for row in execute({})[1]}
-                self.assertIn(own_application, names)
-                self.assertFalse({other_application, unassigned} & names, (national, names))
+
+            # Control: without the setting the seat scopes the rows to its own chapter.
+            self._set_national_chapter(None)
+            scoped = self._report_names()
+            self.assertIn(own_application, scoped)
+            self.assertFalse({other_application, unassigned} & scoped, scoped)
+
+            # With the setting the seat reads every application, unassigned included.
+            self._set_national_chapter(self.national_like_chapter.name)
+            everything = self._report_names()
+            self.assertTrue(
+                {own_application, other_application, unassigned} <= everything,
+                "national-only board member must see all pending applications",
+            )
+        finally:
+            frappe.set_user(original_user)
+
+    def test_a_seat_in_another_chapter_is_not_widened_by_the_national_setting(self):
+        """The setting names ONE chapter: a seat elsewhere gains nothing from it."""
+        other = self.create_chapter(chapter_name=f"Nat Elsewhere {self.token}", region=self._ensure_region())
+        elsewhere = self._application(other.name)
+        own_application = self._application(self.national_like_chapter.name)
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(self.board_user.name)
+            self._set_national_chapter(other.name)  # a chapter this user holds no seat in
+            names = self._report_names()
+            self.assertIn(own_application, names)
+            self.assertNotIn(elsewhere, names)
         finally:
             frappe.set_user(original_user)

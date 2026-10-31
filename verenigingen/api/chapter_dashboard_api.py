@@ -136,8 +136,7 @@ def quick_approve_application(application_name: str):
     chapter, or an administrator) is approve_application's own and comes first, so an unknown and a
     foreign application are refused the same way. The old branch that flipped only the Chapter
     Member row of a "pending" member is gone: an application has no Member until it is approved.
-    (A chapter JOIN request from an existing member is a different flow and is no longer approved
-    from this dashboard.)
+    (A chapter JOIN request from an existing member is approved by quick_approve_join_request.)
 
     Returns the dict `approve_application` returns (`success`, `member`, `application`, ...).
     """
@@ -165,6 +164,131 @@ def quick_approve_application(application_name: str):
         application_name=application_name,
         notes=f"Approved via chapter dashboard by {frappe.session.user}",
     )
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member approval operations
+@handle_api_error
+@performance_monitor(threshold_ms=2000)
+def quick_approve_join_request(member_name: str, chapter_name: str | None = None):
+    """Approve a chapter JOIN request (a Pending Chapter Member row of an existing member) from the dashboard.
+
+    This is the half of the old quick_approve_member that served join requests (#1867). An application
+    is approved by quick_approve_application; it has no Member until then.
+
+    The chapter is the one with exactly one Pending row for this member when `chapter_name` is not
+    given. An unknown member, a row in a chapter the caller does not manage, and a row pending in several
+    chapters all refuse with the same message (existence oracle, #1360). Approving needs a board role
+    carrying can_approve_members on that chapter (or an administrator); staff have no board role.
+    """
+
+    # Validate inputs
+    validate_required_fields({"member_name": member_name}, ["member_name"])
+
+    member_name = APIValidator.sanitize_text(member_name, max_length=100)
+    chapter_name = APIValidator.sanitize_text(chapter_name, max_length=100) if chapter_name else None
+
+    # Verify permissions
+    from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters, get_user_board_role
+
+    user_chapters = get_user_board_chapters()
+    if not user_chapters:
+        raise PermissionError("You must be a board member to approve applications")
+
+    # Get member's chapter if not specified. The chapter an approval is FOR is
+    # whichever chapter has a "Pending" Chapter Member row for this member --
+    # both the chapter-join-request flow and the membership-application flow
+    # write that row at submission (application_helpers.py::
+    # create_pending_chapter_membership). Member.current_chapter_display is an
+    # HTML-fieldtype field with no DB column (#1516): querying it here always
+    # raised OperationalError, before the access check below -- or the two
+    # frappe.throw()s #1360 flagged as a possible existence-oracle pair --
+    # were ever reached.
+    #
+    # WHY refuse identically for "no pending row anywhere" (nonexistent member,
+    # or one with none) and "pending in more than one chapter at once"
+    # (picking either would be a silent wrong-chapter approval): both now
+    # throw the exact same message as "resolved a chapter, but not one the
+    # caller manages" below. Distinguishing any of these would let a board
+    # member learn things about members outside their chapter -- the
+    # existence-oracle variant #1360 flagged, dormant only because this line
+    # always crashed first.
+    if not chapter_name:
+        pending_chapters = set(
+            frappe.get_all(
+                "Chapter Member",
+                filters={"member": member_name, "status": "Pending"},
+                pluck="parent",
+            )
+        )
+        if len(pending_chapters) != 1:
+            frappe.throw(_("You don't have access to this chapter"))
+        chapter_name = pending_chapters.pop()
+
+    # Verify user has access to this chapter
+    if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
+        frappe.throw(_("You don't have access to this chapter"))
+
+    # Check approval permissions
+    user_role = get_user_board_role(chapter_name)
+    if not (user_role and user_role.get("permissions", {}).get("can_approve_members", False)):
+        frappe.throw(_("You don't have permission to approve members"))
+
+    try:
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        result = chapter_doc.member_manager.approve_member_request(  # ast-skip: @property not field
+            member_id=member_name, approved_by=frappe.session.user
+        )
+
+        if result.get("success"):
+            # Log the dashboard approval
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            # WHY: frappe.get_user() returns a UserPermissions object, which has
+            # no `full_name` attribute -> AttributeError. That exception was caught
+            # by the broad except below and surfaced as {"success": False}, so the
+            # caller saw a *failure* even though the membership approval had already
+            # committed. Use frappe.utils.get_fullname(session.user) instead.
+            approver_full_name = frappe.utils.get_fullname(frappe.session.user)
+            comment_doc = frappe.get_doc(
+                {
+                    "doctype": "Comment",
+                    "comment_type": "Info",
+                    "reference_doctype": "Member",
+                    "reference_name": member_name,
+                    "content": f"Member approved via chapter dashboard by {approver_full_name}",
+                }
+            )
+
+            # Secure audit trail comment creation with explicit permission validation
+            comment_result = secure_document_operation(
+                operation="insert",
+                doc=comment_doc,
+                justification=f"Chapter governance audit trail for member approval {member_name}",
+                required_permissions=["Comment:create"],
+            )
+
+            if not comment_result.success:
+                frappe.logger().warning(
+                    f"Failed to create approval audit trail comment: {'; '.join(comment_result.errors)}"
+                )
+                # Don't block the approval if audit trail fails
+
+            return {"success": True, "message": _("Member approved successfully"), "member_name": member_name}
+        else:
+            return {"success": False, "error": result.get("message", "Unknown error occurred")}
+
+    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
+    # here is logged and returned as a plain failure dict one frame below the
+    # decorator's own guard (#504). Re-raise unconditionally.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        frappe.log_error(
+            title="Chapter Dashboard API", message=f"Error in quick_approve_join_request: {str(e)}"
+        )
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

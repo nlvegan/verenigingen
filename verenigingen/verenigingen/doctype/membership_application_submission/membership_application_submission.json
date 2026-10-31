@@ -138,7 +138,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-30 00:00:00.000000",
+ "modified": "2026-10-31 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Application Submission",
@@ -158,6 +158,14 @@
    "delete": 1,
    "read": 1,
    "role": "Verenigingen Administrator"
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Staff"
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen National Board Member"
   }
  ],
  "sort_field": "creation",

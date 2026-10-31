@@ -396,6 +396,64 @@ def _deduplicate_matches(matches: List[DuplicateMatch]) -> List[DuplicateMatch]:
     return list(member_map.values())
 
 
+def _duplicate_result(duplicates: List[Dict]) -> OperationResult[Dict]:
+    """The approval dialog's payload: matches grouped by confidence."""
+    high_confidence = [m for m in duplicates if m["confidence"] >= 0.9]
+    medium_confidence = [m for m in duplicates if 0.7 <= m["confidence"] < 0.9]
+    low_confidence = [m for m in duplicates if m["confidence"] < 0.7]
+
+    result_data = {
+        "has_duplicates": len(duplicates) > 0,
+        "duplicate_count": len(duplicates),
+        "duplicates": duplicates,
+        "high_confidence": high_confidence,
+        "medium_confidence": medium_confidence,
+        "low_confidence": low_confidence,
+        "summary": {
+            "high": len(high_confidence),
+            "medium": len(medium_confidence),
+            "low": len(low_confidence),
+        },
+    }
+
+    return OperationResult.ok(
+        result_data,
+        message=f"Found {len(duplicates)} potential duplicate(s)" if duplicates else "No duplicates found",
+    )
+
+
+@frappe.whitelist()
+@standard_api()  # Duplicate detection - read-only sensitive data
+def check_duplicate_for_application(application_name: str) -> OperationResult[Dict]:
+    """Duplicate check for the approve dialog of an APPLICATION (#1870): no Member exists yet.
+
+    Fed by the application's own name, birth date, IBAN and email (the payload in the key shape the
+    member helpers read). The Member the application's email already belongs to is the applicant
+    themselves (approval updates it), so it is excluded rather than reported as a duplicate of itself.
+    Permission comes first and refuses an unknown and a foreign application alike.
+    """
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.services.member.application.application_materialiser import application_data
+
+    application_name = str(application_name)
+    validate_application_permission_or_throw(application_name, "read")
+    application = frappe.get_doc("Membership Application Submission", application_name)
+    data = application_data(application)
+    own_member = frappe.db.get_value("Member", {"email": application.email})
+
+    duplicates = find_potential_duplicates(
+        member_name=own_member,
+        email=application.email,
+        iban=data.get("iban"),
+        first_name=data.get("first_name"),
+        last_name=data.get("last_name"),
+        tussenvoegsel=data.get("tussenvoegsel"),
+        birth_date=data.get("birth_date"),
+        threshold=0.6,  # include medium-confidence matches, as the member-keyed check does
+    )
+    return _duplicate_result(duplicates)
+
+
 @frappe.whitelist()
 @standard_api()  # Duplicate detection - read-only sensitive data
 def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
@@ -480,31 +538,7 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
             threshold=0.6,  # Include medium-confidence matches
         )
 
-        # Categorize by severity
-        high_confidence = [m for m in duplicates if m["confidence"] >= 0.9]
-        medium_confidence = [m for m in duplicates if 0.7 <= m["confidence"] < 0.9]
-        low_confidence = [m for m in duplicates if m["confidence"] < 0.7]
-
-        result_data = {
-            "has_duplicates": len(duplicates) > 0,
-            "duplicate_count": len(duplicates),
-            "duplicates": duplicates,
-            "high_confidence": high_confidence,
-            "medium_confidence": medium_confidence,
-            "low_confidence": low_confidence,
-            "summary": {
-                "high": len(high_confidence),
-                "medium": len(medium_confidence),
-                "low": len(low_confidence),
-            },
-        }
-
-        return OperationResult.ok(
-            result_data,
-            message=f"Found {len(duplicates)} potential duplicate(s)"
-            if duplicates
-            else "No duplicates found",
-        )
+        return _duplicate_result(duplicates)
 
     except frappe.DoesNotExistError:
         log_security_event(

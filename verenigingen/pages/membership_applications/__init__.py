@@ -6,6 +6,7 @@ from verenigingen.services.member.application.pending_applications import (
     pending_review_applications,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 @frappe.whitelist()
@@ -74,17 +75,14 @@ def get_application_stats():
 
 
 def _readable_decided(status, fields, extra_filters=None, limit=None):
-    """Decided applications (`status`) the caller may read; [] for a caller who may not read any."""
-    try:
-        return frappe.get_list(
-            SUBMISSION,
-            filters={"status": status, "review_date": ["is", "set"], **(extra_filters or {})},
-            fields=fields,
-            order_by="review_date desc",
-            limit_page_length=limit or 0,
-        )
-    except frappe.PermissionError:
-        return []
+    """Decided applications (`status`) the caller may read; a caller who may not read any is refused."""
+    return frappe.get_list(
+        SUBMISSION,
+        filters={"status": status, "review_date": ["is", "set"], **(extra_filters or {})},
+        fields=fields,
+        order_by="review_date desc",
+        limit_page_length=limit or 0,
+    )
 
 
 @frappe.whitelist()
@@ -106,6 +104,8 @@ def bulk_approve_applications(application_names: str, membership_type: str, crea
                 application_name, create_invoice=create_invoices, membership_type=membership_type
             )
             results["success"].append(application_name)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # the transaction is gone: carrying on to the next application would run on a dead one
         except Exception as e:
             results["failed"].append({"application": application_name, "error": str(e)})
 

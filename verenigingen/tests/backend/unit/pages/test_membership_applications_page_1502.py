@@ -195,11 +195,11 @@ class TestGetPendingApplicationsChapterScope(EnhancedTestCase):
 
 
 class TestGetPendingApplicationsVolunteerRefused(MemberOwnershipProbeMixin, EnhancedTestCase):
-    def test_volunteer_sees_no_pending_applications(self):
+    def test_volunteer_is_refused_the_list(self):
         """"Verenigingen Volunteer" clears the bare MEDIUM tier
         (`@standard_api` always uses MEDIUM regardless of `operation_type` --
-        confirmed live) but holds no active board seat, so this file's own
-        scoping code must return an empty list rather than the app-wide one."""
+        confirmed live) but holds no application read permission, so the read
+        is refused rather than answered with an empty (or the app-wide) list."""
         chapter = self.create_test_chapter()
         _make_pending_applicant(self, chapter.name, "PendingAppsVolunteerVictim")
 
@@ -207,10 +207,10 @@ class TestGetPendingApplicationsVolunteerRefused(MemberOwnershipProbeMixin, Enha
             "PendingAppsVolunteerAttacker", "Verenigingen Member", "Verenigingen Volunteer"
         )
 
+        # A refusal, not []: a caller who may not read applications must not see "nothing pending" (#1765).
         with self.set_user(user_email):
-            result = get_pending_applications()
-
-        self.assertEqual(result, [])
+            with self.assertRaises(frappe.PermissionError):
+                get_pending_applications()
 
 
 class TestGetApplicationStatsChapterScope(EnhancedTestCase):
@@ -261,10 +261,9 @@ class TestGetApplicationStatsChapterScope(EnhancedTestCase):
         row_a = next(r for r in stats["recent_approvals"] if r["full_name"] == approved_a.full_name)
         self.assertEqual(row_a["current_chapter_display"], chapter_a.name)
 
-    def test_volunteer_sees_all_zero_stats(self):
-        """A Volunteer clears the bare MEDIUM tier but holds no active board
-        seat -- must see an empty/zeroed stats dict, not another chapter's
-        data and not a raised exception (MEDIUM is legitimately cleared)."""
+    def test_volunteer_is_refused_the_stats(self):
+        """A Volunteer clears the bare MEDIUM tier but holds no application read
+        permission -- refused, not shown another chapter's data and not zeros."""
         chapter = self.create_test_chapter()
         _make_pending_applicant(self, chapter.name, "ScopeStatsVolunteer")
 
@@ -272,13 +271,10 @@ class TestGetApplicationStatsChapterScope(EnhancedTestCase):
             self, "StatsVolunteerAttacker", "Verenigingen Member", "Verenigingen Volunteer"
         )
 
+        # A refusal, not zeroed stats (#1765): zeros would read as "nothing pending".
         with self.set_user(user_email):
-            stats = get_application_stats()
-
-        self.assertEqual(stats["total_pending"], 0)
-        self.assertEqual(stats["pending_by_chapter"], {})
-        self.assertEqual(stats["recent_approvals"], [])
-        self.assertEqual(stats["recent_rejections"], [])
+            with self.assertRaises(frappe.PermissionError):
+                get_application_stats()
 
     def test_admin_sees_both_chapters(self):
         """Control: an admin's view must not shrink to empty."""

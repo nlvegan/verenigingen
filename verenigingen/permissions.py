@@ -2302,12 +2302,18 @@ def check_app_permission():
 
 
 def _seat_chapters_for_application_read(user):
-    """ "all" for admin/staff/national board, else the chapters of every active seat."""
+    """ "all" for admin/staff/national board and for a seat in the configured national board chapter
+    (#1868: that seat read every pending application before applications became their own record),
+    else the chapters of every active seat."""
     from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
 
     if get_user_manageable_chapters(user) == "all":
         return "all"
-    return get_user_chapter_memberships_cached(user, get_cache_key())
+    chapters = get_user_chapter_memberships_cached(user, get_cache_key())
+    national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    if national and national in chapters:
+        return "all"
+    return chapters
 
 
 def get_application_permission_query(user):

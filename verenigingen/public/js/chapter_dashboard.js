@@ -175,9 +175,55 @@ function approveApplication(applicationName) {
 	});
 }
 
+function approveJoinRequest(memberName) {
+	if (!userPermissions.can_approve_members) {
+		frappe.msgprint(__('You do not have permission to approve members.'));
+		return;
+	}
+
+	frappe.confirm(__('Are you sure you want to approve this chapter join request?'), () => {
+		showLoading();
+
+		frappe.call({
+			method: 'verenigingen.api.chapter_dashboard_api.quick_approve_join_request',
+			args: {
+				member_name: memberName,
+				chapter_name: selectedChapter
+			},
+			callback(r) {
+				hideLoading();
+
+				if (r.message && r.message.success) {
+					frappe.show_alert({
+						message: __('Join request approved'),
+						indicator: 'green'
+					});
+					refreshDashboardData();
+				} else {
+					frappe.msgprint({
+						title: __('Error'),
+						message: frappe.utils.escape_html(
+							r.message ? r.message.error || r.message.message : __('Failed to approve join request')
+						),
+						indicator: 'red'
+					});
+				}
+			},
+			error(_r) {
+				hideLoading();
+				frappe.msgprint({
+					title: __('Error'),
+					message: __('An error occurred while approving the join request'),
+					indicator: 'red'
+				});
+			}
+		});
+	});
+}
+
 function reviewApplication(applicationName) {
-	// Open the application for review
-	window.location.href = `/app/membership-application-submission/${encodeURIComponent(applicationName)}`;
+	// Open the review page focused on this application
+	window.location.href = `/app/membership-application-review?application=${encodeURIComponent(applicationName)}`;
 }
 
 function showPendingApplications() {
@@ -207,6 +253,7 @@ function showPendingApplications() {
 			if (userPermissions.can_approve_members) {
 				html += '<div class="app-actions">';
 				html += `<button class="btn btn-primary btn-sm" data-application="${frappe.utils.escape_html(app.application)}" onclick="reviewApplication(this.dataset.application)"><i class="fa fa-eye"></i> Review Application</button>`;
+				html += `<button class="btn btn-success btn-sm" data-application="${frappe.utils.escape_html(app.application)}" onclick="approveApplication(this.dataset.application)"><i class="fa fa-check"></i> Approve</button>`;
 				html += '</div>';
 			}
 			html += '</div>';
@@ -467,6 +514,7 @@ window.chapterDashboard = {
 	viewAllMembers,
 	addNewMember,
 	approveApplication,
+	approveJoinRequest,
 	reviewApplication,
 	showPendingApplications,
 	viewFinancialReports,
@@ -479,6 +527,7 @@ window.chapterDashboard = {
 window.viewAllMembers = viewAllMembers;
 window.addNewMember = addNewMember;
 window.approveApplication = approveApplication;
+window.approveJoinRequest = approveJoinRequest;
 window.reviewApplication = reviewApplication;
 window.viewFinancialReports = viewFinancialReports;
 window.manageBoardMembers = manageBoardMembers;
