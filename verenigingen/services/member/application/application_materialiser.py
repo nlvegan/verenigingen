@@ -128,6 +128,9 @@ def _no_status_mail():
 def _writable_values(application, member) -> dict:
     """{fieldname: value} an existing Member takes from this application: supplied, non-blank, not protected.
 
+    `additional_notes` is never written to the Member (Ruling R): it stays on the application, which is
+    kept and linked by `member`.
+
     The address, the replace-on-reapply answers and the dues choice are applied by materialise_member
     next to this, so the preview of a reapplication adds them (Task 6).
     """

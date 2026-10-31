@@ -245,24 +245,42 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(str(member.birth_date), str(birth_date))
 
     def test_protected_fields_not_written(self):
-        member = self._voluntarily_quit_member_with_iban()
-        name = self._stage_and_confirm(status="Banned", user="Administrator")
-        # The payload as the form produced it carries the hostile keys (the controls below prove it).
+        """Every protected key is IN the stored payload (fixture: the payload is edited after staging, as a
+        tampered guest request would carry them), and every assertion is on a value the write could change."""
+        member = self.create_test_member(email=self.email, iban=IBAN)
+        member.reload()
+        execute_real_termination(self, member.name, today())
+        name = self._stage_and_confirm()
+        hostile = {
+            "email": "other@example.org",
+            "status": "Banned",
+            "application_status": "Rejected",
+            "user": "Administrator",
+            "customer": "Somebody Else",
+            "member_id": "FORGED-ID",
+            "payment_reference": "FORGED-REF",
+            "dues_rate": 9999,
+            "fee_override_reason": "forged",
+        }
         payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
-        payload.update(
-            {"email": "other@example.org", "status": "Banned", "application_status": "Rejected", "customer": "x"}
-        )
+        payload.update(hostile)
         frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))  # fixture: payload as staged
+        before = frappe.db.get_value("Member", member.name, ["user", "customer", "member_id", "payment_reference"], as_dict=True)
 
         self._approve_as(name)
 
-        member.reload()
-        self.assertEqual(member.email, self.email)
-        self.assertEqual(member.status, "Active")
-        self.assertEqual(member.application_status, "Approved")
-        self.assertNotEqual(member.user, "Administrator")
-        stored = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))  # control: the keys were there
-        self.assertEqual((stored["email"], stored["status"]), ("other@example.org", "Banned"))
+        after = frappe.db.get_value(
+            "Member",
+            member.name,
+            ["email", "status", "application_status", "user", "customer", "member_id", "payment_reference", "dues_rate"],
+            as_dict=True,
+        )
+        self.assertEqual(after.email, self.email)
+        self.assertEqual((after.status, after.application_status), ("Active", "Approved"))
+        for field in ("user", "customer", "member_id", "payment_reference"):
+            self.assertEqual(after[field], before[field], field)
+            self.assertNotEqual(after[field], hostile[field], field)
+        self.assertNotEqual(after.dues_rate, 9999)
 
     def test_member_became_active_meanwhile_refused(self):
         member = self._voluntarily_quit_member_with_iban()
@@ -296,6 +314,69 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(frappe.db.count("Customer", {"email_id": self.email}), 0)
         self.assertEqual(frappe.db.count("Contact", {"email_id": self.email}), 0)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_failed_approval_of_a_reapplicant_restores_the_member(self):
+        """Same injection point as test_failure_leaves_nothing (below _approve_membership_application_locked,
+        nothing between it and the savepoint swallows). The Quit member must come back as it was."""
+        member = self._voluntarily_quit_member_with_iban()
+        old_last_name = frappe.db.get_value("Member", member.name, "last_name")
+        name = self._stage_and_confirm(last_name=f"Renamed{frappe.generate_hash(length=5)}", iban=OTHER_IBAN, bank_account_name="Other Holder", payment_method="SEPA Direct Debit")
+        target = "verenigingen.services.member.approval.membership_creation_service.MembershipCreationService._create_membership_invoice"
+
+        # Mock justified: injected failure at the invoice step, below the code under test
+        with patch(target, side_effect=frappe.ValidationError("invoice boom")):
+            with self.assertRaises(frappe.ValidationError):
+                self._approve_as(name, create_invoice=True)
+
+        after = frappe.db.get_value("Member", member.name, ["status", "iban", "last_name", "application_status"], as_dict=True)
+        self.assertEqual(after.status, "Quit")
+        self.assertEqual(after.iban.replace(" ", ""), IBAN)
+        self.assertEqual(after.last_name, old_last_name)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, ["status", "member"], as_dict=True), {"status": "Pending Review", "member": None})
+
+    def test_banned_member_with_rejected_application_refused_at_approval(self):
+        """Fixture shortcut, stated: the Banned+Rejected state is a db write (which real path produces it is
+        not established). The application is confirmed while the Member is only Rejected, which is allowed."""
+        member = self.create_test_member(email=self.email)
+        frappe.db.set_value("Member", member.name, {"status": "Rejected", "application_status": "Rejected"})
+        name = self._stage_and_confirm()
+        frappe.db.set_value("Member", member.name, "status", "Banned")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_expulsion_between_confirm_and_approval_refused(self):
+        """A Pending applicant may reapply; an expulsion (real termination service) executed after the
+        application was confirmed makes the Member Banned, and approval must not reactivate it."""
+        member = self.create_test_member(email=self.email)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        name = self._stage_and_confirm()  # control: staged, so this Member could reapply before the expulsion
+        execute_real_termination(self, member.name, today(), termination_type="Expulsion")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_banned_member_with_rejected_application_refused_at_submit(self):
+        member = self.create_test_member(email=self.email)
+        frappe.db.set_value("Member", member.name, {"status": "Banned", "application_status": "Rejected"})
+        rows = frappe.db.count(SUBMISSION, {"email": self.email})
+        self._request_from_fresh_ip()
+        previous = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            response = submit_application(**self._full_form_data())
+        finally:
+            frappe.set_user(previous)
+
+        self.assertTrue(response["success"], response)  # the same answer a Guest gets for any email
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), rows, "nothing staged for a Banned member")
 
     def test_superseded_application_refused(self):
         older = self._stage_and_confirm()

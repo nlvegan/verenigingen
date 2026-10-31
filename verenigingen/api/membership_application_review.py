@@ -2,9 +2,6 @@
 API endpoints for reviewing and managing membership applications
 """
 
-import random
-import string
-
 import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
@@ -839,13 +836,15 @@ def _approve_application_locked(
     application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
     _refuse_unless_approvable(application, chapter)
 
-    savepoint = "".join(random.sample(string.ascii_lowercase, 10))
+    savepoint = f"approve_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
         member = materialise_member(application)
-        response = _approve_membership_application_locked(
-            member.name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
-        )
+        # The outcome is written BEFORE the core: the core commits once (member_user_account_service,
+        # Pattern 1) for a Member that already has a User, and that commit must find Member Active and
+        # application Approved together, never Member Active with an application no retry can approve.
+        # A failure in the core before that commit rolls both back through the savepoint; one after it
+        # leaves the application Approved with a partly approved Member, as the member-keyed approval did.
         application.set_status("Approved")
         application.db_set(
             {
@@ -854,6 +853,9 @@ def _approve_application_locked(
                 "review_date": now_datetime(),
                 "review_notes": notes,
             }
+        )
+        response = _approve_membership_application_locked(
+            member.name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
         )
     except NON_RESUMABLE_DB_ERRORS:
         raise  # the server already discarded the transaction, and the savepoint with it

@@ -41,7 +41,7 @@ def create_termination_request(case, member_name, reason):
     return request
 
 
-def execute_real_termination(case, member_name, termination_date):
+def execute_real_termination(case, member_name, termination_date, termination_type="Voluntary"):
     """Drive a REAL termination through TerminationExecutionService (not a
     hand-set status -- #1530 was found precisely because an earlier fix
     trusted a status string instead of the real flow). Sets Membership
@@ -62,7 +62,7 @@ def execute_real_termination(case, member_name, termination_date):
         {
             "doctype": "Membership Termination Request",
             "member": member_name,
-            "termination_type": "Voluntary",
+            "termination_type": termination_type,
             "termination_reason": "Test termination",
             "termination_date": termination_date,
             "requested_by": frappe.session.user,
@@ -70,6 +70,8 @@ def execute_real_termination(case, member_name, termination_date):
             "status": "Approved",
             "approved_by": frappe.session.user,
             "approval_date": frappe.utils.now(),
+            # required by validate_termination_request for Policy Violation / Disciplinary Action / Expulsion
+            "disciplinary_documentation": "Test documentation",
         }
     )
     request.insert()

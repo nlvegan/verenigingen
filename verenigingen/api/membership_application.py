@@ -518,6 +518,12 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
         )
 
 
+# Banned and Deceased are final. Suspended (a disciplinary hold) and Expired (lapsed, with its own renewal
+# path) were already refused when application_status was Approved; only the ordering let a stale
+# Rejected/Pending application_status through.
+NON_REAPPLICABLE_STATUSES = ("Banned", "Deceased", "Suspended", "Expired")
+
+
 def _handle_existing_member(existing_member, data):
     """Handle all existing-member reapplication scenarios.
 
@@ -528,6 +534,12 @@ def _handle_existing_member(existing_member, data):
     member_name = existing_member.name
     status = existing_member.status
     app_status = existing_member.application_status
+
+    # Terminal statuses refuse whatever application_status says: a Banned, Deceased, Suspended or Expired
+    # member whose application_status is still Rejected/Pending must not be reactivated by a reapplication
+    # (#1837). Checked first so submit, confirm and approval, which all call this, agree.
+    if status in NON_REAPPLICABLE_STATUSES:
+        return None, _record_exists_failure()
 
     # Scenario 1: Rejected application - allow reapplication
     if app_status == "Rejected":
@@ -581,7 +593,11 @@ def _handle_existing_member(existing_member, data):
         )
 
     # Unknown status - block with contact message
-    return None, OperationResult.fail(
+    return None, _record_exists_failure()
+
+
+def _record_exists_failure():
+    return OperationResult.fail(
         _("A membership record with this email already exists. Please contact us for assistance."),
         errors=["membership_record_exists"],
         context={"operation": "submit_application"},
