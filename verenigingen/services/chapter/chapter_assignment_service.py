@@ -43,6 +43,11 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -182,6 +187,15 @@ class ChapterAssignmentService(StatelessService):
         if not member or not chapter:
             frappe.throw(_("Member and Chapter are required"))
 
+        # The cleanup removes the member from every other chapter and ends their board
+        # seats BEFORE the add is attempted, and add_member can then refuse (a
+        # non-Active member, #1582/#1564) by RETURNING success False, not by raising.
+        # Everything below is one unit: a refusal or an exception rolls it back, so a
+        # refused move leaves the member's rows and seats as they were (#1793). Attempting
+        # the add first would not do: the already-in-target branches below key on the
+        # post-cleanup state, and a pre-check would duplicate add_member's refusal rules.
+        savepoint = f"assign_with_cleanup_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
         try:
             cleanup_performed = False
 
@@ -235,9 +249,18 @@ class ChapterAssignmentService(StatelessService):
                 elif result["success"]:
                     result["message"] = _("Member successfully assigned to {0}").format(chapter)
 
+            if result["success"]:
+                release_savepoint_if_present(savepoint)
+            else:
+                rollback_to_savepoint(savepoint)
+                result["cleanup_performed"] = False
             return result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A deadlock/lock timeout is not a refusal to report: propagate (#561).
+            raise
         except Exception as e:
+            rollback_to_savepoint(savepoint)
             self.logger.error(f"Error in assign_with_cleanup: {str(e)}")
             return {"success": False, "message": str(e)}
 
@@ -280,7 +303,9 @@ class ChapterAssignmentService(StatelessService):
                             "leave_reason",
                             f"Reassigned to {target_chapter}",
                         )
-                        frappe.db.commit()
+                        # No commit here: it would clear the savepoint assign_with_cleanup
+                        # rolls back to when the add is refused (#1793). The request-level
+                        # commit persists this.
                         cleanup_performed = True
                         self.logger.info(
                             f"Directly disabled membership {membership.name} for member {member}"
