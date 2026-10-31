@@ -3658,6 +3658,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             mock_rate_limit_validation,
         )
         self.rate_limit_patch.start()
+        # unittest skips tearDown when setUp raises or skips (#1782), which would leave the
+        # stub installed for every later test. A cleanup always runs; a second stop is a no-op.
+        self.addCleanup(self._teardown_rate_limit_mocking)
 
     def _teardown_rate_limit_mocking(self):
         """

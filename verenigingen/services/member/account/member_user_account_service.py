@@ -816,12 +816,12 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
         activate_as_volunteer: If True, assign Volunteer role profile; otherwise Member role profile
 
     Returns:
-        dict: Result dictionary with keys: success, message, user, action, error, account_request
-              (Compatible with existing callers that use .get() access)
+        dict: OperationResult.to_dict() (nested schema); ``action`` and ``account_request``
+              live under ``meta``, not at the top level
 
     Note:
-        Internally uses OperationResult pattern but returns dict for backward compatibility.
-        Callers can use result.get("success"), result.get("action"), etc.
+        Read the action as result.get("meta", {}).get("action"); a top-level
+        result.get("action") is always None (#1739).
     """
     try:
         from verenigingen.utils.account_creation_manager import queue_account_creation_for_member

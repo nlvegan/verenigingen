@@ -510,26 +510,19 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         member.suspension_reason = "Test suspension"
         member.save()
 
-        # Attempt chapter transfer while suspended
-        try:
-            # Use Chapter Member relationships instead of deprecated member.chapter field
-            from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
-            assign_member_to_chapter(member.name, chapter2.name)
-            member.save()
+        # A Suspended member cannot be assigned: the call refuses (success False) and
+        # leaves no enabled row in the target chapter (#1584). This used to be an
+        # "allowed OR prevented" test whose allowed branch never ran: the test's own
+        # member.save() hit a TimestampMismatchError (a ValidationError) because the
+        # old assignment re-saved the Member, and that was swallowed as "prevention".
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
 
-            # Should either allow transfer or prevent it
-            # Check chapter through Chapter Member relationships
-            chapter_memberships = frappe.get_all(
-                "Chapter Member",
-                filters={"member": member.name, "status": "Active"},
-                fields=["chapter"]
-            )
-            chapter_names = [cm.chapter for cm in chapter_memberships]
-            self.assertTrue(any(ch in [self.chapter.name, chapter2.name] for ch in chapter_names), "Member should be assigned to one of the test chapters")
+        result = assign_member_to_chapter(member.name, chapter2.name)
 
-        except frappe.ValidationError:
-            # Prevention is valid business rule
-            pass
+        self.assertFalse(result["success"], result)
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": chapter2.name, "member": member.name, "enabled": 1})
+        )
 
         # Cleanup handled automatically by VereningingenTestCase
 
