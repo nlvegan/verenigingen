@@ -95,9 +95,9 @@ class TestUserRoleCacheInvalidationOnRoleChange(EnhancedTestCase):
         user.save(ignore_permissions=True)
 
     def test_appending_a_role_and_saving_invalidates_the_cache(self):
-        """The dominant production shape: BoardManager, member_role_service etc. all grant a role via
-        user_doc.append("roles", ...); user_doc.save() -- never touching
-        role_profile_name."""
+        """A common production shape (member_role_service and similar) grants a role via
+        user_doc.append("roles", ...); user_doc.save() -- never touching role_profile_name.
+        (BoardManager no longer does: since #1672 the board role comes from the profile sync.)"""
         user = self._make_plain_user("rolecache-append")
         cache_key = self._prime_cache(user.name)
 

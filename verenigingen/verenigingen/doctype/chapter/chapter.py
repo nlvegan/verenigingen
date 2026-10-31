@@ -158,12 +158,13 @@ class Chapter(Document):
         self._populate_board_document_fields()
 
         # NOTE: board member change/addition handling is performed exactly once,
-        # in validate() via _handle_document_changes(). It must NOT be repeated
-        # here: handle_board_member_additions() reloads the volunteer's User and
-        # rewrites its roles child table, so a second invocation in the same save
-        # reloads a stale User and clobbers it. (The direct role grant that once ran
-        # here was removed in #1672; the role now comes from the deferred role-profile
-        # sync. See get_member_permission_query() which depends on it.)
+        # in validate() via _handle_document_changes(). Do not repeat it here.
+        # The original reason was that handle_board_member_additions() reloaded the
+        # volunteer's User and rewrote its roles, so a second run clobbered it. That
+        # direct grant was removed in #1672: the role now comes from the deferred
+        # role-profile sync flushed in on_update (its queue de-duplicates). Whether a
+        # second run is still harmful in other ways was not re-checked, so keep the
+        # once-per-save rule. See get_member_permission_query(), which depends on the role.
 
     def after_insert(self):
         """After insert hook"""
