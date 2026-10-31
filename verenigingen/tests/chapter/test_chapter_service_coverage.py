@@ -264,7 +264,9 @@ class TestChapterAssignmentService(EnhancedTestCase):
         board = self._board_member_in_chapter()
         from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
-        ChapterMembershipManager.assign_member_to_chapter(member_id=board.member, chapter_name=target.name, notify=False)
+        ChapterMembershipManager.assign_member_to_chapter(
+            member_id=board.member, chapter_name=target.name, notify=False
+        )
         target_doc = frappe.get_doc("Chapter", target.name)
         target_doc.member_manager.remove_member(board.member, permanent=False)
         self._suspend_for_assign_cleanup(board.member)
@@ -280,6 +282,8 @@ class TestChapterAssignmentService(EnhancedTestCase):
         result = self._get_service().assign_with_cleanup(board.member, target.name)
 
         self.assertFalse(result["success"], result)
+        # Pins the not_reenabled refusal, so the added_disabled path cannot satisfy this test.
+        self.assertIn("not re-enabled", result["message"])
         self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
 
     def test_assign_with_cleanup_successful_move_still_cleans_up(self):
