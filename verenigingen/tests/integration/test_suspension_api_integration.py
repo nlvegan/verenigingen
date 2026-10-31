@@ -200,6 +200,35 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertIn(self.test_member.name, names)
         self.assertNotIn(self.member_with_user.name, names)
 
+    def test_volunteer_profile_user_cannot_list_suspended_members(self):
+        """#1866 negative property: a user holding ONLY the "Verenigingen Volunteer"
+        role profile (the caller the deleted endpoint leaked to) gets no suspended
+        member from the Member list. The suspended state is reached through the real
+        `suspend_member` flow. Control: the admin test above sees the same row.
+        """
+        volunteer_user = self.create_test_user_with_roles(
+            email="susp.volunteer@test.verenigingen.invalid",
+            roles=["Verenigingen Volunteer"],
+            first_name="Susp",
+            last_name="Volunteer",
+        )
+        grant_matching_role_profiles(volunteer_user.email, ["Verenigingen Volunteer"])
+        self.assertTrue(
+            self._suspend(
+                self.test_member.name, suspend_user=False, suspend_teams=False
+            )["success"]
+        )
+
+        with self.as_user(volunteer_user.email):
+            names = [
+                row.name
+                for row in frappe.get_list(
+                    "Member", filters={"status": "Suspended"}, fields=["name"]
+                )
+            ]
+
+        self.assertNotIn(self.test_member.name, names)
+
     def test_bulk_suspension(self):
         """bulk_suspend_members suspends every member in the batch."""
         bulk_members = [
