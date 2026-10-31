@@ -89,8 +89,10 @@ def _refuse_unknown_chapter(chapter):
     before anything is written. It used to approve the member with no chapter row. Shared with
     the application-record approval path (#1765), so both refuse with one message.
 
-    Call it after the permission gate, as with _check_member_exists_for_review: chapter names are
-    published, so this reveals nothing to a caller who got that far.
+    Called after the permission gate, as _check_member_exists_for_review is. NOTE: that gate checks
+    the MEMBER's chapters, not the chapter being assigned, so for a chapter-scoped caller this
+    message does reveal whether an (unpublished) chapter name exists. That, and whether a scoped
+    caller may assign a chapter it does not manage, is tracked separately (see the #1860 PR).
     """
     if chapter and not frappe.db.exists("Chapter", chapter):
         frappe.throw(_("Chapter {0} does not exist").format(chapter))

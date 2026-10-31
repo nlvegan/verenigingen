@@ -73,6 +73,17 @@ class TestApprovalRefusesUnknownChapter(EnhancedTestCase):
 
         self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
 
+    def test_an_unpublished_existing_chapter_is_not_refused(self):
+        """Control for the ruling's boundary: only a chapter that does not EXIST is refused."""
+        chapter = self.create_test_chapter(published=0)
+        member = self._apply_as_guest()
+
+        approve_membership_application(
+            member_name=member, membership_type=self.membership_type, chapter=chapter.name
+        )
+
+        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
+
     def test_no_chapter_still_approves(self):
         """Control: an approval naming no chapter is not refused."""
         member = self._apply_as_guest()
