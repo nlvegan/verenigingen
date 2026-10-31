@@ -10,17 +10,16 @@ Every test drives the real flow: submit_application as Guest, then approve_membe
 as Administrator. No field is set directly.
 """
 
-import json
 from unittest.mock import patch
 
 import frappe
 
-from verenigingen.api.membership_application import submit_application
 from verenigingen.api.membership_application_review import approve_membership_application
 from verenigingen.tests.backend.unit.api.test_membership_application_coverage import (
     _ensure_test_membership_type,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.guest_application import submit_application_as_guest
 
 ASSIGNMENT_FAILURE_TITLE = "Approval Chapter Assignment Failed"
 
@@ -34,30 +33,7 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         self.membership_type = _ensure_test_membership_type()
 
     def _apply_as_guest(self, **overrides):
-        data = {
-            "first_name": "Reviewer",
-            "last_name": f"Chapter{frappe.generate_hash(length=6)}",
-            "email": f"rc-{frappe.generate_hash(length=8)}@example.com",
-            "birth_date": "1990-01-01",
-            "address_line1": "1 Test Street",
-            # A city and postal code no chapter can match, so no chapter is SUGGESTED at submit:
-            # suggest_chapter_for_member also matches on the CITY, and CI shards carry shared
-            # chapters such as "Test Amsterdam Chapter" (this used "Amsterdam" and went red in CI).
-            # The precondition assertions below still check it rather than trusting it.
-            "city": f"Nergenshuizen-{frappe.generate_hash(length=6)}",
-            "postal_code": "9999ZZ",
-            "country": "Netherlands",
-            "selected_membership_type": self.membership_type,
-        }
-        data.update(overrides)
-        frappe.set_user("Guest")
-        self.addCleanup(frappe.set_user, "Administrator")
-        result = submit_application(**data)
-        frappe.set_user("Administrator")
-        self.assertTrue(result["success"], msg=json.dumps(result, default=str))
-        member = result["data"]["member_record"]
-        self.track_doc("Member", member)
-        return member
+        return submit_application_as_guest(self, self.membership_type, **overrides)
 
     def _rows(self, member):
         return {
