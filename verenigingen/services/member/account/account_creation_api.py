@@ -974,7 +974,7 @@ def process_bulk_account_creation_batch(
                     "Account Creation Request",
                     {
                         "name": ["in", request_names],
-                        "status": ["in", ["Requested", "Queued", "In Progress"]],
+                        "status": ["in", ["Requested", "Queued", "Processing"]],
                     },
                 )
 
@@ -1011,7 +1011,7 @@ def process_bulk_account_creation_batch(
                     "Account Creation Request",
                     {
                         "name": ["in", request_names],
-                        "status": ["in", ["Requested", "Queued", "In Progress"]],
+                        "status": ["in", ["Requested", "Queued", "Processing"]],
                     },
                 )
 
