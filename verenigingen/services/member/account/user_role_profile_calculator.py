@@ -890,6 +890,7 @@ def sync_user_role_profile(
     allow_disabled: bool = False,
     withdraw: tuple = (),
     nightly: bool = False,
+    reraise_non_resumable: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -915,6 +916,10 @@ def sync_user_role_profile(
             fails is rolled back, and a deadlock/timeout is re-raised instead of being
             swallowed, so the run stops rather than resuming on a damaged transaction.
             The event-driven callers keep the replace behaviour (#1293).
+        reraise_non_resumable: Re-raise a deadlock/lock-wait instead of returning
+            success=False, WITHOUT the other nightly behaviours. For a caller whose own
+            save must abort when the transaction is broken (the Chapter board seating
+            flush, #1672). Default False: every other event-driven caller is unchanged.
 
     Returns:
         dict: {
@@ -1136,7 +1141,7 @@ def sync_user_role_profile(
         }
 
     except NON_RESUMABLE_DB_ERRORS as e:
-        if nightly:
+        if nightly or reraise_non_resumable:
             raise
         return _sync_failed(user, e)
     # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always

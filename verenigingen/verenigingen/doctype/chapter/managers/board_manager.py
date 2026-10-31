@@ -1307,9 +1307,15 @@ class BoardManager(BaseManager):
             user = frappe.db.get_value("Member", member_name, "user")
             if not user:
                 return
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                sync_user_role_profile,
+            )
 
-            auto_sync_on_role_change(user)
+            # reraise_non_resumable: the grant this sync replaced (#1672) ran in validate(),
+            # where a 1213/1205 aborted the Chapter save. The sync swallows them by default,
+            # which would let a seat commit with no role until the nightly sync.
+            # A non-lock failure comes back as success=False and is already in the Error Log.
+            sync_user_role_profile(user, reraise_non_resumable=True)
         except Exception as e:
             self._log_or_reraise(
                 "Failed to sync role profile for volunteer", {"volunteer": volunteer_name}, e

@@ -28,11 +28,12 @@ import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.secure_operations import secure_document_operation
 
-# The role-profile sync Chapter.on_update drains for every newly seated volunteer. It
-# replaced the direct role grant (#1672) as the board role's writer, and is the same
-# BoardManager._log_or_reraise routing, so it is the injection point for these cases.
-ASSIGN_ROLE = "verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change"
-SYNC_FAILURE_TITLE = "Failed to sync role profile for volunteer"
+# Injected AT DEPTH, inside the User save the role-profile sync performs, not on the sync's own
+# entry point: sync_user_role_profile and auto_sync_on_role_change both swallow what they are
+# handed, so only a fault below them shows what a real lock error does. The sync replaced the
+# direct role grant (#1672), which ran in validate() and so aborted the save on a 1213/1205.
+ASSIGN_ROLE = "frappe.core.doctype.user.user.User.validate"
+SYNC_FAILURE_TITLE = "Role Profile Sync Failed"
 
 
 class TestBoardRoleFailurePropagation(VereningingenTestCase):

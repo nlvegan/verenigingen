@@ -2217,9 +2217,8 @@ class TestBoardRevocationClosesAccess(EnhancedTestCase):
     # PRIORITY_BOARD_DEFAULT (70) outranks the volunteer (30) / member (10) baseline,
     # so the seat is a real escalation and its removal a real de-escalation.
     BOARD_PROFILE = "Verenigingen Chapter Board Member"
-    # Same string, different object: the Frappe Role that ChapterBoardMember
-    # .assign_board_member_role() grants and .remove_board_member_role() is meant
-    # to take back.
+    # Same string, different object: the Frappe Role that the board profile carries
+    # (since #1672 no direct grant) and .remove_board_member_role() is meant to take back.
     BOARD_ROLE = "Verenigingen Chapter Board Member"
     BASELINE_PROFILES = ("Verenigingen Member", "Verenigingen Volunteer")
 

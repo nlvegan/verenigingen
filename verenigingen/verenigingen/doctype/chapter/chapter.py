@@ -161,9 +161,9 @@ class Chapter(Document):
         # in validate() via _handle_document_changes(). It must NOT be repeated
         # here: handle_board_member_additions() reloads the volunteer's User and
         # rewrites its roles child table, so a second invocation in the same save
-        # reloads a stale User (missing the role the first pass just appended) and
-        # clobbers it — silently dropping the "Verenigingen Chapter Board Member"
-        # role assignment. See get_member_permission_query() which depends on it.
+        # reloads a stale User and clobbers it. (The direct role grant that once ran
+        # here was removed in #1672; the role now comes from the deferred role-profile
+        # sync. See get_member_permission_query() which depends on it.)
 
     def after_insert(self):
         """After insert hook"""
