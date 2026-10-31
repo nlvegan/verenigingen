@@ -61,6 +61,103 @@ class TestChapterAssignmentService(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             svc.assign_member(self.member.name, "")
 
+    # --- assign_member outcome reporting (#1584) ---
+    def _suspended_member(self):
+        """A real Suspended member (suspend_member_safe), not a db.set_value status."""
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
+        member = self.create_test_member(first_name="Susp", last_name="Assign")
+        suspend_member_safe(member.name, "assign_member test", suspend_user=False)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Suspended")
+        return member
+
+    def _suspended_member_with_disabled_row(self):
+        """Suspended member whose row here was disabled by the real termination writer."""
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.services.termination.termination_integration import (
+            disable_chapter_memberships_safe,
+        )
+
+        member = self.create_test_member(first_name="Disab", last_name="Assign")
+        ChapterMembershipManager.assign_member_to_chapter(
+            member_id=member.name, chapter_name=self.chapter.name, notify=False
+        )
+        disable_chapter_memberships_safe(member.name, today(), "assign_member test")
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
+        suspend_member_safe(member.name, "assign_member test", suspend_user=False)
+        return member
+
+    def _assignment_records(self, member_name, note):
+        """(tracking_reason, comment_count) -- the two records a false 'assigned' would write."""
+        reason = frappe.db.get_value("Member", member_name, "chapter_change_reason")
+        comments = frappe.db.count(
+            "Comment",
+            {"reference_doctype": "Member", "reference_name": member_name, "content": ["like", f"%{note}%"]},
+        )
+        return reason, comments
+
+    def test_assign_member_active_member_reports_added_and_records_it(self):
+        """Control: a real assignment is still success, added, with tracking and comment."""
+        result = self._get_service().assign_member(self.member.name, self.chapter.name, note="ctl-1584")
+        self.assertEqual((result["success"], result["added_to_members"]), (True, True))
+        self.assertEqual(self._assignment_records(self.member.name, "ctl-1584"), ("ctl-1584", 1))
+
+    def test_assign_member_suspended_new_row_is_not_reported_as_assigned(self):
+        """#1584: a Suspended member's first add derives enabled=0; that is not an assignment."""
+        member = self._suspended_member()
+        result = self._get_service().assign_member(member.name, self.chapter.name, note="susp-new-1584")
+        self.assertFalse(result["success"], result)
+        self.assertFalse(result["added_to_members"])
+        self.assertTrue(result.get("message"))
+        reason, comments = self._assignment_records(member.name, "susp-new-1584")
+        self.assertNotEqual(reason, "susp-new-1584")
+        self.assertEqual(comments, 0)
+
+    def test_assign_member_not_reenabled_is_not_reported_as_assigned(self):
+        """#1584/#1564: add_member refuses the re-enable; assign_member must say so and write nothing."""
+        member = self._suspended_member_with_disabled_row()
+        result = self._get_service().assign_member(member.name, self.chapter.name, note="susp-re-1584")
+        self.assertFalse(result["success"], result)
+        self.assertFalse(result["added_to_members"])
+        reason, comments = self._assignment_records(member.name, "susp-re-1584")
+        self.assertNotEqual(reason, "susp-re-1584")
+        self.assertEqual(comments, 0)
+
+    def test_assign_member_already_member_is_idempotent_and_writes_nothing(self):
+        """#1584: a second call changes nothing, so it must not rewrite tracking or add a comment."""
+        svc = self._get_service()
+        svc.assign_member(self.member.name, self.chapter.name, note="first-1584")
+        result = svc.assign_member(self.member.name, self.chapter.name, note="second-1584")
+        self.assertEqual((result["success"], result["added_to_members"]), (True, False))
+        self.assertTrue(result.get("message"))
+        self.assertEqual(self._assignment_records(self.member.name, "second-1584"), ("first-1584", 0))
+
+    def test_assign_member_refusal_does_not_name_status_to_unreadable_member(self):
+        """#1590: the refusal reason names the member's status only for a caller who can read the Member."""
+        member = self._suspended_member_with_disabled_row()
+        board = self.create_test_board_member(self.chapter.name)
+        self.assertFalse(frappe.has_permission("Member", "read", doc=member.name, user=board.user))
+        before = frappe.session.user
+        frappe.set_user(board.user)
+        try:
+            result = self._get_service().assign_member(member.name, self.chapter.name)
+        finally:
+            frappe.set_user(before)
+        self.assertFalse(result["success"], result)
+        self.assertNotIn("Suspended", result["message"])
+        self.assertNotIn(member.name, result["message"])
+        # Control: a reader does get the real reason.
+        reader = self._get_service().assign_member(member.name, self.chapter.name)
+        self.assertIn("Suspended", reader["message"])
+
+    def test_assign_with_cleanup_does_not_report_a_refused_assignment_as_successful(self):
+        """#1584: the member form's alert keys on success; the 'successfully assigned' text must not overwrite a refusal."""
+        member = self._suspended_member()
+        result = self._get_service().assign_with_cleanup(member.name, self.chapter.name, note="clean-1584")
+        self.assertFalse(result["success"], result)
+        self.assertNotIn("successfully assigned", result.get("message", ""))
+
     # --- assign_with_cleanup ---
     def test_assign_with_cleanup_fresh_member(self):
         """assign_with_cleanup works for a member not in any chapter."""
