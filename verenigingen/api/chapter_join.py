@@ -188,6 +188,10 @@ def join_chapter(chapter_name: str, introduction) -> OperationResult[Dict[str, A
                 "status": "Pending",
             }
         )
+        # `member` was resolved from the caller's session above (get_current_user_member_name,
+        # which also accepts the email fallback); the doctype's Member.user-only ownership check
+        # (#1786) must not re-refuse it.
+        join_request.flags.member_verified_by_caller = True
 
         # Save and submit the request.
         # reload() guards against #609 (whole-second creation/modified timestamp

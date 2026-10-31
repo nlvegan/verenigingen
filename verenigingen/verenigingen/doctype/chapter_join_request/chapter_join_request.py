@@ -43,6 +43,7 @@ class ChapterJoinRequest(Document):
             self.request_date = today()
 
         self.validate_field_references()
+        self.validate_member_ownership()
         self.validate_member_exists()
         self.validate_chapter_exists()
         self.validate_no_duplicate_request()
@@ -100,6 +101,33 @@ class ChapterJoinRequest(Document):
         for field_name in required_fields:
             if not chapter_member_meta.get_field(field_name):
                 frappe.throw(_("Chapter Member DocType missing required field: {0}").format(field_name))
+
+    def validate_member_ownership(self):
+        """A request may only name the caller's own Member, unless staff act for the member (#1786).
+
+        The whitelisted join_chapter pins `member` to the caller, but the doctype grants create and
+        submit to every Verenigingen Member, so a REST/form insert could name anyone. Checked on
+        insert and whenever `member` changes, before validate_member_exists so a refused caller
+        learns nothing about the named member (existence, status). Identity is Member.user only
+        (#1546, no email fallback); the staff exemption is Roles.ADMIN_ROLES (#1101), so board
+        members and treasurers are not exempt. flags.member_verified_by_caller is set by server
+        code that has already resolved the caller's own Member by its own rule (join_chapter);
+        a client cannot set a flag.
+        """
+        if self.flags.member_verified_by_caller:
+            return
+        if not self.is_new() and not self.has_value_changed("member"):
+            return
+        user = frappe.session.user
+        if user == "Administrator" or Roles.ADMIN_ROLES.intersection(frappe.get_roles(user)):
+            return
+        from verenigingen.utils.member_utils import get_member_name_for_board_access
+
+        own_member = get_member_name_for_board_access(user)
+        if not self.member or self.member != own_member:
+            frappe.throw(
+                _("You can only create a join request for your own membership"), frappe.PermissionError
+            )
 
     def validate_member_exists(self):
         """Ensure member exists and is active"""
