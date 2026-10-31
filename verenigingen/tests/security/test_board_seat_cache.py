@@ -20,18 +20,37 @@ class TestBoardSeatCache(PermissionsCoverageBase):
     def _seat_chapters(self, fn):
         return fn(self.board_user.name, get_cache_key())
 
-    def test_revoking_seat_through_chapter_save_is_seen_immediately(self):
-        for fn in (get_user_chapter_memberships_cached, get_user_treasurer_chapters_cached):
-            self.assertIn(self.chapter_a.name, self._seat_chapters(fn))  # primes the cache
-
+    def _set_seat_active_via_chapter_save(self, active):
         chapter = frappe.get_doc("Chapter", self.chapter_a.name)
         for row in chapter.board_members:
             if row.name == self.board_position.name:
-                row.is_active = 0
+                row.is_active = active
         chapter.save()
+
+    def test_revoking_seat_through_chapter_save_is_seen_immediately(self):
+        """The SECOND revoke is the discriminating one. The first Chapter.save() creates the
+        board user's Employee stub, whose insert calls ``frappe.clear_cache()`` and wipes
+        ``frappe.local.cache`` as a side effect, which would hide a missing invalidation.
+        Once the Employee exists, only an explicit invalidation can keep the memo honest."""
+        self._set_seat_active_via_chapter_save(0)  # first revoke: creates the Employee
+        self._set_seat_active_via_chapter_save(1)  # re-grant
+        for fn in (get_user_chapter_memberships_cached, get_user_treasurer_chapters_cached):
+            self.assertIn(self.chapter_a.name, self._seat_chapters(fn))  # primes the memo
+
+        self._set_seat_active_via_chapter_save(0)  # second revoke: no Employee wipe
 
         for fn in (get_user_chapter_memberships_cached, get_user_treasurer_chapters_cached):
             self.assertNotIn(self.chapter_a.name, self._seat_chapters(fn), fn.__name__)
+
+    def test_a_failed_lookup_is_neither_swallowed_nor_memoised(self):
+        """A real DB error (a list as the user renders ``m.user = 'a', 'b'``, a syntax error)
+        must raise, and must leave nothing in the memo that could read as "no seats"."""
+        frappe.local.cache = {}  # Mock justified: execution-context reset, what frappe.init does per request
+        bad_user = ["a@example.com", "b@example.com"]
+        with self.assertRaises(Exception):
+            get_user_chapter_memberships_cached(bad_user)
+        self.assertEqual(frappe.local.cache.get("verenigingen_board_seat_lookups", {}), {})
+        self.assertIn(self.chapter_a.name, self._seat_chapters(get_user_chapter_memberships_cached))
 
     def test_cache_does_not_survive_a_request_boundary(self):
         """Probe shortcut: a raw ``db.set_value`` stands in for ANOTHER worker revoking the

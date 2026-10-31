@@ -113,24 +113,21 @@ def get_user_chapter_memberships_cached(user, cache_key=None):
 
 
 def _query_user_chapter_memberships(user):
-    try:
-        user_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            WHERE m.user = %s AND cbm.is_active = 1
-        """,
-            (user,),
-            as_dict=True,
-        )
+    # No try/except: a DB error must not read as "no seats" nor be memoised as [] for the
+    # rest of the request. It propagates, and the caller fails closed.
+    user_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        WHERE m.user = %s AND cbm.is_active = 1
+    """,
+        (user,),
+        as_dict=True,
+    )
 
-        return [c.chapter_name for c in user_chapters]
-
-    except Exception as e:  # swallow-ok: caller-checks (an empty seat list denies access)
-        frappe.log_error(f"Error getting user chapter memberships for {user}: {e}")
-        return []
+    return [c.chapter_name for c in user_chapters]
 
 
 def get_user_treasurer_chapters_cached(user, cache_key=None):
@@ -150,33 +147,35 @@ def get_user_treasurer_chapters_cached(user, cache_key=None):
 
 
 def _query_user_treasurer_chapters(user):
-    try:
-        treasurer_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
-            WHERE m.user = %s
-            AND cbm.is_active = 1
-            AND cr.permissions_level = 'Financial'
-        """,
-            (user,),
-            as_dict=True,
-        )
+    # No try/except, for the same reason as _query_user_chapter_memberships.
+    treasurer_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+        WHERE m.user = %s
+        AND cbm.is_active = 1
+        AND cr.permissions_level = 'Financial'
+    """,
+        (user,),
+        as_dict=True,
+    )
 
-        return [c.chapter_name for c in treasurer_chapters]
+    return [c.chapter_name for c in treasurer_chapters]
 
-    except Exception as e:  # swallow-ok: caller-checks (an empty seat list denies access)
-        frappe.log_error(f"Error getting user treasurer chapters for {user}: {e}")
-        return []
+
+def invalidate_board_seat_memo():
+    """Drop only this request's seat lookups. Call wherever a board seat is written,
+    including Chapter saves, which write the rows without running their own hooks."""
+    frappe.local.cache.pop(_SEAT_CACHE_KEY, None)
 
 
 def clear_permission_cache():
     """Clear permission caches - call when roles/memberships change"""
     try:
-        frappe.local.cache.pop(_SEAT_CACHE_KEY, None)
+        invalidate_board_seat_memo()
 
         # Clear Frappe's internal cache as well
         if hasattr(frappe.local, "cache"):
