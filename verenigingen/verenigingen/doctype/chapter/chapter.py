@@ -1299,7 +1299,9 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     from verenigingen.services.chapter.chapter_role_profile_manager import (
         bulk_assign_chapter_board_role_profiles,
     )
+    from verenigingen.services.member.account.role_profile_mapping_guard import require_profile_admin
 
+    require_profile_admin()  # before the existence check: unknown and forbidden answer alike (#1686)
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "error": "Chapter not found"}
 
