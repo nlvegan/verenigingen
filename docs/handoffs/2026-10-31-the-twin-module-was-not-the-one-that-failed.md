@@ -35,7 +35,7 @@ A standing instruction from the maintainer, recorded in another session (memory 
 
 #1787 merged as `769adfdee`.
 
-**veg11 needs `bench --site veg11.veganisme.org migrate`.** #1776 adds `Membership Dues Schedule.coverage_anchor_date`.
+**veg11 is deployed.** Session verenigingen-0c migrated and restarted it at about 10:25 on 2026-10-31, on develop `d4deb1006`, which includes #1776 and #1787 (backup `20261031_101922`). Verified: `tabMembership Dues Schedule.coverage_anchor_date` exists on veg11.
 
 ## Decisions the maintainer made (also recorded on the issues)
 
@@ -111,7 +111,7 @@ Comments: #1741, #1737, #1740 (decisions), #1411 (MAS DoesNotExist-vs-Permission
 
 ## Final state
 
-- **develop:** `89641bbe7` (#1776). The live tree (`apps/verenigingen`) is at `e5e0a1fd4`, behind develop. Other sessions' automerge fast-forwards it. **This session did not migrate or restart veg11.** #1776 adds `Membership Dues Schedule.coverage_anchor_date`, so run `bench --site veg11.veganisme.org migrate` once the tree includes `89641bbe7`. Untracked and modified files in the live tree, left alone: `ONBOARDING.md` and `email_brand.css`.
+- **develop:** includes `89641bbe7` (#1776). The live tree and veg11 are on `d4deb1006`, migrated and restarted by session verenigingen-0c (see above). Untracked and modified files in the live tree, left alone: `ONBOARDING.md` and `email_brand.css`.
 - **Other sessions running in parallel:**
   - **aanmeldformulier** (the 10-30d coordinator) owns PR #1779 and 8 new dispatches, including #1778, which I filed. It holds test_site_1, 3, 4, 6–10, 12 and 13.
   - **verenigingen-0c** merged #1787 and is merging its own PRs (#1790–#1800). It holds test_site_2.
