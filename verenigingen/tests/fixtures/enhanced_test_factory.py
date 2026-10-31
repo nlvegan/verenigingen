@@ -197,6 +197,7 @@ from frappe.utils import getdate
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
@@ -2310,7 +2311,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 raise
 
         try:
-            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            if doctype == "Role":
+                # #1856: a bare delete strands `Has Role` rows on surviving users.
+                delete_role_and_grants(name)
+            else:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
             # going: `after_delete`, attachment removal, `delete_dynamic_links` (which
@@ -3306,7 +3311,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             )
 
                     # Delete the document
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                    if doc_info["doctype"] == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(doc_info["name"])
+                    else:
+                        frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # NO COMMIT - Let Frappe's test framework handle transaction rollback
                     # Committing here made test deletions permanent and corrupted test databases
                 break  # Success, exit retry loop
