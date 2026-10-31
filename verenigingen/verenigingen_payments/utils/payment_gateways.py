@@ -1595,10 +1595,8 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             "description": f"Recurring donation {donation_id}" if donation_id else "Recurring donation",
             # Without this Mollie charges the donor every period and announces it
             # to nobody -- issue #345. Deliberately get_webhook_url(), the
-            # guest-reachable payment webhook, NOT get_subscription_webhook_url():
-            # that one is the member-dues endpoint, which is not allow_guest,
-            # only accepts a sub_ id where Mollie posts id=tr_..., and gates on a
-            # Member plus an unpaid Sales Invoice a donor need not have (#343).
+            # guest-reachable payment webhook (get_subscription_webhook_url() now
+            # resolves to the same endpoint, #1771).
             "webhookUrl": mollie_settings.get_webhook_url(),
             "metadata": {
                 "payment_id": payment.id,
