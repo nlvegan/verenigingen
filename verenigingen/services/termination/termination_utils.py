@@ -530,22 +530,37 @@ def get_quit_members_without_executed_termination():
     )
 
 
+QUIT_FINDING_LIST_CAP = 50
+
+
 def _report_quit_members_without_termination(audit_results):
     """Add the Quit-without-termination finding to the audit and put it in front of an operator.
 
     The Error Log row is the operator channel; the alert email fires from the caller.
+    Runs in its own try so a failure here cannot skip the orphaned/stale alerts.
     """
-    names = get_quit_members_without_executed_termination()
-    audit_results["quit_without_termination"] = len(names)
-    for name in names:
-        audit_results["data_integrity_issues"].append(
-            f"Member {name} has status Quit but no Executed termination request"
-        )
-    if names:
+    try:
+        names = get_quit_members_without_executed_termination()
+        audit_results["quit_without_termination"] = len(names)
+        for name in names:
+            audit_results["data_integrity_issues"].append(
+                f"Member {name} has status Quit but no Executed termination request"
+            )
+        if names:
+            shown = names[:QUIT_FINDING_LIST_CAP]
+            frappe.log_error(
+                title="Quit Member Without Executed Termination",
+                message=(
+                    f"{len(names)} Member(s) with status Quit and no Executed Membership "
+                    f"Termination Request (showing {len(shown)}):\n" + "\n".join(shown)
+                ),
+            )
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
         frappe.log_error(
-            title="Quit Member Without Executed Termination",
-            message="Members with status Quit and no Executed Membership Termination Request:\n"
-            + "\n".join(names),
+            title="Quit Member Integrity Check Error",
+            message=f"Quit-without-termination check failed: {e}\n{frappe.get_traceback()}",
         )
 
 
