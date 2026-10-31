@@ -268,5 +268,72 @@ class BaselineIsSelfConsistentTest(unittest.TestCase):
         self.assertEqual(self.problems, [])
 
 
+class ShrinkExplainerTest(unittest.TestCase):
+    """`explain_shrink` must report a shrink that is NOT a fix, and only that (#1802).
+
+    Ported from log_error_arg_order_validator (#1631, #1796). The probe files are
+    written inside the repo because `explain_shrink` resolves `REPO_ROOT / rel`.
+    """
+
+    BAD = "WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+    GOOD = "WHERE creation > %(since)s"
+
+    def _probe(self, source: str, subdir: str) -> str:
+        """Write source to scripts/validation/<subdir>/probe_mod.py; return its repo-relative path."""
+        d = dcv.REPO_ROOT / "scripts" / "validation" / subdir
+        d.mkdir(exist_ok=True)
+        probe = d / "probe_mod.py"
+        self.addCleanup(d.rmdir)
+        self.addCleanup(probe.unlink, missing_ok=True)
+        probe.write_text(source)
+        return str(probe.relative_to(dcv.REPO_ROOT))
+
+    def _explain(self, source: str, known: int, subdir: str = "_shrink_probe_scanned"):
+        rel = self._probe(source, subdir)
+        found = dcv.explain_shrink({f"{rel}::f": known}, [str(dcv.REPO_ROOT / "scripts")])
+        return [(u.lineno, u.reason) for u in found]
+
+    def test_partial_genuine_fix_is_not_reported(self):
+        """Two bad sites, one fixed: the survivor is still COUNTED, so nothing is unexplained."""
+        got = self._explain(
+            f"def f():\n    a = '{self.GOOD}'\n    b = '{self.BAD}'\n",
+            known=2,
+        )
+        self.assertEqual(got, [])
+
+    def test_partial_shrink_by_pragma_is_still_reported(self):
+        """Control: one site hidden behind a pragma must be reported as suppressed."""
+        got = self._explain(
+            f"def f():\n    a = '{self.BAD}'  # db-clock-window-ok: false-positive\n"
+            f"    b = '{self.BAD}'\n",
+            known=2,
+        )
+        self.assertEqual(got, [(2, "suppressed")])
+
+    def test_unchanged_site_outside_the_count_is_reported_as_unscanned(self):
+        """A /tests/ dir is skipped by `_counts`: an unchanged site there left the scan."""
+        got = self._explain_under_tests(f"def f():\n    a = '{self.BAD}'\n", known=1)
+        self.assertEqual(got, [(2, "unscanned")])
+
+    def test_every_uncounted_site_is_reported_not_just_one(self):
+        got = self._explain_under_tests(
+            f"def f():\n    a = '{self.BAD}'\n    b = '{self.BAD}'\n", known=2
+        )
+        self.assertEqual(got, [(2, "unscanned"), (3, "unscanned")])
+
+    def _explain_under_tests(self, source: str, known: int):
+        d = dcv.REPO_ROOT / "scripts" / "validation" / "_shrink_probe" / "tests"
+        d.parent.mkdir(exist_ok=True)
+        d.mkdir(exist_ok=True)
+        probe = d / "probe_mod.py"
+        self.addCleanup(d.parent.rmdir)
+        self.addCleanup(d.rmdir)
+        self.addCleanup(probe.unlink, missing_ok=True)
+        probe.write_text(source)
+        rel = str(probe.relative_to(dcv.REPO_ROOT))
+        found = dcv.explain_shrink({f"{rel}::f": known}, [str(dcv.REPO_ROOT / "scripts")])
+        return [(u.lineno, u.reason) for u in found]
+
+
 if __name__ == "__main__":
     unittest.main()
