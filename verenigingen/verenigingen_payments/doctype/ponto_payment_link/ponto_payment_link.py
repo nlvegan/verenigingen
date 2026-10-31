@@ -406,7 +406,11 @@ class PontoPaymentLink(Document):
 
         Returns:
             True if the status moved; False if it already was ``new_status`` or
-            the move was refused (see ``is_refused_move``). A refused move also
+            the move was refused (see ``is_refused_move``).
+
+            The webhook handlers do NOT read this value: they decide moved or
+            refused from ``doc.status`` after the call, because existing tests
+            stub this method (returning None). Only tests read the return value. A refused move also
             drops ``debtor_info``.
         """
         if new_status == self.status or is_refused_move(self.status, new_status):

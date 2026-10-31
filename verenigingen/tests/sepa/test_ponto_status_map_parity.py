@@ -129,6 +129,16 @@ LINK_EXPECTED = {
 }
 
 
+def _private_status_maps(source):
+    """Dict literals in ``source`` that look like a Ponto status map."""
+    return [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Dict)
+        and {"unsigned", "cancelled"} & {k.value for k in node.keys if isinstance(k, ast.Constant)}
+    ]
+
+
 def _status_select_options(doctype):
     return frappe.get_meta(doctype).get_field("status").options.split("\n")
 
@@ -205,7 +215,7 @@ class _Base(FrappeTestCase):
 class TestTransitionTables(_Base):
     """Every (start, incoming Ponto status) cell, both doctypes, both paths."""
 
-    def _run_cells(self, expected, make, drive, pe_creator_cls, pe_method, extra_patches=()):
+    def _run_cells(self, expected, make, drive, pe_creator_cls, pe_method, enqueues_on_executed=False):
         for start, row in expected.items():
             for ponto_status in PONTO_INPUTS:
                 want = row[ponto_status]
@@ -216,11 +226,15 @@ class TestTransitionTables(_Base):
                         with patch(WEBHOOK_ENQUEUE) as enqueue_spy:
                             got = drive(doc, ponto_status)
                     self.assertEqual(got, want)
-                    # A Payment Entry is attempted exactly when a row newly becomes
-                    # Executed; never for an already-Executed row.
+                    # A Payment Entry is attempted EXACTLY ONCE when a row newly becomes
+                    # Executed, and never for an already-Executed row.
                     paid = want == "Executed" and start != "Executed"
-                    self.assertEqual(pe_spy.called, paid)
-                    del enqueue_spy
+                    self.assertEqual(pe_spy.call_count, 1 if paid else 0)
+                    # Only the link webhook queues a Payment Entry job, once per Executed
+                    # event on a row with no payment_entry (also when already Executed:
+                    # that is the retry path, guarded in the job by reference_no).
+                    queued = enqueues_on_executed and ponto_status == "executed"
+                    self.assertEqual(enqueue_spy.call_count, 1 if queued else 0)
 
     def test_request_poll_table(self):
         self._run_cells(REQUEST_EXPECTED, self._request, self._poll_request,
@@ -236,7 +250,7 @@ class TestTransitionTables(_Base):
 
     def test_link_webhook_table(self):
         self._run_cells(LINK_EXPECTED, self._link, self._webhook_link,
-                        PontoPaymentLink, "process_payment_received")
+                        PontoPaymentLink, "process_payment_received", enqueues_on_executed=True)
 
     def test_link_webhook_enqueues_payment_entry_job_from_cancelled(self):
         """Cancelled -> Executed on the link webhook queues the Payment Entry job."""
@@ -293,13 +307,13 @@ class TestStatusMapsLiteral(_Base):
         self.assertIs(ponto_payment_request.is_refused_move, status_maps.is_refused_move)
         self.assertIs(ponto_payment_link.is_refused_move, status_maps.is_refused_move)
         for module in (webhook_handlers, ponto_payment_request, ponto_payment_link):
-            for node in ast.walk(ast.parse(inspect.getsource(module))):
-                if isinstance(node, ast.Dict):
-                    keys = {k.value for k in node.keys if isinstance(k, ast.Constant)}
-                    self.assertFalse(
-                        {"unsigned", "cancelled"} & keys,
-                        f"{module.__name__} carries a private Ponto status map",
-                    )
+            self.assertFalse(_private_status_maps(inspect.getsource(module)), module.__name__)
+
+    def test_private_map_scan_catches_a_planted_copy(self):
+        """Control for the scan above: it must see a private map when one exists."""
+        planted = 'def f(s):\n    return {"unsigned": "Pending", "signed": "Signed"}.get(s)\n'
+        self.assertTrue(_private_status_maps(planted))
+        self.assertFalse(_private_status_maps("x = {'a': 1}\n"))
 
     def test_is_refused_move_rulings(self):
         """The pure rule, cell by cell (A and B of the 2026-10-31 ruling)."""
