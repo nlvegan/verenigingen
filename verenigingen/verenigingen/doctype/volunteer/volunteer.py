@@ -372,35 +372,18 @@ class Volunteer(Document):
                 role_profile=None,  # Inferred from roles → "Verenigingen Volunteer"
             )
 
-            # Handle both OperationResult (has .success) and dict (from decorator serialization)
-            is_success = (
-                result.success
-                if hasattr(result, "success")
-                else result.get("success", False)
-                if isinstance(result, dict)
-                else False
-            )
-
-            if result and is_success:
-                # Get request_name from either OperationResult.data or dict["data"]
-                data = result.data if hasattr(result, "data") else result.get("data", {})
-                request_name = data.get("request_name", "unknown") if data else "unknown"
+            # The decorator serializes the OperationResult, so this is a dict here.
+            request_name, refusal = _read_acr_queue_result(result)
+            if refusal is None:
                 frappe.logger().info(
                     f"Auto-queued activation for volunteer {self.name} via member {self.member}: {request_name}"
                 )
             else:
-                # Get error message from either OperationResult.message or dict["message"]
-                error_msg = (
-                    result.message
-                    if hasattr(result, "message")
-                    else (
-                        result.get("message", "No result returned")
-                        if isinstance(result, dict)
-                        else "No result returned"
-                    )
-                )
-                frappe.logger().warning(
-                    f"Failed to auto-queue activation for volunteer {self.name}: {error_msg}"
+                # frappe.logger() is never read, so a refusal is recorded in the Error Log (#1613).
+                frappe.log_error(
+                    title="Volunteer Auto-Activation Queue Refused",
+                    message=f"Activation was not queued for volunteer {self.name} "
+                    f"(member {self.member}): {refusal}",
                 )
 
         except frappe.PermissionError as e:
@@ -662,33 +645,16 @@ class Volunteer(Document):
             # Returns OperationResult or dict (if decorated function serializes it)
             result = queue_account_creation_for_volunteer(volunteer_name=self.name, priority="Normal")
 
-            # Handle both OperationResult (has .success) and dict (from decorator serialization)
-            is_success = (
-                result.success
-                if hasattr(result, "success")
-                else result.get("success", False)
-                if isinstance(result, dict)
-                else False
-            )
-
-            if not is_success:
-                error_msg = (
-                    result.error_message
-                    if hasattr(result, "error_message")
-                    else (
-                        result.get("message", "Unknown error")
-                        if isinstance(result, dict)
-                        else "Unknown error"
-                    )
-                )
-                frappe.logger().warning(
-                    f"Account creation queueing returned failure for volunteer {self.name}: {error_msg}"
+            # The decorator serializes the OperationResult, so this is a dict here.
+            request_name, refusal = _read_acr_queue_result(result)
+            if refusal is not None:
+                # frappe.logger() is never read, so a refusal is recorded in the Error Log (#1613).
+                frappe.log_error(
+                    title="Volunteer Account Creation Queue Error",
+                    message=f"Account creation was not queued for volunteer {self.name}: {refusal}",
                 )
                 return
 
-            # Access data from either OperationResult.data or dict["data"]
-            data = result.data if hasattr(result, "data") else result.get("data", {})
-            request_name = data.get("request_name") if data else None
             frappe.logger().info(f"Account creation queued successfully: {request_name}")
 
             # Optionally notify the user about the process
@@ -907,6 +873,23 @@ def create_volunteer_from_member(
         return {"success": False, "error": f"Failed to create volunteer: {str(e)}"}
 
 
+def _read_acr_queue_result(result):
+    """Read the serialized result of ``queue_account_creation_for_*``.
+
+    The ``@critical_api`` / ``@high_security_api`` decorators return
+    ``OperationResult.to_dict()``: ``{"success", "data", "error": {"message", "errors",
+    "code"}}``. There is no top-level ``message`` or ``error_message`` (#1613).
+
+    Returns:
+        ``(request_name, None)`` when queued (``request_name`` is None for an existing
+        User); ``(None, reason)`` for a refusal, or when nothing came back.
+    """
+    if result and result.get("success"):
+        return (result.get("data") or {}).get("request_name"), None
+    error = (result or {}).get("error") or {}
+    return None, "; ".join([error.get("message") or _("Unknown error")] + (error.get("errors") or []))
+
+
 def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, role_profile=None):
     """Queue account creation for volunteer via AccountCreationManager
 
@@ -939,11 +922,9 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, r
             member_name=member_name, roles=roles, role_profile=role_profile, priority="Normal"
         )
 
-        if result.get("success"):
-            return (result.get("data") or {}).get("request_name"), None
-
-        error = result.get("error") or {}
-        reason = "; ".join([error.get("message") or _("Unknown error")] + (error.get("errors") or []))
+        request_name, reason = _read_acr_queue_result(result)
+        if reason is None:
+            return request_name, None
     except Exception as e:
         reason = str(e)
 
