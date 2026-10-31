@@ -136,11 +136,32 @@ class ChapterMembershipManager:
                     assigned_by=user_email or frappe.session.user,
                 )
 
-            return result
+            return ChapterMembershipManager._with_error_reason(result, member_id)
 
         except Exception as e:
             frappe.log_error(f"Error in leave_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _with_error_reason(result: Dict[str, Any], member_id: str) -> Dict[str, Any]:
+        """Make a failure carry its reason under "error" as well as "message" (#1631).
+
+        This class's own early exits key the reason "error", but a failure passed
+        through from MemberManager.add_member/remove_member is keyed "message", so
+        callers reading only "error" lost it. add_member's "not_reenabled" message
+        names the member's current status; a caller who cannot read that Member gets
+        a generic reason in BOTH keys instead (#1590).
+        """
+        if result.get("success"):
+            return result
+        if result.get("action") == "not_reenabled" and not frappe.has_permission(
+            "Member", "read", doc=member_id
+        ):
+            reason = _("the member could not be re-enabled in this chapter")
+            return {**result, "error": reason, "message": reason}
+        if not result.get("error") and result.get("message"):
+            return {**result, "error": result["message"]}
+        return result
 
     @staticmethod
     def assign_member_to_chapter(
@@ -222,7 +243,7 @@ class ChapterMembershipManager:
                     assigned_by=assigned_by or frappe.session.user,
                 )
 
-            return result
+            return ChapterMembershipManager._with_error_reason(result, member_id)
 
         except frappe.DoesNotExistError:
             # Member was deleted during processing - expected scenario, log as info
