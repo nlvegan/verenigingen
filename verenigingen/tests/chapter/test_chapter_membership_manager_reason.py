@@ -115,10 +115,10 @@ class TestChapterMembershipManagerReason(EnhancedTestCase):
         """#1590: both keys are scrubbed for a caller who fails has_permission(Member, read)."""
         board = self.create_test_board_member(self.chapter.name)
         self._suspended_with_disabled_row()
-        self.assertFalse(frappe.has_permission("Member", "read", doc=self.member.name, user=board.user))
         caller_before = frappe.session.user
         frappe.set_user(board.user)
         try:
+            self.assertFalse(frappe.has_permission("Member", "read", doc=self.member.name))
             result = self._assign()
         finally:
             frappe.set_user(caller_before)
