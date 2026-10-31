@@ -1,7 +1,7 @@
 """Checks and housekeeping around confirming a membership application.
 
-The refusal answer, the locked-row and 7-day-expiry check, the submitted-template check and the daily
-expire/purge job. Staging and confirming live in ``application_record``; confirming creates no Member.
+The refusal answer, the locked-row and 7-day-expiry check and the submitted-template check. Staging,
+confirming and the daily expire/purge job live in ``application_record``; confirming creates no Member.
 """
 
 import frappe
@@ -61,35 +61,6 @@ def submitted_template_still_valid(source, payload) -> bool:
         and row.membership_type == payload.get("membership_type")
         and row.billing_frequency == payload.get("frequency")
     )
-
-
-def expire_and_purge_submissions() -> dict:
-    """Daily job: expire Unconfirmed rows past EXPIRY_DAYS, delete Unconfirmed/Expired rows past PURGE_DAYS.
-
-    Cut-offs come from now_datetime() (site clock, same as `creation`). Confirmed rows are
-    kept whatever their age: they are the record of what the member submitted. Nothing links
-    to a submission, so a set-based delete is safe; the scheduler commits after the job.
-    """
-    now = now_datetime()
-    purge_before = add_days(now, -PURGE_DAYS)
-    expire_before = add_days(now, -EXPIRY_DAYS)
-    deleted = _delete_older_than(purge_before)
-    expired = _expire_older_than(expire_before)
-    return {"expired": expired, "deleted": deleted}
-
-
-def _delete_older_than(cutoff) -> int:
-    filters = {"status": ["in", ["Unconfirmed", "Expired"]], "creation": ["<", cutoff]}
-    count = frappe.db.count(SUBMISSION, filters)
-    frappe.db.delete(SUBMISSION, filters)
-    return count
-
-
-def _expire_older_than(cutoff) -> int:
-    names = frappe.get_all(SUBMISSION, {"status": "Unconfirmed", "creation": ["<", cutoff]}, pluck="name")
-    for name in names:
-        _set_status(name, "Expired")
-    return len(names)
 
 
 def expire(name):

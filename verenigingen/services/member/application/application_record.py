@@ -14,11 +14,13 @@ from urllib.parse import urlencode
 
 import frappe
 from frappe import _
-from frappe.utils import get_url, now_datetime
+from frappe.utils import add_days, get_url, now_datetime
 
 from verenigingen.api.membership_application import _handle_existing_member, _only_if_selectable_chapter
 from verenigingen.services.member.application.short_application_confirm import (
     CONFIRM_TOKEN_PURPOSE,
+    EXPIRY_DAYS,
+    PURGE_DAYS,
     SUBMISSION,
     confirmable_submission,
     expire,
@@ -31,10 +33,15 @@ from verenigingen.services.member.approval.application_helpers import (
     determine_chapter_from_application,
     generate_application_id,
 )
+from verenigingen.templates.pages.application_status import APPLICATION_STATUS_TOKEN_PURPOSE
 from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 CONFIRM_PATH = "/word-lid/bevestig"
+STATUS_PATH = "/application_status"
+# Rows in these states are finished with and hold nothing the association must keep. Approved is kept
+# (it is the record of what the member submitted) and so is Pending Review (a reviewer still needs it).
+PURGEABLE_STATUSES = ["Unconfirmed", "Expired", "Rejected", "Superseded"]
 # Mails the forms send to one address per day, so they cannot be used to flood a mailbox.
 MAX_MAILS_PER_ADDRESS_PER_DAY = 3
 
@@ -89,7 +96,7 @@ def confirm_application(name, token) -> dict:
             return refusal()
     _record_confirmation(submission, payload)
     supersede_older(submission.email, keep=submission.name)
-    return success()
+    return {**success(), "status_url": build_status_url(submission.name)}
 
 
 def supersede_older(email: str, keep: str) -> int:
@@ -126,6 +133,36 @@ def _record_confirmation(submission, payload):
     submission.set_status("Pending Review")
 
 
+def expire_and_purge_applications() -> dict:
+    """Daily job: expire Unconfirmed rows older than EXPIRY_DAYS, delete finished rows untouched for PURGE_DAYS.
+
+    "Finished" is PURGEABLE_STATUSES; Approved and Pending Review are kept whatever their age. Expiry
+    counts from `creation`, the purge from `modified`: a rejection or replacement starts its own 30 days,
+    while Expired keeps the row's old `modified` because _set_status does not touch it. Cut-offs come from
+    now_datetime() (site clock, same as the columns). Nothing but another submission's `superseded_by`
+    links to a row, and that only points at a newer one, so a set-based delete is safe; the scheduler
+    commits after the job.
+    """
+    now = now_datetime()
+    deleted = _delete_untouched_since(add_days(now, -PURGE_DAYS))
+    expired = _expire_created_before(add_days(now, -EXPIRY_DAYS))
+    return {"expired": expired, "deleted": deleted}
+
+
+def _delete_untouched_since(cutoff) -> int:
+    filters = {"status": ["in", PURGEABLE_STATUSES], "modified": ["<", cutoff]}
+    count = frappe.db.count(SUBMISSION, filters)
+    frappe.db.delete(SUBMISSION, filters)
+    return count
+
+
+def _expire_created_before(cutoff) -> int:
+    names = frappe.get_all(SUBMISSION, {"status": "Unconfirmed", "creation": ["<", cutoff]}, pluck="name")
+    for name in names:
+        expire(name)
+    return len(names)
+
+
 def _applicant_name(payload) -> str:
     parts = (payload.get("first_name"), payload.get("tussenvoegsel"), payload.get("last_name"))
     return " ".join(part.strip() for part in parts if part and part.strip())
@@ -151,6 +188,12 @@ def _suggested_chapter(submission, payload):
             return _only_if_selectable_chapter(determine_chapter_from_application(data))
     finally:
         del frappe.local.message_log[kept_messages:]
+
+
+def build_status_url(submission_name: str) -> str:
+    """The link to the status page, minted for the one applicant who just confirmed (never emailed)."""
+    token = generate_guest_return_token(APPLICATION_STATUS_TOKEN_PURPOSE, submission_name)
+    return f"{STATUS_PATH}?{urlencode({'id': submission_name, 'token': token})}"
 
 
 def build_confirm_url(submission_name: str) -> str:

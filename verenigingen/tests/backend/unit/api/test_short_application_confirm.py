@@ -307,6 +307,57 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         frappe.db.set_value(SUBMISSION, frappe.db.get_value(SUBMISSION, replaced, "superseded_by"), "status", "Approved")
         self._try_to_make_the_template_annual()  # nothing Pending Review uses it: no refusal
 
+    def _pending_application_on_the_template(self):
+        name = self._confirm_submit()
+        self.assertTrue(self._confirm(name)[0]["success"])
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        return name
+
+    def test_template_frequency_change_refused_while_application_pending(self):
+        """The guard reads the application, not a Member: a Pending Review row naming the template
+        blocks the change, and the same row stops blocking once it is decided."""
+        name = self._pending_application_on_the_template()
+        with self.assertRaisesRegex(frappe.ValidationError, f"pending application \\({name}\\)"):
+            self._try_to_make_the_template_annual()
+
+    def _assert_a_decided_application_does_not_pin_the_template(self, decision):
+        """Control with a real row: the SAME application that blocks while Pending Review, moved through the
+        real status transition, no longer blocks."""
+        name = self._pending_application_on_the_template()
+        with self.assertRaises(frappe.ValidationError):
+            self._try_to_make_the_template_annual()
+        frappe.get_doc(SUBMISSION, name).set_status(decision)
+        self._try_to_make_the_template_annual()  # no refusal
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", self.template, "billing_frequency"), "Annual"
+        )
+
+    def test_an_approved_application_does_not_pin_the_template(self):
+        self._assert_a_decided_application_does_not_pin_the_template("Approved")
+
+    def test_a_rejected_application_does_not_pin_the_template(self):
+        self._assert_a_decided_application_does_not_pin_the_template("Rejected")
+
+    def test_confirming_hands_out_a_status_link_that_opens_the_status_page(self):
+        from verenigingen.templates.pages.application_status import _application_for
+
+        name = self._confirm_submit()
+        response = self._confirm(name)[0]
+
+        self.assertTrue(response["success"], response)
+        path, query = response["status_url"].split("?", 1)
+        self.assertEqual(path, "/application_status")
+        params = dict(pair.split("=", 1) for pair in query.split("&"))
+        self.assertEqual(params["id"], name)
+        application = _application_for(params["id"], params["token"])
+        self.assertEqual(application.status, "Pending Review")
+        self.assertEqual(application.application_id, frappe.db.get_value(SUBMISSION, name, "application_id"))
+        self.assertIsNone(_application_for(params["id"], "0" * 64))
+
+    def test_a_refused_confirmation_hands_out_no_status_link(self):
+        response, _log = self._confirm(self._confirm_submit(), token="0" * 64)
+        self.assertEqual(response, REFUSAL)
+
     def test_housemate_confirms_without_amount_or_consent(self):
         door = self._door(form_shape="Housemate", monthly_dues_template=None)
         name = self._confirm_submit(door=door, housemate_of_name="Piet Berg", housemate_confirmed="1", amount="", iban="")

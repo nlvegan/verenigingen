@@ -467,6 +467,27 @@ class TestRejectApplication(ApprovalCase):
     submit_application as Guest -> confirm link -> reject_application as staff. No probe shortcuts except
     the Approved state in test_approved_application_cannot_be_rejected, which is reached by the real approve."""
 
+    def test_rejected_application_status_page_shows_only_the_reason(self):
+        """Through the real reject endpoint: review_notes also holds the category, the template name and the
+        reviewer's internal notes, and only the reason may reach the applicant's status page."""
+        from verenigingen.templates.pages.application_status import (
+            APPLICATION_STATUS_TOKEN_PURPOSE,
+            _application_for,
+        )
+
+        name = self._stage_and_confirm()
+        result = self._reject_as(
+            name, reason="Buiten ons werkgebied", rejection_category="Other", internal_notes="staff only: dubious"
+        )
+        self.assertTrue(result["success"], result)
+        self.assertIn("staff only: dubious", frappe.db.get_value(SUBMISSION, name, "review_notes"))
+
+        token = generate_guest_return_token(APPLICATION_STATUS_TOKEN_PURPOSE, name)
+        application = _application_for(name, token)
+
+        self.assertEqual(application.status, "Rejected")
+        self.assertEqual(application.reason, "Buiten ons werkgebied")
+
     def test_reject_new_applicant_creates_nothing(self):
         name = self._stage_and_confirm()
         doctypes = ("Member", "Address", "Customer", "Contact", "Volunteer", "Chapter Member", "Chapter Membership History")

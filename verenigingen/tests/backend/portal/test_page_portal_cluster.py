@@ -8,7 +8,6 @@ the happy path plus the guard / error / permission branches.
 
 Pages covered:
   - my_addresses.py
-  - application_status.py
   - my_teams.py
   - apply_for_membership.py
   - membership_application.py
@@ -133,50 +132,6 @@ class TestPageMyAddresses(PortalPageTestBase):
 
         self.assertEqual(ctx.current_address.name, address.name)
         self.assertIsNotNone(ctx.address_display)
-
-
-class TestPageApplicationStatus(PortalPageTestBase):
-    """verenigingen.templates.pages.application_status"""
-
-    def test_logged_in_member_resolved_from_session(self):
-        from verenigingen.templates.pages import application_status
-
-        member, user = self._make_member_with_user()
-        with self.as_user(user):
-            ctx = frappe._dict()
-            application_status.get_context(ctx)
-
-        self.assertIsNotNone(ctx.member)
-        self.assertEqual(ctx.member.name, member.name)
-        self.assertEqual(ctx.title, "Application Status")
-        self.assertIsInstance(ctx.member_chapters, list)
-
-    def test_member_id_from_form_dict(self):
-        from verenigingen.templates.pages import application_status
-
-        member, user = self._make_member_with_user()
-        original = frappe.form_dict
-        try:
-            frappe.form_dict = frappe._dict({"id": member.name})
-            with self.as_user(user):
-                ctx = frappe._dict()
-                application_status.get_context(ctx)
-        finally:
-            frappe.form_dict = original
-
-        self.assertEqual(ctx.member.name, member.name)
-
-    def test_no_member_yields_empty_context(self):
-        from verenigingen.templates.pages import application_status
-
-        email = f"nomember-{now_datetime().strftime('%H%M%S%f')}@example.com"
-        self._ensure_member_user(email)
-        with self.as_user(email):
-            ctx = frappe._dict()
-            application_status.get_context(ctx)
-
-        self.assertIsNone(ctx.member)
-        self.assertEqual(ctx.member_chapters, [])
 
 
 class TestPageMyTeams(PortalPageTestBase):
