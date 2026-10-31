@@ -6,11 +6,17 @@ setUp fails after the .start(), and every later test in the shard process runs w
 the stub installed (the #1782 shape, found again in ~25 concrete classes).
 
 Ratchet: no function that is not a test method (setUp, setUpClass, helpers) may call
-.start() on a patcher without an addCleanup/addClassCleanup that stops it. A cleanup
-whose argument mentions "patch" or "mock" (e.g. a ``_cleanup_test_mocks`` method that
-stops a list) is accepted for the whole function. A function that RETURNS the patcher
-hands ownership to its caller, which is then checked in turn. Context-manager
+.start() on a patcher unless the function registers a cleanup that is either
+``<receiver>.stop`` or a method of the same class that calls ``.stop()`` and names that
+receiver (or shares a ``self.<container>`` attribute with the starting function, the
+``_cleanup_test_mocks`` list case). ``addClassCleanup`` does not count for a per-test
+setUp. Cleanups inside nested functions or ``if False:`` do not count. Context-manager
 ``__enter__`` methods are exempt: ``__exit__`` owns the stop.
+
+Known limits (0 hits on today's tree): a function that RETURNS the patcher is exempt and
+its caller is NOT checked unless it calls ``.start()`` itself; loop-variable patchers are
+accepted through the shared-container rule; aliased ``patch`` imports and patchers built
+by helpers under names without "patch"/"mock" are not recognised.
 """
 
 import ast
@@ -48,38 +54,109 @@ def _is_patcher(receiver, names):
     )
 
 
-def _cleanup_args(func):
-    args = []
-    for node in ast.walk(func):
-        is_cleanup = (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in _CLEANUP_NAMES
-        )
-        if is_cleanup:
-            args.extend(ast.unparse(a) for a in node.args)
-    return args
+def _own_nodes(func):
+    """Nodes of ``func`` that always run when it does: no nested defs, no ``if False:``."""
+    stack = list(func.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            continue
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Constant) and not node.test.value:
+            stack.extend(node.orelse)
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _cleanup_calls(func):
+    """(registering method name, unparsed first argument) for each own-level cleanup call."""
+    return [
+        (node.func.attr, ast.unparse(node.args[0]))
+        for node in _own_nodes(func)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _CLEANUP_NAMES
+        and node.args
+    ]
 
 
 def _returned_names(func):
     return {
         ast.unparse(part)
-        for node in ast.walk(func)
+        for node in _own_nodes(func)
         if isinstance(node, ast.Return) and node.value is not None
         for part in (node.value.elts if isinstance(node.value, ast.Tuple) else [node.value])
     }
 
 
+def _self_attributes(func):
+    return {
+        ast.unparse(n)
+        for n in ast.walk(func)
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ("self", "cls")
+    }
+
+
+def _stops_something(method):
+    return any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "stop"
+        for n in ast.walk(method)
+    )
+
+
+def _is_stopper_for(method, func, receiver):
+    """A sibling method that calls .stop() and demonstrably owns this patcher.
+
+    It owns it when its body names the receiver, or when it shares a ``self.<container>``
+    attribute with the starting function (a list the patchers were appended to).
+    """
+    if not _stops_something(method):
+        return False
+    if receiver in ast.unparse(method):
+        return True
+    shared = _self_attributes(method) & _self_attributes(func)
+    shared -= {f"self.{method.name}", f"cls.{method.name}"}
+    return bool(shared)
+
+
+def _is_covered(func, siblings, receiver, is_class_scope):
+    for registrar, arg in _cleanup_calls(func):
+        # addClassCleanup runs once per CLASS: for a patch started per test it is too late.
+        if registrar in ("addClassCleanup", "enterClassContext") and not is_class_scope:
+            continue
+        if arg == f"{receiver}.stop":
+            return True
+        name = arg.split(".", 1)[1] if arg.startswith(("self.", "cls.")) else None
+        if name in siblings and _is_stopper_for(siblings[name], func, receiver):
+            return True
+    return False
+
+
+def _functions_with_context(tree):
+    """(function, {method name: node} of its class, is setUpClass-like)."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            siblings = {
+                m.name: m for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for method in siblings.values():
+                yield method, siblings
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node, {}
+
+
 def find_uncleaned_starts(source):
     """(function, lineno, receiver) for every patcher .start() with no matching cleanup."""
     found = []
-    for func in ast.walk(ast.parse(source)):
-        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
+    for func, siblings in _functions_with_context(ast.parse(source)):
         if func.name.startswith("test") or func.name in _EXEMPT_FUNCTIONS:
             continue
-        names, cleanups, returned = _patcher_names(func), _cleanup_args(func), _returned_names(func)
-        for node in ast.walk(func):
+        is_class_scope = func.name in ("setUpClass", "setUpModule") or any(
+            ast.unparse(d) == "classmethod" for d in func.decorator_list
+        )
+        names, returned = _patcher_names(func), _returned_names(func)
+        for node in _own_nodes(func):
             if not (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -88,11 +165,9 @@ def find_uncleaned_starts(source):
             ):
                 continue
             receiver = ast.unparse(node.func.value)
-            covered = f"{receiver}.stop" in cleanups or any(
-                re.search(r"patch|mock", c, re.IGNORECASE) for c in cleanups
-            )
-            if not covered and receiver not in returned:
-                found.append((func.name, node.lineno, receiver))
+            if receiver in returned or _is_covered(func, siblings, receiver, is_class_scope):
+                continue
+            found.append((func.name, node.lineno, receiver))
     return found
 
 
@@ -124,15 +199,25 @@ class TestSetupPatchesHaveCleanup(unittest.TestCase):
         self.assertGreater(len(list(_test_files())), 100)
 
     def test_flags_the_leaking_shapes(self):
+        head = "class T:\n  def setUp(self):\n    self.p = patch('a')\n    self.p.start()\n"
         leaking = {
-            "attribute receiver": "def setUp(self):\n    self.p = patch('a.b')\n    self.p.start()\n"
-            "def tearDown(self):\n    self.p.stop()\n",
+            "attribute receiver": head + "  def tearDown(self):\n    self.p.stop()\n",
             "local receiver": "def setUp(self):\n    p = patch.object(A, 'b')\n    p.start()\n",
             "chained": "def setUp(self):\n    patch('a.b').start()\n",
             "setUpClass": "def setUpClass(cls):\n    cls.p = mock.patch('a.b')\n    cls.p.start()\n",
             "helper": "def _install(self):\n    p = patch('a.b')\n    p.start()\n",
             "wrong patcher stopped": "def setUp(self):\n    self.p = patch('a')\n    self.q = patch('b')\n"
             "    self.p.start()\n    self.q.start()\n    self.addCleanup(self.p.stop)\n",
+            # review round: cleanups that merely MENTION patch/mock must not count
+            "cleanup without .stop": head + "    self.addCleanup(self.mock_thing)\n",
+            "cleanup of a string": head + "    self.addCleanup(print, 'patch')\n",
+            "unrelated mock method": head + "    self.addCleanup(self.mock_db.rollback)\n",
+            "cleanup in a never-called nested def": head + "    def later():\n      self.addCleanup(self.p.stop)\n",
+            "cleanup under if False": head + "    if False:\n      self.addCleanup(self.p.stop)\n",
+            "sibling method that does not stop": head + "    self.addCleanup(self._cleanup_mocks)\n"
+            "  def _cleanup_mocks(self):\n    self.x = 1\n",
+            # addClassCleanup runs once per class: a per-test patch leaks across its tests
+            "addClassCleanup in setUp": head + "    self.addClassCleanup(self.p.stop)\n",
         }
         for label, source in leaking.items():
             with self.subTest(label):
@@ -142,10 +227,14 @@ class TestSetupPatchesHaveCleanup(unittest.TestCase):
         safe = {
             "addCleanup": "def setUp(self):\n    self.p = patch('a')\n    self.p.start()\n"
             "    self.addCleanup(self.p.stop)\n",
-            "addClassCleanup": "def setUpClass(cls):\n    cls.p = patch('a')\n    cls.p.start()\n"
+            "addClassCleanup in setUpClass": "def setUpClass(cls):\n    cls.p = patch('a')\n    cls.p.start()\n"
             "    cls.addClassCleanup(cls.p.stop)\n",
-            "list cleanup": "def setUp(self):\n    self.mocks = [patch('a')]\n    m = patch('b')\n"
-            "    m.start()\n    self.addCleanup(self._cleanup_test_mocks)\n",
+            "stopper method naming the receiver": "class T:\n  def setUp(self):\n    self.p = patch('a')\n"
+            "    self.p.start()\n    self.addCleanup(self._undo)\n"
+            "  def _undo(self):\n    self.p.stop()\n",
+            "stopper method over a shared list": "class T:\n  def setUp(self):\n    self.ms = []\n"
+            "    m = patch('b')\n    m.start()\n    self.ms.append(m)\n    self.addCleanup(self._undo)\n"
+            "  def _undo(self):\n    for m in self.ms:\n      m.stop()\n",
             "returned to caller": "def _make():\n    p = patch('a')\n    p.start()\n    return p\n",
             "context manager": "def __enter__(self):\n    self.p = patch('a')\n    self.p.start()\n",
             "thread, not a patcher": "def setUp(self):\n    t = Thread(target=f)\n    t.start()\n",
