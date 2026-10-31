@@ -187,13 +187,13 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         from frappe.model.workflow import get_transitions
 
         self.assertNotIn("Verify and Activate", [t.action for t in get_transitions(doc)])
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "Verify and Activate"):
             self._button_save()
         self._assert_unchanged("Pending Verification")
 
     def test_button_refused_from_draft(self):
         self._as_web_request()
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "Verify and Activate"):
             self._button_save()
         self._assert_unchanged("Draft")
 
@@ -212,7 +212,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
                 "status": "Active",
             }
         )
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "Verify and Activate"):
             agreement.insert()
 
     def test_real_transition_still_activates(self):
