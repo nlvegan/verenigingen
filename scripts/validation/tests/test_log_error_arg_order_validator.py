@@ -396,6 +396,41 @@ class ShrinkExplainerTest(unittest.TestCase):
         unexplained = lev.explain_shrink(baseline, [str(lev.REPO_ROOT / "scripts")])
         self.assertEqual(unexplained, [])
 
+    def _explain_scanned(self, source: str, known: int):
+        """explain_shrink on a probe the scan COUNTS: `_counts` skips anything under
+        /tests/, so the partial-shrink cases need a file outside it."""
+        _assert_parses(source)
+        scanned_dir = lev.REPO_ROOT / "scripts" / "validation" / "_shrink_probe_scanned"
+        scanned_dir.mkdir(exist_ok=True)
+        probe = scanned_dir / "probe_mod.py"
+        self.addCleanup(scanned_dir.rmdir)
+        self.addCleanup(probe.unlink, missing_ok=True)
+        probe.write_text(source)
+        rel = str(probe.relative_to(lev.REPO_ROOT))
+        return lev.explain_shrink({f"{rel}::f": known}, [str(lev.REPO_ROOT / "scripts")])
+
+    def test_partial_genuine_fix_is_not_reported(self):
+        """Two swapped sites, one converted to keywords: the count drops 2 -> 1 and the
+        site that still matches is the one STILL COUNTED, so nothing is unexplained (#1631)."""
+        unexplained = self._explain_scanned(
+            "def f(e):\n"
+            "    frappe.log_error(title='Title', message=f'boom {e}')\n"
+            "    frappe.log_error(f'other {e}', 'Title')\n",
+            known=2,
+        )
+        self.assertEqual(unexplained, [])
+
+    def test_partial_shrink_by_pragma_is_still_reported(self):
+        """Control for the test above: two swapped sites, one hidden behind a pragma, must
+        still report exactly the suppressed one."""
+        unexplained = self._explain_scanned(
+            "def f(e):\n"
+            "    frappe.log_error(f'boom {e}', 'Title')  # log-error-args-ok: false-positive\n"
+            "    frappe.log_error(f'other {e}', 'Title')\n",
+            known=2,
+        )
+        self.assertEqual([(u.lineno, u.reason) for u in unexplained], [(2, "suppressed")])
+
     def test_deleted_file_is_not_reported(self):
         baseline = {f"{self.rel}::f": 1}
         # File never written this test -- simulates deletion.
