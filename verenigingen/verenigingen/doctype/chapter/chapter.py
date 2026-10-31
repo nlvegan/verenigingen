@@ -225,6 +225,12 @@ class Chapter(Document):
         """On update hook with event emission for background processing"""
         self._clear_manager_caches()
 
+        # Board rows saved through this parent never run Chapter Board Member's own hooks
+        # (Frappe skips child controllers), so drop the seat memo here (#1873).
+        from verenigingen.permissions import invalidate_board_seat_memo
+
+        invalidate_board_seat_memo()
+
         # NOTE: the dead after_save() also carried a cost-center rename guarded by
         # has_value_changed("name"). That guard is unreachable on a real update —
         # _doc_before_save is loaded from the DB so previous.name == self.name always —
