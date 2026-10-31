@@ -109,7 +109,9 @@ class TestChapterAssignmentService(EnhancedTestCase):
         result = self._get_service().assign_member(member.name, self.chapter.name, note="susp-new-1584")
         self.assertFalse(result["success"], result)
         self.assertFalse(result["added_to_members"])
-        self.assertTrue(result.get("message"))
+        # The reason must name why, not echo a "success" text from add_member (review F1).
+        self.assertNotIn("added successfully", result["message"])
+        self.assertIn("Suspended", result["message"])
         reason, comments = self._assignment_records(member.name, "susp-new-1584")
         self.assertNotEqual(reason, "susp-new-1584")
         self.assertEqual(comments, 0)

@@ -135,12 +135,19 @@ class ChapterAssignmentService(StatelessService):
     def _not_assigned_reason(member: str, chapter: str, result: Dict[str, Any]) -> str:
         """Why the member was not assigned.
 
-        add_member's refusal names the Member's current status (#1564); a caller who
-        cannot read that Member gets a generic reason instead (#1590).
+        The reason names the Member's current status, which a caller who cannot read
+        that Member must not learn (#1590); they get a generic reason instead.
+        add_member's own message is used only when add_member itself refused: when
+        it reported success but left a disabled row (a non-Active member's first add,
+        until #1582), its message is the success text and would read as the reason.
         """
-        if frappe.has_permission("Member", "read", doc=member):
+        if not frappe.has_permission("Member", "read", doc=member):
+            return _("The member could not be assigned to {0}").format(chapter)
+        if not result.get("success"):
             return result.get("message") or result.get("error") or _("Member could not be assigned")
-        return _("The member could not be assigned to {0}").format(chapter)
+        return _(
+            "Member {0} was not assigned: their current status ({1}) keeps them disabled in this chapter"
+        ).format(member, frappe.db.get_value("Member", member, "status"))
 
     def assign_with_cleanup(
         self, member: str, chapter: str, note: Optional[str] = None, join_date: Optional[str] = None
