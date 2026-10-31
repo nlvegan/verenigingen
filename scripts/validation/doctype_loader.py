@@ -29,6 +29,12 @@ from typing import Dict, List, Set, Optional, Tuple, Union, Any
 from dataclasses import dataclass, field as dataclass_field
 from enum import Enum
 import logging
+import re
+import sys
+
+# bench_resolution sits beside this file; callers import us by bare name or by package
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bench_resolution import find_bench_root  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -124,7 +130,8 @@ class LoadingStats:
 class DocTypeLoader:
     """Comprehensive DocType loader with caching and multi-app support"""
     
-    def __init__(self, bench_path: str, cache_ttl: int = 3600, verbose: bool = False):
+    def __init__(self, bench_path: str, cache_ttl: int = 3600, verbose: bool = False,
+                 local_app_path: Optional[str] = None):
         """
         Initialize DocType loader
         
@@ -132,9 +139,15 @@ class DocTypeLoader:
             bench_path: Path to frappe-bench directory
             cache_ttl: Cache time-to-live in seconds (default 1 hour)
             verbose: Enable verbose logging
+            local_app_path: Checkout of THIS app under validation (e.g. a git worktree).
+                Its DocTypes and fixtures are read from here instead of from the bench's
+                installed copy, so a field added on a branch is visible to the validator
+                (#1839). Every other app still comes from the bench.
         """
         self.bench_path = Path(bench_path)
         self.apps_path = self.bench_path / "apps"
+        self.local_app_path = Path(local_app_path) if local_app_path else None
+        self.local_app_name = self._local_app_name(self.local_app_path)
         self.cache_ttl = cache_ttl
         self.verbose = verbose
         
@@ -165,6 +178,25 @@ class DocTypeLoader:
         
         # Apps to scan (discover dynamically from apps directory)
         self.standard_apps = self._discover_installed_apps()
+        if self.local_app_name and self.local_app_name not in self.standard_apps:
+            self.standard_apps.append(self.local_app_name)
+
+    @staticmethod
+    def _local_app_name(local_app_path: Optional[Path]) -> Optional[str]:
+        """The app's name, from the checkout's pyproject.toml (the bench dir name for an installed app)."""
+        if local_app_path is None:
+            return None
+        try:
+            match = re.search(r'^name\s*=\s*"([^"]+)"', (local_app_path / "pyproject.toml").read_text(), re.M)
+        except OSError:
+            return None
+        return match.group(1) if match else None
+
+    def _app_dir(self, app_name: str) -> Path:
+        """Where to read an app from: the checkout under validation, else the bench."""
+        if self.local_app_path is not None and app_name == self.local_app_name:
+            return self.local_app_path
+        return self.apps_path / app_name
         
     def _discover_installed_apps(self) -> List[str]:
         """Discover all installed apps from the apps directory"""
@@ -351,7 +383,7 @@ class DocTypeLoader:
         Returns:
             Dictionary of DocType name -> Set of field names
         """
-        app_path = self.apps_path / app_name
+        app_path = self._app_dir(app_name)
         if not app_path.exists():
             if self.verbose:
                 logger.warning(f"App '{app_name}' not found at {app_path}")
@@ -400,7 +432,7 @@ class DocTypeLoader:
         
         # First, load standard fields for all DocTypes
         for app_name in self.standard_apps:
-            app_path = self.apps_path / app_name
+            app_path = self._app_dir(app_name)
             if app_path.exists():
                 if self.verbose:
                     logger.info(f"Loading DocTypes from {app_name}...")
@@ -549,7 +581,7 @@ class DocTypeLoader:
         custom_fields_loaded = 0
         
         for app_name in self.standard_apps:
-            app_path = self.apps_path / app_name
+            app_path = self._app_dir(app_name)
             if not app_path.exists():
                 continue
             
@@ -693,10 +725,13 @@ def get_unified_doctype_loader(app_path: str, verbose: bool = False) -> DocTypeL
     if isinstance(app_path, str):
         app_path = Path(app_path)
     
-    # Derive bench path from app path
-    bench_path = app_path.parent.parent
-    
-    return DocTypeLoader(str(bench_path), verbose=verbose)
+    # Walk up (or ask git, for a worktree outside the bench) to the real bench. The old
+    # `app_path.parent.parent` is the bench only for <bench>/apps/<app>: in a worktree it
+    # is either a directory with no apps/ (zero DocTypes loaded, so nothing is flagged)
+    # or the bench whose installed copy of this app hides the branch's own changes.
+    bench_path = find_bench_root(app_path.resolve()) or app_path.parent.parent
+
+    return DocTypeLoader(str(bench_path), verbose=verbose, local_app_path=str(app_path))
 
 
 def load_doctypes_simple(app_path: str, verbose: bool = False) -> Dict[str, Set[str]]:
