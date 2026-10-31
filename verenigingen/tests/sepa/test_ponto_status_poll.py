@@ -512,6 +512,7 @@ class TestPontoStatusPoll(_PollBase):
             ConnectionError("x"),
             TimeoutError("x"),
             requests.ConnectionError("x"),
+            requests.exceptions.JSONDecodeError("not json", "<html>", 0),
         ]:
             with self.subTest(exc=repr(exc)):
                 self.assertTrue(status_poll_service._is_outage(exc))
@@ -524,6 +525,23 @@ class TestPontoStatusPoll(_PollBase):
         ]:
             with self.subTest(exc=repr(exc)):
                 self.assertFalse(status_poll_service._is_outage(exc))
+
+    def test_the_root_cause_decides_not_the_outermost_exception(self):
+        """A 503 raised while handling a 404 is still a 404 at the root: data."""
+        try:
+            try:
+                raise PontoAPIError("root", status_code=404)
+            except PontoAPIError:
+                raise PontoAPIError("wrapper", status_code=503)
+        except PontoAPIError as outer:
+            self.assertFalse(status_poll_service._is_outage(outer))
+        try:
+            try:
+                raise PontoAPIError("root", status_code=503)
+            except PontoAPIError:
+                raise PontoAPIError("wrapper", status_code=404)
+        except PontoAPIError as outer:
+            self.assertTrue(status_poll_service._is_outage(outer))
 
     def test_outage_failures_across_both_doctypes_share_one_consecutive_count(self):
         self.expectErrorLog(*self._all_ponto_errors())
@@ -564,7 +582,10 @@ class TestPontoStatusPoll(_PollBase):
         """MAX_ROW_SECONDS is derived from the client's settings here, not just asserted."""
         retry = PontoClient.DEFAULT_RETRY_CONFIG
         request_timeout = inspect.signature(PontoClient.get).parameters["timeout"].default
-        token_timeout = 30  # PontoTokenManager's token POST ("timeout": 30 in token_manager.py)
+        # The token POST's timeout is a literal inside PontoTokenManager (token_manager.py,
+        # request_kwargs "timeout": 30 in the token fetch), not a constant: not reachable
+        # without a refactor, so it is repeated here.
+        token_timeout = 30
         backoff = sum(min(retry.base_delay * 2**i, retry.max_delay) for i in range(retry.max_attempts - 1))
         worst = retry.max_attempts * request_timeout + 2 * backoff + token_timeout  # 2x: jitter allowance
         self.assertGreaterEqual(status_poll_service.MAX_ROW_SECONDS, worst)
@@ -734,7 +755,8 @@ class TestRealClientClassification(_PollBase):
         "503": (lambda: _response(503), True),
         "connection error": (requests.ConnectionError("refused"), True),
         "timeout": (requests.Timeout("slow"), True),
-        "200 garbage": (lambda: _response(200, b"<html>not json</html>"), False),
+        "200 garbage": (lambda: _response(200, b"<html>not json</html>"), True),
+        "502 html page": (lambda: _response(502, b"<html>bad gateway</html>"), True),
     }
 
     def _fake_get(self, behaviour):
@@ -802,3 +824,50 @@ class TestRealClientClassification(_PollBase):
             healthy = {d.ponto_payment_id for d in rows[7:]}
             self.assertTrue(healthy <= set(seen), "a healthy row was not polled")
         self.assertEqual(frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"}), stops_before)
+
+
+class TestRealTokenManagerClassification(_PollBase):
+    """The token endpoint, through the REAL PontoTokenManager: only Session.post/get and
+    sleep are stubbed. A failing token fetch hits every row, so each of these is an outage."""
+
+    def _classify_poll_row(self, token_behaviour, api_behaviour):
+        from verenigingen.verenigingen_payments.ponto.utils.token_manager import PontoTokenManager
+
+        def stub(behaviour):
+            def fake(session, *args, **kwargs):
+                if isinstance(behaviour, Exception):
+                    raise behaviour
+                return behaviour()
+
+            return fake
+
+        self._configure_ponto(True, mtls=False)
+        row = self._make_poll_request("Pending")
+        PontoTokenManager.clear_cache()
+        self.addCleanup(PontoTokenManager.clear_cache)
+        with patch.object(requests.Session, "post", stub(token_behaviour)):
+            with patch.object(requests.Session, "get", stub(api_behaviour)), patch("time.sleep"):
+                return status_poll_service._refresh_one(row.doctype, row.name)
+
+    def test_a_failing_token_fetch_is_an_outage_whatever_it_looks_like(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        ok = lambda: _response(200, HEALTHY)  # noqa: E731
+        cases = {
+            "token 401": lambda: _response(401),
+            "token 400": lambda: _response(400),
+            "token 503": lambda: _response(503),
+            "token connection error": requests.ConnectionError("x"),
+            "token 200 html": lambda: _response(200, b"<html>maintenance</html>"),
+            "token 502 html": lambda: _response(502, b"<html>bad gateway</html>"),
+        }
+        for name, behaviour in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(self._classify_poll_row(behaviour, ok), status_poll_service.OUTAGE)
+
+    def test_a_garbage_api_body_is_an_outage_and_a_404_still_is_not(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        token = lambda: _response(200, {"access_token": "t", "expires_in": 1800})  # noqa: E731
+        self.assertEqual(
+            self._classify_poll_row(token, lambda: _response(200, b"<html>x</html>")), status_poll_service.OUTAGE
+        )
+        self.assertEqual(self._classify_poll_row(token, lambda: _response(404)), status_poll_service.DATA_ERROR)

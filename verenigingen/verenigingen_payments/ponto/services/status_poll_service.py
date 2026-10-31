@@ -100,6 +100,9 @@ def poll_open_ponto_payment_statuses():
     _refresh_batches(_rotated(batches))
 
 
+# Raw SQL rather than frappe.qb on purpose: the cursor (a stored row name) must reach the
+# database as a BOUND parameter, and pypika splices values in as literals without escaping
+# backslashes.
 def _open_where(doctype, statuses, id_field):
     """(FROM/WHERE sql, params) for the open rows. ``doctype`` and ``id_field`` come from the
     module's own ``_POLLED`` constants, never from a caller; every VALUE is a bound parameter."""
@@ -277,16 +280,19 @@ def _is_outage(exc):
     root still says 404 or 503. This stays correct whether or not #1924 is ever fixed.
 
     * outage: ``PontoRateLimitError`` (429), ``PontoAuthenticationError`` (401, the token is
-      shared by every row; maintainer ruling), ``requests.RequestException`` (transport),
-      ``ConnectionError``/``TimeoutError``, and a ``PontoAPIError`` with status >= 500;
-    * data: a ``PontoAPIError`` with a lower status (404, 400, 422 ...), a body that is not
-      JSON (requests' ``InvalidJSONError``, a ``RequestException`` subclass that is NOT a
-      transport failure), and anything unrecognised, including a status-less
-      ``PontoAPIError`` with nothing deeper (a parse failure such as "Missing 'id'").
+      shared by every row; maintainer ruling), ``requests.RequestException`` (transport, and
+      also a body that is not JSON, ``InvalidJSONError``: a proxy or maintenance page is an
+      incident shape, from the API or the token endpoint alike; coordinator decision, and
+      three consecutive ones are needed to stop a run), ``ConnectionError``/``TimeoutError``,
+      and a ``PontoAPIError`` with status >= 500;
+    * data: a ``PontoAPIError`` with a lower status (404, 400, 422 ...) and anything
+      unrecognised, including a status-less ``PontoAPIError`` with nothing deeper (a parse
+      failure such as "Missing 'id'").
+
+    Root-first matters: a handler that re-raises a different error while handling the first
+    (the usual wrapper shape) leaves the root as the only honest witness.
     """
     for e in reversed(list(_causes(exc))):
-        if isinstance(e, requests.exceptions.InvalidJSONError):
-            return False
         if isinstance(e, (PontoRateLimitError, PontoAuthenticationError, requests.RequestException)):
             return True
         if isinstance(e, (ConnectionError, TimeoutError)):
