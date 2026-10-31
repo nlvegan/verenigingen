@@ -244,12 +244,22 @@ def can_user_manage_application_record(application_name, user=None):
     return bool(chapter) and chapter in manageable_chapters
 
 
+def can_user_read_application_record(application_name, user=None):
+    """Can `user` read this application? Any active seat on its chapter (Ruling N), admins any.
+    The document-permission hook is the one rule (permissions.has_application_permission)."""
+    from verenigingen.permissions import has_application_permission
+
+    return bool(has_application_permission(frappe._dict(name=str(application_name)), user, "read"))
+
+
 def validate_application_permission_or_throw(application_name, action="manage", user=None):
-    """Throw PermissionError unless `user` may review the application.
+    """Throw PermissionError unless `user` may `action` the application: "read" follows any active seat
+    on its chapter, every other action needs an Admin-level seat (can_user_manage_application_record).
 
     One message for "not yours" and "does not exist" (existence oracle, #1414/#1436).
     """
-    if not can_user_manage_application_record(application_name, user):
+    allowed = can_user_read_application_record if action == "read" else can_user_manage_application_record
+    if not allowed(application_name, user):
         frappe.throw(
             _("You don't have permission to {0} this application").format(action),
             frappe.PermissionError,

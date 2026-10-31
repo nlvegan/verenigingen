@@ -53,6 +53,31 @@
  */
 
 /**
+ * The change table for an application: what approving it would change on the existing Member.
+ * Self-contained; the approve dialog calls it with the rows of
+ * verenigingen.api.membership_application_review.get_application_changes (#1765).
+ * Every value is escaped, an empty list renders nothing (a new applicant changes no Member).
+ *
+ * @param {Array<{field: string, label: string, current: *, proposed: *}>} rows
+ * @returns {string} HTML
+ * Call as frappe.pages['membership-application-review'].render_application_changes(rows).
+ */
+frappe.pages['membership-application-review'].render_application_changes = function (rows) {
+	if (!rows || !rows.length) {
+		return '';
+	}
+	const cell = (value) => frappe.utils.escape_html(value === null || value === undefined ? '' : String(value));
+	const body = rows
+		.map((row) => `<tr><td>${cell(row.label)}</td><td>${cell(row.current)}</td><td>${cell(row.proposed)}</td></tr>`)
+		.join('');
+	return (
+		'<table class="table table-bordered application-changes"><thead><tr>' +
+		`<th>${cell(__('Field'))}</th><th>${cell(__('Current'))}</th><th>${cell(__('Proposed'))}</th>` +
+		`</tr></thead><tbody>${body}</tbody></table>`
+	);
+};
+
+/**
  * Frappe page loader for Membership Application Review
  *
  * Implements a comprehensive interface for reviewing and processing membership applications,

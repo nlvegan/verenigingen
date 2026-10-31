@@ -897,6 +897,29 @@ def _refuse_unless_approvable(application, chapter):
 
 
 @frappe.whitelist()
+@standard_api()  # Read-only preview of what approving would change (#1765)
+def get_application_changes(application_name: str) -> list[dict]:
+    """Rows `{field, label, current, proposed}`: what approving this application would change on the
+    existing Member ([] for a new applicant). Any active seat on the application's chapter may read it;
+    the IBAN is shown in full only to a Verenigingen Administrator or System Manager, masked for everyone
+    else, in both columns. The permission check comes first (Ruling M): an unknown application is refused
+    exactly like a foreign one."""
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.services.member.application.application_materialiser import application_changes
+    from verenigingen.utils.error_handling import mask_iban
+
+    application_name = str(application_name)
+    validate_application_permission_or_throw(application_name, "read")
+    application = frappe.get_doc("Membership Application Submission", application_name)
+    rows = application_changes(application)
+    if not Roles.ADMIN_PAIR.intersection(frappe.get_roles()):
+        for row in rows:
+            if row["field"] == "iban":
+                row["current"], row["proposed"] = mask_iban(row["current"]), mask_iban(row["proposed"])
+    return rows
+
+
+@frappe.whitelist()
 @high_security_api()  # Application rejection: touches only the application (#1765)
 def reject_application(
     application_name: str,

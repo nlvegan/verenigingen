@@ -9,6 +9,7 @@ import json
 from contextlib import contextmanager
 
 import frappe
+from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.services.member.application.short_application_confirm import to_helper_payload
@@ -131,8 +132,8 @@ def _writable_values(application, member) -> dict:
     `additional_notes` is never written to the Member (Ruling R): it stays on the application, which is
     kept and linked by `member`.
 
-    The address, the replace-on-reapply answers and the dues choice are applied by materialise_member
-    next to this, so the preview of a reapplication adds them (Task 6).
+    The address is a separate doctype; the replace-on-reapply answers and the dues choice are applied
+    beside this by _apply_application, which is what both the write and the preview consume.
     """
     data = application_data(application)
     first, middle, tussenvoegsel, last = _sanitize_application_names(data)
@@ -152,8 +153,7 @@ def _writable_values(application, member) -> dict:
 
 def _update_member(application, data, member_name, address, application_id):
     member = frappe.get_doc("Member", member_name)
-    for field, value in _writable_values(application, member).items():
-        member.set(field, value)
+    _apply_application(member, application, data)
     if address:
         member.primary_address = address.name
     member.status = "Pending"  # so the approval core's preconditions hold
@@ -165,11 +165,95 @@ def _update_member(application, data, member_name, address, application_id):
             setattr(member, hint, data[hint])
     _append_chapter_notes(member, application.chapter, label="Selected Chapter (Reapplication)")
     member._suppress_customer_messages = True
-    _set_dues_choice(member, data)
-    _set_answers(member, application)
     with _as_system_user(f"Update member {member.name} from application {application.name}"):
         member.save()
     return member
+
+
+def _apply_application(member, application, data):
+    """Set, in memory, every Member field an application writes onto an existing Member: the plain fields,
+    the replace-on-reapply answers and the dues choice. The one source for both the write
+    (_update_member) and the reviewers' preview (application_changes), so they cannot drift."""
+    for field, value in _writable_values(application, member).items():
+        member.set(field, value)
+    _set_dues_choice(member, data)
+    _set_answers(member, application)
+
+
+def application_changes(application) -> list[dict]:
+    """[{field, label, current, proposed}] approving `application` would change on the existing Member.
+
+    [] for a new applicant. Computed by applying the application to a throwaway copy of the Member through
+    _apply_application and diffing, so a field appears only if it differs. The address is one row (it is a
+    separate doctype). `additional_notes` is not written to an existing Member (Ruling R), so it is not here.
+    """
+    member_name = frappe.db.get_value("Member", {"email": application.email})
+    if member_name is None:
+        return []
+    member = frappe.get_doc("Member", member_name)
+    before = _member_values(member)
+    _apply_application(member, application, application_data(application))
+    after = _member_values(member)
+    meta = frappe.get_meta("Member")
+    rows = [
+        {"field": field, "label": meta.get_label(field), "current": before[field], "proposed": value}
+        for field, value in after.items()
+        if _differs(field, before[field], value)
+    ]
+    address = _address_change(member, application_data(application))
+    return rows + ([address] if address else [])
+
+
+def _member_values(member) -> dict:
+    """The Member's data fields as plain values, `join_reasons` as the list of reasons."""
+    values = {
+        df.fieldname: member.get(df.fieldname)
+        for df in member.meta.fields
+        if df.fieldtype not in frappe.model.no_value_fields
+    }
+    values["join_reasons"] = [row.join_reason for row in member.get("join_reasons") or []]
+    return values
+
+
+def _differs(field, current, proposed) -> bool:
+    return _comparable(field, current) != _comparable(field, proposed)
+
+
+def _comparable(field, value):
+    """None, "", an empty list and a numeric 0 are the same blank (a Float/Int field is never NULL: the
+    dues-choice reset writing None over a 0.0 is no change); IBAN groups and case are formatting (a save
+    rewrites them)."""
+    if value in (None, "", [], 0):
+        return None
+    if field == "iban":
+        return str(value).replace(" ", "").upper()
+    return value if isinstance(value, (int, float, list)) else str(value)
+
+
+def _address_change(member, data):
+    """One "address" row when the application supplies an address that is not the Member's primary one."""
+    if not (data.get("address_line1") and data.get("city")):
+        return None
+    proposed = _format_address(
+        data.get("address_line1"), data.get("postal_code"), data.get("city"), data.get("country")
+    )
+    current = ""
+    if member.primary_address:
+        stored = frappe.db.get_value(
+            "Address", member.primary_address, ["address_line1", "pincode", "city", "country"], as_dict=True
+        )
+        current = (
+            _format_address(stored.address_line1, stored.pincode, stored.city, stored.country)
+            if stored
+            else ""
+        )
+    if " ".join(current.lower().split()) == " ".join(proposed.lower().split()):
+        return None
+    return {"field": "address", "label": _("Address"), "current": current, "proposed": proposed}
+
+
+def _format_address(line1, postcode, city, country) -> str:
+    return ", ".join(part for part in (line1, " ".join(filter(None, (postcode, city))), country) if part)
 
 
 def _set_dues_choice(member, data):

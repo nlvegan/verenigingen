@@ -18,7 +18,11 @@ from werkzeug.wrappers import Request
 
 from verenigingen.api import short_application as sa
 from verenigingen.api.membership_application import submit_application
-from verenigingen.api.membership_application_review import approve_application, reject_application
+from verenigingen.api.membership_application_review import (
+    approve_application,
+    get_application_changes,
+    reject_application,
+)
 from verenigingen.services.member.application.application_record import confirm_application
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
 from verenigingen.services.member.lifecycle.member_status_notification_service import (
@@ -701,3 +705,258 @@ class TestApproveApplicationBoard(ApprovalCase):
 
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+
+
+class TestApplicationChanges(ApprovalCase):
+    """#1765 task 6: the change preview a reviewer sees before approving.
+
+    Driven through the real flow (submit -> confirm -> preview / approve). Fixture shortcuts, stated: the
+    Member's address and (for the answers test) application_custom_fee are db writes standing in for "the
+    state an earlier approval left", so those tests prove the preview, not that the state is reachable so."""
+
+    def setUp(self):
+        super().setUp()
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def _quit_member_matching_form(self, **fields):
+        """A voluntarily-Quit Member whose every application-writable field already equals what
+        _full_form_data supplies, except the ones passed in `fields`."""
+        values = {
+            "first_name": "Appr",
+            "iban": IBAN,
+            "contact_number": "+31612345678",
+            "birth_date": add_days(today(), -365 * 30),
+            "selected_membership_type": self.membership_type.name,
+        }
+        values.update(fields)
+        member = self._voluntarily_quit_member_with_iban_values(values)
+        with self.as_user(self.admin_user.email):
+            address = frappe.get_doc(
+                {
+                    "doctype": "Address",
+                    "address_title": "Appr Applicant",
+                    "address_type": "Personal",
+                    "address_line1": "123 Test Street",
+                    "city": "Amsterdam",
+                    "country": "Netherlands",
+                    "pincode": "1234AB",
+                    "email_id": self.email,
+                    "is_primary_address": 1,
+                }
+            ).insert()
+        self.track_doc("Address", address.name)
+        frappe.db.set_value("Member", member.name, "primary_address", address.name)  # fixture shortcut
+        return member
+
+    def _voluntarily_quit_member_with_iban_values(self, values):
+        member = self.create_test_member(email=self.email, **values)
+        execute_real_termination(self, member.name, today())
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        return member
+
+    def _changes_as(self, name, user=None):
+        with self.as_user(user or self.admin_user.email):
+            return get_application_changes(name)
+
+    def _rows(self, name, user=None):
+        return {row["field"]: row for row in self._changes_as(name, user)}
+
+    def test_changes_list_only_differing_supplied_fields(self):
+        member = self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN, last_name="Renamed")  # phone not changed: same as the Member's
+        control = frappe.db.get_value("Member", member.name, "contact_number")
+        self.assertEqual(control, "+31612345678", "control: the Member has a phone the application also supplies")
+
+        rows = self._rows(name)
+
+        self.assertEqual(set(rows), {"iban", "last_name"}, rows)
+        self.assertEqual(rows["last_name"]["proposed"], "Renamed")
+        self.assertNotEqual(rows["last_name"]["current"], "Renamed")
+        self.assertEqual(rows["iban"]["proposed"], OTHER_IBAN)
+        self.assertEqual(rows["iban"]["current"].replace(" ", ""), IBAN)
+        self.assertTrue(rows["iban"]["label"] and rows["last_name"]["label"])
+
+    def test_new_applicant_has_no_changes(self):
+        name = self._stage_and_confirm()
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0, "precondition: no Member exists")
+
+        self.assertEqual(self._changes_as(name), [])
+
+    def test_preview_matches_write(self):
+        """Snapshot every Member field before and after the real approval. Every previewed field must have
+        changed to exactly the previewed value, and every other change must be one the approval itself
+        makes (lifecycle and the approval core's own writes), named below."""
+        member = self._quit_member_matching_form(last_name="Before")
+        name = self._stage_and_confirm(iban=OTHER_IBAN, last_name="Renamed", bank_account_name="New Holder", payment_method="SEPA Direct Debit")
+        preview = self._rows(name)
+        self.assertTrue(preview, "control: the preview has rows to match")
+        before = frappe.get_doc("Member", member.name).as_dict(no_default_fields=False)
+
+        self._approve_as(name)
+
+        after = frappe.get_doc("Member", member.name).as_dict(no_default_fields=False)
+        changed = {
+            field
+            for field in set(before) | set(after)
+            if not isinstance(before.get(field), list) and _norm(before.get(field)) != _norm(after.get(field))
+        }
+        for field, row in preview.items():
+            self.assertIn(field, changed, f"{field} previewed but approval did not change it")
+            self.assertEqual(_norm(after[field]), _norm(row["proposed"]), field)
+        unexplained = changed - set(preview) - _APPROVAL_OWN_WRITES
+        self.assertEqual(unexplained, set(), "approval changed fields the preview did not show")
+
+    def test_preview_includes_answers_and_dues_choice(self):
+        """A short-form reapplication also replaces the answers and the dues choice: both are in the preview."""
+        member = self._voluntarily_quit_member_with_iban_values({"iban": IBAN})
+        frappe.db.set_value("Member", member.name, "application_custom_fee", 5)  # fixture shortcut: an earlier application's fee
+        name = self._stage_short_and_confirm()
+
+        rows = self._rows(name)
+
+        self.assertIn("application_door", rows, "an answer the short form replaces")
+        self.assertEqual(rows["application_door"]["proposed"], frappe.db.get_value(SUBMISSION, name, "door"))
+        self.assertIn("application_custom_fee", rows, "the dues choice the short form sets (7.50)")
+        self.assertEqual((rows["application_custom_fee"]["current"], rows["application_custom_fee"]["proposed"]), (5, 7.5))
+
+    def test_blank_supplied_field_is_not_listed(self):
+        """The short form sends no birth date and no mobile number; the Member keeps its own (approval
+        writes nothing there), so they are not rows."""
+        member = self._voluntarily_quit_member_with_iban_values(
+            {"iban": IBAN, "contact_number": "+31699999999", "birth_date": add_days(today(), -365 * 41)}
+        )
+        self.assertTrue(frappe.db.get_value("Member", member.name, "contact_number"), "control: the Member has a phone")
+        name = self._stage_short_and_confirm()
+
+        rows = self._rows(name)
+
+        self.assertIn("application_door", rows, "control: the preview ran and has rows")
+        self.assertNotIn("contact_number", rows)
+        self.assertNotIn("birth_date", rows)
+
+    def test_address_is_one_row_only_when_it_differs(self):
+        self._quit_member_matching_form()
+        same = self._stage_and_confirm()
+        self.assertNotIn("address", self._rows(same), "the application supplies the address the Member has")
+
+        moved = self._stage_and_confirm(address_line1="9 Other Road", city="Utrecht")
+        rows = self._rows(moved)
+
+        self.assertIn("address", rows)
+        self.assertIn("123 Test Street", rows["address"]["current"])
+        self.assertIn("9 Other Road", rows["address"]["proposed"])
+        self.assertIn("Utrecht", rows["address"]["proposed"])
+
+    def test_iban_is_masked_for_a_board_member_and_full_for_an_administrator(self):
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+
+        board_row = self._rows(name, self.board.user)["iban"]
+        admin_row = self._rows(name)["iban"]
+
+        self.assertEqual(admin_row["proposed"], OTHER_IBAN)
+        self.assertEqual(admin_row["current"].replace(" ", ""), IBAN)
+        for side, full in (("current", IBAN), ("proposed", OTHER_IBAN)):
+            shown = board_row[side]
+            self.assertNotEqual(shown.replace(" ", ""), full, side)
+            self.assertTrue(shown.endswith(full[-4:]), f"{side}: the last 4 characters stay visible")
+            self.assertNotIn(full[4:-4], shown.replace(" ", ""), side)
+        self.assertNotIn(OTHER_IBAN[2:-4], json.dumps(self._changes_as(name, self.board.user)))
+
+    def test_system_manager_alone_sees_the_full_iban(self):
+        """Ruling: Verenigingen Administrator AND System Manager. A System Manager without the other role."""
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+        sysman = self.create_test_user_with_roles(
+            email=f"appr.sysman.{frappe.generate_hash(length=6)}@example.com", roles=["System Manager"]
+        )
+
+        self.assertEqual(self._rows(name, sysman.email)["iban"]["proposed"], OTHER_IBAN)
+
+    def test_a_basic_seat_may_read(self):
+        """Ruling N: any active seat in the application's chapter reads (the IBAN is masked)."""
+        basic = self.create_test_board_member(self.chapter.name, permissions_level="Basic")
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+
+        rows = self._rows(name, basic.user)
+
+        self.assertIn("iban", rows)
+        self.assertNotEqual(rows["iban"]["proposed"], OTHER_IBAN)
+
+    def _preview_probe(self, name, user):
+        """(type, message, message_log delta, Error Log delta, query count) of get_application_changes."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(user):
+            with count_queries() as counter:
+                try:
+                    get_application_changes(name)
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def test_foreign_and_unknown_application_refused_identically(self):
+        other_chapter = self.factory.ensure_test_chapter(
+            f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
+        )
+        self._quit_member_matching_form()
+        foreign = self._stage_and_confirm(selected_chapter=other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        user = self.board.user  # clears the API's security tier, so the application check is what refuses
+        self._preview_probe(unknown, user)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._preview_probe(foreign, user)
+        unknown_result = self._preview_probe(unknown, user)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+
+
+def _norm(value):
+    """Compare Member values across the formats a save rewrites (IBAN groups, dates as str)."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value.replace(" ", "")
+    return str(value) if not isinstance(value, (int, float)) else value
+
+
+# Fields the approval changes on its own, whatever the application carries. Measured from a real run; a
+# new unexplained change fails test_preview_matches_write. Grouped by why they are not preview rows.
+_APPROVAL_OWN_WRITES = {
+    # audit columns
+    "modified",
+    "modified_by",
+    # lifecycle: Quit -> Active and the application stamp
+    "status",
+    "application_status",
+    "application_date",
+    "application_id",
+    "membership_status",
+    "member_since",
+    "member_end_date",
+    # derived from a previewed name, or the Address the approval re-creates (same text unless "address" is a row)
+    "full_name",
+    "primary_address",
+    "address_fingerprint",
+    "normalized_address_line",
+    "normalized_city",
+    "address_last_updated",
+    # the chapter note the approval appends
+    "notes",
+    # the approval core: membership, schedule, billing, review stamp
+    "current_membership_type",
+    "current_membership_plan",
+    "current_dues_schedule",
+    "dues_rate",
+    "next_invoice_date",
+    "reviewed_by",
+    "review_date",
+}
