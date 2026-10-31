@@ -443,13 +443,12 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         suspend_member_safe(self.test_member2.name, "join request test", suspend_user=False)
         self.assertEqual(frappe.db.get_value("Member", self.test_member2.name, "status"), "Suspended")
         self.assertFalse(self._chapter_member_exists(self.test_member2))
-        # Control: the approver really cannot read this Member.
-        self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name, user=board.user))
-
         approver_before = frappe.session.user
         frappe.set_user(board.user)
-        log_length = len(frappe.local.message_log)
         try:
+            # Control: the approver really cannot read this Member (read after the switch: cache-guard).
+            self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name))
+            log_length = len(frappe.local.message_log)
             message = self._approval_error(req)
             raised = json.dumps(list(frappe.local.message_log[log_length:]))
         finally:
