@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import _UserSwitcher
 
 
 class TestChapterJoinRequest(EnhancedTestCase):
@@ -513,14 +514,6 @@ class TestChapterJoinRequest(EnhancedTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    @contextlib.contextmanager
-    def _as_user(self, email):
-        frappe.set_user(email)
-        try:
-            yield
-        finally:
-            frappe.set_user("Administrator")
-
     def _member_only_user(self, role="Verenigingen Member", extra_roles=()):
         """(email, Member) for a fresh user holding exactly *role*, linked to its own Active member.
 
@@ -581,7 +574,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
     def test_a_new_request_cannot_be_inserted_already_approved(self):
         """#1704: a REST insert with status Approved is the same harm without needing an edit."""
         user, own_member = self._member_only_user()
-        with self._as_user(user):
+        with _UserSwitcher(user):
             doc = frappe.get_doc(
                 {
                     "doctype": "Chapter Join Request",
@@ -674,7 +667,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
             with self.subTest(field=field):
                 # The caller's OWN member, so the #1786 ownership refusal cannot be what raises.
                 user, own_member = self._member_only_user()
-                with self._as_user(user):
+                with _UserSwitcher(user):
                     doc = frappe.get_doc(
                         {
                             "doctype": "Chapter Join Request",
@@ -931,7 +924,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         """#1786 through the doc insert path (REST POST /api/resource and the form both land here)."""
         user, _own = self._member_only_user()
         victim = self._victim()
-        with self._as_user(user):
+        with _UserSwitcher(user):
             with self.assertRaises(frappe.PermissionError) as ctx:
                 frappe.get_doc(self._cjr_values(victim.name)).insert()
         self.assertIn(self.OWNERSHIP_MESSAGE, str(ctx.exception))
@@ -945,7 +938,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
 
         user, _own = self._member_only_user()
         victim = self._victim()
-        with self._as_user(user):
+        with _UserSwitcher(user):
             with self.assertRaises(frappe.PermissionError) as ctx:
                 insert(json.dumps(self._cjr_values(victim.name)))
         self.assertIn(self.OWNERSHIP_MESSAGE, str(ctx.exception))
@@ -955,7 +948,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         """#1786 on change: a draft saved for the caller's own member then edited to another."""
         user, own = self._member_only_user()
         victim = self._victim()
-        with self._as_user(user):
+        with _UserSwitcher(user):
             doc = frappe.get_doc(self._cjr_values(own.name)).insert()
             doc.member = victim.name
             with self.assertRaises(frappe.PermissionError) as ctx:
@@ -975,7 +968,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         active = self._victim()
         suspended = self.suspended_member
         messages = []
-        with self._as_user(user):
+        with _UserSwitcher(user):
             for victim in (active, suspended):
                 before = len(frappe.local.message_log)
                 with self.assertRaises(frappe.PermissionError) as ctx:
@@ -997,7 +990,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         lookalike = self.create_test_member(status="Active", email=user)
         self.assertEqual(frappe.db.get_value("Member", lookalike.name, "email"), user)
         self.assertFalse(frappe.db.get_value("Member", {"user": user}, "name"))
-        with self._as_user(user):
+        with _UserSwitcher(user):
             with self.assertRaises(frappe.PermissionError) as ctx:
                 frappe.get_doc(self._cjr_values(lookalike.name)).insert()
         self.assertIn(self.OWNERSHIP_MESSAGE, str(ctx.exception))
@@ -1009,16 +1002,33 @@ class TestChapterJoinRequest(EnhancedTestCase):
         for extra in ("Verenigingen Chapter Board Member", None):
             with self.subTest(extra_role=extra):
                 user, _own = self._member_only_user(extra_roles=(extra,) if extra else ())
-                with self._as_user(user):
+                with _UserSwitcher(user):
                     with self.assertRaises(frappe.PermissionError) as ctx:
                         frappe.get_doc(self._cjr_values(victim.name)).insert()
                 # The specific message: a doctype-level refusal would also be a PermissionError.
                 self.assertIn(self.OWNERSHIP_MESSAGE, str(ctx.exception))
 
+    def test_a_seated_chapter_board_member_cannot_file_for_another_member(self):
+        """#1101/#1546: a REAL board seat (user -> member -> volunteer -> Chapter Board Member row on
+        the target chapter) is not an exemption. Control: the seat exists, so a fix of the shape
+        "allow when the caller manages the chapter" would let this through."""
+        from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
+
+        board = self.create_test_board_member(self.test_chapter.name)
+        # A board member is also a member, so the doctype's create right is held.
+        frappe.get_doc("User", board.user).add_roles("Verenigingen Member")
+        victim = self._victim()
+        with _UserSwitcher(board.user):
+            self.assertTrue(get_user_board_chapters(board.user))  # control: the seat is real
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                frappe.get_doc(self._cjr_values(victim.name)).insert()
+        self.assertIn(self.OWNERSHIP_MESSAGE, str(ctx.exception))
+        self.assertFalse(self._exists_for(victim.name))
+
     def test_member_can_still_file_and_submit_a_request_for_their_own_member(self):
         """Opposite harm: the legitimate self-service insert and submit keep working."""
         user, own = self._member_only_user()
-        with self._as_user(user):
+        with _UserSwitcher(user):
             doc = frappe.get_doc(self._cjr_values(own.name)).insert()
             doc.submit()
         self.assertEqual(frappe.db.get_value("Chapter Join Request", doc.name, "docstatus"), 1)
@@ -1028,7 +1038,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         for role in ("Verenigingen Staff", "Verenigingen Administrator"):
             with self.subTest(role=role):
                 victim = self._victim()
-                with self._as_user(self._role_user_email(role)):
+                with _UserSwitcher(self._role_user_email(role)):
                     doc = frappe.get_doc(self._cjr_values(victim.name)).insert()
                     doc.submit()
                 self.assertEqual(frappe.db.get_value("Chapter Join Request", doc.name, "member"), victim.name)
@@ -1044,7 +1054,7 @@ class TestChapterJoinRequest(EnhancedTestCase):
         user = self._role_user_email("Verenigingen Member")
         member = self.create_test_member(status="Active", email=user)
         self.assertFalse(frappe.db.get_value("Member", member.name, "user"))
-        with self._as_user(user):
+        with _UserSwitcher(user):
             result = chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
         self.assertTrue(result["success"], msg=result)
         self.assertTrue(
