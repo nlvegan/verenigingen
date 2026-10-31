@@ -10,6 +10,11 @@ from frappe import _
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 
 class ChapterMembershipManager:
@@ -285,6 +290,12 @@ class ChapterMembershipManager:
             "to": to_chapter,
         }
         try:
+            # Leave and join are one unit: the join can be refused by RETURNING success False
+            # (a non-Active member, #1582/#1564), after the leave has already been written, which
+            # would strand the member in no enabled chapter. A refusal or an exception rolls both
+            # back (#1846).
+            savepoint = f"transfer_member_{frappe.generate_hash(length=10)}"
+            frappe.db.savepoint(savepoint)
             try:
                 # First, leave the old chapter
                 leave_result = ChapterMembershipManager.leave_chapter(
@@ -295,6 +306,7 @@ class ChapterMembershipManager:
                 )
 
                 if not leave_result.get("success"):
+                    rollback_to_savepoint(savepoint)
                     return {
                         "success": False,
                         "error": f"Failed to leave {from_chapter}: {leave_result.get('error')}",
@@ -309,6 +321,7 @@ class ChapterMembershipManager:
                 )
 
                 if not join_result.get("success"):
+                    rollback_to_savepoint(savepoint)
                     return {
                         "success": False,
                         "error": f"Failed to join {to_chapter}: {join_result.get('error')}",
@@ -341,6 +354,7 @@ class ChapterMembershipManager:
                         "Chapter Transfer Security",
                     )
 
+                release_savepoint_if_present(savepoint)
                 return {
                     "success": True,
                     "message": _("Successfully transferred member from {0} to {1}").format(
@@ -349,7 +363,15 @@ class ChapterMembershipManager:
                     "action": "transferred",
                 }
 
+            except NON_RESUMABLE_DB_ERRORS as e:
+                # Propagate (#561), but a 1205 keeps the transaction and its savepoints alive, so
+                # the leave would otherwise stay applied with no join. A 1213 has already destroyed
+                # the savepoint; rollback_to_savepoint tolerates that.
+                if isinstance(e, frappe.QueryTimeoutError):
+                    rollback_to_savepoint(savepoint)
+                raise
             except Exception as e:
+                rollback_to_savepoint(savepoint)
                 frappe.log_error(
                     f"Error in transfer_member_between_chapters: {str(e)}", "ChapterMembershipManager"
                 )
