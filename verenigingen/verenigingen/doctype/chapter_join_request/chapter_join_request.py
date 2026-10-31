@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, today
+from frappe.utils import cstr, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -73,8 +73,15 @@ class ChapterJoinRequest(Document):
         elif not self.flags.review_in_progress:
             if self.has_value_changed("status"):
                 frappe.throw(_("The status can only be changed by approving or rejecting the request"))
-            if any(self.has_value_changed(field) for field in AUDIT_FIELDS):
+            if self._audit_field_changed():
                 frappe.throw(_("The review details can only be set by approving or rejecting the request"))
+
+    def _audit_field_changed(self):
+        """True when a review field differs from the saved row. NULL and "" count as equal: a form
+        round-trip sends "" for a field the database holds as NULL (e.g. review_notes on a rejected
+        request), and refusing that would block a save that changes nothing."""
+        before = self.get_doc_before_save()
+        return any(cstr(self.get(f)) != cstr(before.get(f)) for f in AUDIT_FIELDS)
 
     def before_update_after_submit(self):
         """Frappe runs this, not validate(), when a SUBMITTED request is saved again."""

@@ -622,6 +622,20 @@ class TestChapterJoinRequest(EnhancedTestCase):
                         self.assertIn("approving or rejecting", str(ctx.exception))
                         self.assertEqual(self._review_fields_in_db(request), before)
 
+    def test_an_empty_string_for_a_null_review_field_is_not_a_review_change(self):
+        """#1745 review F1: a form round-trip sends "" for a field the DB holds as NULL. A rejected
+        request has review_notes NULL (only rejection_reason is written), so saving "" there is
+        not a change and must not be refused."""
+        request = self._submitted_request()
+        request.reject_request(reason="no")
+        self.assertIsNone(self._review_fields_in_db(request)[2])  # review_notes really NULL
+        for role in self.WRITE_ROLES:
+            with self.subTest(role=role):
+                with self._as_user_with_role(role):
+                    doc = frappe.get_doc("Chapter Join Request", request.name)
+                    doc.review_notes = ""
+                    doc.save()
+
     def test_rest_set_value_cannot_write_a_review_field(self):
         """#1745: the frappe.client.set_value channel is the REST PUT shape."""
         from frappe.client import set_value
