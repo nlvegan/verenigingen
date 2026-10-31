@@ -56,8 +56,9 @@ Two traps that are load-bearing for anyone editing those hooks
    ``frappe-core-permissions`` skill advises "ALWAYS return None by default"; it
    is wrong for this Frappe version. This is what #256 did.
 
-2. **``permission_type`` never arrives.** Pinned by
-   test_permission_type_kwarg_partition_is_unchanged below.
+2. **A parameter not named ``ptype`` never receives the permission type.** Until #1778
+   nine handlers named it ``permission_type`` and always saw None. Pinned (now: EVERY
+   app handler must declare ``ptype``) by test_every_handler_receives_ptype below.
 
 Handler resolvability (every dotted path imports and is callable) is already
 asserted by ``verenigingen/tests/test_hooks_modules.py::TestPermissionHandlerResolution``
@@ -128,18 +129,6 @@ def _donation_premise_violation(read_roles):
     if missing:
         return f"required readers missing: {sorted(missing)}"
     return None
-
-
-# Handlers that declare the parameter as `ptype` and therefore RECEIVE the real
-# permission type. Everything else in the registry declares `permission_type` and
-# always sees None. See test_permission_type_kwarg_partition_is_unchanged.
-PTYPE_AWARE_HANDLERS = {
-    "Employee",
-    "Team",
-    "Chapter",
-    "Project",
-    "Event Contact Campaign",
-}
 
 
 def _app_hooks(hook_name):
@@ -296,35 +285,37 @@ class TestPermissionRegistryConsistency(FrappeTestCase):
             f"{sorted(redundant_list)} now HAVE a query condition, so the exemption is obsolete",
         )
 
-    def test_permission_type_kwarg_partition_is_unchanged(self):
-        """Pin which handlers receive the real ptype, across the WHOLE registry.
+    def test_every_handler_receives_ptype(self):
+        """Every has_permission handler of this app must declare `ptype` (#1778).
 
         has_controller_permissions calls frappe.call(method, doc=doc, ptype=ptype, ...)
-        and frappe.call's get_newargs drops kwargs the callee does not declare. A helper
-        naming the parameter `permission_type` therefore always sees None -- and
-        `_check_service_account_permission` does `perm_type = permission_type or "read"`,
-        so every service-account check is evaluated as a READ whatever the real operation.
+        and frappe.call's get_newargs drops kwargs the callee does not declare. A handler
+        naming the parameter `permission_type` always saw None, so
+        `_check_service_account_permission` evaluated every service-account check as READ.
 
-        Renaming those parameters to `ptype` looks like a tidy-up and would silently
-        change webhook answers for write/create/submit. Asserting the whole partition
-        (rather than one example) means any such rename fails here and has to be argued
-        for in this file.
+        This test used to pin the OPPOSITE partition (nine handlers deliberately kept on
+        `permission_type`, so webhook answers for write/delete would not change). #1778
+        reversed that, and the evidence that the old premise was wrong rather than this
+        test being baselined to green: it protected a defect (delete/submit by the webhook
+        role were answered from its read row); the one branch that reads the value was
+        audited handler by handler, and a probe of 15 doctypes x 10 rights on veg11 gave
+        identical webhook answers on the fix and on develop, i.e. no legitimate operation
+        is refused. The control that fails if a handler regresses is below: the set is
+        derived from the runtime registry, so a new handler on the old name reddens it.
         """
         supplied = {"doc": None, "user": "Administrator", "ptype": "write"}
 
-        receives_ptype = set()
+        blind = {}
         for doctype, paths in self.doc_registry.items():
             for dotted_path in paths:
                 handler = frappe.get_attr(dotted_path)
-                if "ptype" in frappe.get_newargs(handler, supplied):
-                    receives_ptype.add(doctype)
+                if "ptype" not in frappe.get_newargs(handler, supplied):
+                    blind[doctype] = dotted_path
 
+        self.assertGreaterEqual(len(self.doc_registry), 15, "registry unexpectedly small")
         self.assertEqual(
-            receives_ptype,
-            PTYPE_AWARE_HANDLERS,
-            "the set of has_permission handlers that actually receive `ptype` changed. "
-            "Gaining one means a handler was renamed from `permission_type` to `ptype`: "
-            "verify it does not forward the value into _check_service_account_permission, "
-            "which would start evaluating non-read operations differently for the webhook "
-            "account. Losing one means the reverse. Update PTYPE_AWARE_HANDLERS deliberately.",
+            blind,
+            {},
+            "these has_permission handlers never receive the real ptype (frappe.call drops "
+            "undeclared kwargs); name the parameter `ptype`",
         )

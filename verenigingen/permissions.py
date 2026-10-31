@@ -450,7 +450,7 @@ def _check_chapter_board_access(user, target_member_name, include_pending=False)
     return _is_member_in_chapters(target_member_name, board_chapters, include_pending=include_pending)
 
 
-def has_member_permission(doc, user=None, permission_type=None):
+def has_member_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Member doctype with chapter-based access control
 
@@ -474,7 +474,7 @@ def has_member_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Member", permission_type)
+    service_result = _check_service_account_permission(user, "Member", ptype)
     if service_result is not None:
         return service_result
 
@@ -549,7 +549,7 @@ def has_member_permission(doc, user=None, permission_type=None):
     return False
 
 
-def has_volunteer_permission(doc, user=None, permission_type=None):
+def has_volunteer_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Volunteer doctype with member and chapter-based access control
 
@@ -572,7 +572,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Volunteer", permission_type)
+    service_result = _check_service_account_permission(user, "Volunteer", ptype)
     if service_result is not None:
         return service_result
 
@@ -682,7 +682,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             done.
 
     Returns:
-        (has_permission, permission_query) — a has_permission(doc, user, permission_type)
+        (has_permission, permission_query) — a has_permission(doc, user, ptype)
         callable and a permission_query(user) callable, named after the doctype.
     """
     # doctype + member_field are interpolated into SQL (table name + column). They are
@@ -696,22 +696,12 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
     table = f"`tab{doctype}`"
     slug = doctype.lower().replace(" ", "_")
 
-    def has_permission(doc, user=None, permission_type=None):
-        # WARNING: `permission_type` is ALWAYS None when this is reached through the
-        # has_permission hook. frappe/permissions.py::has_controller_permissions calls
-        # frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs
-        # drops kwargs that are not in the callee's signature -- our parameter is named
-        # permission_type, not ptype, so the value never arrives. MEASURED:
-        # frappe.get_newargs(has_donor_permission, {...,"ptype":"write",...}) -> ['doc','user'].
-        #
-        # Consequences: _check_service_account_permission below always evaluates the
-        # "read" DocPerm (perm_type = permission_type or "read"), and this check returns
-        # the same verdict for read/write/create/submit. Do NOT add ptype-dependent
-        # logic here expecting it to work, and do NOT "fix" this by renaming the
-        # parameter to ptype -- that would start feeding real ptypes into the service
-        # account branch and silently change webhook answers for non-read operations.
-        # (Sibling checks in this repo differ: chapter.py and project_permissions.py
-        # name the parameter ptype and DO receive it.)
+    def has_permission(doc, user=None, ptype=None):
+        # #1778: the parameter MUST be named `ptype`. frappe.call(method, doc=, ptype=,
+        # user=, debug=) drops any keyword the callee does not declare, so the old name
+        # `permission_type` was always None and every check ran as "read". The ptype now
+        # reaches _check_service_account_permission, so a webhook account is held to the
+        # DocPerm right actually being exercised (write/delete/...), not read.
         if not user:
             user = frappe.session.user
 
@@ -732,7 +722,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             return True
 
         # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-        service_result = _check_service_account_permission(user, doctype, permission_type)
+        service_result = _check_service_account_permission(user, doctype, ptype)
         if service_result is not None:
             return service_result
 
@@ -889,7 +879,7 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
-def has_donation_permission(doc, user=None, permission_type=None):
+def has_donation_permission(doc, user=None, ptype=None):
     """Direct permission check for Donation doctype
 
     Grants access to:
@@ -908,7 +898,7 @@ def has_donation_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Donation", permission_type)
+    service_result = _check_service_account_permission(user, "Donation", ptype)
     if service_result is not None:
         return service_result
 
@@ -1012,7 +1002,7 @@ def get_donation_permission_query(user):
     return "1=0"
 
 
-def has_address_permission(doc, user=None, permission_type=None):
+def has_address_permission(doc, user=None, ptype=None):
     """Permission check for Address doctype - allows members to access their own addresses
     and chapter board members to access addresses of members in their chapters"""
     if not user:
@@ -1371,14 +1361,11 @@ def _employee_board_chapter_condition(user):
 def has_employee_permission(doc, user=None, ptype=None):
     """Document-level check for Employee. Mirrors get_employee_permission_query.
 
-    The third parameter is named `ptype`, not `permission_type`, because that is the
-    keyword frappe actually passes: has_controller_permissions calls
-    frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs drops
-    kwargs absent from the callee's signature. Every sibling in this module names it
-    `permission_type` and therefore always receives None -- which matters for the ones
-    that forward it into _check_service_account_permission, where
-    `perm_type = permission_type or "read"` silently evaluates every operation as a
-    read. This check ignores the value entirely, but it should not join that family.
+    The third parameter is named `ptype` because that is the keyword frappe actually
+    passes: has_controller_permissions calls frappe.call(method, doc=doc, ptype=ptype, ...)
+    and frappe.call's get_newargs drops kwargs absent from the callee's signature. Its
+    siblings used to say `permission_type` and always received None (#1778, fixed).
+    This check ignores the value entirely.
 
     Employee had a permission query and NO has_permission hook. Those two halves
     have disjoint coverage -- frappe/model/db_query.py calls frappe.has_permission
@@ -1811,7 +1798,7 @@ def get_termination_permission_query(user):
     )"""
 
 
-def has_membership_termination_request_permission(doc, user=None, permission_type=None):
+def has_membership_termination_request_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Membership Termination Request doctype
     Chapter Board Members can create, read, and write termination requests for their chapter members
@@ -2152,7 +2139,7 @@ def get_team_member_permission_query(user):
     return f"({team_filter})"
 
 
-def has_expense_claim_permission(doc, user=None, permission_type=None):
+def has_expense_claim_permission(doc, user=None, ptype=None):
     """Permission check for Expense Claim doctype
 
     Grants access to:
