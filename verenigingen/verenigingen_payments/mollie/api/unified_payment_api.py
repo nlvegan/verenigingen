@@ -109,11 +109,13 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         if result.get("status") == "error":
             frappe.logger().error(f"❌ Webhook processing failed: {payment_id} - {result.get('message')}")
             frappe.response.http_status_code = 500  # Trigger Mollie retry
-            return _webhook_ack(messages_before, detail=result)
         else:
             frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
 
-        return _webhook_ack(messages_before)
+        # A non-2xx without status=="error" is the service's 503 (Mollie unreachable):
+        # the caller only sees the ack, so the operator needs the Error Log row.
+        failed = (frappe.local.response.get("http_status_code") or 200) >= 400
+        return _webhook_ack(messages_before, detail=result if failed else None)
 
     except WebhookRateLimitExceeded:
         # Return 429 to signal Mollie to retry later

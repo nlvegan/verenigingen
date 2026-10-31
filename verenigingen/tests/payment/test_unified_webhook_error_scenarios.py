@@ -92,19 +92,44 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         # signal; the cause stays server-side, in developer mode too.
         self.assertEqual(result, {"status": "error"})
 
-    def test_partial_api_failure_refund_check_only(self):
-        """
-        Test scenario where refund check fails but chargeback check succeeds.
-
-        This verifies that the system properly identifies and reports partial failures.
-        """
-        state = self._failed_idempotency_state(refund_failed=True, chargeback_failed=False)
+    def test_a_503_leaves_an_error_log_row_for_the_operator(self):
+        """The ack hides the cause from the caller, so the outage must be visible to us."""
+        state = self._failed_idempotency_state(refund_failed=True)
+        before = frappe.db.count("Error Log", {"method": "Mollie Webhook Processing Error"})
         with self._force_idempotency_state(state):
-            result = handle_payment_webhook(payment_id=self.test_payment_id)
+            handle_payment_webhook(payment_id=self.test_payment_id)
 
-        # Verify partial failure is detected: still a retryable 503, body is an ack only.
-        self.assertEqual(result, {"status": "error"})
-        self.assertEqual(frappe.local.response.http_status_code, 503)
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Mollie Webhook Processing Error"},
+            fields=["error"],
+        )
+        self.assertEqual(len(rows), before + 1)
+        self.assertTrue(any("service_unavailable" in r.error and self.test_payment_id in r.error for r in rows))
+
+    def test_partial_api_failure_is_distinguished_by_the_service(self):
+        """Refund-check-only vs chargeback-check-only are told apart ONE LAYER DOWN.
+
+        The endpoint answers both with the same ack (#1781), so the distinction lives on
+        ``process_payment_webhook``'s return value (``debug`` flags, developer mode only).
+        """
+        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+            get_unified_webhook_service,
+        )
+
+        for refund_failed, chargeback_failed in ((True, False), (False, True)):
+            with self.subTest(refund_failed=refund_failed, chargeback_failed=chargeback_failed):
+                state = self._failed_idempotency_state(
+                    refund_failed=refund_failed, chargeback_failed=chargeback_failed
+                )
+                with self._force_idempotency_state(state), patch.dict(frappe.conf, {"developer_mode": 1}):
+                    result = get_unified_webhook_service().process_payment_webhook(
+                        self.test_payment_id, {}
+                    )
+                self.assertEqual(result["status"], "service_unavailable")
+                self.assertEqual(frappe.local.response.http_status_code, 503)
+                self.assertEqual(result["debug"]["refund_check_failed"], refund_failed)
+                self.assertEqual(result["debug"]["chargeback_check_failed"], chargeback_failed)
 
     # NOTE: SQL optimization test removed - mocking frappe.db.sql violates testing standards
     # The SQL optimization is validated through code review and actual performance testing.

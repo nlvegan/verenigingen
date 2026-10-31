@@ -96,6 +96,7 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         real = self._post(real_id, fetch=payment)
 
         unknown_id = f"tr_{frappe.generate_hash(length=10)}"
+        self.expectErrorLog("Mollie", "Webhook")
         unknown = self._post(unknown_id, fetch_error=MolliePaymentError("404 not found"))
 
         real_body, real_status, real_msgs, real_errors = real
@@ -103,7 +104,10 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         # Same keys, no echo of the id the caller sent, nothing on message_log / Error Log.
         self.assertEqual(set(unknown_body), set(real_body))
         self.assertNotIn(unknown_id, json.dumps(unknown_body, default=str))
-        self.assertEqual((unknown_msgs, unknown_errors), (real_msgs, real_errors))
+        self.assertEqual(unknown_msgs, real_msgs)
+        # Error Log is operator-side, not a caller channel: the failed lookup leaves one row
+        # (an outage must be visible), the booked one none.
+        self.assertEqual((real_errors, unknown_errors), (0, 1))
         # Documented residual (module docstring): a failure keeps its non-2xx status.
         self.assertGreaterEqual(unknown_status, 400, "a failed lookup must stay retryable")
 
