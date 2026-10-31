@@ -1156,6 +1156,52 @@ class TestRequestMoreInfo(ApprovalCase):
         self.assertEqual(self._threads(SUBMISSION, name), [], "no phantom Sent communication")
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
 
+    def test_a_basic_seat_on_the_same_chapter_may_not_ask(self):
+        """Asking is a manage action (Admin seat). A Basic seat clears the security-tier decorator, so the
+        application check is the only guard."""
+        basic = self.create_test_board_member(self.chapter.name, permissions_level="Basic", first_name="Basic")
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.PermissionError, "permission to manage this application"):
+            self._ask_as(name, user=basic.user)
+
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no mail")
+        self.assertEqual(self._notes(name), [], "no record")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_no_outgoing_email_account_is_reported_logged_and_keeps_the_request(self):
+        """The likely real failure: `_make` throws OutgoingEmailError (and adds a Frappe message) after
+        inserting the Communication. The account lookup is the only thing stubbed, to None."""
+        from frappe.core.doctype.communication.communication import Communication
+
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Information request mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]})
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - the site's outgoing Email Account is the input under test
+            with patch.object(Communication, "get_outgoing_email_account", return_value=None):
+                result = request_more_info(name, "Please send a copy of your ID")
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]}), errors + 1
+        )
+        self.assertIn(
+            "missing email account",
+            frappe.get_all(
+                "Error Log",
+                {"method": ["like", "Information request mail failed%"]},
+                "error",
+                order_by="creation desc",
+                limit=1,
+            )[0].error,
+        )
+        self.assertEqual(len(self._notes(name)), 1, "the request is still recorded")
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no phantom Sent communication")
+
     def _ask_as_board_probe(self, name):
         """(type, message, message_log delta, Error Log delta, query count) of request_more_info as the board user."""
         from verenigingen.tests.utils.query_counter import count_queries
@@ -1184,6 +1230,7 @@ class TestRequestMoreInfo(ApprovalCase):
         unknown_result = self._ask_as_board_probe(unknown)
 
         self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertIn("permission to manage this application", foreign_result[1])
         self.assertEqual(foreign_result, unknown_result)
         self.assertEqual(self._threads(SUBMISSION, foreign), [])
         self.assertEqual(self._notes(foreign), [])
