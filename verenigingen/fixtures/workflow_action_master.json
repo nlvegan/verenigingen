@@ -5,5 +5,40 @@
   "modified": "2026-01-18 17:30:09.494264",
   "name": "Execute",
   "workflow_action_name": "Execute"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-10-31 12:00:00.000000",
+  "name": "Submit for Verification",
+  "workflow_action_name": "Submit for Verification"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-10-31 12:00:00.000000",
+  "name": "Verify and Activate",
+  "workflow_action_name": "Verify and Activate"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-10-31 12:00:00.000000",
+  "name": "Return to Draft",
+  "workflow_action_name": "Return to Draft"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-10-31 12:00:00.000000",
+  "name": "Complete Agreement",
+  "workflow_action_name": "Complete Agreement"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-10-31 12:00:00.000000",
+  "name": "Cancel Agreement",
+  "workflow_action_name": "Cancel Agreement"
  }
 ]
