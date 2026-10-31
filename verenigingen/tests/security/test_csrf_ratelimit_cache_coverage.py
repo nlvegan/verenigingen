@@ -275,7 +275,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             self.assertEqual(result.max_calls, fallback)
             self.addCleanup(
                 lambda: frappe.cache().delete(
-                    f"cor_rate_limit:{frappe.local.site}:{result.limit_type}:no_such_operation_zzz:{frappe.session.user}"
+                    f"cor_rate_limit:{frappe.local.site}:{result.limit_type}:module.no_such_operation_zzz:{frappe.session.user}"
                 )
             )
 
@@ -377,7 +377,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = f"cor_rate_limit:{frappe.local.site}:batch:test_cov_batch_e2e_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:batch:mod.test_cov_batch_e2e_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 
@@ -411,7 +411,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = f"cor_rate_limit:{frappe.local.site}:interactive:test_cov_enforce_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:interactive:mod.test_cov_enforce_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 
@@ -445,7 +445,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = f"cor_rate_limit:{frappe.local.site}:interactive:test_cov_headers_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:interactive:mod.test_cov_headers_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 

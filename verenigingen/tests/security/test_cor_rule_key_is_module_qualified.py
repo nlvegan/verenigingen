@@ -35,8 +35,8 @@ class TestCorKeyIsModuleQualified(EnhancedTestCase):
         super().setUp()
         self.original = frappe.db.get_value("Critical Operation Rule", BARE, FIELDS, as_dict=True)
         self.assertIsNotNone(self.original, "rule row missing on this site")
-        self.addCleanup(self._restore)
-        self._clear()
+        self.addCleanup(self._put_back_tuned_rule_and_request)
+        self._drop_twin_counters()
         # TUNED row (operator set 3/h global): proves a bare-name row still applies.
         frappe.db.set_value(
             "Critical Operation Rule",
@@ -51,23 +51,23 @@ class TestCorKeyIsModuleQualified(EnhancedTestCase):
             method="POST", environ={"REMOTE_ADDR": "203.0.113.9"}
         )
 
-    def _restore(self):
+    def _put_back_tuned_rule_and_request(self):
         frappe.flags.in_test, frappe.local.request = self._saved  # Mock justified: Infrastructure
         frappe.db.set_value("Critical Operation Rule", BARE, dict(self.original), update_modified=False)
         for name in ("webhooks.mollie_subscription_webhook", "payment_gateways.mollie_subscription_webhook"):
-            frappe.db.delete("Critical Operation Rule", {"operation_name": f"{self._module(name)}.{BARE}"})
-        self._clear()
+            frappe.db.delete("Critical Operation Rule", {"operation_name": f"{self._module_of_short_name(name)}.{BARE}"})
+        self._drop_twin_counters()
 
     @staticmethod
-    def _module(short):
+    def _module_of_short_name(short):
         return {"webhooks": GUEST_TWIN, "payment_gateways": REGISTERED}[short.split(".")[0]].__module__
 
-    def _clear(self):
+    def _drop_twin_counters(self):
         r, keys = _counters()
         for k in keys:
             r.delete(k)
 
-    def _call(self, fn):
+    def _call_expecting_limiter_verdict(self, fn):
         """Return the rate-limit refusal message, or None if the call got past the limiter."""
         try:
             fn()
@@ -76,18 +76,18 @@ class TestCorKeyIsModuleQualified(EnhancedTestCase):
                 return str(e)
         return None
 
-    def _exhaust(self, fn):
+    def _use_up_own_limit(self, fn):
         for i in range(LIMIT):
-            self.assertIsNone(self._call(fn), f"call {i + 1} refused before the limit")
-        self.assertIsNotNone(self._call(fn), "control: the function's own limit must still apply")
+            self.assertIsNone(self._call_expecting_limiter_verdict(fn), f"call {i + 1} refused before the limit")
+        self.assertIsNotNone(self._call_expecting_limiter_verdict(fn), "control: the function's own limit must still apply")
 
     def test_exhausting_the_guest_twin_does_not_refuse_the_registered_handler(self):
-        self._exhaust(GUEST_TWIN)
-        self.assertIsNone(self._call(REGISTERED), "registered handler refused by the guest twin's calls")
+        self._use_up_own_limit(GUEST_TWIN)
+        self.assertIsNone(self._call_expecting_limiter_verdict(REGISTERED), "registered handler refused by the guest twin's calls")
 
     def test_exhausting_the_registered_handler_does_not_refuse_the_guest_twin(self):
-        self._exhaust(REGISTERED)
-        self.assertIsNone(self._call(GUEST_TWIN))
+        self._use_up_own_limit(REGISTERED)
+        self.assertIsNone(self._call_expecting_limiter_verdict(GUEST_TWIN))
 
     def test_a_row_named_by_the_dotted_path_applies_to_that_function_only(self):
         frappe.get_doc(
@@ -104,15 +104,29 @@ class TestCorKeyIsModuleQualified(EnhancedTestCase):
                 "rate_limit_scope": "global",
             }
         ).insert()
-        self.assertIsNone(self._call(GUEST_TWIN))
-        self.assertIn("/1 requests", self._call(GUEST_TWIN) or "", "dotted row (1 call) not applied")
+        self.assertIsNone(self._call_expecting_limiter_verdict(GUEST_TWIN))
+        self.assertIn("/1 requests", self._call_expecting_limiter_verdict(GUEST_TWIN) or "", "dotted row (1 call) not applied")
         # The registered handler still runs under the tuned bare row (3 calls).
         for i in range(LIMIT):
-            self.assertIsNone(self._call(REGISTERED), f"registered call {i + 1}")
-        self.assertIsNotNone(self._call(REGISTERED))
+            self.assertIsNone(self._call_expecting_limiter_verdict(REGISTERED), f"registered call {i + 1}")
+        self.assertIsNotNone(self._call_expecting_limiter_verdict(REGISTERED))
 
     def test_counters_are_one_per_function(self):
-        self._call(GUEST_TWIN)
-        self._call(REGISTERED)
+        self._call_expecting_limiter_verdict(GUEST_TWIN)
+        self._call_expecting_limiter_verdict(REGISTERED)
         _, keys = _counters()
         self.assertEqual(len(keys), 2, keys)
+
+
+class TestRequireRoleKeepsTheFunctionIdentity(EnhancedTestCase):
+    """`require_role` returned a bare `wrapper`, so every function it decorated got
+    the rate-limit key `...authorization.wrapper` (one shared bucket, and a lookup of
+    a bare row named "wrapper")."""
+
+    def test_require_role_endpoints_get_distinct_keys(self):
+        from verenigingen.api import schedule_maintenance as sm
+
+        funcs = (sm.get_schedule_health_report, sm.cleanup_orphaned_schedules, sm.prevent_orphaned_schedules)
+        keys = {f"{f.__module__}.{f.__name__}" for f in funcs}
+        self.assertEqual(len(keys), 3, keys)
+        self.assertFalse(any(k.endswith(".wrapper") for k in keys), keys)

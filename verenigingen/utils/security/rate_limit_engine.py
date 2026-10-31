@@ -172,18 +172,16 @@ class RateLimitEngine:
 
         # A row named by the full dotted path (module.function) wins; otherwise the
         # bare function name, which is how every shipped and operator-tuned row is
-        # named (#1761). A bare name has no dot, so it is looked up once.
+        # named (#1761). One query for both. A dotted row must name the DEFINING
+        # module (func.__module__), not a re-export path.
         bare_name = operation_name.split(".")[-1]
-        cor_record = None
-        for candidate in dict.fromkeys((operation_name, bare_name)):
-            cor_record = frappe.db.get_value(
-                "Critical Operation Rule",
-                {"operation_name": candidate, "enabled": 1},
-                fields,
-                as_dict=True,
-            )
-            if cor_record:
-                break
+        rows = frappe.get_all(
+            "Critical Operation Rule",
+            filters={"operation_name": ["in", list({operation_name, bare_name})], "enabled": 1},
+            fields=fields + ["operation_name"],
+        )
+        by_name = {r.pop("operation_name"): r for r in rows}
+        cor_record = by_name.get(operation_name) or by_name.get(bare_name)
 
         # If no specific COR found, use generic fallback
         if not cor_record:
