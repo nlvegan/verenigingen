@@ -12,6 +12,7 @@ Every chapter-scope test seats a real board member in chapter A and puts a REAL 
 import json
 
 import frappe
+import frappe.handler
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.api import chapter_dashboard_api
@@ -380,11 +381,35 @@ class TestStaffAndNationalBoardRead(SurfaceCase):
                 get_pending_applications()
         self.assertIsInstance(caught.exception, (frappe.PermissionError, VerenigingenPermissionError))
 
-    def test_the_dashboard_payload_does_not_hide_a_refusal_as_zero(self):
+    def test_a_viewer_who_may_not_read_applications_loses_only_that_section(self):
+        """The refusal is said in the applications section (and the card shows no number); the rest of the
+        dashboard still renders. A 0 or an empty list would read as "nothing pending"; raising would take the
+        whole page down (get_context turns any error into 'Error loading dashboard data')."""
+        from verenigingen.templates.pages.chapter_dashboard import _chapter_dashboard_payload
+
         self._seed()
         with self.as_role("Verenigingen Volunteer", email=self._staff_email()):
-            with self.assertRaises(frappe.PermissionError):
-                get_member_overview(self.chapter_a.name)
+            payload = _chapter_dashboard_payload(self.chapter_a.name)
+
+        self.assertTrue(payload["pending_actions"]["applications_refusal"])
+        self.assertEqual(payload["pending_actions"]["membership_applications"], [])
+        self.assertIsNone(payload["key_metrics"]["members"]["pending"], "no number: not a fabricated 0")
+        self.assertTrue(payload["key_metrics"]["applications_refusal"])
+        self.assertTrue(payload["member_overview"]["applications_refusal"])
+        # the rest of the dashboard is there
+        for section in ("chapter_info", "key_metrics", "member_overview", "pending_actions", "board_info"):
+            self.assertIn(section, payload)
+        self.assertIn("active", payload["key_metrics"]["members"])
+
+    def test_a_reader_gets_no_refusal_message(self):
+        """Control: a real reader's payload carries the real count and no refusal."""
+        from verenigingen.templates.pages.chapter_dashboard import _chapter_dashboard_payload
+
+        self._seed()
+        with self.as_user(self.board_a.user):
+            payload = _chapter_dashboard_payload(self.chapter_a.name)
+        self.assertIsNone(payload["pending_actions"]["applications_refusal"])
+        self.assertEqual(payload["key_metrics"]["members"]["pending"], 2)
 
 
 class TestJoinRequests(SurfaceCase):
@@ -453,6 +478,27 @@ class TestJoinRequests(SurfaceCase):
             result = chapter_dashboard_api.quick_approve_join_request(self.requester.name, self.chapter_a.name)
         self.assertFalse(result.get("success"), result)
         self.assertEqual(self._row().status, "Pending")
+        # The browser shows the reason from `error.message`: `error` is an object, not a string (N1).
+        self.assertIsInstance(result["error"], dict)
+        self.assertIn("permission", result["error"]["message"].lower())
+
+    def test_a_failed_audit_comment_is_logged_as_an_error_log_row(self):
+        """The audit comment is best-effort, but its failure goes to the Error Log (frappe.logger() writes
+        nothing anyone reads). Mock justified: the secure-operation boundary cannot be made to fail for a
+        board user on demand."""
+        from unittest.mock import patch
+
+        title = "Chapter Dashboard approval audit comment failed"
+        before = frappe.db.count("Error Log", {"method": title})
+        failed = frappe._dict(success=False, errors=["no comment permission"])
+        with self.as_user(self.head_board.user):
+            self.expectErrorLog()
+            with patch("verenigingen.utils.secure_operations.secure_document_operation", return_value=failed):
+                result = chapter_dashboard_api.quick_approve_join_request(
+                    self.requester.name, self.chapter_a.name
+                )
+        self.assertTrue(result.get("success"), "the approval is not blocked by its audit comment")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
 
     def test_a_member_of_another_chapter_cannot_approve_it(self):
         other_board = self.create_test_board_member(
@@ -482,6 +528,40 @@ class TestDashboardWiring(EnhancedTestCase):
         self.assertIn("/app/membership-application-review?application=", template)
         self.assertIn("/app/membership-application-review?application=", script)
         self.assertNotIn("/app/membership-application-submission/", template + script)
+
+    def test_the_dialog_reads_the_payload_where_standard_api_puts_it(self):
+        self.assertIn("result?.message?.data", self._read(
+            "verenigingen/page/membership_application_review/membership_application_review.js"
+        ))
+        script = self._read("public/js/chapter_dashboard.js")
+        self.assertIn("function refusalText(", script)
+        self.assertNotIn("r.message.error || r.message.message", script)
+
+    def test_staff_may_open_the_review_page(self):
+        import json
+        import os
+
+        path = os.path.join(
+            frappe.get_app_path("verenigingen"),
+            "verenigingen/page/membership_application_review/membership_application_review.json",
+        )
+        with open(path) as handle:
+            roles = {row["role"] for row in json.load(handle)["roles"]}
+        self.assertIn("Verenigingen Staff", roles)
+
+    def test_every_applicant_or_member_typed_value_in_the_dashboard_template_is_escaped(self):
+        """Jinja autoescape is OFF in Frappe's environment (measured below), so every `{{ x }}` that prints a
+        name or description must say `|e`. Names are guest input (the application form)."""
+        import re
+
+        probe = frappe.render_template("{{ x }}", {"x": "<b>&"})
+        self.assertEqual(probe, "<b>&", "premise: autoescape is off, so escaping must be explicit")
+
+        template = self._read("templates/pages/chapter_dashboard.html")
+        typed = re.findall(r"\{\{\s*([\w.]*(?:full_name|volunteer_name|description)[\w.]*)\s*(\|[^}]*)?\}\}", template)
+        self.assertTrue(typed, "the scan must find the printed names")
+        unescaped = [name for name, filters in typed if "e" not in filters.replace("|", " ").split()]
+        self.assertEqual(unescaped, [])
 
     def test_approve_buttons_are_wired_to_the_application_and_join_endpoints(self):
         template = self._read("templates/pages/chapter_dashboard.html")
@@ -520,6 +600,79 @@ class TestDuplicateWarning(ApprovalCase):
 
         self.assertTrue(data["has_duplicates"], payload)
         self.assertIn(lookalike.name, matched)
+
+    def test_the_response_has_the_shape_the_dialog_reads(self):
+        """Dispatched the way the browser does it (frappe.handler.execute_cmd), because @standard_api
+        serialises the OperationResult under `data` and a direct call hides that: the dialog read
+        `message.has_duplicates` and so never showed the warning."""
+        birth_date = add_days(frappe.utils.today(), -365 * 31)
+        first, last = "Shape", f"Lookalike{frappe.generate_hash(length=6)}"
+        self.create_test_member(
+            first_name=first, last_name=last, birth_date=birth_date,
+            email=f"shape.{frappe.generate_hash(length=6)}@example.org",
+        )  # fmt: skip
+        name = self._stage_and_confirm(first_name=first, last_name=last, birth_date=birth_date)
+        cmd = "verenigingen.services.member.validation.member_duplicate_detection_service.check_duplicate_for_application"
+
+        self._request_from_fresh_ip("POST")
+        with self.as_user(self.admin_user.email):
+            frappe.local.form_dict = frappe._dict(cmd=cmd, application_name=name)  # after set_user resets it
+            message = frappe.handler.execute_cmd(cmd)  # what the browser receives as `r.message`
+
+        self.assertNotIn("has_duplicates", message, "not at the top level, where the old dialog looked")
+        self.assertTrue(message["data"]["has_duplicates"], message)
+        self.assertTrue(message["data"]["summary"]["medium"] + message["data"]["summary"]["high"])
+
+    def test_matches_the_caller_cannot_read_are_counted_never_described(self):
+        """O2: a board member of the application's chapter sees a lookalike in ANOTHER chapter only as
+        'a possible duplicate exists': no name, email or birth date. The control: the same lookalike in the
+        caller's own chapter is described."""
+        other = self.factory.ensure_test_chapter(
+            f"Test Dup Hidden {frappe.generate_hash(length=6)}", {"short_name": "DUH", "country": "Netherlands"}
+        )
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        birth_date = add_days(frappe.utils.today(), -365 * 33)
+        first, last = "Hidden", f"Lookalike{frappe.generate_hash(length=6)}"
+        hidden_email = f"hidden.{frappe.generate_hash(length=6)}@example.org"
+        hidden = self.create_test_member(
+            first_name=first, last_name=last, birth_date=birth_date, email=hidden_email
+        )
+        self.add_member_to_test_chapter(hidden.name, other.name)
+        name = self._stage_and_confirm(first_name=first, last_name=last, birth_date=birth_date)
+
+        with self.as_user(board.user):
+            self.assertFalse(
+                frappe.has_permission("Member", "read", doc=hidden.name),
+                "precondition: the lookalike is in a chapter the caller cannot read",
+            )
+            payload = self._check(name, board.user)
+        payload = payload.to_dict() if hasattr(payload, "to_dict") else payload
+        data = payload.get("data", payload)
+
+        self.assertTrue(data["has_duplicates"])
+        self.assertEqual(data["restricted_count"], 1)
+        self.assertEqual(data["duplicates"], [])
+        leaked = json.dumps(payload, default=str)
+        for secret in (hidden.name, hidden_email, str(birth_date), last):
+            self.assertNotIn(secret, leaked)
+
+    def test_a_readable_match_is_still_described(self):
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        birth_date = add_days(frappe.utils.today(), -365 * 34)
+        first, last = "Visible", f"Lookalike{frappe.generate_hash(length=6)}"
+        visible = self.create_test_member(
+            first_name=first, last_name=last, birth_date=birth_date,
+            email=f"visible.{frappe.generate_hash(length=6)}@example.org",
+        )  # fmt: skip
+        self.add_member_to_test_chapter(visible.name, self.chapter.name)
+        name = self._stage_and_confirm(first_name=first, last_name=last, birth_date=birth_date)
+
+        payload = self._check(name, board.user)
+        payload = payload.to_dict() if hasattr(payload, "to_dict") else payload
+        data = payload.get("data", payload)
+
+        self.assertEqual(data["restricted_count"], 0)
+        self.assertIn(visible.name, {m["member_name"] for m in data["duplicates"]})
 
     def test_the_applicants_own_member_is_not_a_duplicate_of_itself(self):
         existing = self.create_test_member(first_name="Same", last_name="Person", email=self.email)

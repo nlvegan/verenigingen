@@ -827,7 +827,8 @@ class MembershipApplicationReview {
 			console.error('Error checking duplicates:', error);
 			return { fields: [] };
 		}
-		const duplicates = result?.message;
+		// @standard_api serialises the OperationResult, so the payload is under `data`
+		const duplicates = result?.message?.data;
 		if (!duplicates?.has_duplicates) {
 			return { fields: [] };
 		}
@@ -846,6 +847,12 @@ class MembershipApplicationReview {
 		}
 		if (summary.low > 0) {
 			warningHtml += `<p style="color: #666;">${summary.low} low-confidence match(es)</p>`;
+		}
+		if (duplicates.restricted_count > 0) {
+			warningHtml += `<p style="color: #856404;">${__(
+				'{0} possible duplicate(s) belong to members you may not view; their details are not shown.',
+				[duplicates.restricted_count]
+			)}</p>`;
 		}
 		const importantMatches = [...duplicates.high_confidence, ...duplicates.medium_confidence];
 		if (importantMatches.length > 0) {

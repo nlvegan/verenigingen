@@ -396,30 +396,51 @@ def _deduplicate_matches(matches: List[DuplicateMatch]) -> List[DuplicateMatch]:
     return list(member_map.values())
 
 
-def _duplicate_result(duplicates: List[Dict]) -> OperationResult[Dict]:
-    """The approval dialog's payload: matches grouped by confidence."""
+def _duplicate_result(
+    duplicates: List[Dict], restricted: Optional[List[Dict]] = None
+) -> OperationResult[Dict]:
+    """The approval dialog's payload: matches grouped by confidence.
+
+    `restricted` are matches the caller may not read: they carry only their confidence, never a name, email or
+    birth date, and are counted (summary, `restricted_count`) so the dialog can still say a possible duplicate
+    exists and demand the acknowledgement for a high-confidence one.
+    """
+    restricted = restricted or []
     high_confidence = [m for m in duplicates if m["confidence"] >= 0.9]
     medium_confidence = [m for m in duplicates if 0.7 <= m["confidence"] < 0.9]
     low_confidence = [m for m in duplicates if m["confidence"] < 0.7]
+    total = len(duplicates) + len(restricted)
 
     result_data = {
-        "has_duplicates": len(duplicates) > 0,
-        "duplicate_count": len(duplicates),
+        "has_duplicates": total > 0,
+        "duplicate_count": total,
         "duplicates": duplicates,
+        "restricted_count": len(restricted),
         "high_confidence": high_confidence,
         "medium_confidence": medium_confidence,
         "low_confidence": low_confidence,
         "summary": {
-            "high": len(high_confidence),
-            "medium": len(medium_confidence),
-            "low": len(low_confidence),
+            "high": len(high_confidence) + sum(1 for m in restricted if m["confidence"] >= 0.9),
+            "medium": len(medium_confidence) + sum(1 for m in restricted if 0.7 <= m["confidence"] < 0.9),
+            "low": len(low_confidence) + sum(1 for m in restricted if m["confidence"] < 0.7),
         },
     }
 
     return OperationResult.ok(
         result_data,
-        message=f"Found {len(duplicates)} potential duplicate(s)" if duplicates else "No duplicates found",
+        message=f"Found {total} potential duplicate(s)" if total else "No duplicates found",
     )
+
+
+def _split_by_readability(duplicates: List[Dict]):
+    """(matches the caller may read, [{"confidence": c}] for the ones they may not)."""
+    readable, restricted = [], []
+    for match in duplicates:
+        if frappe.has_permission("Member", "read", doc=match["member_name"]):
+            readable.append(match)
+        else:
+            restricted.append({"confidence": match["confidence"]})
+    return readable, restricted
 
 
 @frappe.whitelist()
@@ -430,7 +451,8 @@ def check_duplicate_for_application(application_name: str) -> OperationResult[Di
     Fed by the application's own name, birth date, IBAN and email (the payload in the key shape the
     member helpers read). The Member the application's email already belongs to is the applicant
     themselves (approval updates it), so it is excluded rather than reported as a duplicate of itself.
-    Permission comes first and refuses an unknown and a foreign application alike.
+    Permission comes first and refuses an unknown and a foreign application alike. Matched Members the
+    caller cannot read are counted, never described.
     """
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.services.member.application.application_materialiser import application_data
@@ -451,7 +473,8 @@ def check_duplicate_for_application(application_name: str) -> OperationResult[Di
         birth_date=data.get("birth_date"),
         threshold=0.6,  # include medium-confidence matches, as the member-keyed check does
     )
-    return _duplicate_result(duplicates)
+    # A match in a chapter the caller cannot read is reported only as "a possible duplicate exists" (#1870).
+    return _duplicate_result(*_split_by_readability(duplicates))
 
 
 @frappe.whitelist()

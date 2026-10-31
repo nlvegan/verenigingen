@@ -270,8 +270,9 @@ def quick_approve_join_request(member_name: str, chapter_name: str | None = None
             )
 
             if not comment_result.success:
-                frappe.logger().warning(
-                    f"Failed to create approval audit trail comment: {'; '.join(comment_result.errors)}"
+                frappe.log_error(
+                    title="Chapter Dashboard approval audit comment failed",
+                    message=f"Join request approval of {member_name}: {'; '.join(comment_result.errors)}",
                 )
                 # Don't block the approval if audit trail fails
 

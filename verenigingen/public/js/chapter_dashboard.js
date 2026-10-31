@@ -128,6 +128,17 @@ function addNewMember() {
 	window.location.href = '/app/member/new';
 }
 
+// A refusal from a handle_api_error endpoint is a nested OperationResult: `error` is an object holding the
+// reason in `error.message`, not a string.
+function refusalText(payload, fallback) {
+	if (!payload) {
+		return fallback;
+	}
+	const error = payload.error;
+	const reason = error && typeof error === 'object' ? error.message : error;
+	return reason || payload.message || fallback;
+}
+
 function approveApplication(applicationName) {
 	if (!userPermissions.can_approve_members) {
 		frappe.msgprint(__('You do not have permission to approve members.'));
@@ -156,9 +167,7 @@ function approveApplication(applicationName) {
 				} else {
 					frappe.msgprint({
 						title: __('Error'),
-						message: frappe.utils.escape_html(
-							r.message ? r.message.error || r.message.message : __('Failed to approve member')
-						),
+						message: frappe.utils.escape_html(refusalText(r.message, __('Failed to approve member'))),
 						indicator: 'red'
 					});
 				}
@@ -202,9 +211,7 @@ function approveJoinRequest(memberName) {
 				} else {
 					frappe.msgprint({
 						title: __('Error'),
-						message: frappe.utils.escape_html(
-							r.message ? r.message.error || r.message.message : __('Failed to approve join request')
-						),
+						message: frappe.utils.escape_html(refusalText(r.message, __('Failed to approve join request'))),
 						indicator: 'red'
 					});
 				}
