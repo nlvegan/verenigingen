@@ -43,10 +43,13 @@ class TestBoardSeatCache(PermissionsCoverageBase):
             self.assertNotIn(self.chapter_a.name, self._seat_chapters(fn), fn.__name__)
 
     def test_a_failed_lookup_is_neither_swallowed_nor_memoised(self):
-        """A real DB error (a list as the user renders ``m.user = 'a', 'b'``, a syntax error)
-        must raise, and must leave nothing in the memo that could read as "no seats"."""
+        """A real DB error must raise and leave nothing in the memo that reads as "no seats".
+
+        A tuple user is hashable, so it reaches the SQL (a list would die earlier on the
+        unhashable memo key) and MariaDB rejects ``m.user = ('a', 'b')``.
+        """
         frappe.local.cache = {}  # Mock justified: execution-context reset, what frappe.init does per request
-        bad_user = ["a@example.com", "b@example.com"]
+        bad_user = ("a@example.com", "b@example.com")
         with self.assertRaises(Exception):
             get_user_chapter_memberships_cached(bad_user)
         self.assertEqual(frappe.local.cache.get("verenigingen_board_seat_lookups", {}), {})
