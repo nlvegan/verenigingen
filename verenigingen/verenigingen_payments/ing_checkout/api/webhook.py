@@ -36,7 +36,6 @@ from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security impo
     INGCheckoutWebhookError,
     authenticate_webhook,
     compute_webhook_hash,
-    get_webhook_user,
     is_duplicate_webhook,
     log_webhook,
     verify_ing_checkout_webhook,
@@ -63,9 +62,12 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
         authenticate_webhook()
     except ServiceUserUnavailable:
         # No webhook user (#1876): refuse with a 5xx so Pay.nl redelivers, and return
-        # DIRECTLY, never raise. handle_payment's generic except writes a Webhook
-        # Processing Log row, and any row (error included) makes the identical retry a
-        # 200 "duplicate" that never finalizes. The Error Log row was written already.
+        # DIRECTLY, never raise. handle_payment's generic except calls log_webhook, and any
+        # Webhook Processing Log row (error included) makes the identical retry a 200
+        # "duplicate" that never finalizes. TODAY that row is NOT written for a Guest (the
+        # insert is permission-denied and swallowed, #1814), so this guard is dormant; it
+        # becomes load-bearing the moment Guest rows persist (the WSGI test lets them, so it
+        # is live there). The Error Log row was written already.
         frappe.local.response["http_status_code"] = 500
         return True
 

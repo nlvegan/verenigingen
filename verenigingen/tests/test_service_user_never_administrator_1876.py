@@ -157,31 +157,74 @@ class TestPontoJobsFailClosedWithoutAWebhookUser(EnhancedTestCase):
 
 
 class TestWebhookUserSetupGuarantee(EnhancedTestCase):
-    """A migrated site ends with an enabled webhook user that holds its profile's roles."""
+    """A migrated site ends with an enabled webhook user that holds its profile's roles.
+
+    The repair tests run on a THROWAWAY webhook user, never on the site's own: the
+    captured-insert drain deletes every row inserted during a test, so a Has Role row that
+    setup re-inserts for the shared user would be deleted again at teardown (and committed),
+    leaving it without Accounts User for every later module in the process."""
+
+    THROWAWAY = "wh-guarantee-1876@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.site_user = frappe.db.get_single_value(SETTINGS, "webhook_user")
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            profile_roles = {r.role for r in frappe.get_doc("Role Profile", "Verenigingen Webhook User").roles}
+            held = {r.role for r in frappe.get_doc("User", cls.site_user).roles}
+            missing = profile_roles - held
+        finally:
+            super().tearDownClass()
+        assert not missing, f"this class left the site webhook user without {sorted(missing)}"
 
     def setUp(self):
         super().setUp()
         from verenigingen.setup.webhook_user_setup import setup_webhook_user
 
         self.assertTrue(setup_webhook_user()["success"])
-        self.user = frappe.db.get_single_value(SETTINGS, "webhook_user")
+        self.assertTrue(self.site_user)
         self.profile_roles = {
             r.role for r in frappe.get_doc("Role Profile", "Verenigingen Webhook User").roles
         }
+        self.addCleanup(self._back_to_the_site_user)
+
+    def _back_to_the_site_user(self):
+        # commits internally when the value differs, which is what a restore after setup's own
+        # commits needs (a bare commit here would grow the order-dependence census)
+        from verenigingen.setup.webhook_user_setup import configure_webhook_user_in_settings
+
+        self.assertTrue(configure_webhook_user_in_settings(self.site_user)["success"])
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+
+    def _use_throwaway_user(self):
+        """setup_webhook_user converges whatever the setting names, so point it at an address
+        that does not exist yet; setup then creates it, with the profile's roles."""
+        from verenigingen.setup.webhook_user_setup import setup_webhook_user
+
+        frappe.db.set_single_value(SETTINGS, "webhook_user", self.THROWAWAY)
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        self.assertTrue(setup_webhook_user()["success"])
+        self.track_doc("User", self.THROWAWAY)
+        return self.THROWAWAY
 
     def test_a_profile_role_missing_from_the_user_is_repaired(self):
         """The user keeps the webhook role AND the profile row, but lost another profile role
         (Role Profile fan-out is a background job). Setup used to see nothing to do."""
         from verenigingen.setup.webhook_user_setup import setup_webhook_user
 
+        user = self._use_throwaway_user()
         lost = sorted(self.profile_roles - {"Verenigingen Webhook User"})[0]
-        frappe.db.delete("Has Role", {"parent": self.user, "role": lost, "parenttype": "User"})
-        frappe.clear_cache(user=self.user)
-        self.assertNotIn(lost, frappe.get_roles(self.user), "control: the role is really gone")
+        frappe.db.delete("Has Role", {"parent": user, "role": lost, "parenttype": "User"})
+        frappe.clear_cache(user=user)
+        self.assertNotIn(lost, frappe.get_roles(user), "control: the role is really gone")
 
         self.assertTrue(setup_webhook_user()["success"])
-        frappe.clear_cache(user=self.user)
-        self.assertTrue(self.profile_roles <= set(frappe.get_roles(self.user)))
+        frappe.clear_cache(user=user)
+        self.assertTrue(self.profile_roles <= set(frappe.get_roles(user)))
 
     def test_a_failed_setup_leaves_an_error_log_row(self):
         from unittest.mock import patch
@@ -196,6 +239,29 @@ class TestWebhookUserSetupGuarantee(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertEqual(frappe.db.count("Error Log"), rows + 1)
 
+    def test_autosetup_disabled_with_no_usable_user_still_leaves_one_error_log_row(self):
+        """Opting out of autosetup is not opting out of the consequence (webhooks refuse)."""
+        from verenigingen.setup import webhook_user_setup as w
+
+        self.expectErrorLog("Webhook user missing and autosetup disabled")
+        # uncommitted: the per-test rollback restores both Single values
+        frappe.db.set_single_value(SETTINGS, "disable_webhook_user_autosetup", 1)
+        frappe.db.set_single_value(SETTINGS, "webhook_user", None)
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        rows = frappe.db.count("Error Log")
+        result = w.ensure_webhook_user()
+        self.assertTrue(result.get("skipped"), "control: the opt-out path was taken")
+        self.assertEqual(frappe.db.count("Error Log"), rows + 1)
+
+    def test_autosetup_disabled_with_a_usable_user_is_silent(self):
+        from verenigingen.setup import webhook_user_setup as w
+
+        frappe.db.set_single_value(SETTINGS, "disable_webhook_user_autosetup", 1)
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        rows = frappe.db.count("Error Log")
+        self.assertTrue(w.ensure_webhook_user().get("skipped"))
+        self.assertEqual(frappe.db.count("Error Log"), rows)
+
     def test_a_successful_setup_leaves_no_row(self):
         from verenigingen.setup import webhook_user_setup as w
 
@@ -208,7 +274,7 @@ class TestWebhookUserSetupGuarantee(EnhancedTestCase):
         (unit tests above) AND converged by setup, which would otherwise keep honouring it."""
         from verenigingen.setup.webhook_user_setup import generate_webhook_user_email, setup_webhook_user
 
-        canonical = self.user
+        canonical = self.site_user
         frappe.db.set_single_value(SETTINGS, "webhook_user", "Administrator")
         frappe.clear_document_cache(SETTINGS, SETTINGS)
         self.assertNotEqual(generate_webhook_user_email(), "Administrator")

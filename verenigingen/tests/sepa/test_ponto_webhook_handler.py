@@ -791,11 +791,11 @@ class TestPontoWebhookUser(FrappeTestCase):
             _get_webhook_user,
         )
 
-        # This relies on service_user helper which has fallback logic
+        # No fallback (#1876): this returns the configured, enabled webhook user, or raises
+        # ServiceUserUnavailable. The site's webhook user is set up by migrate/install.
         user = _get_webhook_user()
 
-        # Should return a valid user (Administrator fallback if not configured)
-        self.assertIsNotNone(user)
+        self.assertEqual(user, frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user"))
 
 
 class TestPontoAccountSyncStatus(FrappeTestCase):

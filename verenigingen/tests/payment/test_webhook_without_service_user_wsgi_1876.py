@@ -55,7 +55,10 @@ SCRIPT = textwrap.dedent(
 
     def counts():
         fresh()
-        return {{t: frappe.db.count(t) for t in ("Error Log", "Webhook Processing Log")}}
+        c = {{t: frappe.db.count(t) for t in ("Error Log",)}}
+        # scoped to the ING delivery: Ponto's generic error path writes its own rows
+        c["ing_rows"] = frappe.db.count("Webhook Processing Log", {{"webhook_id": "EX-1876"}})
+        return c
 
     def link_status(name):
         fresh()
@@ -126,8 +129,23 @@ SCRIPT = textwrap.dedent(
         link_body = json.dumps({{"data": {{"type": "pontoConnect.paymentInitiationRequest.statusUpdated",
             "id": "wsgi-1876", "attributes": {{"status": "executed"}}}}}})
 
+        # TEST-ONLY: today a Guest cannot insert a Webhook Processing Log (permission denied,
+        # swallowed -- #1814), so a refusal routed through ING's generic `except` would write no
+        # dedup row either way and the "no dedup row" control could never fail. Let the Guest
+        # insert succeed so the row WOULD exist if the refusal went through that path.
+        from frappe.model.document import Document
+        _insert = Document.insert
+
+        def insert_logs_ignoring_permissions(self, *a, **k):
+            if self.doctype == "Webhook Processing Log":
+                k["ignore_permissions"] = True
+            return _insert(self, *a, **k)
+
+        unhandled_body = json.dumps({{"data": {{"type": "pontoConnect.organization.blocked", "id": "ev-org-1876"}}}})
+
         def post(path, **kw):
-            with mock.patch.object(mw.UnifiedWebhookWrapperService, "process_payment_webhook", mollie_stub), \\
+            with mock.patch.object(Document, "insert", insert_logs_ignoring_permissions), \
+                 mock.patch.object(mw.UnifiedWebhookWrapperService, "process_payment_webhook", mollie_stub), \\
                  mock.patch.object(ingwh, "verify_ing_checkout_webhook", return_value=True), \\
                  mock.patch.object(ingwh, "get_webhook_rate_limiter", return_value=limiter), \\
                  mock.patch("verenigingen.verenigingen_payments.services.payment_plan_finalization."
@@ -160,6 +178,8 @@ SCRIPT = textwrap.dedent(
             r["ponto_sync"] = {{"code": resp.status_code, "leaks": leaks(resp)}}
             resp = post(PONTO, data=link_body, content_type="application/json")
             r["ponto_link"] = {{"code": resp.status_code, "leaks": leaks(resp)}}
+            resp = post(PONTO, data=unhandled_body, content_type="application/json")
+            r["ponto_unhandled"] = {{"code": resp.status_code}}
             after = counts()
             r["calls"] = {{k: list(v) for k, v in calls.items()}}
             r["link_status"] = link_status(link)
@@ -197,7 +217,7 @@ SCRIPT = textwrap.dedent(
                 frappe.delete_doc(doctype, name, force=1, ignore_permissions=True)
             else:
                 frappe.db.delete(doctype, {{"name": name}})
-        frappe.db.delete("Webhook Processing Log", {{"webhook_id": ["in", ["EX-1876", "ev-sync-1876", "wsgi-1876"]]}})
+        frappe.db.delete("Webhook Processing Log", {{"webhook_id": ["in", ["EX-1876", "ev-sync-1876", "wsgi-1876", "ev-org-1876"]]}})
         frappe.db.commit()
     print("RESULT" + json.dumps(out))
     """
@@ -239,10 +259,17 @@ class TestGatewayWebhooksWithoutServiceUser(EnhancedTestCase):
     def test_ing_refusal_writes_no_dedup_row_so_the_retry_is_processed(self):
         for state in self.STATES:
             with self.subTest(state=state):
-                self.assertEqual(self.out[f"refused_{state}"]["delta"]["Webhook Processing Log"], 0)
+                self.assertEqual(self.out[f"refused_{state}"]["delta"]["ing_rows"], 0)
         ok = self.out["configured"]
         self.assertEqual(ok["ing"]["code"], 200)
         self.assertEqual(ok["calls"]["ing"], [self.out["configured_user"]])
+
+    def test_an_event_with_no_handler_is_still_acked_without_a_user(self):
+        """A no-op event must not become a retry loop just because the user is missing."""
+        for state in self.STATES:
+            with self.subTest(state=state):
+                self.assertEqual(self.out[f"refused_{state}"]["ponto_unhandled"]["code"], 200)
+        self.assertEqual(self.out["configured"]["ponto_unhandled"]["code"], 200)
 
     def test_an_error_log_row_is_left_for_every_refused_delivery(self):
         for state in self.STATES:

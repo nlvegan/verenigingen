@@ -97,7 +97,21 @@ def ensure_webhook_user():
     after it. A deliberate skip (disable_webhook_user_autosetup) is a success.
     """
     result = setup_webhook_user()
-    if not result.get("success"):
+    if result.get("skipped"):
+        # An operator opted out of autosetup, which is not an opt-out of the consequence: with
+        # no enabled webhook user the gateway webhooks refuse. Say so once per migrate.
+        from verenigingen.utils.service_user import get_service_user
+
+        if not get_service_user("Verenigingen Payments Settings", "webhook_user", "Webhook user setup"):
+            frappe.log_error(
+                title="Webhook user missing and autosetup disabled",
+                message=(
+                    "disable_webhook_user_autosetup is set and Verenigingen Payments Settings."
+                    "webhook_user is unset, disabled, deleted or names Administrator, so Mollie, "
+                    "ING Checkout and Ponto webhooks will refuse (5xx) until an enabled user is set."
+                ),
+            )
+    elif not result.get("success"):
         frappe.log_error(
             title="Webhook user setup failed",
             message=(
