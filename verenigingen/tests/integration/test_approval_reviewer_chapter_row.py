@@ -11,6 +11,7 @@ as Administrator. No field is set directly.
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 
@@ -20,6 +21,8 @@ from verenigingen.tests.backend.unit.api.test_membership_application_coverage im
     _ensure_test_membership_type,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+ASSIGNMENT_FAILURE_TITLE = "Approval Chapter Assignment Failed"
 
 
 class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
@@ -132,4 +135,23 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         self.assertIn(member, failures[0].error)
 
 
-ASSIGNMENT_FAILURE_TITLE = "Approval Chapter Assignment Failed"
+    def test_an_assignment_that_raises_is_logged_and_the_approval_wrapper_survives(self):
+        """The wrapper's except branch: the manager is the collaborator, so stubbing it to raise
+        is a boundary fault, not mocked business logic (Mock justified: fault injection)."""
+        from verenigingen.api.membership_application_review import assign_member_to_chapter
+
+        member = frappe._dict(name=f"MEM-{frappe.generate_hash(length=6)}")
+        self.expectErrorLog(ASSIGNMENT_FAILURE_TITLE)
+        start = frappe.utils.now()
+        target = (
+            "verenigingen.services.chapter.chapter_membership_manager."
+            "ChapterMembershipManager.assign_member_to_chapter"
+        )
+        with self.assertErrorLog(ASSIGNMENT_FAILURE_TITLE):
+            with patch(target, side_effect=RuntimeError("boom-1797")):  # Mock justified: fault injection
+                assign_member_to_chapter(member, "Some Chapter")
+
+        failures = self._assignment_failures_since(start)
+        self.assertEqual(len(failures), 1, msg=str(failures))
+        self.assertIn(member.name, failures[0].error)
+        self.assertIn("boom-1797", failures[0].error)
