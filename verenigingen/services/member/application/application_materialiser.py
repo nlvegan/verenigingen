@@ -19,6 +19,7 @@ from verenigingen.services.member.approval.application_helpers import (
     _apply_custom_contribution_fee,
     _reset_application_dues_choice,
     _sanitize_application_names,
+    address_values_from_application,
     create_address_from_application,
     create_member_from_application,
     create_pending_chapter_membership,
@@ -170,14 +171,19 @@ def _update_member(application, data, member_name, address, application_id):
     return member
 
 
-def _apply_application(member, application, data):
+def _apply_application(member, application, data, preview=False):
     """Set, in memory, every Member field an application writes onto an existing Member: the plain fields,
     the replace-on-reapply answers and the dues choice. The one source for both the write
     (_update_member) and the reviewers' preview (application_changes), so they cannot drift."""
     for field, value in _writable_values(application, member).items():
         member.set(field, value)
-    _set_dues_choice(member, data)
+    _set_dues_choice(member, data, quiet=preview)
     _set_answers(member, application)
+
+
+# The fee override's approver and date are stamped by whoever approves (the session user, today), so a
+# preview would only show the previewer: they are not rows. Approval still writes them.
+_STAMPED_AT_APPROVAL = frozenset({"fee_override_by", "fee_override_date"})
 
 
 def application_changes(application) -> list[dict]:
@@ -192,15 +198,16 @@ def application_changes(application) -> list[dict]:
         return []
     member = frappe.get_doc("Member", member_name)
     before = _member_values(member)
-    _apply_application(member, application, application_data(application))
+    data = application_data(application)
+    _apply_application(member, application, data, preview=True)
     after = _member_values(member)
     meta = frappe.get_meta("Member")
     rows = [
         {"field": field, "label": meta.get_label(field), "current": before[field], "proposed": value}
         for field, value in after.items()
-        if _differs(field, before[field], value)
+        if field not in _STAMPED_AT_APPROVAL and _differs(field, before[field], value)
     ]
-    address = _address_change(member, application_data(application))
+    address = _address_change(member, data)
     return rows + ([address] if address else [])
 
 
@@ -231,35 +238,55 @@ def _comparable(field, value):
 
 
 def _address_change(member, data):
-    """One "address" row when the application supplies an address that is not the Member's primary one."""
+    """One "address" row when the application supplies an address that is not the Member's primary one.
+
+    Compared field by field over exactly the fields approval writes into the new Address
+    (address_values_from_application), so a change to line 2 or state is a row too. Case, spacing and
+    postcode spaces are formatting, not changes."""
     if not (data.get("address_line1") and data.get("city")):
         return None
-    proposed = _format_address(
-        data.get("address_line1"), data.get("postal_code"), data.get("city"), data.get("country")
-    )
-    current = ""
+    proposed = address_values_from_application(data)
+    stored = {}
     if member.primary_address:
-        stored = frappe.db.get_value(
-            "Address", member.primary_address, ["address_line1", "pincode", "city", "country"], as_dict=True
-        )
-        current = (
-            _format_address(stored.address_line1, stored.pincode, stored.city, stored.country)
-            if stored
-            else ""
-        )
-    if " ".join(current.lower().split()) == " ".join(proposed.lower().split()):
+        stored = frappe.db.get_value("Address", member.primary_address, list(proposed), as_dict=True) or {}
+    current = {field: stored.get(field) for field in proposed}
+    if all(_same_address_part(field, current[field], proposed[field]) for field in proposed):
         return None
-    return {"field": "address", "label": _("Address"), "current": current, "proposed": proposed}
+    return {
+        "field": "address",
+        "label": _("Address"),
+        "current": _format_address(current) if stored else "",
+        "proposed": _format_address(proposed),
+    }
 
 
-def _format_address(line1, postcode, city, country) -> str:
-    return ", ".join(part for part in (line1, " ".join(filter(None, (postcode, city))), country) if part)
+def _same_address_part(field, current, proposed) -> bool:
+    return _address_part(field, current) == _address_part(field, proposed)
 
 
-def _set_dues_choice(member, data):
-    """What a reapplication does to the dues choice (#1730): reset an application's own, then apply."""
+def _address_part(field, value):
+    text = " ".join(str(value or "").split()).lower()
+    return text.replace(" ", "") if field == "pincode" else text
+
+
+def _format_address(values) -> str:
+    """Display text for Address field values, in the order they are read on an envelope."""
+    town = " ".join(filter(None, (values.get("pincode"), values.get("city"))))
+    parts = (
+        values.get("address_line1"),
+        values.get("address_line2"),
+        town,
+        values.get("state"),
+        values.get("country"),
+    )
+    return ", ".join(part for part in parts if part)
+
+
+def _set_dues_choice(member, data, quiet=False):
+    """What a reapplication does to the dues choice (#1730): reset an application's own, then apply.
+    `quiet` is the preview: it writes no Error Log row."""
     _reset_application_dues_choice(member, data)
-    _apply_custom_contribution_fee(member, data, context_label="reapplication")
+    _apply_custom_contribution_fee(member, data, context_label="reapplication", quiet=quiet)
 
 
 def _save_answers(member, application):

@@ -442,6 +442,27 @@ def determine_chapter_from_application(data):
     return suggested_chapter
 
 
+# Address field -> application key: the one list of what approval writes into an Address from an
+# application. The reviewers' preview compares exactly these (application_materialiser._address_change).
+ADDRESS_FIELD_KEYS = {
+    "address_line1": "address_line1",
+    "address_line2": "address_line2",
+    "city": "city",
+    "state": "state",
+    "country": "country",
+    "pincode": "postal_code",
+}
+
+
+def address_values_from_application(data):
+    """{Address fieldname: value} an application writes (line2 and state default to "")."""
+    blank_default = {"address_line2", "state"}
+    return {
+        field: data.get(key, "" if field in blank_default else None)
+        for field, key in ADDRESS_FIELD_KEYS.items()
+    }
+
+
 def create_address_from_application(data):
     """Create address record from application data"""
     if not (data.get("address_line1") and data.get("city")):
@@ -476,12 +497,7 @@ def create_address_from_application(data):
                 "doctype": "Address",
                 "address_title": f"{first_name} {last_name}",
                 "address_type": "Personal",
-                "address_line1": data.get("address_line1"),
-                "address_line2": data.get("address_line2", ""),
-                "city": data.get("city"),
-                "state": data.get("state", ""),
-                "country": data.get("country"),
-                "pincode": data.get("postal_code"),
+                **address_values_from_application(data),
                 "email_id": data.get("email"),
                 "phone": data.get("phone", ""),
                 "is_primary_address": 1,
@@ -517,7 +533,11 @@ def _sanitize_application_names(data):
     return names["first_name"], names["middle_name"], names["tussenvoegsel"], names["last_name"]
 
 
-def _apply_custom_contribution_fee(member, data, context_label="application"):
+def _no_log(*args, **kwargs):
+    """Stands in for frappe.log_error where a preview must not write an Error Log row."""
+
+
+def _apply_custom_contribution_fee(member, data, context_label="application", quiet=False):
     """
     Apply custom contribution fee override fields to a member.
 
@@ -525,7 +545,9 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
         member: Member document (modified in place)
         data: Application data dict with custom_contribution_fee, uses_custom_amount, custom_amount_reason
         context_label: Used in fee_override_reason (e.g. "application" or "reapplication")
+        quiet: True for a read-only preview: nothing is written to the Error Log
     """
+    log_error = _no_log if quiet else frappe.log_error
     if not (data.get("custom_contribution_fee") or data.get("uses_custom_amount")):
         return
 
@@ -535,7 +557,7 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
             try:
                 custom_contribution_fee = float(data.get("custom_contribution_fee"))
             except (ValueError, TypeError) as e:
-                frappe.log_error(
+                log_error(
                     f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}",
                     "Custom Amount Conversion Error",
                 )
@@ -565,13 +587,13 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
             if override_user:
                 member.fee_override_by = override_user
             else:
-                frappe.log_error(
+                log_error(
                     "No valid user found for fee_override_by field - custom amount preserved without approver",
                     "Fee Override User Warning",
                 )
 
     except Exception as e:
-        frappe.log_error(
+        log_error(
             f"Error storing custom amount data: {str(e)}",
             "Custom Amount Storage Error",
         )

@@ -787,9 +787,17 @@ class TestApplicationChanges(ApprovalCase):
         changed to exactly the previewed value, and every other change must be one the approval itself
         makes (lifecycle and the approval core's own writes), named below."""
         member = self._quit_member_matching_form(last_name="Before")
-        name = self._stage_and_confirm(iban=OTHER_IBAN, last_name="Renamed", bank_account_name="New Holder", payment_method="SEPA Direct Debit")
+        name = self._stage_and_confirm(
+            iban=OTHER_IBAN,
+            last_name="Renamed",
+            bank_account_name="New Holder",
+            payment_method="SEPA Direct Debit",
+            city="Utrecht",
+            address_line2="2 hoog",
+        )
         preview = self._rows(name)
         self.assertTrue(preview, "control: the preview has rows to match")
+        self.assertIn("address", preview, "control: this application changes the address")
         before = frappe.get_doc("Member", member.name).as_dict(no_default_fields=False)
 
         self._approve_as(name)
@@ -801,8 +809,16 @@ class TestApplicationChanges(ApprovalCase):
             if not isinstance(before.get(field), list) and _norm(before.get(field)) != _norm(after.get(field))
         }
         for field, row in preview.items():
+            if field == "address":  # not a Member field: asserted against the new Address below
+                continue
             self.assertIn(field, changed, f"{field} previewed but approval did not change it")
             self.assertEqual(_norm(after[field]), _norm(row["proposed"]), field)
+        self.assertNotEqual(after.primary_address, before.primary_address, "approval re-points the address")
+        written = frappe.db.get_value("Address", after.primary_address, ["address_line1", "address_line2", "city", "pincode"], as_dict=True)
+        self.assertEqual((written.city, written.address_line2), ("Utrecht", "2 hoog"))
+        for part in (written.address_line1, written.address_line2, written.pincode, written.city):
+            self.assertIn(part, preview["address"]["proposed"], "the previewed address is the one written")
+        self.assertIn("Amsterdam", preview["address"]["current"])
         unexplained = changed - set(preview) - _APPROVAL_OWN_WRITES
         self.assertEqual(unexplained, set(), "approval changed fields the preview did not show")
 
@@ -846,6 +862,79 @@ class TestApplicationChanges(ApprovalCase):
         self.assertIn("123 Test Street", rows["address"]["current"])
         self.assertIn("9 Other Road", rows["address"]["proposed"])
         self.assertIn("Utrecht", rows["address"]["proposed"])
+
+    def _address_rows(self, **form):
+        member = self._quit_member_matching_form()
+        last_name = frappe.db.get_value("Member", member.name, "last_name")  # the factory decorates the name
+        return self._rows(self._stage_and_confirm(last_name=last_name, **form))
+
+    def test_address_line2_alone_is_a_change(self):
+        rows = self._address_rows(address_line2="2 hoog")
+
+        self.assertEqual(set(rows), {"address"}, rows)
+        self.assertIn("2 hoog", rows["address"]["proposed"])
+        self.assertNotIn("2 hoog", rows["address"]["current"])
+
+    def test_state_alone_is_a_change(self):
+        rows = self._address_rows(state="Utrecht")
+
+        self.assertEqual(set(rows), {"address"}, rows)
+        self.assertIn("Utrecht", rows["address"]["proposed"])
+
+    def test_postcode_spacing_and_case_are_not_a_change(self):
+        rows = self._address_rows(postal_code="1234 ab")
+
+        self.assertEqual(rows, {}, "1234AB and '1234 ab' are the same postcode")
+
+    def _stage_with_fee(self, fee):
+        """Fixture shortcut, stated: the payload is edited after staging to carry a custom fee (the form
+        validates the amount, and a malformed one cannot be submitted through it)."""
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm()
+        payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        payload.update({"custom_contribution_fee": fee, "uses_custom_amount": 1})
+        frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
+        return name
+
+    def test_preview_does_not_name_the_previewer_as_fee_approver(self):
+        name = self._stage_with_fee("12.5")
+
+        rows = self._rows(name)
+
+        self.assertEqual(rows["dues_rate"]["proposed"], 12.5, "control: the custom fee is previewed")
+        self.assertIn("fee_override_reason", rows)
+        self.assertNotIn("fee_override_by", rows)
+        self.assertNotIn("fee_override_date", rows)
+        self.assertNotIn(self.admin_user.email, json.dumps(rows, default=str))
+
+    def test_approval_still_stamps_the_approver_on_a_custom_fee(self):
+        name = self._stage_with_fee("12.5")
+        member = frappe.db.get_value("Member", {"email": self.email})
+
+        self._approve_as(name)
+
+        stamped = frappe.db.get_value("Member", member, ["fee_override_by", "fee_override_date", "application_custom_fee"], as_dict=True)
+        self.assertEqual(stamped.application_custom_fee, 12.5, "control: the fee was applied")
+        self.assertEqual(stamped.fee_override_by, self.admin_user.email)
+        self.assertEqual(str(stamped.fee_override_date), today())
+
+    def test_preview_of_a_malformed_fee_writes_no_error_log(self):
+        from verenigingen.services.member.approval.application_helpers import _apply_custom_contribution_fee
+
+        name = self._stage_with_fee("not-a-number")
+        # Control: the helper does log this input when it is not a preview, so a zero delta below is the
+        # preview's doing, not an input that never reaches the log.
+        # (the helper passes message and title swapped, so the text is in `method`)
+        logged = {"method": ["like", "Error converting custom_contribution_fee%"]}
+        self.expectErrorLog("Error converting custom_contribution_fee")
+        errors = frappe.db.count("Error Log", logged)
+        _apply_custom_contribution_fee(frappe._dict(), {"custom_contribution_fee": "not-a-number"})
+        self.assertEqual(frappe.db.count("Error Log", logged), errors + 1)
+        before = frappe.db.count("Error Log")
+
+        self._rows(name)
+
+        self.assertEqual(frappe.db.count("Error Log"), before)
 
     def test_iban_is_masked_for_a_board_member_and_full_for_an_administrator(self):
         self._quit_member_matching_form()
@@ -959,4 +1048,7 @@ _APPROVAL_OWN_WRITES = {
     "next_invoice_date",
     "reviewed_by",
     "review_date",
+    # stamped with the approver and the day (the preview omits them: it would only name the previewer)
+    "fee_override_by",
+    "fee_override_date",
 }
