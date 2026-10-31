@@ -155,3 +155,107 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._prepare(end_date=today())
         doc = frappe.get_doc(DOCTYPE, self.agreement.name)
         self.assertIn("Complete Agreement", [t.action for t in get_transitions(doc)])
+
+    # --- #1811: the form's "Activate Agreement" button must not bypass the workflow. It did
+    # `frm.set_value('status', 'Active'); frm.save()`, a plain save skipping the "Verify and
+    # Activate" transition and its condition; the server must refuse it while a workflow is active.
+
+    def _as_web_request(self):
+        """The guard applies to saves made inside a web request. The suite runs without one,
+        so give frappe.local a request for the duration of the test (restored on cleanup)."""
+        previous = getattr(frappe.local, "request", None)
+        frappe.local.request = frappe._dict(  # Mock justified: Infrastructure - simulate a web request
+            path="/api/method/frappe.desk.form.save.savedocs"
+        )
+        self.addCleanup(lambda: setattr(frappe.local, "request", previous))
+
+    def _button_save(self):
+        """What the button does server-side: set status Active on the loaded doc, save."""
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        doc.status = "Active"
+        doc.save()
+
+    def _assert_unchanged(self, workflow_state):
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        self.assertEqual((doc.workflow_state, doc.status), (workflow_state, "Draft"))
+
+    def test_button_refused_in_pending_verification_without_signature(self):
+        self._as_web_request()
+        self._step("Submit for Verification")
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        # Control: the real transition's own condition is NOT met, so it is not offered.
+        from frappe.model.workflow import get_transitions
+
+        self.assertNotIn("Verify and Activate", [t.action for t in get_transitions(doc)])
+        with self.assertRaises(frappe.ValidationError):
+            self._button_save()
+        self._assert_unchanged("Pending Verification")
+
+    def test_button_refused_from_draft(self):
+        self._as_web_request()
+        with self.assertRaises(frappe.ValidationError):
+            self._button_save()
+        self._assert_unchanged("Draft")
+
+    def test_insert_as_active_refused(self):
+        self._as_web_request()
+        agreement = frappe.new_doc(DOCTYPE)
+        agreement.update(
+            {
+                "donor": self.agreement.donor,
+                "start_date": today(),
+                "annual_amount": 1200,
+                "payment_frequency": "Monthly",
+                "payment_method": "Bank Transfer",
+                "agreement_duration_years": "1 Year (Pledge - No ANBI benefits)",
+                "anbi_eligible": 0,
+                "status": "Active",
+            }
+        )
+        with self.assertRaises(frappe.ValidationError):
+            agreement.insert()
+
+    def test_real_transition_still_activates(self):
+        self._as_web_request()
+        doc = self._active()
+        self._assert_at(doc, "Active", "Active")
+
+    def test_editing_an_active_agreement_is_not_blocked(self):
+        """Control against over-blocking: status is already Active and does not change."""
+        self._as_web_request()
+        self._active()
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        doc.annual_amount = 1300
+        doc.save()
+        self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "status"), "Active")
+
+    def test_editing_a_legacy_active_agreement_is_not_blocked(self):
+        """Control: an agreement that is Active but whose workflow_state is still Draft (a
+        row from before the workflow existed) must stay editable. PROBE SHORTCUT: the state is
+        set with db.set_value, standing in for legacy data, because no real flow produces it
+        any more. Without the was-Active check the guard would lock every such row."""
+        self._as_web_request()
+        frappe.db.set_value(DOCTYPE, self.agreement.name, "status", "Active", update_modified=False)
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        self.assertEqual((doc.status, doc.workflow_state), ("Active", "Draft"))
+        doc.annual_amount = 1300
+        doc.save()
+        self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "annual_amount"), 1300)
+
+    def test_without_an_active_workflow_a_plain_save_may_activate(self):
+        """The guard is conditional on the workflow: with none active, status is the only
+        state machine and a direct save is the legitimate way to move it."""
+        self._as_web_request()
+        frappe.db.set_value("Workflow", WORKFLOW, "is_active", 0)
+        frappe.clear_document_cache("Workflow", WORKFLOW)
+        frappe.cache.hdel("workflow", DOCTYPE)
+        frappe.clear_cache(doctype=DOCTYPE)
+        self._button_save()
+        self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "status"), "Active")
+
+    def test_internal_python_save_is_outside_the_guard(self):
+        """Scope control: with no web request (scripts, jobs, the existing suite) the guard does
+        not apply. Pins the documented scope so widening or narrowing it is a visible choice."""
+        self.assertIsNone(getattr(frappe.local, "request", None))
+        self._button_save()
+        self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "status"), "Active")
