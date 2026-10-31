@@ -85,9 +85,9 @@ class ChapterAssignmentService(StatelessService):
 
         Returns:
             Dict with:
-                - success: bool
+                - success: bool (False when the member was not assigned)
                 - added_to_members: bool
-                - message: str (optional)
+                - message: str (reason, when nothing was added)
 
         Raises:
             frappe.ValidationError: If member or chapter missing/invalid
@@ -95,18 +95,59 @@ class ChapterAssignmentService(StatelessService):
         if not member or not chapter:
             frappe.throw(_("Member and Chapter are required"))
 
-        # Get chapter and add member
         chapter_doc = frappe.get_doc("Chapter", chapter)
-        added = chapter_doc.add_member(member, join_date=join_date)
+        result = chapter_doc.member_manager.add_member(member, join_date=join_date)
 
-        # Update member tracking fields
+        if result.get("action") == "already_exists":
+            # Nothing changed, so there is nothing to record: rewriting the tracking
+            # fields or adding "Changed chapter to ..." would assert a change that
+            # did not happen (#1584).
+            return {
+                "success": True,
+                "added_to_members": False,
+                "message": _("Member is already assigned to {0}").format(chapter),
+            }
+
+        if not self._is_enabled_in_chapter(member, chapter) or not result.get("success"):
+            # add_member refused, or (first-time add of a non-Active member) wrote a
+            # disabled row: either way the member is not assigned, and the tracking
+            # fields and audit comment must not say they are (#1584).
+            return {
+                "success": False,
+                "added_to_members": False,
+                "message": self._not_assigned_reason(member, chapter, result),
+            }
+
         self._update_member_tracking_fields(member=member, chapter=chapter, note=note)
 
         # Create audit comment if note provided
         if note:
             self._create_assignment_comment(member=member, chapter=chapter, note=note)
 
-        return {"success": True, "added_to_members": added}
+        return {"success": True, "added_to_members": True}
+
+    @staticmethod
+    def _is_enabled_in_chapter(member: str, chapter: str) -> bool:
+        """Whether the member now holds an enabled row in the chapter."""
+        return bool(frappe.db.exists("Chapter Member", {"parent": chapter, "member": member, "enabled": 1}))
+
+    @staticmethod
+    def _not_assigned_reason(member: str, chapter: str, result: Dict[str, Any]) -> str:
+        """Why the member was not assigned.
+
+        The reason names the Member's current status, which a caller who cannot read
+        that Member must not learn (#1590); they get a generic reason instead.
+        add_member's own message is used only when add_member itself refused: when
+        it reported success but left a disabled row (a non-Active member's first add,
+        until #1582), its message is the success text and would read as the reason.
+        """
+        if not frappe.has_permission("Member", "read", doc=member):
+            return _("The member could not be assigned to {0}").format(chapter)
+        if not result.get("success"):
+            return result.get("message") or result.get("error") or _("Member could not be assigned")
+        return _(
+            "Member {0} was not assigned: their current status ({1}) keeps them disabled in this chapter"
+        ).format(member, frappe.db.get_value("Member", member, "status"))
 
     def assign_with_cleanup(
         self, member: str, chapter: str, note: Optional[str] = None, join_date: Optional[str] = None
@@ -186,11 +227,12 @@ class ChapterAssignmentService(StatelessService):
                 result = self.assign_member(member, chapter, note, join_date=join_date)
                 result["cleanup_performed"] = cleanup_performed
 
-                if cleanup_performed:
+                # A refusal keeps its own reason; "successfully assigned" would be false.
+                if result["success"] and cleanup_performed:
                     result["message"] = _(
                         "Member successfully assigned to {0}. Previous memberships and board roles have been ended."
                     ).format(chapter)
-                else:
+                elif result["success"]:
                     result["message"] = _("Member successfully assigned to {0}").format(chapter)
 
             return result

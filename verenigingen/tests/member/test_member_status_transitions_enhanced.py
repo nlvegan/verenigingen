@@ -455,24 +455,17 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
         member.notes = "Suspension reason: Test suspension"
         member.save()
 
-        # Attempt chapter transfer while suspended
-        try:
-            # Use chapter assignment API instead of direct field assignment
-            from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
+        # A Suspended member cannot be assigned: the call refuses (success False) and
+        # leaves no enabled row in the target chapter (#1584). The old body accepted
+        # any Active row in ANY chapter, or any ValidationError, as a pass.
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
 
-            assign_member_to_chapter(member.name, chapter2.name)
-            member.reload()
+        result = assign_member_to_chapter(member.name, chapter2.name)
 
-            # Check chapter membership through Chapter Member relationships
-            chapter_memberships = frappe.get_all(
-                "Chapter Member", filters={"member": member.name, "status": "Active"}, fields=["parent"]
-            )
-            chapter_names = [cm.parent for cm in chapter_memberships]
-            self.assertTrue(len(chapter_names) > 0, "Member should be assigned to at least one chapter")
-
-        except frappe.ValidationError:
-            # Prevention is valid business rule
-            pass
+        self.assertFalse(result["success"], result)
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": chapter2.name, "member": member.name, "enabled": 1})
+        )
 
     def test_business_rules_with_age_validation(self):
         """Test business rules are enforced for member age"""
