@@ -9,7 +9,7 @@ import random
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import now_datetime, today
+from frappe.utils import today
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -20,6 +20,7 @@ from verenigingen.api.membership_application import (
     validate_email,
 )
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
+from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
@@ -145,32 +146,11 @@ class ApplicationRecordCase(ApplicationDoorMixin, VereningingenUnitTestCase):
         }
 
     def _voluntarily_quit_member(self, **fields):
-        """A voluntarily-Quit member through the real termination flow."""
-        from verenigingen.services.termination.termination_execution_service import (
-            TerminationExecutionService,
-        )
-
+        """A voluntarily-Quit member through the real termination service (not a hand-set status)."""
         member = self.create_test_member(email=self.email, iban=IBAN, **fields)
-        request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test",
-                "termination_date": today(),
-                "requested_by": frappe.session.user,
-                "request_date": today(),
-                "status": "Approved",
-                "approved_by": frappe.session.user,
-                "approval_date": now_datetime(),
-            }
-        )
-        request.insert()
-        request.submit()
-        # Mock justified: execute() opens its own transaction; the harness owns this one.
-        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
-            self.assertTrue(TerminationExecutionService().execute(request))
+        request = execute_real_termination(self, member.name, today())
         self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        self.assertEqual((request.status, request.termination_type), ("Executed", "Voluntary"))
         return member
 
 
