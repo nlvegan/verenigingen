@@ -45,6 +45,22 @@ PURGEABLE_STATUSES = ["Unconfirmed", "Expired", "Rejected", "Superseded"]
 # Mails the forms send to one address per day, so they cannot be used to flood a mailbox.
 MAX_MAILS_PER_ADDRESS_PER_DAY = 3
 
+# (doctype, field holding the referenced doctype, field holding the referenced name): rows that point at an
+# application by value, not by a Link field, so nothing blocks or cascades the delete.
+REFERENCES_TO_DELETE = (
+    ("Comment", "reference_doctype", "reference_name"),
+    ("Version", "ref_doctype", "docname"),
+    ("ToDo", "reference_type", "reference_name"),
+    ("DocShare", "share_doctype", "share_name"),
+    ("Document Follow", "ref_doctype", "ref_docname"),
+    ("Notification Log", "document_type", "document_name"),
+    ("View Log", "reference_doctype", "reference_name"),
+    ("Activity Log", "reference_doctype", "reference_name"),
+    ("Activity Log", "timeline_doctype", "timeline_name"),
+    ("Error Log", "reference_doctype", "reference_name"),
+    ("Email Unsubscribe", "reference_doctype", "reference_name"),
+)
+
 
 def stage_application(source: str, email: str, payload: dict, door: str | None = None) -> None:
     """Store an Unconfirmed application and mail the confirmation link, or mail "already a member".
@@ -139,9 +155,10 @@ def expire_and_purge_applications() -> dict:
     "Finished" is PURGEABLE_STATUSES; Approved and Pending Review are kept whatever their age. Expiry
     counts from `creation`, the purge from `modified`: a rejection or replacement starts its own 30 days,
     while Expired keeps the row's old `modified` because _set_status does not touch it. Cut-offs come from
-    now_datetime() (site clock, same as the columns). Nothing but another submission's `superseded_by`
-    links to a row, and that only points at a newer one, so a set-based delete is safe; the scheduler
-    commits after the job.
+    now_datetime() (site clock, same as the columns). The only Link field pointing at an application is
+    another submission's `superseded_by`, which points at a newer row; everything else that references one
+    (Comment, Communication, Email Queue, File, Version, ...) is removed with it by _delete_dependents. The
+    scheduler commits after the job.
     """
     now = now_datetime()
     deleted = _delete_untouched_since(add_days(now, -PURGE_DAYS))
@@ -150,10 +167,56 @@ def expire_and_purge_applications() -> dict:
 
 
 def _delete_untouched_since(cutoff) -> int:
-    filters = {"status": ["in", PURGEABLE_STATUSES], "modified": ["<", cutoff]}
-    count = frappe.db.count(SUBMISSION, filters)
-    frappe.db.delete(SUBMISSION, filters)
-    return count
+    names = frappe.get_all(
+        SUBMISSION, {"status": ["in", PURGEABLE_STATUSES], "modified": ["<", cutoff]}, pluck="name"
+    )
+    if names:
+        _delete_dependents(names)
+        frappe.db.delete(SUBMISSION, {"name": ["in", names]})
+    return len(names)
+
+
+def _delete_dependents(names):
+    """Remove everything attached to these applications: a retention rule that left the applicant's email
+    and the staff's request text behind on a dangling name would defeat itself.
+
+    `frappe.delete_doc` is not used for the application: it only UNLINKS Communications (the row stays,
+    with the recipient and the text), parks a full copy of the row in Deleted Document unless told not to,
+    and defers the rest of its cleanup to a job after commit. Instead each reference is swept explicitly;
+    the set was found by asking information_schema which tables hold the name (see
+    test_purging_a_rejected_application_removes_what_the_information_request_attached).
+    """
+    _delete_attached_files(names)
+    _delete_communications(names)
+    _delete_email_queue(names)
+    for doctype, doctype_field, name_field in REFERENCES_TO_DELETE:
+        frappe.db.delete(doctype, {doctype_field: SUBMISSION, name_field: ["in", names]})
+    frappe.db.delete("Communication Link", {"link_doctype": SUBMISSION, "link_name": ["in", names]})
+
+
+def _delete_attached_files(names):
+    # delete_doc, not a table delete: it also removes the file on disk
+    for file_name in frappe.get_all(
+        "File", {"attached_to_doctype": SUBMISSION, "attached_to_name": ["in", names]}, pluck="name"
+    ):
+        # Security: the scheduler runs as Administrator-less system code; these files belong to a row the retention rule deletes
+        frappe.delete_doc("File", file_name, force=True, ignore_permissions=True, delete_permanently=True)
+
+
+def _delete_communications(names):
+    filters = {"reference_doctype": SUBMISSION, "reference_name": ["in", names]}
+    communications = frappe.get_all("Communication", filters, pluck="name")
+    if communications:
+        frappe.db.delete("Communication Link", {"parent": ["in", communications]})
+        frappe.db.delete("Communication", {"name": ["in", communications]})
+
+
+def _delete_email_queue(names):
+    filters = {"reference_doctype": SUBMISSION, "reference_name": ["in", names]}
+    queued = frappe.get_all("Email Queue", filters, pluck="name")
+    if queued:
+        frappe.db.delete("Email Queue Recipient", {"parent": ["in", queued]})
+        frappe.db.delete("Email Queue", {"name": ["in", queued]})
 
 
 def _expire_created_before(cutoff) -> int:

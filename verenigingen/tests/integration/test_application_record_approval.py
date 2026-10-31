@@ -12,7 +12,7 @@ import secrets
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, now_datetime, today
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -24,7 +24,10 @@ from verenigingen.api.membership_application_review import (
     reject_application,
     request_more_info,
 )
-from verenigingen.services.member.application.application_record import confirm_application
+from verenigingen.services.member.application.application_record import (
+    confirm_application,
+    expire_and_purge_applications,
+)
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
 from verenigingen.services.member.lifecycle.member_status_notification_service import (
     MemberStatusNotificationService,
@@ -1030,6 +1033,39 @@ class TestApplicationChanges(ApprovalCase):
         self.assertEqual(foreign_result, unknown_result)
 
 
+REFERENCE_COLUMNS = (
+    "reference_name",
+    "link_name",
+    "docname",
+    "ref_docname",
+    "attached_to_name",
+    "document_name",
+    "reference_docname",
+    "share_name",
+    "parent",
+)
+
+
+def rows_referencing(name):
+    """{table: count} of every row in every table whose reference-like column holds `name`.
+
+    Found by asking information_schema, not by listing the doctypes we expect: a dependent we did not
+    think of (Version, ToDo, Email Queue, ...) shows up here too."""
+    found = {}
+    columns = frappe.db.sql(
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = DATABASE() "
+        "AND column_name IN %(cols)s AND table_name LIKE 'tab%%'",
+        {"cols": REFERENCE_COLUMNS},
+    )
+    for table, column in columns:
+        if table == f"tab{SUBMISSION}":
+            continue
+        count = frappe.db.sql(f"SELECT COUNT(*) FROM `{table}` WHERE `{column}` = %s", name)[0][0]
+        if count:
+            found[f"{table[3:]}.{column}"] = count
+    return found
+
+
 class TestRequestMoreInfo(ApprovalCase):
     """#1765 task 7b / #1874: a reviewer asks an applicant for more information. Driven through the real flow
     (submit -> confirm -> request_more_info -> approve). SMTP delivery is the only stub: the Communication
@@ -1263,6 +1299,96 @@ class TestRequestMoreInfo(ApprovalCase):
 
         self.assertTrue(result["mail_sent"], result)
         self.assertEqual(self._notes(name)[0].owner, self.board.user)
+
+    def _age_past_the_purge(self, name):
+        """Probe shortcut, stated: `modified` is backdated with db.set_value(update_modified=False), which
+        stands in for 31 days passing; nothing else can age a row. The job is called directly: its daily registration is
+        pinned in test_short_application_cleanup, and frappe.get_hooks answers differently after some earlier tests
+        in this module's process."""
+        frappe.db.set_value(SUBMISSION, name, "modified", add_days(now_datetime(), -31), update_modified=False)
+        expire_and_purge_applications()
+
+    def test_purging_a_rejected_application_removes_what_the_information_request_attached(self):
+        """A real request_more_info leaves a timeline Comment and a Communication (the applicant's email and the
+        request text) on the application. Retention must remove them with it, not strand them on a dangling name."""
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        attached = rows_referencing(name)
+        self.assertIn("Comment.reference_name", attached)  # not vacuous: the real flow wrote them
+        self.assertIn("Communication.reference_name", attached)
+        self.assertTrue(self._reject_as(name)["success"])
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists(SUBMISSION, name))
+        self.assertEqual(rows_referencing(name), {})
+
+    def test_purging_sweeps_every_kind_of_dependent(self):
+        """Probe shortcut, stated: the dependents a real flow does not write today (File, ToDo, Email Queue, Version,
+        Error Log, Activity Log, a Communication timeline link) are inserted by hand, so the claim is that the sweep
+        removes each KIND, not that today's flows produce them. rows_referencing asks information_schema, so a kind
+        missing from this list still fails the final assertion."""
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        self.assertTrue(self._reject_as(name)["success"])
+        communication = frappe.get_all(
+            "Communication", {"reference_doctype": SUBMISSION, "reference_name": name}, pluck="name"
+        )[0]
+        frappe.get_doc(
+            {
+                "doctype": "Communication Link",
+                "parent": communication,
+                "parenttype": "Communication",
+                "parentfield": "timeline_links",
+                "link_doctype": SUBMISSION,
+                "link_name": name,
+            }
+        ).db_insert()
+        frappe.get_doc(
+            {"doctype": "File", "file_name": "id.txt", "content": "passport", "is_private": 1,
+             "attached_to_doctype": SUBMISSION, "attached_to_name": name}
+        ).insert()
+        frappe.get_doc(
+            {"doctype": "ToDo", "description": "call the applicant", "reference_type": SUBMISSION, "reference_name": name}
+        ).insert()
+        frappe.get_doc(
+            {"doctype": "Error Log", "method": "probe", "error": "probe", "reference_doctype": SUBMISSION, "reference_name": name}
+        ).insert()
+        frappe.get_doc(
+            {"doctype": "Activity Log", "subject": "probe", "reference_doctype": SUBMISSION, "reference_name": name}
+        ).insert()
+        frappe.get_doc(
+            {"doctype": "Version", "ref_doctype": SUBMISSION, "docname": name, "data": "{}"}
+        ).insert()
+        queue = frappe.get_doc(
+            {"doctype": "Email Queue", "sender": "a@example.org", "message": "x", "reference_doctype": SUBMISSION,
+             "reference_name": name, "recipients": [{"recipient": "b@example.org"}]}
+        ).insert()
+        attached = rows_referencing(name)
+        for kind in ("File.attached_to_name", "ToDo.reference_name", "Email Queue.reference_name", "Version.docname",
+                     "Error Log.reference_name", "Activity Log.reference_name", "Communication Link.link_name",
+                     "Communication.reference_name", "Comment.reference_name"):
+            self.assertIn(kind, attached)  # not vacuous: each kind is really there to be removed
+
+        self._age_past_the_purge(name)
+
+        self.assertEqual(rows_referencing(name), {})
+        self.assertFalse(frappe.db.exists("Email Queue Recipient", {"parent": queue.name}))
+        self.assertFalse(frappe.db.exists("Deleted Document", {"deleted_doctype": SUBMISSION, "deleted_name": name}))
+
+    def test_purge_keeps_everything_attached_to_an_approved_application(self):
+        """Control with a real row: the Approved twin, with its own request Comment and Communication, is kept whole."""
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        self.assertTrue(self._approve_as(name)["success"])
+        before = rows_referencing(name)
+        self.assertIn("Comment.reference_name", before)
+        self.assertIn("Communication.reference_name", before)
+
+        self._age_past_the_purge(name)
+
+        self.assertTrue(frappe.db.exists(SUBMISSION, name))
+        self.assertEqual(rows_referencing(name), before)
 
 
 def _norm(value):
