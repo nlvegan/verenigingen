@@ -48,8 +48,7 @@ def payment_link_callback():
 
     Query Parameters:
         payment_link: Name of the Ponto Payment Link document
-        error: Error message if authorization failed (optional)
-        error_description: Detailed error description (optional)
+        error, error_description: sent by Ponto on a failed authorization; IGNORED (#1815)
 
     Returns:
         Redirect to appropriate page based on result
@@ -68,8 +67,6 @@ def payment_link_callback():
         frappe.set_user(webhook_user)
 
     payment_link_name = frappe.request.args.get("payment_link")
-    error = frappe.request.args.get("error")
-    error_description = frappe.request.args.get("error_description")
 
     if not payment_link_name:
         frappe.logger().warning("Payment link callback received without payment_link")
@@ -87,35 +84,10 @@ def payment_link_callback():
 
         doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
 
-        # Handle error from Ponto
-        if error:
-            frappe.logger().warning(
-                f"Payment link authorization error for {payment_link_name}: {error} - {error_description}"
-            )
-
-            # If access_denied, customer cancelled the authorization
-            if error == "access_denied":
-                doc.status = "Cancelled"
-                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
-                doc.save()
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
-                return
-            else:
-                # Other errors - mark as rejected
-                doc.status = "Rejected"
-                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
-                doc.save()
-                frappe.log_error(
-                    title=f"Ponto payment authorization failed: {payment_link_name}",
-                    message=f"Error: {error}\nDescription: {error_description}",
-                )
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
-                return
-
-        # No error - refresh status from Ponto API
-        frappe.logger().info(f"Payment link callback success for {payment_link_name}, refreshing status")
+        # `error`/`error_description` are query-string input from an anonymous GET and decide
+        # nothing (#1815): Ponto is the authority, so every callback asks it. An abandoned
+        # authorization stays as it is until Ponto (or the webhook) reports otherwise.
+        frappe.logger().info(f"Payment link callback for {payment_link_name}, refreshing status")
 
         try:
             result = doc.refresh_status()
