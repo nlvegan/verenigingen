@@ -75,9 +75,9 @@ class TestChapterExpenseReport(VereningingenTestCase):
         ]
 
         # Mock justified: ERPNext external service - expense claims retrieval for reporting
-        with patch("frappe.get_all") as mock_get_all:
-            # First call returns expense claims, second call returns details
-            mock_get_all.side_effect = [mock_expense_claims, mock_expense_details]
+        with patch("frappe.get_list", return_value=mock_expense_claims), patch(
+            "frappe.get_all", return_value=mock_expense_details
+        ):
 
             # Test with natural scenario where no volunteer is found
             result = get_erpnext_expense_data(self.test_filters)
@@ -105,9 +105,9 @@ class TestChapterExpenseReport(VereningingenTestCase):
         ]
 
         # Mock justified: ERPNext external service - exception handling in expense retrieval
-        with patch("frappe.get_all") as mock_get_all:
-            # First call returns expense claims, second call raises exception (no details)
-            mock_get_all.side_effect = [mock_expense_claims, Exception("No details")]
+        with patch("frappe.get_list", return_value=mock_expense_claims), patch(
+            "frappe.get_all", side_effect=Exception("No details")
+        ):
 
             result = get_erpnext_expense_data(self.test_filters)
 
@@ -170,7 +170,9 @@ class TestChapterExpenseReport(VereningingenTestCase):
         mock_expense_claims[0]["employee"] = test_volunteer.name
 
         # Mock justified: ERPNext external service - expense data with volunteer lookup
-        with patch("frappe.get_all", return_value=mock_expense_claims):
+        with patch("frappe.get_list", return_value=mock_expense_claims), patch(
+            "frappe.get_all", return_value=mock_expense_claims
+        ):
             result = get_erpnext_expense_data(self.test_filters)
 
             self.assertEqual(len(result), 1)
@@ -445,13 +447,13 @@ class TestChapterExpenseReport(VereningingenTestCase):
 
         # This would fail if we try to use non-existent fields like 'title'
         # Mock justified: ERPNext external service - empty data scenario testing
-        with patch("frappe.get_all") as mock_get_all:
+        with patch("frappe.get_list") as mock_get_all:
             mock_get_all.return_value = []
 
             get_erpnext_expense_data({})
 
-            # Verify frappe.get_all was called
-            self.assertTrue(mock_get_all.called, "frappe.get_all should be called")
+            # Claims are read as the caller (get_list), not with get_all (#1738)
+            self.assertTrue(mock_get_all.called, "frappe.get_list should be called")
 
             # Get the call arguments
             call_args = mock_get_all.call_args
@@ -468,7 +470,7 @@ class TestChapterExpenseReport(VereningingenTestCase):
     def test_error_handling_in_expense_data_retrieval(self):
         """Test error handling when expense data retrieval fails"""
         # Mock justified: ERPNext external service - error handling testing
-        with patch("frappe.get_all", side_effect=Exception("Database error")):
+        with patch("frappe.get_list", side_effect=Exception("Database error")):
             # The function may either handle errors gracefully (return empty list)
             # or propagate the exception - both are acceptable behaviors
             try:
@@ -518,8 +520,9 @@ class TestChapterExpenseReportIntegration(VereningingenTestCase):
         ]
 
         # Mock justified: ERPNext external service - summary data generation testing
-        with patch("frappe.get_all") as mock_get_all:
-            mock_get_all.side_effect = [mock_claims, mock_details]
+        with patch("frappe.get_list", return_value=mock_claims), patch(
+            "frappe.get_all", return_value=mock_details
+        ):
 
             # Test with natural integration scenario (no volunteer lookup mocking)
             columns, data, message, chart, summary = execute(filters)
@@ -551,7 +554,7 @@ class TestChapterExpenseReportIntegration(VereningingenTestCase):
         filters = {"from_date": "2024-01-01", "to_date": "2024-12-31"}
 
         # Mock justified: ERPNext external service - empty data edge case testing
-        with patch("frappe.get_all", return_value=[]):
+        with patch("frappe.get_list", return_value=[]):
             try:
                 columns, data, message, chart, summary = execute(filters)
 
