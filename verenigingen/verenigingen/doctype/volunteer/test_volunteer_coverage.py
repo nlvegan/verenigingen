@@ -652,6 +652,221 @@ class TestCreateVolunteerFromMember(EnhancedTestCase):
         self.assertEqual(self._acrs_for(member.name), [result["account_request"]])
 
 
+class TestVolunteerAcrRefusalsAreNotDropped(EnhancedTestCase):
+    """#1613: a refused ACR queueing on the Volunteer lifecycle hooks must leave a trace.
+
+    ``after_insert`` and ``on_update`` queue an Account Creation Request. Refusals used
+    to go to ``frappe.logger().warning`` (never written) under a key (``message`` /
+    ``error_message``) the serialized OperationResult does not have, so the volunteer
+    kept going with no ACR, no User and no record of why.
+
+    Refusals are produced by the REAL queueing functions, with data that makes them
+    refuse. One is an EXPECTED SKIP and must stay silent (maintainer ruling #1638, PR
+    #1713): a member with no email (``NO_EMAIL``; the email is blanked with
+    ``db.set_value``, as #1617's tests do, a probe shortcut for "member without email").
+    The rest are real refusals and are Error-Logged: an open or retryable-Failed request
+    for the record, and the "not found" refusals, driven by calling the method directly
+    on a doc naming a record that does not exist. A Verenigingen Administrator or Staff user is NOT a usable refusal: Staff is
+    stopped by the security-tier decorator (an exception, already logged) and the
+    Administrator role may create Users.
+    """
+
+    def setUp(self):
+        super().setUp()
+        invalidate_volunteer_assignment_cache()
+        self.test_member = self.create_test_member()
+        # The factory sets this globally; these tests exist to run the real hooks.
+        original_flag = frappe.flags.get("skip_volunteer_account_creation", False)
+        frappe.flags.skip_volunteer_account_creation = False
+        self.addCleanup(setattr, frappe.flags, "skip_volunteer_account_creation", original_flag)
+
+    def _error_logs(self, title, since):
+        return frappe.get_all(
+            "Error Log", filters={"creation": [">=", since], "method": title}, fields=["error"]
+        )
+
+    def _acr_names_for(self, *names):
+        return frappe.get_all(
+            "Account Creation Request", filters={"source_record": ["in", names]}, pluck="name"
+        )
+
+    def _unqueued_volunteer_doc(self, **overrides):
+        suffix = frappe.generate_hash()[:8]
+        data = {
+            "doctype": "Volunteer",
+            "volunteer_name": f"Refusal Volunteer {suffix}",
+            "email": f"refusal.{suffix}@test.invalid",
+            "member": self.test_member.name,
+            "status": "New",
+            "start_date": today(),
+        }
+        data.update(overrides)
+        return frappe.get_doc(data)
+
+    def test_queue_secure_account_creation_open_request_is_logged_with_its_name(self):
+        """The method after_insert calls, on a volunteer that already has an open ACR."""
+        title = "Volunteer Account Creation Queue Error"
+        volunteer = self._unqueued_volunteer_doc()
+        volunteer.flags.skip_volunteer_account_creation = True
+        volunteer.insert()
+        self.track_doc("Volunteer", volunteer.name)
+        blocking = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Volunteer",
+                "source_record": volunteer.name,
+                "email": volunteer.email,
+                "full_name": volunteer.volunteer_name,
+                "role_profile": "Verenigingen Volunteer",
+            }
+        ).insert()
+        self.track_doc("Account Creation Request", blocking.name)
+
+        self.expectErrorLog(title)
+        since = frappe.utils.now()
+
+        volunteer.queue_secure_account_creation()
+
+        self.assertEqual(self._acr_names_for(volunteer.name), [blocking.name])
+        logs = self._error_logs(title, since)
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(volunteer.name, logs[0].error)
+        self.assertIn(blocking.name, logs[0].error)
+
+    def test_queue_secure_account_creation_real_refusal_is_logged_with_the_reason(self):
+        """A volunteer the queue cannot find is refused ("Volunteer not found"), not skipped."""
+        title = "Volunteer Account Creation Queue Error"
+        volunteer = self._unqueued_volunteer_doc()
+        volunteer.name = f"Assoc-Vol-NOT-SAVED-{frappe.generate_hash()[:6]}"  # never inserted
+        self.expectErrorLog(title)
+        since = frappe.utils.now()
+
+        volunteer.queue_secure_account_creation()
+
+        logs = self._error_logs(title, since)
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(volunteer.name, logs[0].error)
+        self.assertIn("Volunteer not found", logs[0].error)
+
+    def test_queue_volunteer_account_creation_helper_logs_real_refusal_and_skips_expected(self):
+        """The #1617 helper returns the reason either way; only a real refusal is logged."""
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import _queue_volunteer_account_creation
+
+        title = "Volunteer Account Creation Queue Error"
+        self.expectErrorLog(title)
+        since = frappe.utils.now()
+        request_name, reason = _queue_volunteer_account_creation("Member-Does-Not-Exist-ZZ", "Vol-X")
+        self.assertIsNone(request_name)
+        self.assertIn("Member not found", reason)
+        self.assertEqual(len(self._error_logs(title, since)), 1)
+
+        frappe.db.set_value("Member", self.test_member.name, "email", None, update_modified=False)
+        since = frappe.utils.now()
+        request_name, reason = _queue_volunteer_account_creation(self.test_member.name, "Vol-X")
+        self.assertIsNone(request_name)
+        self.assertIn("email address", reason)
+        self.assertEqual(self._error_logs(title, since), [])
+
+    def test_after_insert_queued_is_not_logged_as_refused(self):
+        """Control: the same flow as Administrator queues a request and logs nothing."""
+        volunteer = self._unqueued_volunteer_doc()
+        with self.assertNoErrorLog():
+            volunteer.insert()
+        self.track_doc("Volunteer", volunteer.name)
+        for acr in self._acr_names_for(volunteer.name):
+            self.track_doc("Account Creation Request", acr)
+        self.assertEqual(len(self._acr_names_for(volunteer.name)), 1)
+
+    def test_reader_tolerates_non_string_error_details(self):
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import _read_acr_queue_result
+
+        refused = {"success": False, "error": {"message": "No", "errors": ["a", {"k": 1}, 3]}}
+        self.assertEqual(_read_acr_queue_result(refused), (None, "No; a; {'k': 1}; 3", False))
+
+    def _new_volunteer_with_assignment(self):
+        """A New volunteer, saved so that the NEXT save flips it New -> Active."""
+        volunteer = self._unqueued_volunteer_doc()
+        volunteer.flags.skip_volunteer_account_creation = True
+        volunteer.insert()
+        self.track_doc("Volunteer", volunteer.name)
+        volunteer.reload()
+        volunteer.append(
+            "assignment_history",
+            {"assignment_type": "Project", "role": "Coordinator", "start_date": today(), "status": "Active"},
+        )
+        return volunteer
+
+    def test_auto_activation_member_without_email_is_a_silent_skip(self):
+        """#1638: a member without an email is an expected skip, not an Error Log row."""
+        volunteer = self._new_volunteer_with_assignment()
+        frappe.db.set_value("Member", self.test_member.name, "email", None, update_modified=False)
+
+        with self.assertNoErrorLog():
+            volunteer.save()
+
+        self.assertEqual(volunteer.status, "Active")
+        self.assertEqual(self._acr_names_for(self.test_member.name), [])
+
+    def test_auto_activation_real_refusal_is_logged_with_the_reason(self):
+        """A member the queue cannot find ("Member not found") is refused, not skipped.
+
+        Calls ``_check_auto_activation`` directly on a doc pointing at a missing member.
+        """
+        title = "Volunteer Auto-Activation Queue Refused"
+        volunteer = self._unqueued_volunteer_doc(status="Active", member="Member-Does-Not-Exist-ZZ")
+        volunteer.name = f"Assoc-Vol-NOT-SAVED-{frappe.generate_hash()[:6]}"
+        self.expectErrorLog(title)
+        since = frappe.utils.now()
+
+        volunteer._check_auto_activation("New")
+
+        logs = self._error_logs(title, since)
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(volunteer.name, logs[0].error)
+        self.assertIn("Member not found", logs[0].error)
+
+    def test_auto_activation_with_failed_blocker_is_logged_with_its_name(self):
+        """A retryable Failed ACR still blocks a new one (#1614). ``mark_failed`` writes no
+        Error Log of its own, so without this row the volunteer goes Active with no
+        account and no trace anywhere."""
+        title = "Volunteer Auto-Activation Queue Refused"
+        failed = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": self.test_member.name,
+                "email": self.test_member.email,
+                "full_name": self.test_member.full_name,
+                "role_profile": "Verenigingen Member",
+            }
+        ).insert()
+        self.track_doc("Account Creation Request", failed.name)
+        failed.mark_failed("Simulated pipeline failure", stage="User Creation")
+        self.assertEqual(frappe.db.get_value("Account Creation Request", failed.name, "status"), "Failed")
+        volunteer = self._new_volunteer_with_assignment()
+        self.expectErrorLog(title)
+        since = frappe.utils.now()
+
+        volunteer.save()
+
+        self.assertEqual(volunteer.status, "Active")
+        self.assertEqual(self._acr_names_for(self.test_member.name), [failed.name])
+        logs = self._error_logs(title, since)
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(volunteer.name, logs[0].error)
+        self.assertIn(failed.name, logs[0].error)
+
+    def test_auto_activation_queued_is_not_logged_as_refused(self):
+        """Control: as Administrator the New -> Active save queues the activation."""
+        volunteer = self._new_volunteer_with_assignment()
+        with self.assertNoErrorLog():
+            volunteer.save()
+        for acr in self._acr_names_for(self.test_member.name):
+            self.track_doc("Account Creation Request", acr)
+        self.assertEqual(volunteer.status, "Active")
+        self.assertEqual(len(self._acr_names_for(self.test_member.name)), 1)
+
+
 class TestVolunteerSkillSearchHelpers(EnhancedTestCase):
     """Coverage for module-level skill search / insight whitelisted helpers."""
 
