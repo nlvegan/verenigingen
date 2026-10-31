@@ -23,9 +23,13 @@ def _raw_role_deletes(source):
         if isinstance(n, ast.Call)
         and isinstance(n.func, ast.Attribute)
         and n.func.attr == "delete_doc"
-        and n.args
-        and isinstance(n.args[0], ast.Constant)
-        and n.args[0].value == "Role"
+        and (
+            (n.args and isinstance(n.args[0], ast.Constant) and n.args[0].value == "Role")
+            or any(
+                k.arg == "doctype" and isinstance(k.value, ast.Constant) and k.value.value == "Role"
+                for k in n.keywords
+            )
+        )
     ]
 
 
@@ -76,8 +80,14 @@ class TestDeleteRoleAndGrants(VereningingenTestCase):
         self.assertEqual(frappe.db.count("Has Role", {"parent": user, "role": other.name}), 1)
 
     def test_no_test_deletes_a_role_without_going_through_the_helper(self):
-        """Class guard: every test-tree Role delete is `delete_role_and_grants` (#1665)."""
+        """Shape guard (#1665): no new `delete_doc("Role", ...)` / `delete_doc(doctype="Role", ...)`.
+
+        This is NOT a class guard. A variable doctype, `get_doc("Role", r).delete()`,
+        `db.delete("Role")`, an aliased `delete_doc` and raw SQL all evade it. It only stops a new
+        copy of the exact form this fix replaced. The generic drains are tracked in #1856.
+        """
         self.assertEqual(_raw_role_deletes('frappe.delete_doc("Role", r, force=True)'), [1], "control")
+        self.assertEqual(_raw_role_deletes('frappe.delete_doc(doctype="Role", name=r)'), [1], "control")
         offenders = []
         for path in (APP_ROOT / "verenigingen" / "tests").rglob("*.py"):
             # force_delete.py is the helper; this file holds the deliberate raw-delete control.
