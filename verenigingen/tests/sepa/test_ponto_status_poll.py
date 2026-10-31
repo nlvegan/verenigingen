@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import add_to_date, now_datetime, today
+from rq.timeouts import JobTimeoutException
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
@@ -50,7 +51,9 @@ class _PollBase(EnhancedTestCase):
         super().setUp()
         frappe.set_user("Administrator")
         self._configure_ponto(True)
+        self._clear_poll_cache()
         self._age_out_preexisting_open_rows()
+        self.addCleanup(self._clear_poll_cache)
 
     # --- fixtures -----------------------------------------------------------
 
@@ -63,14 +66,29 @@ class _PollBase(EnhancedTestCase):
                 doctype, {"status": ["in", statuses]}, "creation", long_ago, update_modified=False
             )
 
-    def _configure_ponto(self, configured):
+    def _configure_ponto(self, configured, mtls=True, mapping=True):
+        """Ponto Settings as the clients need it: mTLS + Ibanity credentials + an enabled
+        account mapping (the Link client's ``_verify_pis_enabled``). ``mtls=False`` gives
+        a MyPonto-credentials-only site, where only the Request client can start."""
         settings = frappe.get_single("Ponto Settings")
-        settings.use_ibanity_mtls = 0
+        settings.use_ibanity_mtls = 1 if mtls else 0
         settings.sandbox_mode = 1
         settings.sandbox_client_id = "poll-test-id" if configured else ""
         settings.sandbox_client_secret = "poll-test-secret" if configured else ""
+        settings.ibanity_client_id = "poll-test-ibanity" if configured else ""
+        settings.ibanity_client_secret = "poll-test-ibanity-secret" if configured else ""
+        settings.set("bank_account_mappings", [])
+        if mapping:
+            settings.append("bank_account_mappings", {"ponto_account_id": "test-account-id", "enabled": 1})
         settings.flags.ignore_validate = True
+        settings.flags.ignore_links = True
+        settings.flags.ignore_mandatory = True
         settings.save()
+
+    def _clear_poll_cache(self):
+        for doctype, _s, _i in status_poll_service._POLLED:
+            frappe.cache().delete_value(status_poll_service._cursor_cache_key(doctype))
+            frappe.cache().delete_value(f"ponto_status_poll_unconfigured:{doctype}")
 
     def _make_poll_request(self, status="Pending", ponto_id=True, age_days=0):
         doc = frappe.new_doc("Ponto Payment Request")
@@ -145,7 +163,15 @@ class _PollBase(EnhancedTestCase):
 class TestPontoStatusPoll(_PollBase):
     # --- selection ----------------------------------------------------------
 
+    def _cancelled_docstatus(self, doc):
+        """Fixture shortcut: an open-looking status on a docstatus-2 row (db.set_value)."""
+        frappe.db.set_value(doc.doctype, doc.name, "docstatus", 2, update_modified=False)
+        return doc
+
     def test_selects_exactly_the_open_rows_inside_the_window(self):
+        errors_before = self._poll_errors()
+        cancelled_request = self._cancelled_docstatus(self._make_poll_request("Pending"))
+        cancelled_link = self._cancelled_docstatus(self._make_poll_link("Pending Authorization"))
         open_requests = [self._make_poll_request("Pending"), self._make_poll_request("Signed")]
         controls = [
             self._make_poll_request("Executed"), self._make_poll_request("Cancelled"), self._make_poll_request("Expired"),
@@ -166,6 +192,11 @@ class TestPontoStatusPoll(_PollBase):
         polled_links = {c.args[0] for c in link.get_payment_request.call_args_list}
         self.assertEqual(polled_links, {d.ponto_request_id for d in open_links})
         self.assertFalse(polled_links & {d.ponto_request_id for d in link_controls if d.ponto_request_id})
+        # A docstatus-2 row and a row with no Ponto id must be filtered out BEFORE
+        # refresh_status: it would throw on them, which writes an Error Log row.
+        self.assertNotIn(cancelled_request.ponto_payment_id, polled)
+        self.assertNotIn(cancelled_link.ponto_request_id, polled_links)
+        self.assertEqual(self._poll_errors(), errors_before)
 
     def test_staleness_boundary_row_just_inside_is_polled(self):
         inside = self._make_poll_request("Pending", age_days=status_poll_service.STALENESS_WINDOW_DAYS - 1)
@@ -237,15 +268,38 @@ class TestPontoStatusPoll(_PollBase):
 
     # --- configuration ------------------------------------------------------
 
-    def test_not_configured_returns_quietly(self):
+    def _unconfigured_logs(self):
+        return frappe.db.count("Error Log", {"method": ["like", "Ponto status poll skipped%"]})
+
+    def test_not_configured_skips_and_logs_once_a_day(self):
         self._make_poll_request("Pending")
         self._make_poll_link("Pending Authorization")
         self._configure_ponto(False)
-        before_errors = frappe.db.count("Error Log")
-        pay, link = self._run_job()
+        before = self._unconfigured_logs()
+        with self.assertErrorLog("Ponto status poll skipped"):
+            pay, link = self._run_job()
         pay.get_payment.assert_not_called()
         link.get_payment_request.assert_not_called()
-        self.assertEqual(frappe.db.count("Error Log"), before_errors)
+        self.assertEqual(self._unconfigured_logs() - before, 2)  # one per doctype
+        with self.assertNoErrorLog():
+            self._run_job()
+        self.assertEqual(self._unconfigured_logs() - before, 2)  # not again today
+
+    def test_each_doctype_is_gated_on_what_its_client_needs(self):
+        """mTLS off: the Request client starts (OAuth credentials), the Link client
+        refuses (``_verify_pis_enabled``), so only Requests are polled."""
+        self.expectErrorLog("Ponto status poll skipped")
+        request = self._make_poll_request("Pending")
+        link = self._make_poll_link("Pending Authorization")
+        self._configure_ponto(True, mtls=False)
+        pay, link_client = self._run_job()
+        self.assertEqual([c.kwargs["payment_id"] for c in pay.get_payment.call_args_list][-1:], [request.ponto_payment_id])
+        link_client.get_payment_request.assert_not_called()
+        self.assertEqual(self._poll_row_status(link), "Pending Authorization")
+        # mTLS on but no enabled account mapping: still not the Link client's predicate.
+        self._configure_ponto(True, mapping=False)
+        _pay, link_client = self._run_job()
+        link_client.get_payment_request.assert_not_called()
 
     def test_no_open_rows_never_builds_a_client(self):
         with patch(PAY_CLIENT) as pay_factory, patch(LINK_CLIENT) as link_factory:
@@ -283,13 +337,119 @@ class TestPontoStatusPoll(_PollBase):
         self.assertIn(JOB, events.get("hourly", []))
         self.assertTrue(callable(frappe.get_attr(JOB)))
 
-    def test_many_open_rows_are_not_refused_by_the_security_rate_limit(self):
-        rows = [self._make_poll_request("Pending") for _ in range(25)]
-        pay = self._pay_client({d.ponto_payment_id: "signed" for d in rows})
+    # --- fairness, caps, outage budget -----------------------------------------
+
+    def _tick_polled_ids(self, pay_by_id=None, ticks=1):
+        pay = self._pay_client(pay_by_id or {})
+        runs = []
+        for _ in range(ticks):
+            pay.get_payment.reset_mock()
+            self._run_job(pay=pay)
+            runs.append([c.kwargs["payment_id"] for c in pay.get_payment.call_args_list])
+        return runs
+
+    def test_batch_cap_limits_each_run_and_logs_one_truncation_row(self):
+        self.expectErrorLog("Ponto status poll batch truncated")
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(5)]
+        before = frappe.db.count("Error Log", {"method": ["like", "Ponto status poll batch truncated%"]})
+        with patch.object(status_poll_service, "BATCH_LIMIT", 3):
+            (first,) = self._tick_polled_ids()
+        self.assertEqual(first, [d.ponto_payment_id for d in rows[:3]])  # oldest first, capped
+        after = frappe.db.count("Error Log", {"method": ["like", "Ponto status poll batch truncated%"]})
+        self.assertEqual(after - before, 1)
+
+    def test_rows_past_the_cap_are_not_starved(self):
+        """#1885 review F2: 101 abandoned rows plus 1 fresh one never polled the fresh
+        one under oldest-first. Cap 3 here, so 5 abandoned + 1 fresh, Requests (which,
+        unlike Links, do not bump ``modified`` on an unchanged poll)."""
+        self.expectErrorLog("Ponto status poll batch truncated")
+        zombies = [self._make_poll_request("Pending", age_days=25 - i) for i in range(5)]
+        fresh = self._make_poll_request("Pending")
+        with patch.object(status_poll_service, "BATCH_LIMIT", 3):
+            first, second = self._tick_polled_ids({fresh.ponto_payment_id: "signed"}, ticks=2)
+        self.assertEqual(first, [d.ponto_payment_id for d in zombies[:3]])
+        self.assertIn(fresh.ponto_payment_id, second)
+        self.assertEqual(self._poll_row_status(fresh), "Signed")
+
+    def test_total_outage_stops_after_consecutive_failures_with_one_summary_row(self):
+        self.expectErrorLog(
+            ERROR_TITLE_PREFIX, "Ponto status poll stopped early", "Ponto status refresh failed",
+            "Ponto payment link status refresh failed",
+        )
+        for _ in range(4):
+            self._make_poll_request("Pending")
+            self._make_poll_link("Pending Authorization")
+        down = ConnectionError("simulated outage")
+        pay = MagicMock()
+        pay.get_payment.side_effect = down
+        link = MagicMock()
+        link.get_payment_request.side_effect = down
         before = self._poll_errors()
+        stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        self._run_job(pay=pay, link=link)
+        limit = status_poll_service.MAX_CONSECUTIVE_FAILURES
+        self.assertEqual(pay.get_payment.call_count + link.get_payment_request.call_count, limit)
+        self.assertEqual(self._poll_errors() - before, limit)  # one per failed row ...
+        stops = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        self.assertEqual(stops - stops_before, 1)  # ... plus ONE summary, not one per skipped row
+
+    def test_a_success_resets_the_consecutive_failure_count(self):
+        self.expectErrorLog(ERROR_TITLE_PREFIX, "Ponto status refresh failed")
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(6)]
+        outcomes = {d.ponto_payment_id: ConnectionError("down") for d in rows}
+        outcomes[rows[2].ponto_payment_id] = "pending"  # a success between failures
+        outcomes[rows[5].ponto_payment_id] = "pending"
+        (polled,) = self._tick_polled_ids(outcomes)
+        self.assertEqual(len(polled), 6)  # never 3 failures in a row
+
+    def test_wall_clock_budget_stops_the_run_with_one_summary_row(self):
+        self.expectErrorLog("Ponto status poll stopped early")
+        for i in range(5):
+            self._make_poll_request("Pending", age_days=20 - i)
+        ticks = iter(range(0, 10_000, 90))  # fake clock: every reading is 90 s later
+        stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        with patch.object(status_poll_service, "_monotonic", lambda: next(ticks)):
+            (polled,) = self._tick_polled_ids()
+        # deadline = 0 + 200; readings 90, 180 allow rows 1 and 2, reading 270 stops.
+        self.assertEqual(len(polled), 2)
+        stops = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        self.assertEqual(stops - stops_before, 1)
+
+    def test_a_deadlock_aborts_the_run_instead_of_being_swallowed(self):
+        """``refresh_status`` wraps everything in ``frappe.throw``; the deadlock must still
+        escape (#1885 review F4), and later rows must not be polled against a dead transaction."""
+        self.expectErrorLog("Ponto status refresh failed")
+        first = self._make_poll_request("Pending", age_days=5)
+        second = self._make_poll_request("Pending", age_days=4)
+        pay = self._pay_client({first.ponto_payment_id: frappe.QueryDeadlockError("1213")})
+        with self.assertRaises(frappe.QueryDeadlockError):
+            self._run_job(pay=pay)
+        polled = [c.kwargs["payment_id"] for c in pay.get_payment.call_args_list]
+        self.assertNotIn(second.ponto_payment_id, polled)
+
+    def test_an_rq_job_timeout_is_never_swallowed_as_a_row_failure(self):
+        self.expectErrorLog("Ponto status refresh failed")
+        row = self._make_poll_request("Pending")
+        pay = self._pay_client({row.ponto_payment_id: JobTimeoutException("300s")})
+        with self.assertRaises(JobTimeoutException):
+            self._run_job(pay=pay)
+
+    def test_a_failed_row_is_rolled_back_to_its_savepoint(self):
+        """A row that writes and then fails must leave nothing behind. The 'write' is made
+        inside the stubbed client call (a db.set_value on a bystander row)."""
+        self.expectErrorLog(ERROR_TITLE_PREFIX, "Ponto status refresh failed")
+        bystander = self._make_poll_request("Executed")
+        failing = self._make_poll_request("Pending")
+        pay = MagicMock()
+
+        def write_then_fail(account_id, payment_id):
+            frappe.db.set_value(bystander.doctype, bystander.name, "remittance_info", "DIRTY")
+            raise ConnectionError("down mid-write")
+
+        pay.get_payment.side_effect = write_then_fail
         self._run_job(pay=pay)
-        self.assertEqual({self._poll_row_status(d) for d in rows}, {"Signed"})
-        self.assertEqual(self._poll_errors(), before)
+        self.assertEqual(frappe.db.get_value(bystander.doctype, bystander.name, "remittance_info"), "poll")
+        self.assertEqual(self._poll_row_status(failing), "Pending")
 
 
 class TestLinkPaymentEntryViaPoll(_PollBase):
