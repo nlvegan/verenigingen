@@ -27,7 +27,7 @@ class _ApprovalFixtures(EnhancedTestCase):
         ensure_member_test_masters()
         self.membership_type = _ensure_test_membership_type()
 
-    def _apply_as_guest(self, selected_chapter=None):
+    def _submit_application_as_guest(self, selected_chapter=None):
         data = {
             "first_name": "Unknown",
             "last_name": f"Chapter{frappe.generate_hash(length=6)}",
@@ -55,7 +55,7 @@ class _ApprovalFixtures(EnhancedTestCase):
 class TestApprovalRefusesUnknownChapter(_ApprovalFixtures):
     def test_an_unknown_chapter_is_refused_before_anything_is_written(self):
         ghost = f"No Such Chapter {frappe.generate_hash(length=6)}"
-        member = self._apply_as_guest()
+        member = self._submit_application_as_guest()
 
         with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
             approve_membership_application(
@@ -71,7 +71,7 @@ class TestApprovalRefusesUnknownChapter(_ApprovalFixtures):
     def test_an_existing_chapter_still_approves(self):
         """Control: the refusal must not catch a real chapter."""
         chapter = self.create_test_chapter(published=1)
-        member = self._apply_as_guest()
+        member = self._submit_application_as_guest()
 
         approve_membership_application(
             member_name=member, membership_type=self.membership_type, chapter=chapter.name
@@ -82,7 +82,7 @@ class TestApprovalRefusesUnknownChapter(_ApprovalFixtures):
     def test_an_unpublished_existing_chapter_is_not_refused(self):
         """Control for the ruling's boundary: only a chapter that does not EXIST is refused."""
         chapter = self.create_test_chapter(published=0)
-        member = self._apply_as_guest()
+        member = self._submit_application_as_guest()
 
         approve_membership_application(
             member_name=member, membership_type=self.membership_type, chapter=chapter.name
@@ -92,7 +92,7 @@ class TestApprovalRefusesUnknownChapter(_ApprovalFixtures):
 
     def test_no_chapter_still_approves(self):
         """Control: an approval naming no chapter is not refused."""
-        member = self._apply_as_guest()
+        member = self._submit_application_as_guest()
 
         approve_membership_application(member_name=member, membership_type=self.membership_type, chapter=None)
 
@@ -126,7 +126,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ApprovalFixtures):
         return type(ctx.exception), str(ctx.exception).replace(chapter, "<C>"), log
 
     def test_a_foreign_chapter_is_refused_exactly_like_an_unknown_one(self):
-        member = self._apply_as_guest(selected_chapter=self.own.name)
+        member = self._submit_application_as_guest(selected_chapter=self.own.name)
 
         foreign = self._refusal_as_board(member, self.foreign.name)
         unknown = self._refusal_as_board(member, f"No Such Chapter {frappe.generate_hash(length=6)}")
@@ -140,7 +140,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ApprovalFixtures):
 
     def test_the_approvers_own_chapter_is_still_assignable(self):
         """Control: the scoped approver can approve into the chapter they manage."""
-        member = self._apply_as_guest(selected_chapter=self.own.name)
+        member = self._submit_application_as_guest(selected_chapter=self.own.name)
 
         with self.set_user(self.board.user):
             approve_membership_application(
@@ -158,7 +158,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ApprovalFixtures):
         from verenigingen.api.membership_application_review import get_pending_applications
         from verenigingen.utils.application_helpers import create_pending_chapter_membership
 
-        member = self._apply_as_guest(selected_chapter=self.own.name)
+        member = self._submit_application_as_guest(selected_chapter=self.own.name)
         create_pending_chapter_membership(frappe.get_doc("Member", member), self.foreign.name)
         frappe.db.set_value(
             "Chapter Member",
