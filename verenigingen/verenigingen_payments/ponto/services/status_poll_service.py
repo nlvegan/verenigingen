@@ -25,13 +25,21 @@ savepoint so one failure rolls back only that row.
 import time
 
 import frappe
-from frappe.utils import add_to_date, now_datetime
+import requests
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Count
+from frappe.utils import add_to_date, get_datetime, now_datetime
 from rq.timeouts import JobTimeoutException
 
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     release_savepoint_if_present,
     rollback_to_savepoint,
+)
+from verenigingen.verenigingen_payments.ponto.exceptions import (
+    PontoAPIError,
+    PontoAuthenticationError,
+    PontoRateLimitError,
 )
 
 # Rows created longer ago than this stop being polled (no local status change).
@@ -42,17 +50,22 @@ STALENESS_WINDOW_DAYS = 30
 # runs instead of never.
 BATCH_LIMIT = 100
 
-# Safety bound on the cheap (name, creation) listing the cursor rotates over.
-QUERY_LIMIT = 1000
+# Outage budget. PontoClient retries and there is no circuit breaker, so a dead Ponto
+# would cost every row. Stop after this many consecutive OUTAGE-shaped row failures
+# (see _is_outage), or when the run has used RUN_BUDGET_SECONDS of wall clock.
+MAX_CONSECUTIVE_OUTAGE_FAILURES = 3
+RUN_BUDGET_SECONDS = 120
 
-# Outage budget. PontoClient retries 3x (about 3 s) per failing call and there is no
-# circuit breaker, so a dead Ponto would cost every row. Stop after this many
-# consecutive failed rows, or when the run has used this much wall clock. The hourly
-# job runs on the default queue (300 s timeout), hence well under it.
-MAX_CONSECUTIVE_FAILURES = 3
-RUN_BUDGET_SECONDS = 200
+# The hourly job runs on the default queue with a 300 s timeout, and the budget is only
+# checked BETWEEN rows. Longest one row can take: PontoClient.get has timeout=30 and
+# with_retry(max_attempts=3, base_delay=1, max_delay=30) -> 3 x 30 s + backoff, about
+# 94 s, plus a token fetch (its own 30 s timeout) when the cached token has expired,
+# about 125 s. Rounded up. A row that starts just inside the budget must still end
+# before the queue timeout; test_run_budget_leaves_room_for_the_slowest_row pins it.
+MAX_ROW_SECONDS = 130
+QUEUE_TIMEOUT_SECONDS = 300
 
-UNCONFIGURED_LOG_TTL_SECONDS = 24 * 60 * 60
+ONCE_A_DAY_SECONDS = 24 * 60 * 60
 
 _monotonic = time.monotonic  # replaced by a fake clock in tests
 
@@ -65,83 +78,135 @@ _POLLED = (
 
 def poll_open_ponto_payment_statuses():
     """Scheduler entry: refresh the open, recent Ponto Requests and Links."""
-    batches, truncated = {}, []
+    batches = {}
     for doctype, statuses, id_field in _POLLED:
-        rows = _open_rows(doctype, statuses, id_field)
-        if rows and not _configured_for(doctype):
-            _log_unconfigured_once_a_day(doctype)
+        open_count = _open_count(doctype, statuses, id_field)
+        if not open_count:
             continue
-        if rows:
-            batches[doctype] = _next_batch(doctype, rows)
-            if len(rows) > BATCH_LIMIT:
-                truncated.append(f"{doctype}: {len(rows)} open, {BATCH_LIMIT} polled")
-    if truncated:
-        frappe.log_error(
-            title="Ponto status poll batch truncated",
-            message="; ".join(truncated) + ". The rest are polled on later runs (rotating cursor).",
-        )
-    _refresh_batches(batches)
+        if not _configured_for(doctype):
+            _log_once_a_day(
+                f"unconfigured:{doctype}",
+                title=f"Ponto status poll skipped: {doctype} not configured",
+                message=f"There are open {doctype} rows but Ponto Settings is not configured for their "
+                "client (credentials; for links also mTLS and an enabled bank account mapping).",
+            )
+            continue
+        batches[doctype] = _next_batch(doctype, statuses, id_field)
+        if open_count > BATCH_LIMIT:
+            _log_once_a_day(
+                f"truncated:{doctype}",
+                title=f"Ponto status poll batch truncated: {doctype}",
+                message=f"{open_count} open rows, {BATCH_LIMIT} polled per run; the rest are polled on "
+                "later runs (rotating cursor).",
+            )
+    _refresh_batches(_rotated(batches))
 
 
-def _open_rows(doctype, statuses, id_field):
-    return frappe.get_all(
-        doctype,
-        filters={
-            "docstatus": ["!=", 2],  # a cancelled doc cannot be saved
-            "status": ["in", statuses],
-            id_field: ["is", "set"],
-            "creation": [">=", add_to_date(now_datetime(), days=-STALENESS_WINDOW_DAYS)],
-        },
-        fields=["name", "creation"],
-        order_by="creation asc, name asc",
-        limit_page_length=QUERY_LIMIT,
+def _open_query(doctype, statuses, id_field):
+    table = frappe.qb.DocType(doctype)
+    ponto_id = table[id_field]
+    return table, (
+        frappe.qb.from_(table)
+        .where(table.docstatus != 2)  # a cancelled doc cannot be saved
+        .where(table.status.isin(statuses))
+        .where(ponto_id.isnotnull() & (ponto_id != ""))
+        .where(table.creation >= add_to_date(now_datetime(), days=-STALENESS_WINDOW_DAYS))
     )
 
 
-def _row_key(row):
-    return f"{row.creation.isoformat(sep=' ', timespec='microseconds')}|{row.name}"
+def _open_count(doctype, statuses, id_field):
+    _table, query = _open_query(doctype, statuses, id_field)
+    return query.select(Count("*")).run()[0][0]
 
 
 def _cursor_cache_key(doctype):
     return f"ponto_status_poll_cursor:{doctype}"
 
 
-def _next_batch(doctype, rows):
-    """The next BATCH_LIMIT rows after the stored cursor, wrapping round at the end.
+def _open_rows_page(doctype, statuses, id_field, where, limit):
+    """Open rows ordered by (creation, name); ``where(table)`` adds the cursor condition."""
+    table, query = _open_query(doctype, statuses, id_field)
+    query = query.select(table.name, table.creation).orderby(table.creation, order=Order.asc)
+    query = query.orderby(table.name, order=Order.asc).limit(limit)
+    if where is not None:
+        query = query.where(where(table))
+    return [frappe._dict(name=name, creation=creation) for name, creation in query.run()]
+
+
+def _next_batch(doctype, statuses, id_field):
+    """The next BATCH_LIMIT rows after the stored cursor, wrapping round to the head.
 
     A cursor in the cache rather than "oldest first" or ``modified asc``: oldest-first
     starved every row past the cap behind abandoned ones, and ``modified asc`` only
     rotates for doctypes that save on every refresh (Links do, Requests only on a
-    change). The cursor writes nothing to the rows (no schema field, no Version row).
-    A lost cache just restarts the rotation.
+    change). The cursor writes nothing to the rows (no schema field, no Version row)
+    and is applied in SQL, so there is no fixed listing cap. A lost cache just restarts
+    the rotation.
     """
     cursor = frappe.cache().get_value(_cursor_cache_key(doctype))
-    start = next((i for i, row in enumerate(rows) if cursor and _row_key(row) > cursor), 0)
-    return (rows[start:] + rows[:start])[:BATCH_LIMIT]
+    if not cursor:
+        return _open_rows_page(doctype, statuses, id_field, None, BATCH_LIMIT)
+    after = _open_rows_page(
+        doctype,
+        statuses,
+        id_field,
+        lambda t: (t.creation > cursor.creation) | ((t.creation == cursor.creation) & (t.name > cursor.name)),
+        BATCH_LIMIT,
+    )
+    if len(after) >= BATCH_LIMIT:
+        return after
+    head = _open_rows_page(
+        doctype,
+        statuses,
+        id_field,
+        lambda t: (t.creation < cursor.creation)
+        | ((t.creation == cursor.creation) & (t.name <= cursor.name)),
+        BATCH_LIMIT - len(after),
+    )
+    return after + head
+
+
+def _rotated(batches):
+    """Alternate which doctype goes first, so neither is structurally always first."""
+    if len(batches) < 2:
+        return batches
+    key = "ponto_status_poll_rotation"
+    turn = frappe.cache().get_value(key) or 0
+    frappe.cache().set_value(key, turn + 1)
+    names = list(batches)
+    offset = turn % len(names)
+    return {name: batches[name] for name in names[offset:] + names[:offset]}
 
 
 def _refresh_batches(batches):
     deadline = _monotonic() + RUN_BUDGET_SECONDS
-    consecutive_failures = attempted = 0
+    consecutive_outages = attempted = 0
     last_attempted = {}
     stop_reason = None
-    try:
-        for doctype, rows in batches.items():
-            for row in rows:
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    stop_reason = f"{consecutive_failures} consecutive failures"
-                elif _monotonic() >= deadline:
-                    stop_reason = f"the {RUN_BUDGET_SECONDS} s run budget was used up"
-                if stop_reason:
-                    break
-                last_attempted[doctype] = row
-                attempted += 1
-                consecutive_failures = 0 if _refresh_one(doctype, row.name) else consecutive_failures + 1
+    for doctype, rows in batches.items():
+        for row in rows:
+            if consecutive_outages >= MAX_CONSECUTIVE_OUTAGE_FAILURES:
+                stop_reason = f"{consecutive_outages} consecutive Ponto outage-type failures"
+            elif _monotonic() >= deadline:
+                stop_reason = f"the {RUN_BUDGET_SECONDS} s run budget was used up"
             if stop_reason:
                 break
-    finally:
-        for doctype, row in last_attempted.items():
-            frappe.cache().set_value(_cursor_cache_key(doctype), _row_key(row))
+            last_attempted[doctype] = row
+            attempted += 1
+            outcome = _refresh_one(doctype, row.name)
+            # A data error (4xx, validation, unmapped account) says nothing about Ponto
+            # being down, so it neither counts toward the stop nor resets the count.
+            if outcome == OUTAGE:
+                consecutive_outages += 1
+            elif outcome == OK:
+                consecutive_outages = 0
+        if stop_reason:
+            break
+    # Only reached on a normal exit. A fatal exception (deadlock, job timeout) propagates
+    # past this line: the transaction rolls back with it, so the cursor must not move
+    # past rows whose work was lost.
+    for doctype, row in last_attempted.items():
+        frappe.cache().set_value(_cursor_cache_key(doctype), row)
     if stop_reason:
         total = sum(len(rows) for rows in batches.values())
         frappe.log_error(
@@ -172,16 +237,21 @@ def _configured_for(doctype):
     return has_credentials
 
 
-def _log_unconfigured_once_a_day(doctype):
-    key = f"ponto_status_poll_unconfigured:{doctype}"
+def _log_once_a_day(key_suffix, title, message):
+    key = f"ponto_status_poll_logged:{key_suffix}"
     if frappe.cache().get_value(key):
         return
-    frappe.cache().set_value(key, 1, expires_in_sec=UNCONFIGURED_LOG_TTL_SECONDS)
-    frappe.log_error(
-        title=f"Ponto status poll skipped: {doctype} not configured",
-        message=f"There are open {doctype} rows but Ponto Settings is not configured for their client "
-        "(credentials; for links also mTLS and an enabled bank account mapping). Logged once a day.",
-    )
+    frappe.cache().set_value(key, 1, expires_in_sec=ONCE_A_DAY_SECONDS)
+    frappe.log_error(title=title, message=f"{message} Logged once a day.")
+
+
+def _causes(exc):
+    """``exc`` and everything on its ``__cause__``/``__context__`` chain."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        yield exc
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
 
 
 def _fatal_in_chain(exc):
@@ -189,18 +259,38 @@ def _fatal_in_chain(exc):
 
     ``refresh_status`` catches everything and ``frappe.throw``s, so these never reach
     this module as themselves; the original is still on ``__cause__``/``__context__``.
+    Covers a timeout raised in the code ``refresh_status`` calls, not one raised inside
+    ``with_retry`` mid-HTTP: that layer swallows it (#1919).
     """
-    seen = set()
-    while exc is not None and id(exc) not in seen:
-        if isinstance(exc, NON_RESUMABLE_DB_ERRORS + (JobTimeoutException,)):
-            return exc
-        seen.add(id(exc))
-        exc = exc.__cause__ or exc.__context__
-    return None
+    return next(
+        (e for e in _causes(exc) if isinstance(e, NON_RESUMABLE_DB_ERRORS + (JobTimeoutException,))), None
+    )
+
+
+def _is_outage(exc):
+    """True for failures that say Ponto (or the path to it) is down or throttling.
+
+    Classified on the exception classes the Ponto client raises, never on message text:
+    transport failures (``PontoClient.get`` wraps ``requests.RequestException`` in a
+    ``PontoAPIError`` with no status code), HTTP 5xx, 429 (``PontoRateLimitError``) and
+    401 (``PontoAuthenticationError``: the token is shared by every row). Other 4xx and
+    local validation/configuration errors are per-row data errors.
+    """
+    for e in _causes(exc):
+        if isinstance(e, (PontoRateLimitError, PontoAuthenticationError, requests.RequestException)):
+            return True
+        if isinstance(e, (ConnectionError, TimeoutError)):
+            return True
+        if isinstance(e, PontoAPIError) and (e.status_code is None or e.status_code >= 500):
+            return True
+    return False
+
+
+OK, OUTAGE, DATA_ERROR = "ok", "outage", "data_error"
 
 
 def _refresh_one(doctype, name):
-    """Refresh one row in its own savepoint. True on success, False on a row failure."""
+    """Refresh one row in its own savepoint. Returns OK, OUTAGE or DATA_ERROR."""
     savepoint = f"ponto_poll_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
@@ -217,6 +307,6 @@ def _refresh_one(doctype, name):
         frappe.log_error(
             title=f"Ponto status poll failed: {doctype} {name}", message=f"{type(e).__name__}: {e}"
         )
-        return False
+        return OUTAGE if _is_outage(e) else DATA_ERROR
     release_savepoint_if_present(savepoint)
-    return True
+    return OK

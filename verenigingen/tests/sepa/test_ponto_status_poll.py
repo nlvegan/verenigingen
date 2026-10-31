@@ -36,6 +36,7 @@ from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_payment_request import (
     PontoPaymentRequest,
 )
+from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
 PAY_CLIENT = "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client"
@@ -88,7 +89,9 @@ class _PollBase(EnhancedTestCase):
     def _clear_poll_cache(self):
         for doctype, _s, _i in status_poll_service._POLLED:
             frappe.cache().delete_value(status_poll_service._cursor_cache_key(doctype))
-            frappe.cache().delete_value(f"ponto_status_poll_unconfigured:{doctype}")
+            for kind in ("unconfigured", "truncated"):
+                frappe.cache().delete_value(f"ponto_status_poll_logged:{kind}:{doctype}")
+        frappe.cache().delete_value("ponto_status_poll_rotation")
 
     def _make_poll_request(self, status="Pending", ponto_id=True, age_days=0):
         doc = frappe.new_doc("Ponto Payment Request")
@@ -387,7 +390,7 @@ class TestPontoStatusPoll(_PollBase):
         before = self._poll_errors()
         stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
         self._run_job(pay=pay, link=link)
-        limit = status_poll_service.MAX_CONSECUTIVE_FAILURES
+        limit = status_poll_service.MAX_CONSECUTIVE_OUTAGE_FAILURES
         self.assertEqual(pay.get_payment.call_count + link.get_payment_request.call_count, limit)
         self.assertEqual(self._poll_errors() - before, limit)  # one per failed row ...
         stops = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
@@ -406,11 +409,11 @@ class TestPontoStatusPoll(_PollBase):
         self.expectErrorLog("Ponto status poll stopped early")
         for i in range(5):
             self._make_poll_request("Pending", age_days=20 - i)
-        ticks = iter(range(0, 10_000, 90))  # fake clock: every reading is 90 s later
+        ticks = iter(range(0, 10_000, 40))  # fake clock: every reading is 40 s later
         stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
         with patch.object(status_poll_service, "_monotonic", lambda: next(ticks)):
             (polled,) = self._tick_polled_ids()
-        # deadline = 0 + 200; readings 90, 180 allow rows 1 and 2, reading 270 stops.
+        # deadline = 0 + 120; readings 40, 80 allow rows 1 and 2, reading 120 stops.
         self.assertEqual(len(polled), 2)
         stops = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
         self.assertEqual(stops - stops_before, 1)
@@ -427,7 +430,10 @@ class TestPontoStatusPoll(_PollBase):
         polled = [c.kwargs["payment_id"] for c in pay.get_payment.call_args_list]
         self.assertNotIn(second.ponto_payment_id, polled)
 
-    def test_an_rq_job_timeout_is_never_swallowed_as_a_row_failure(self):
+    def test_a_job_timeout_raised_by_the_client_call_is_never_swallowed_as_a_row_failure(self):
+        """Covers a JobTimeoutException raised in the client call as refresh_status sees it
+        (the stub replaces the client, so this is OUTSIDE with_retry). One raised inside
+        with_retry mid-HTTP is swallowed by that layer first: #1919, not covered here."""
         self.expectErrorLog("Ponto status refresh failed")
         row = self._make_poll_request("Pending")
         pay = self._pay_client({row.ponto_payment_id: JobTimeoutException("300s")})
@@ -450,6 +456,154 @@ class TestPontoStatusPoll(_PollBase):
         self._run_job(pay=pay)
         self.assertEqual(frappe.db.get_value(bystander.doctype, bystander.name, "remittance_info"), "poll")
         self.assertEqual(self._poll_row_status(failing), "Pending")
+
+    # --- outage classification, rotation, cursor semantics -----------------------
+
+    def _tick(self, pay=None, link=None):
+        pay = pay or self._pay_client({})
+        link = link or self._link_client({})
+        pay.get_payment.reset_mock()
+        link.get_payment_request.reset_mock()
+        self._run_job(pay=pay, link=link)
+        return (
+            [c.kwargs["payment_id"] for c in pay.get_payment.call_args_list],
+            [c.args[0] for c in link.get_payment_request.call_args_list],
+        )
+
+    def _all_ponto_errors(self):
+        return ERROR_TITLE_PREFIX, "Ponto status poll stopped early", "status refresh failed"
+
+    def test_outage_failures_in_front_do_not_starve_the_other_doctype(self):
+        """Probe E (review): 3 Requests whose client raises + 1 healthy Link. Requests-first
+        every run polled the Link never. The doctype order now alternates."""
+        self.expectErrorLog(*self._all_ponto_errors())
+        bad = [self._make_poll_request("Pending", age_days=20 - i) for i in range(3)]
+        link = self._make_poll_link("Pending Authorization")
+        pay = self._pay_client({d.ponto_payment_id: ConnectionError("down") for d in bad})
+        link_client = self._link_client({link.ponto_request_id: "signed"})
+        for _ in range(2):
+            self._tick(pay, link_client)
+        self.assertEqual(self._poll_row_status(link), "Authorized")
+
+    def test_data_errors_do_not_count_toward_the_outage_stop(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        bad = [self._make_poll_request("Pending", age_days=20 - i) for i in range(5)]
+        link = self._make_poll_link("Pending Authorization")
+        refused = PontoAPIError("not found", status_code=404)
+        pay = self._pay_client({d.ponto_payment_id: refused for d in bad})
+        link_client = self._link_client({link.ponto_request_id: "signed"})
+        with patch.object(status_poll_service, "_rotated", lambda batches: batches):  # Requests first
+            requests_polled, links_polled = self._tick(pay, link_client)
+        self.assertEqual(len(requests_polled), 5)  # no stop after 3 data errors
+        self.assertEqual(links_polled, [link.ponto_request_id])
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"}), 0)
+
+    def test_each_client_error_class_is_classified_on_its_type_not_its_message(self):
+        outage = [
+            PontoRateLimitError("slow down"),
+            PontoAPIError("boom", status_code=503),
+            PontoAPIError("could not connect"),  # PontoClient.get wraps a transport failure like this
+            ConnectionError("x"),
+            TimeoutError("x"),
+        ]
+        data = [
+            PontoAPIError("outage outage 503 connection", status_code=404),  # misleading text
+            PontoAPIError("bad", status_code=422),
+            ValueError("503"),
+            frappe.ValidationError("connection refused"),
+        ]
+        for exc in outage:
+            with self.subTest(exc=repr(exc)):
+                self.assertTrue(status_poll_service._is_outage(exc))
+        for exc in data:
+            with self.subTest(exc=repr(exc)):
+                self.assertFalse(status_poll_service._is_outage(exc))
+
+    def test_outage_failures_across_both_doctypes_share_one_consecutive_count(self):
+        self.expectErrorLog(*self._all_ponto_errors())
+        for i in range(2):
+            self._make_poll_request("Pending", age_days=20 - i)
+            self._make_poll_link("Pending Authorization", age_days=20 - i)
+        down = ConnectionError("down")
+        pay, link = MagicMock(), MagicMock()
+        pay.get_payment.side_effect = down
+        link.get_payment_request.side_effect = down
+        self._run_job(pay=pay, link=link)
+        self.assertEqual(
+            pay.get_payment.call_count + link.get_payment_request.call_count,
+            status_poll_service.MAX_CONSECUTIVE_OUTAGE_FAILURES,
+        )
+
+    def test_doctype_order_alternates_between_runs(self):
+        self._make_poll_request("Pending")
+        self._make_poll_link("Pending Authorization")
+        order = []
+        for _ in range(2):
+            pay, link = self._pay_client({}), self._link_client({})
+            pay.get_payment.side_effect = lambda **k: order.append("request") or SimpleNamespace(status="pending")
+            link.get_payment_request.side_effect = lambda r: order.append("link") or SimpleNamespace(
+                status="pending", debtor_name=None, debtor_iban=None, debtor_bank=None
+            )
+            self._run_job(pay=pay, link=link)
+        self.assertEqual(sorted(order[:2]), ["link", "request"])
+        self.assertNotEqual(order[0], order[2])  # a different doctype goes first on run 2
+
+    def test_run_budget_leaves_room_for_the_slowest_row(self):
+        self.assertLess(
+            status_poll_service.RUN_BUDGET_SECONDS + status_poll_service.MAX_ROW_SECONDS,
+            status_poll_service.QUEUE_TIMEOUT_SECONDS,
+        )
+
+    def test_cursor_resumes_after_the_last_attempted_row_of_an_early_stop(self):
+        """Stopping early must not skip the unattempted rows: the next run starts right
+        after the last row actually attempted (not after the batch's last row)."""
+        self.expectErrorLog(*self._all_ponto_errors())
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(5)]
+        down = {d.ponto_payment_id: ConnectionError("down") for d in rows[:3]}
+        first, _ = self._tick(self._pay_client(down))
+        self.assertEqual(first, [d.ponto_payment_id for d in rows[:3]])  # stopped after 3
+        second, _ = self._tick(self._pay_client({}))
+        self.assertEqual(second[:2], [d.ponto_payment_id for d in rows[3:]])
+
+    def test_selection_wraps_round_to_the_head_when_the_tail_is_short(self):
+        self.expectErrorLog("Ponto status poll batch truncated")
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(5)]
+        with patch.object(status_poll_service, "BATCH_LIMIT", 3):
+            first, _ = self._tick()
+            second, _ = self._tick()
+        self.assertEqual(first, [d.ponto_payment_id for d in rows[:3]])
+        self.assertEqual(second, [d.ponto_payment_id for d in (rows[3], rows[4], rows[0])])
+
+    def test_a_fatal_abort_does_not_advance_the_cursor(self):
+        """The transaction rolls back with the abort, so the Redis cursor must not move
+        past rows whose work was lost."""
+        self.expectErrorLog("Ponto status poll batch truncated", "status refresh failed")
+        rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(5)]
+        key = status_poll_service._cursor_cache_key("Ponto Payment Request")
+        with patch.object(status_poll_service, "BATCH_LIMIT", 2):
+            self._tick()  # normal run: cursor now after rows[1]
+            cursor = frappe.cache().get_value(key)
+            self.assertEqual(cursor.name, rows[1].name)
+            pay = self._pay_client({rows[3].ponto_payment_id: frappe.QueryDeadlockError("1213")})
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._run_job(pay=pay)
+        self.assertEqual(frappe.cache().get_value(key).name, rows[1].name)
+
+    def test_unconfigured_with_no_open_rows_logs_nothing(self):
+        self._configure_ponto(False)
+        with self.assertNoErrorLog():
+            self._run_job()
+
+    def test_truncation_row_is_written_once_a_day_not_every_run(self):
+        self.expectErrorLog("Ponto status poll batch truncated")
+        for i in range(4):
+            self._make_poll_request("Pending", age_days=20 - i)
+        like = {"method": ["like", "Ponto status poll batch truncated%"]}
+        before = frappe.db.count("Error Log", like)
+        with patch.object(status_poll_service, "BATCH_LIMIT", 2):
+            self._tick()
+            self._tick()
+        self.assertEqual(frappe.db.count("Error Log", like) - before, 1)
 
 
 class TestLinkPaymentEntryViaPoll(_PollBase):
