@@ -131,6 +131,48 @@ class _GuestDispatchMixin:
         frappe.set_user(old[2])
 
 
+class _MollieMustNotBeAsked:
+    """A payment that reports no refund or chargeback needs no discovery call."""
+
+    asked = False
+
+    @property
+    def payments(self):
+        # Recorded as well as raised: discovery swallows exceptions into
+        # "check failed", so the raise alone would not fail the delivery under test.
+        type(self).asked = True
+        raise AssertionError("refund/chargeback discovery ran for a payment that reports none")
+
+
+class _FakeMollie:
+    """The SDK surface the idempotency manager lists reversals from."""
+
+    def __init__(self, refunds=(), chargebacks=(), fail=False):
+        self._refunds, self._chargebacks, self._fail = list(refunds), list(chargebacks), fail
+        self.payments = self
+
+    def get(self, _payment_id):
+        return self
+
+    @property
+    def refunds(self):
+        return self._lister({"_embedded": {"refunds": self._refunds}})
+
+    @property
+    def chargebacks(self):
+        return self._lister(self._chargebacks)
+
+    def _lister(self, value):
+        from types import SimpleNamespace
+
+        def list_():
+            if self._fail:
+                raise ConnectionError("mollie down")
+            return value
+
+        return SimpleNamespace(list=list_)
+
+
 class TestSubscriptionWebhookDispatch(_GuestDispatchMixin, EnhancedTestCase):
     """Behavioural: an anonymous Mollie-shaped POST must get past dispatch."""
 
@@ -176,9 +218,9 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
     after it is real: classification by ``Member.mollie_subscription_id``,
     ``DuesPaymentProcessor`` and the Bank Transaction it writes.
 
-    Not asserted: a SECOND identical delivery. It is not idempotent today (it posts an
-    unallocated Payment Entry, "partial_processing"); that predates this change and is
-    tracked in #1780. Pinning either behaviour here would be wrong.
+    A SECOND delivery of the same ``tr_`` id is asserted too (#1780): Mollie re-posts the
+    id on retries AND on a refund or chargeback of that payment, and the two must be told
+    apart -- a retry changes nothing, a reversal reaches ``process_reversal_webhook``.
     """
 
     def setUp(self):
@@ -192,6 +234,8 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         ctx = provisioned_mollie_settings(company=self.company)
         accounts = ctx.__enter__()
         self.addCleanup(ctx.__exit__, None, None, None)
+        self.clearing_account = accounts["clearing_account"]
+        self.currency = frappe.get_value("Company", self.company, "default_currency")
         # The Bank Transaction is booked against the Bank Account of the clearing GL.
         ensure_bank_account_record(self.company, accounts["clearing_account"])
 
@@ -212,6 +256,9 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             update_modified=False,
         )
         self.invoice_name, self.invoice_total = self._unpaid_dues_invoice()
+        # Resolved before any delivery: a Guest dispatch leaves the request context on
+        # a host the URL builder refuses, so a later call would raise.
+        self.webhook_url = frappe.get_single("Mollie Settings").get_subscription_webhook_url()
 
     def _unpaid_dues_invoice(self):
         income = frappe.get_value("Company", self.company, "default_income_account")
@@ -282,3 +329,289 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(rows[0].party_type, "Customer")
         self.assertEqual(rows[0].party, self.customer)
         self.assertEqual(rows[0].custom_member, self.member.name)
+
+    # ---- #1780 / #370: one tr_ id, delivered more than once -----------------------
+
+    def _paid_dues_payment(self, payment_id, paid_amount, **extra):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=payment_id,
+            status="paid",
+            amount={
+                "value": f"{paid_amount:.2f}",
+                "currency": frappe.get_value("Company", self.company, "default_currency"),
+            },
+            description="",
+            subscription_id=self.subscription_id,
+            customer_id=self.mollie_customer_id,
+            paid_at="2025-04-10T09:00:00+00:00",
+            **extra,
+        )
+
+    def _post_mollie_notification(self, payment, mollie_client=None):
+        """One anonymous Mollie notification. Only Mollie's HTTP boundary is stubbed:
+        ``fetch_payment`` and, where a test needs refund/chargeback discovery, the SDK
+        client the idempotency manager lists them from."""
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+        from verenigingen.verenigingen_payments.mollie.services.payment_type_router import (
+            PaymentTypeRouter,
+        )
+
+        url = self.webhook_url
+        client = mollie_client or _MollieMustNotBeAsked()
+        _MollieMustNotBeAsked.asked = False
+        frappe.local.response.pop("http_status_code", None)
+        with patch.object(PaymentTypeRouter, "fetch_payment", return_value=payment), patch.object(
+            MollieClient, "_get_mollie_client", return_value=client
+        ), patch.dict(frappe.conf, {"allow_mollie_test_mode": 1}):
+            result = self._post_as_guest(_dotted_method(url), payment.id)
+        if mollie_client is None:
+            self.assertFalse(_MollieMustNotBeAsked.asked, "an ordinary delivery listed refunds at Mollie")
+        return result
+
+    def _state_of(self, payment_id):
+        """Everything a retry could move, keyed on the payment."""
+        bts = frappe.get_all(
+            "Bank Transaction",
+            filters={"reference_number": payment_id},
+            fields=["name", "docstatus", "status", "deposit", "allocated_amount", "unallocated_amount"],
+        )
+        return {
+            "bank_transactions": [dict(r) for r in bts],
+            "bt_links": frappe.db.count(
+                "Bank Transaction Payments", {"parent": ["in", [b.name for b in bts] or [""]]}
+            ),
+            "payment_entries": sorted(
+                frappe.get_all(
+                    "Payment Entry",
+                    filters={"party": self.customer, "docstatus": ["!=", 2]},
+                    pluck="name",
+                )
+            ),
+            "journal_entries": sorted(
+                frappe.get_all(
+                    "Journal Entry",
+                    filters={"cheque_no": ["like", f"{payment_id}%"], "docstatus": ["!=", 2]},
+                    pluck="name",
+                )
+            ),
+            "outstanding": float(frappe.db.get_value("Sales Invoice", self.invoice_name, "outstanding_amount")),
+        }
+
+    def test_a_second_identical_delivery_leaves_state_unchanged(self):
+        """#1780. Probe shortcut: none -- both deliveries are the real Guest dispatch."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        first = self._post_mollie_notification(payment)
+        after_first = self._state_of(payment_id)
+        self.assertEqual(len(after_first["bank_transactions"]), 1, f"fixture: no BT booked: {first}")
+        self.assertEqual(after_first["payment_entries"], [], "fixture: BT mode books no Payment Entry")
+
+        second = self._post_mollie_notification(payment)
+
+        self.assertEqual(self._state_of(payment_id), after_first, f"a retry changed state: {second}")
+        self.assertEqual(after_first["bank_transactions"][0]["status"], "Unreconciled")
+
+    def test_a_retry_resubmits_a_bank_transaction_left_in_draft_instead_of_booking_a_payment_entry(self):
+        """The retry that IS owed work: the first delivery left a BT that never submitted.
+
+        Probe shortcut: the draft is produced by making the SUBMIT step of
+        ``secure_document_operation`` report failure (the permission boundary a webhook
+        user without ``Bank Transaction:submit`` hits), not by editing docstatus.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from verenigingen.utils import secure_operations
+
+        real = secure_operations.secure_document_operation
+
+        def refuse_submit(*args, **kwargs):
+            if kwargs.get("operation") == "submit":
+                return SimpleNamespace(
+                    success=False, errors=["no submit permission"], partial_write=False, document=None
+                )
+            return real(*args, **kwargs)
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        with patch.object(secure_operations, "secure_document_operation", side_effect=refuse_submit):
+            self._post_mollie_notification(payment)
+        rows = frappe.get_all("Bank Transaction", filters={"reference_number": payment_id}, fields=["docstatus"])
+        self.assertEqual([r.docstatus for r in rows], [0], "fixture: the first delivery must leave a draft")
+
+        self._post_mollie_notification(payment)
+
+        after = self._state_of(payment_id)
+        self.assertEqual([b["docstatus"] for b in after["bank_transactions"]], [1], "draft BT not resubmitted")
+        self.assertEqual(after["payment_entries"], [], "the retry posted a Payment Entry")
+
+    def test_a_delivery_that_raced_past_the_existence_check_still_books_nothing_new(self):
+        """Concurrent double delivery. Two deliveries that BOTH read "no BT yet" book one
+        row, because ``Bank Transaction`` carries a per-account unique key on the
+        reference (#1267) and the loser recovers the winner's row.
+
+        Probe shortcut: the interleaving is simulated by making the second delivery's
+        existence check answer "not processed", not by running two connections.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            BankTransactionCreator,
+        )
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self._post_mollie_notification(payment)
+        after_first = self._state_of(payment_id)
+
+        blank = {"already_processed": False, "bank_transaction": None, "payment_entry": None}
+        with patch.object(BankTransactionCreator, "check_already_processed", return_value=blank):
+            self._post_mollie_notification(payment)
+
+        self.assertEqual(self._state_of(payment_id), after_first)
+
+    def _forward_dues_payment_entry(self, payment_id):
+        """The forward artefact the reversal booking needs: a submitted Payment Entry
+        carrying the Mollie id, allocated to the invoice -- what reconciling the dues BT
+        produces, and what the older Payment Entry mode wrote."""
+        from decimal import Decimal
+
+        from frappe.utils import getdate
+
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        self.ensure_mode_of_payment("Mollie", "Bank")
+        pe = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=self.invoice_name,
+            amount=Decimal(str(self.invoice_total)),
+            posting_date=getdate(),
+            reference_no=payment_id,
+            reference_date=getdate(),
+            mode_of_payment="Mollie",
+            bank_account=self.clearing_account,
+        )
+        self.track_test_record("Payment Entry", pe.name)
+        return pe.name
+
+    def _refund_of(self, amount):
+        return {
+            "id": f"re_{frappe.generate_hash(length=8)}",
+            "amount": {"value": f"{amount:.2f}", "currency": self.currency},
+            "createdAt": "2025-04-11T09:00:00+00:00",
+        }
+
+    @staticmethod
+    def _http_status():
+        """The status Mollie sees. The body is not read: #1781 reduces it to ok|error."""
+        return int(frappe.local.response.get("http_status_code") or 200)
+
+    def _invoice_outstanding(self):
+        return float(frappe.db.get_value("Sales Invoice", self.invoice_name, "outstanding_amount"))
+
+    def test_a_redelivery_carrying_a_refund_reaches_the_reversal_booking_once(self):
+        """#370 slice. The forward payment is reconciled (a Payment Entry exists); Mollie
+        re-posts the id because the payment was partly refunded."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        forward = self._forward_dues_payment_entry(payment_id)
+        self.assertEqual(self._invoice_outstanding(), 0.0, "fixture: the invoice should start settled")
+        # Derived from the fixture, not hard-coded: a fraction of what was paid.
+        refund = self._refund_of(round(float(self.invoice_total) / 5, 2))
+        refunded = float(refund["amount"]["value"])
+        payment = self._paid_dues_payment(
+            payment_id,
+            float(self.invoice_total),
+            amountRefunded={"value": f"{refunded:.2f}", "currency": self.currency},
+        )
+        client = _FakeMollie(refunds=[refund])
+
+        first = self._post_mollie_notification(payment, client)
+        self.assertLess(self._http_status(), 400, first)
+
+        key = f"{payment_id}_refund_{refund['id']}"
+        jes = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1}, pluck="name")
+        self.assertEqual(len(jes), 1, f"the refund must book exactly one Journal Entry: {first}")
+        self.assertEqual(self._invoice_outstanding(), refunded)
+        before = self._state_of(payment_id)
+
+        again = self._post_mollie_notification(payment, client)
+
+        self.assertLess(self._http_status(), 400, again)
+        self.assertEqual(self._state_of(payment_id), before, "a re-delivery of a booked refund moved state")
+        self.assertEqual(self._invoice_outstanding(), refunded, "the refund was restored twice")
+        self.assertIn(forward, before["payment_entries"])
+
+    def test_a_redelivery_carrying_a_chargeback_reaches_the_reversal_booking(self):
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        self._forward_dues_payment_entry(payment_id)
+        amount = round(float(self.invoice_total) / 5, 2)
+        chargeback = {
+            "id": f"chb_{frappe.generate_hash(length=8)}",
+            "amount": {"value": f"{amount:.2f}", "currency": self.currency},
+            "reason": {"code": "AM04", "description": "Insufficient funds"},
+        }
+        payment = self._paid_dues_payment(
+            payment_id,
+            float(self.invoice_total),
+            amountChargedBack={"value": f"{amount:.2f}", "currency": self.currency},
+        )
+
+        result = self._post_mollie_notification(payment, _FakeMollie(chargebacks=[chargeback]))
+
+        self.assertLess(self._http_status(), 400, result)
+        key = f"{payment_id}_chargeback_{chargeback['id']}"
+        self.assertEqual(
+            len(frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1})), 1, result
+        )
+        self.assertEqual(self._invoice_outstanding(), amount)
+
+    def test_a_refund_of_an_unreconciled_bank_transaction_is_not_swallowed_and_posts_nothing(self):
+        """BT-only forward booking: there is no Payment Entry for the reversal to mirror.
+        The delivery must say so (non-success, so Mollie retries until the treasurer has
+        reconciled) -- never answer 200 and lose the refund, and never post a stand-in."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self._post_mollie_notification(payment)
+        before = self._state_of(payment_id)
+        refund = self._refund_of(1.0)
+        refunded_payment = self._paid_dues_payment(
+            payment_id,
+            float(self.invoice_total),
+            amountRefunded={"value": "1.00", "currency": self.currency},
+        )
+
+        result = self._post_mollie_notification(refunded_payment, _FakeMollie(refunds=[refund]))
+
+        self.assertEqual(self._http_status(), 500, result)
+        self.assertEqual(self._state_of(payment_id), before)
+
+    def test_an_unavailable_mollie_defers_refund_discovery_rather_than_dropping_it(self):
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        self._forward_dues_payment_entry(payment_id)
+        payment = self._paid_dues_payment(
+            payment_id,
+            float(self.invoice_total),
+            amountRefunded={"value": "1.00", "currency": self.currency},
+        )
+
+        result = self._post_mollie_notification(payment, _FakeMollie(fail=True))
+
+        self.assertEqual(self._http_status(), 503, result)
+
+    def test_a_payment_reporting_zero_refunded_is_not_listed_at_mollie(self):
+        """Control for the discovery gate: Mollie may send ``amountRefunded`` as 0.00
+        (a truthy dict / string), which is not a refund."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        zero = {"value": "0.00", "currency": self.currency}
+        payment = self._paid_dues_payment(
+            payment_id, float(self.invoice_total), amountRefunded=zero, amountChargedBack=zero
+        )
+
+        self._post_mollie_notification(payment)  # asserts Mollie was not asked
+
+        self.assertLess(self._http_status(), 400)
+        self.assertEqual(len(self._state_of(payment_id)["bank_transactions"]), 1)
