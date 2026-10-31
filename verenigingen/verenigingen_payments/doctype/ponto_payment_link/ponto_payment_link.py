@@ -292,8 +292,10 @@ class PontoPaymentLink(Document):
             # never sees it). Unmapped keeps the current status; a backward move is
             # refused.
             ponto_status = (request.status or "").lower()
+            # The scheduled poll sets this flag so it never adopts "closed" (#1885/#1840).
+            adopt_closed = not self.flags.get("ponto_poll_skip_closed")
             new_status = (
-                "Executed" if ponto_status == "closed" else map_link_status(ponto_status)
+                "Executed" if ponto_status == "closed" and adopt_closed else map_link_status(ponto_status)
             ) or self.status
             if is_refused_move(self.status, new_status):
                 new_status = self.status
