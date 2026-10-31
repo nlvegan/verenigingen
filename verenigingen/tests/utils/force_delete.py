@@ -27,3 +27,17 @@ def force_delete(doctype: str, name: str) -> None:
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
     except Exception:
         pass
+
+
+def delete_role_and_grants(role_name: str) -> None:
+    """Delete a Role and every `Has Role` row that points at it (#1665).
+
+    Frappe's Role has `remove_roles()` but no `on_trash` that calls it, so a bare
+    `delete_doc("Role", ..., force=True)` leaves the rows on every user that held the role
+    (Administrator included). The next `User.save()` of such a user dies with "Could not find
+    Row #N: Role: ...", and `before_tests` re-saves Administrator, so on a shard every later
+    module fails. Unlike `force_delete` this raises: callers decide whether a failed role
+    teardown matters.
+    """
+    frappe.db.delete("Has Role", {"role": role_name})
+    frappe.delete_doc("Role", role_name, force=True, ignore_permissions=True)

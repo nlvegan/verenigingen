@@ -40,6 +40,7 @@ from verenigingen.utils.account_creation_manager import (
 from verenigingen.services.member.account.user_role_profile_calculator import (
     get_user_role_profiles,
 )
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, BusinessRuleError
 
 
@@ -743,7 +744,7 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
 
         # Verify role doesn't exist before test
         if frappe.db.exists("Role", nonexistent_role):
-            frappe.delete_doc("Role", nonexistent_role)
+            delete_role_and_grants(nonexistent_role)
 
         request = frappe.get_doc(
             {
@@ -798,7 +799,7 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
 
         # Verify role doesn't exist before test
         if frappe.db.exists("Role", invalid_role):
-            frappe.delete_doc("Role", invalid_role)
+            delete_role_and_grants(invalid_role)
 
         request = frappe.get_doc(
             {
@@ -1069,7 +1070,7 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
 
         # Verify role doesn't exist before test
         if frappe.db.exists("Role", invalid_role):
-            frappe.delete_doc("Role", invalid_role)
+            delete_role_and_grants(invalid_role)
 
         request = frappe.get_doc(
             {
