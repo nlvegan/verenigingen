@@ -560,7 +560,7 @@ $(document).ready(function() {
     let currentYear = {{ calendar_year|int }};
 
     // Payment data
-    const paymentData = {{ payment_data|tojson }};
+    const paymentData = {{ payment_data|default([])|tojson }};
 
     // Initialize calendar
     renderCalendar();

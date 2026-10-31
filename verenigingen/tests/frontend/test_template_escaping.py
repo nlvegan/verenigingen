@@ -91,6 +91,17 @@ class TestTemplateEscapingThroughRealControllers(EnhancedTestCase):
     <script>, #1890 review C1), nor a Text Editor field that must NOT be escaped.
     """
 
+    def _insert_user(self, email, label, roles):
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": label,
+                "send_welcome_email": 0,
+                "roles": [{"role": r} for r in roles],
+            }
+        ).insert(ignore_permissions=True)
+
     def _member_with_user(self, label, *extra_roles):
         member = self.create_test_member(
             first_name=label,
@@ -100,15 +111,7 @@ class TestTemplateEscapingThroughRealControllers(EnhancedTestCase):
         )
         email = member.email
         if not frappe.db.exists("User", email):
-            frappe.get_doc(
-                {
-                    "doctype": "User",
-                    "email": email,
-                    "first_name": label,
-                    "send_welcome_email": 0,
-                    "roles": [{"role": r} for r in ("Verenigingen Member", *extra_roles)],
-                }
-            ).insert(ignore_permissions=True)
+            self._insert_user(email, label, ("Verenigingen Member", *extra_roles))
         member.db_set("user", email)
         member.reload()
         return member, email
@@ -129,8 +132,7 @@ class TestTemplateEscapingThroughRealControllers(EnhancedTestCase):
     def test_personal_details_inline_address_json_parses(self):
         """address_data_json inside <script> must be JSON: |e made it {&#34;city&#34;: ...}.
 
-        Setup shortcut: the address fields are written with db.set_value on a real Address
-        linked the way update_member_address links it, not through the portal endpoint.
+        The address is created through the real update_member_address endpoint.
         """
         from verenigingen.templates.pages.address_change import update_member_address
 
@@ -161,3 +163,15 @@ class TestTemplateEscapingThroughRealControllers(EnhancedTestCase):
 
         self.assertIn("<strong>newsletter</strong>", html)
         self.assertIn("Crew &amp; Co", html, "Data field not escaped")
+
+    def test_my_dues_schedule_renders_for_a_user_without_a_member_record(self):
+        """The script block sits outside the no-member guard and the controller returns early,
+        so payment_data is undefined there; |tojson of an undefined value raised a 500."""
+        email = f"esc-nomember-{frappe.generate_hash()[:8]}@example.com"
+        self._insert_user(email, "Nomember", ("Verenigingen Member",))
+        self.track_doc("User", email)
+        self.assertFalse(frappe.db.exists("Member", {"user": email}), "fixture must have no Member")
+
+        html = self._render("my_dues_schedule", email)
+
+        self.assertIn("No member record found", html)

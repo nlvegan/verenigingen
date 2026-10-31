@@ -51,6 +51,22 @@ class TestFlagged(unittest.TestCase):
         self.assertEqual(len(found("""<a onclick="go({{ x|tojson }})">""")), 1)
         self.assertEqual(len(found("""<a onclick='go("{{ x|e }}")'>""")), 1)
 
+    def test_tojson_in_a_double_quoted_attribute_is_flagged(self):
+        """tojson does not escape ", so data-x="{{ v|tojson }}" is an attribute breakout."""
+        self.assertEqual(len(found('<div data-x="{{ x|tojson }}">')), 1)
+        self.assertEqual(len(found('<div data-x="{{ x|tojson|safe }}">')), 1)
+        self.assertEqual(len(found('<div class="a {% if q %}b{% endif %} {{ x|tojson }}">')), 1)
+
+    def test_tojson_in_a_single_quoted_attribute_is_accepted(self):
+        """tojson escapes ', so a single-quoted attribute is closed (admin_tools data-args)."""
+        self.assertEqual(found("<div data-x='{{ x|tojson|safe }}'>"), [])
+
+    def test_e_and_tojson_then_e_are_accepted_in_a_double_quoted_attribute(self):
+        self.assertEqual(found('<div data-x="{{ x|e }}" data-y="{{ x|tojson|e }}" title="{{ _(\'Hi\') }}">'), [])
+
+    def test_a_double_quoted_attribute_ends_at_its_closing_quote(self):
+        self.assertEqual(found('<div data-x="1"> {{ x|tojson }}'), [])
+
     def test_a_data_attribute_is_ordinary_html(self):
         self.assertEqual(found("""<a data-x="{{ x|e }}" onclick="go(this.dataset.x)">"""), [])
 

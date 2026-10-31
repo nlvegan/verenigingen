@@ -137,6 +137,21 @@ def _static_translation(node):
     )
 
 
+def _attr_safe(node):
+    """Double-quoted attribute: escape with |e (or a number); a bare |tojson is refused."""
+    if isinstance(node, nodes.Const) or _static_translation(node):
+        return True
+    if isinstance(node, nodes.Filter):
+        if node.name in {"e", "escape", "forceescape"} | NUMERIC_FILTERS:
+            return True
+        return False
+    if isinstance(node, nodes.CondExpr):
+        return _attr_safe(node.expr1) and (node.expr2 is None or _attr_safe(node.expr2))
+    if isinstance(node, (nodes.Or, nodes.And)):
+        return _attr_safe(node.left) and _attr_safe(node.right)
+    return False
+
+
 def is_safe_expression(node, context="html"):
     """Classify one parsed expression node as safe to print on an autoescape-off page.
 
@@ -151,6 +166,10 @@ def is_safe_expression(node, context="html"):
         return True
     if context == "handler":
         return False
+    if context == "attr_dq":
+        # |tojson does not escape ", so inside a double-quoted attribute it is a breakout
+        # (`data-x="{{ v|tojson }}"` with v = 'a" onmouseover="...'). Only |e closes it.
+        return _attr_safe(node)
     if isinstance(node, nodes.Filter):
         ok = NUMERIC_FILTERS | {"tojson"} if context == "script" else TERMINAL_OK
         if node.name in ok:
@@ -186,6 +205,7 @@ def expression_nodes(inner):
 
 _SCRIPT_OPEN = re.compile(r"<script\b", re.I)
 _SCRIPT_CLOSE = re.compile(r"</script", re.I)
+_QUOTED_ATTR = re.compile(r"""\s[\w:-]+\s*=\s*("[^"]*|'[^']*)$""")
 _HANDLER_ATTR = re.compile(r"""\son\w+\s*=\s*("[^"]*|'[^']*)$""", re.I)
 
 
@@ -198,6 +218,10 @@ def output_context(prefix):
     lt, gt = prefix.rfind("<"), prefix.rfind(">")
     if lt > gt and _HANDLER_ATTR.search(prefix[lt:]):
         return "handler"
+    if lt > gt:
+        quoted = _QUOTED_ATTR.search(prefix[lt:])
+        if quoted and quoted.group(1).startswith('"'):
+            return "attr_dq"
     return "html"
 
 
