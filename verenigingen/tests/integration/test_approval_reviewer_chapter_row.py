@@ -161,3 +161,21 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         self.assertEqual(len(failures), 1, msg=str(failures))
         self.assertIn(member.name, failures[0].error)
         self.assertIn("boom-1797", failures[0].error)
+
+    def test_a_board_member_approver_can_approve_into_their_own_chapter(self):
+        """Regression found via #1860: the post-activation chapter step (#1797) re-saved the
+        Member, and a non-admin board-member approver may write a PENDING applicant but not an
+        ACTIVE member, so the approval raised PermissionError after the member was already Active.
+        All other tests here run as Administrator, which hid it."""
+        chapter = self.create_test_chapter(published=1)
+        board = self.create_test_board_member(chapter.name)
+        member = self._apply_as_guest(selected_chapter=chapter.name)
+
+        with self.set_user(board.user):
+            approve_membership_application(
+                member_name=member, membership_type=self.membership_type, chapter=chapter.name
+            )
+
+        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
+        self.assertEqual(self._rows(member), {chapter.name: (1, "Active")})
+        self.assertEqual(frappe.db.get_value("Member", member, "current_chapter"), chapter.name)
