@@ -192,7 +192,7 @@ def create_webhook_user_account(webhook_email, webhook_password):
     try:
         if frappe.db.exists("User", webhook_email):
             # Converge rather than no-op: get_service_user() treats a DISABLED user
-            # exactly like an unset one and silently falls back to Administrator, so
+            # exactly like an unset one and returns None (the gateway webhooks then refuse), so
             # leaving it disabled would leave the whole scoped-service-user model off.
             if not frappe.db.get_value("User", webhook_email, "enabled"):
                 # Save the doc rather than db_set: db_set bypasses User.on_update, so

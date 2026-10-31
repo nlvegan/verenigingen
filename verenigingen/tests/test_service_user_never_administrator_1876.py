@@ -179,7 +179,8 @@ class TestWebhookUserSetupGuarantee(EnhancedTestCase):
             missing = profile_roles - held
         finally:
             super().tearDownClass()
-        assert not missing, f"this class left the site webhook user without {sorted(missing)}"
+        if missing:
+            raise AssertionError(f"this class left the site webhook user without {sorted(missing)}")
 
     def setUp(self):
         super().setUp()
