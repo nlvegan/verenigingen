@@ -197,7 +197,7 @@ class TestInstallStepsSurfaceTheirFailures(FrappeTestCase):
         self.assertFalse(mark.called)
 
     def test_tax_exemption(self):
-        enabled = frappe._dict(tax_exempt_for_contributions=1)
+        enabled = frappe._dict(tax_exempt_for_contributions=1, save=lambda **k: None)
         with mock.patch("verenigingen.utils.settings_utils.get_verenigingen_settings", return_value=enabled):
             with mock.patch("verenigingen.utils.setup_dutch_tax_exemption", side_effect=RuntimeError("boom")):
                 with mock.patch.object(setup_mod, "_mark_initial_setup_complete") as mark:
