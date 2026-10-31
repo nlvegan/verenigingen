@@ -403,7 +403,7 @@ function updateMetricCards() {
 
 		// Update pending metric
 		if (metrics.members) {
-			$('.pending-card .metric-content h3').text(metrics.members.pending);
+			$('.pending-card .metric-content h3').text(metrics.members.pending ?? '--');
 		}
 
 		// Update expenses metric

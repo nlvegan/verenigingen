@@ -535,6 +535,7 @@ class TestDashboardWiring(EnhancedTestCase):
         ))
         script = self._read("public/js/chapter_dashboard.js")
         self.assertIn("function refusalText(", script)
+        self.assertIn("metrics.members.pending ?? '--'", script, "the refresh keeps the server-rendered '--'")
         self.assertNotIn("r.message.error || r.message.message", script)
 
     def test_staff_may_open_the_review_page(self):
@@ -549,19 +550,59 @@ class TestDashboardWiring(EnhancedTestCase):
             roles = {row["role"] for row in json.load(handle)["roles"]}
         self.assertIn("Verenigingen Staff", roles)
 
-    def test_every_applicant_or_member_typed_value_in_the_dashboard_template_is_escaped(self):
-        """Jinja autoescape is OFF in Frappe's environment (measured below), so every `{{ x }}` that prints a
-        name or description must say `|e`. Names are guest input (the application form)."""
+    # Expressions in chapter_dashboard.html that may print without `|e`. Everything else must end in `|e`
+    # (or `|urlencode|e`). Each entry says why it is safe; add to it only with a reason.
+    _NUMERIC = {
+        # integer counts and sums computed server-side
+        "year", "overdue_count", "doc_count.total", "documents|length",
+        'expenses.pending_count if expenses_ok else "--"',
+        "dashboard_data.board_documents.total_count",
+        "dashboard_data.key_metrics.members.new_this_month",
+        "dashboard_data.key_metrics.members.pending",  # an int; None is guarded by the {% if %} around it
+        "dashboard_data.member_overview.recent_members|length",
+        "dashboard_data.pending_actions.expense_approvals|length",
+        "dashboard_data.pending_actions.join_requests|length",
+        "dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0",
+        "dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0",
+        "dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0",
+        "dashboard_data.dues_payment_status.all_outstanding if dashboard_data.dues_payment_status else 0",
+    }  # fmt: skip
+    _SAFE_PATTERNS = (
+        (r"_\((\"[^\"]*\"|'[^']*')\)", "a literal translation string from our own source"),
+        (r"_\(\"[^\"]*\{0\}[^\"]*\"\)\.format\(\w+\.days_pending\)", "literal + an integer day count"),
+        (r"\"[^\"]*\"\|format\(.*", "a %-formatted number (money)"),
+        (r"dashboard_data\.(dues_payment_status|financial_summary)\.[\w.]+", "numeric dues/financial summary field"),
+        (r"dashboard_data\.pending_actions\.membership_applications\|length.*", "an integer count"),
+        (r"(format_date|format_datetime)\(.*", "a formatted date"),
+        (r"date_val(\.strftime\(format\))?", "a date value inside the date macros"),
+        (r".*\|\s*tojson(\s*\|\s*safe)?.*", "tojson escapes < > & ' for a <script> context"),
+        (r"brand_css\(\)", "deliberate HTML: our own macro"),
+        (r"dashboard_data\.board_documents\.category_icons\.get\(.*", "deliberate HTML: icon markup from a server constant"),
+        (r"'bg-[\w -]+' if [\w.]+ else 'bg-[\w -]+'", "constant CSS class names"),
+    )  # fmt: skip
+
+    def test_every_expression_in_the_dashboard_template_is_escaped_or_allowlisted(self):
+        """Jinja autoescape is OFF in Frappe's environment (measured below), so a name printed without `|e` is
+        stored XSS from guest input (the application form). The scan reads EVERY `{{ }}` in the template, not
+        a list of field names: an expression passes only if it ends in `|e` / `|urlencode|e`, or matches the
+        reasoned allowlist above."""
         import re
 
         probe = frappe.render_template("{{ x }}", {"x": "<b>&"})
         self.assertEqual(probe, "<b>&", "premise: autoescape is off, so escaping must be explicit")
 
         template = self._read("templates/pages/chapter_dashboard.html")
-        typed = re.findall(r"\{\{\s*([\w.]*(?:full_name|volunteer_name|description)[\w.]*)\s*(\|[^}]*)?\}\}", template)
-        self.assertTrue(typed, "the scan must find the printed names")
-        unescaped = [name for name, filters in typed if "e" not in filters.replace("|", " ").split()]
-        self.assertEqual(unescaped, [])
+        expressions = [e.strip() for e in re.findall(r"\{\{(.*?)\}\}", template, re.S)]
+        self.assertGreater(len(expressions), 100, "the scan must find the template's expressions")
+
+        def allowed(expression):
+            if expression.endswith("|e") or expression.endswith("|urlencode|e"):
+                return True
+            if expression in self._NUMERIC:
+                return True
+            return any(re.fullmatch(pattern, expression, re.S) for pattern, _why in self._SAFE_PATTERNS)
+
+        self.assertEqual([e for e in expressions if not allowed(e)], [])
 
     def test_approve_buttons_are_wired_to_the_application_and_join_endpoints(self):
         template = self._read("templates/pages/chapter_dashboard.html")
