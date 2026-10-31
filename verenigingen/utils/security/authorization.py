@@ -797,6 +797,9 @@ def require_role(roles):
     """Simple role-based authorization decorator"""
 
     def decorator(func):
+        # wraps: the rate limiter keys on module.function (#1761); without it every
+        # decorated endpoint is "...authorization.wrapper" and shares one bucket.
+        @wraps(func)
         def wrapper(*args, **kwargs):
             if not frappe.session.user or frappe.session.user == "Guest":
                 frappe.throw(_("Authentication required"), frappe.PermissionError)
