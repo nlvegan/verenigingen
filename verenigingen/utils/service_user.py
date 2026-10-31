@@ -16,8 +16,8 @@ def get_service_user(
     settings_doctype: str,
     user_field: str,
     service_name: str,
-    fallback_user: str = "Administrator",
-) -> str:
+    fallback_user: str | None = "Administrator",
+) -> str | None:
     """
     Get configured service user with validation and audit logging.
 
@@ -31,10 +31,12 @@ def get_service_user(
         settings_doctype: DocType to read settings from (e.g., "Verenigingen Payments Settings")
         user_field: Field name containing the user (e.g., "webhook_user")
         service_name: Human-readable service name for logging (e.g., "Ponto Webhook")
-        fallback_user: User to fall back to if configured user is invalid (default: "Administrator")
+        fallback_user: User to fall back to if configured user is invalid (default: "Administrator").
+            Pass None for a guest-reachable caller that must NEVER be elevated: the helper then
+            returns None (no Error Log row, no raise) and the caller changes nothing (#1834).
 
     Returns:
-        str: Valid username
+        str: Valid username, or None when no valid user is configured and fallback_user is None
 
     Raises:
         ValueError: If no valid user is available
@@ -77,6 +79,9 @@ def get_service_user(
             )
     except Exception as e:
         frappe.logger().error(f"{service_name}: Could not get {user_field} from {settings_doctype}: {e}")
+
+    if fallback_user is None:
+        return None
 
     # Validate fallback user exists
     if not frappe.db.exists("User", fallback_user):

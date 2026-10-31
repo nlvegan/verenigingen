@@ -57,8 +57,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.webhook_user = self._make_webhook_user()
-        frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", self.webhook_user)
-        frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+        self._configure_webhook_user()
         self.addCleanup(frappe.set_user, "Administrator")
 
     def _make_webhook_user(self):
@@ -120,6 +119,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             frappe.handler.execute_cmd(cmd)
         finally:
             seen = {
+                "session_user": frappe.session.user,
                 "response_type": frappe.local.response.get("type"),
                 "location": frappe.local.response.get("location"),
                 "message_log": list(frappe.local.message_log or []),
@@ -127,13 +127,22 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             frappe.set_user(original_user)
         return seen
 
+    def _configure_webhook_user(self):
+        frappe.db.set_value("User", self.webhook_user, "enabled", 1)
+        frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", self.webhook_user)
+        frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+
     def _unset_webhook_user(self):
-        """get_service_user then falls back to Administrator (its fallback_user default),
-        the only identity under which refresh_status() is authorised for the callback:
-        it is @high_security_api(FINANCIAL), which the Webhook User role does not meet."""
-        self.expectErrorLog("Using Administrator Fallback")
+        """No usable webhook_user. #1834: the guest callbacks must not fall back to
+        Administrator, so nothing here may expect (or tolerate) an Error Log row."""
+        self._configure_webhook_user()
         frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", None)
         frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+
+    def _disable_webhook_user(self):
+        """A configured but DISABLED webhook_user: get_service_user would also fall back."""
+        self._configure_webhook_user()
+        frappe.db.set_value("User", self.webhook_user, "enabled", 0)
 
     def _modified_by(self, doctype, name):
         return frappe.db.get_value(doctype, name, ["status", "modified_by", "modified"], as_dict=True)
@@ -168,24 +177,61 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                         self._guest_get(LINK_CMD, payment_link=doc.name, error=error)
                     self.assertEqual(self._modified_by("Ponto Payment Link", doc.name), before)
 
-    # ---- control: Ponto, not the caller, is the authority ---------------------
+    # ---- #1834: the guest callbacks do not call Ponto and adopt nothing ---------------
 
-    def test_error_callback_still_adopts_what_ponto_reports(self):
-        """Control: the status moves when PONTO says so, with an error param present
-        (Ponto says signed; the query string says access_denied). Run under the
-        Administrator fallback, the one identity the callback's refresh is authorised
-        for. Fails under a 'write nothing' variant and under one that trusts the
-        query string."""
-        self._unset_webhook_user()
+    def _each_identity(self):
+        """The three identities a callback can end up with: the configured minimal webhook
+        user, no webhook_user, and a disabled one. Administrator is never among them."""
+        return {
+            "webhook_user": self._configure_webhook_user,
+            "unset": self._unset_webhook_user,
+            "disabled": self._disable_webhook_user,
+        }
+
+    def test_callbacks_never_call_ponto_and_adopt_nothing_it_reports(self):
+        """Ponto says signed/authorized; the callback must neither ask nor adopt. Replaces
+        test_error_callback_still_adopts_what_ponto_reports, which pinned the #1815 refresh
+        under the Administrator fallback. Control: fails if refresh_status (or any Ponto
+        client call) comes back, or if the Administrator fallback makes it authorised."""
+        for label, prepare in self._each_identity().items():
+            with self.subTest(identity=label):
+                prepare()
+                doc = self._make_ppr("Pending")
+                link = self._make_ppl("Pending Authorization")
+                req_client, link_client = _client_reporting("signed"), _client_reporting("authorized")
+                with patch(PAYMENT_CLIENT, return_value=req_client) as req_factory, patch(
+                    LINK_CLIENT, return_value=link_client
+                ) as link_factory:
+                    self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied")
+                    self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied")
+                    self._guest_get(REQ_CMD, payment_request=doc.name)
+                    self._guest_get(LINK_CMD, payment_link=link.name)
+                self.assertEqual(req_factory.call_count, 0, "payment_callback reached for the Ponto client")
+                self.assertEqual(link_factory.call_count, 0, "payment_link_callback reached for the Ponto client")
+                self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
+                self.assertEqual(
+                    frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization"
+                )
+
+    def test_callbacks_do_not_call_refresh_status(self):
+        """Second channel for the same control: refresh_status itself is never invoked."""
         doc = self._make_ppr("Pending")
-        with patch(PAYMENT_CLIENT, return_value=_client_reporting("signed")):
-            self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied")
-        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Signed")
-
         link = self._make_ppl("Pending Authorization")
-        with patch(LINK_CLIENT, return_value=_client_reporting("authorized")):
-            self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied")
-        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Authorized")
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.ponto_payment_request."
+            "ponto_payment_request.PontoPaymentRequest.refresh_status"
+        ) as req_refresh, patch(
+            "verenigingen.verenigingen_payments.doctype.ponto_payment_link."
+            "ponto_payment_link.PontoPaymentLink.refresh_status"
+        ) as link_refresh:
+            self._guest_get(REQ_CMD, payment_request=doc.name)
+            self._guest_get(LINK_CMD, payment_link=link.name)
+        self.assertEqual(req_refresh.call_count, 0)
+        self.assertEqual(link_refresh.call_count, 0)
+
+    def test_the_dead_refresh_helpers_are_gone(self):
+        self.assertFalse(hasattr(payment_callback, "_refresh_from_ponto"))
+        self.assertFalse(hasattr(betaalverzoek_callback, "_refresh_link_from_ponto"))
 
     # ---- attacker-controlled text is not persisted ----------------------------
 
@@ -220,17 +266,20 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 self.assertEqual(known_seen["response_type"], unknown_seen["response_type"])
                 self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
 
-    def test_a_real_status_change_does_not_leak_a_message_to_the_caller(self):
-        """refresh_status() msgprints "Status updated to Signed" only for a KNOWN name; the
-        guest must not see that. Needs a status that actually changes, so it runs under the
-        Administrator fallback (see _unset_webhook_user)."""
-        self._unset_webhook_user()
-        doc = self._make_ppr("Pending")
-        with patch(PAYMENT_CLIENT, return_value=_client_reporting("signed")):
-            known_seen = self._guest_get(REQ_CMD, payment_request=doc.name)
-            unknown_seen = self._guest_get(REQ_CMD, payment_request="PONTO-PAY-NOPE-1815")
-        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Signed")
-        self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
+    def test_known_and_unknown_request_leak_no_message_for_any_identity(self):
+        """Replaces the #1815 test that needed a real refresh-driven status change (and the
+        Administrator fallback to get one). With no refresh there is no change and no message;
+        message_log must still match an unknown name under every identity."""
+        for label, prepare in self._each_identity().items():
+            with self.subTest(identity=label):
+                prepare()
+                doc = self._make_ppr("Pending")
+                with patch(PAYMENT_CLIENT, return_value=_client_reporting("signed")):
+                    known_seen = self._guest_get(REQ_CMD, payment_request=doc.name)
+                    unknown_seen = self._guest_get(REQ_CMD, payment_request="PONTO-PAY-NOPE-1815")
+                self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
+                self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
+                self.assertEqual(known_seen["response_type"], unknown_seen["response_type"])
 
     def test_known_and_unknown_request_leave_the_same_error_log_trail(self):
         doc = self._make_ppr("Pending")
@@ -242,17 +291,53 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             c2 = frappe.db.count("Error Log")
         self.assertEqual(c1 - c0, c2 - c1)
 
-    # ---- the service-user fallback -------------------------------------------
+    # ---- #1834: the service-user fallback is gone ------------------------------------
 
-    def test_guest_error_callback_changes_nothing_when_webhook_user_unset(self):
-        """get_service_user falls back to Administrator when webhook_user is unset
-        (fallback_user default). The harm must not depend on which identity ran."""
-        self._unset_webhook_user()
+    def test_no_webhook_user_means_no_write_no_error_log_and_no_elevation(self):
+        """With webhook_user unset (or disabled) the callbacks change nothing: no status
+        write, no Error Log row (get_service_user used to write a constant 'Using
+        Administrator Fallback' row per anonymous GET), and the request never runs as
+        anything but Guest. Replaces test_guest_error_callback_changes_nothing_when_
+        webhook_user_unset, which expected that Error Log row."""
+        for label in ("unset", "disabled"):
+            with self.subTest(identity=label):
+                self._each_identity()[label]()
+                doc = self._make_ppr("Pending")
+                link = self._make_ppl("Pending Authorization")
+                req_before = self._modified_by("Ponto Payment Request", doc.name)
+                link_before = self._modified_by("Ponto Payment Link", link.name)
+                errors_before = frappe.db.count("Error Log")
+                seen = [
+                    self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied"),
+                    self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied"),
+                ]
+                self.assertEqual(frappe.db.count("Error Log"), errors_before)
+                self.assertEqual(self._modified_by("Ponto Payment Request", doc.name), req_before)
+                self.assertEqual(self._modified_by("Ponto Payment Link", link.name), link_before)
+                for one in seen:
+                    self.assertEqual(one["session_user"], "Guest")
+
+    def test_a_configured_webhook_user_is_the_identity_the_callback_runs_as(self):
+        """Control for the test above: with a real webhook_user the identity IS switched, so
+        the 'stays Guest' assertion there can fail."""
         doc = self._make_ppr("Pending")
-        before = self._modified_by("Ponto Payment Request", doc.name)
-        with patch(PAYMENT_CLIENT, return_value=_client_reporting("pending")):
-            self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied")
-        self.assertEqual(self._modified_by("Ponto Payment Request", doc.name), before)
+        seen = self._guest_get(REQ_CMD, payment_request=doc.name)
+        self.assertEqual(seen["session_user"], self.webhook_user)
+
+    def test_known_name_answers_the_same_whether_or_not_webhook_user_is_configured(self):
+        """No guest-visible difference between a configured and an unconfigured site."""
+        doc = self._make_ppr("Pending")
+        link = self._make_ppl("Pending Authorization")
+        answers = {}
+        for label in ("webhook_user", "unset"):
+            self._each_identity()[label]()
+            answers[label] = [
+                self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied"),
+                self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied"),
+            ]
+        for configured, unset in zip(answers["webhook_user"], answers["unset"]):
+            for channel in ("response_type", "location", "message_log"):
+                self.assertEqual(configured[channel], unset[channel], channel)
 
     # ---- ruled exception: a token-proved access_denied cancels a pre-signing row ------
 
@@ -262,35 +347,60 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
     def _link_token(self, doc, purpose=None):
         return generate_guest_return_token(purpose or betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, doc.name)
 
-    def _identities(self):
-        """Both service identities: the intended minimal webhook user, and the
-        Administrator fallback (webhook_user unset)."""
-        return {"webhook_user": lambda: None, "administrator_fallback": self._unset_webhook_user}
+    def test_valid_token_access_denied_cancels_a_pending_request_as_the_webhook_user(self):
+        doc = self._make_ppr("Pending")
+        with patch(PAYMENT_CLIENT, return_value=_client_reporting("pending")):
+            seen = self._guest_get(
+                REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=self._req_token(doc)
+            )
+        row = self._modified_by("Ponto Payment Request", doc.name)
+        self.assertEqual(row.status, "Cancelled")
+        self.assertEqual(row.modified_by, self.webhook_user)
+        self.assertEqual(seen["session_user"], self.webhook_user)
 
-    def test_valid_token_access_denied_cancels_a_pending_request_for_either_identity(self):
-        for label, prepare in self._identities().items():
+    def test_valid_token_access_denied_cancels_a_pending_link_as_the_webhook_user(self):
+        doc = self._make_ppl("Pending Authorization")
+        with patch(LINK_CLIENT, return_value=_client_reporting("pending")):
+            self._guest_get(
+                LINK_CMD, payment_link=doc.name, error="access_denied", cancel_token=self._link_token(doc)
+            )
+        row = self._modified_by("Ponto Payment Link", doc.name)
+        self.assertEqual(row.status, "Cancelled")
+        self.assertEqual(row.modified_by, self.webhook_user)
+
+    def test_valid_token_cancel_fails_closed_without_a_webhook_user(self):
+        """#1834 + #1815: the token-proved cancel needs the minimal webhook user. Unset or
+        disabled, it writes nothing, adds no Error Log row, and answers exactly like a
+        callback that carried no token. Fails if the Administrator fallback returns (the
+        cancel would then succeed)."""
+        for label in ("unset", "disabled"):
             with self.subTest(identity=label):
-                prepare()
+                self._each_identity()[label]()
                 doc = self._make_ppr("Pending")
-                with patch(PAYMENT_CLIENT, return_value=_client_reporting("pending")):
+                link = self._make_ppl("Pending Authorization")
+                errors_before = frappe.db.count("Error Log")
+                proved = [
                     self._guest_get(
                         REQ_CMD, payment_request=doc.name, error="access_denied",
                         cancel_token=self._req_token(doc),
-                    )
-                row = self._modified_by("Ponto Payment Request", doc.name)
-                self.assertEqual(row.status, "Cancelled")
-
-    def test_valid_token_access_denied_cancels_a_pending_link_for_either_identity(self):
-        for label, prepare in self._identities().items():
-            with self.subTest(identity=label):
-                prepare()
-                doc = self._make_ppl("Pending Authorization")
-                with patch(LINK_CLIENT, return_value=_client_reporting("pending")):
+                    ),
                     self._guest_get(
-                        LINK_CMD, payment_link=doc.name, error="access_denied",
-                        cancel_token=self._link_token(doc),
-                    )
-                self.assertEqual(frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Cancelled")
+                        LINK_CMD, payment_link=link.name, error="access_denied",
+                        cancel_token=self._link_token(link),
+                    ),
+                ]
+                bare = [
+                    self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied"),
+                    self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied"),
+                ]
+                self.assertEqual(frappe.db.count("Error Log"), errors_before)
+                self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
+                self.assertEqual(
+                    frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization"
+                )
+                for p, b in zip(proved, bare):
+                    for channel in ("response_type", "location", "message_log", "session_user"):
+                        self.assertEqual(p[channel], b[channel], channel)
 
     def test_valid_token_cannot_cancel_past_the_pre_signing_state(self):
         """Control rows are REAL rows in each later state; Ponto reports the same state."""
@@ -413,16 +523,19 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 self.assertEqual(c1 - c0, c2 - c1)
                 self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
-    def test_link_messages_do_not_leak_a_real_status_change(self):
-        """payment_link_callback trims message_log like payment_callback (reviewer nit).
-        Needs a real change, so it runs under the Administrator fallback."""
-        self._unset_webhook_user()
-        doc = self._make_ppl("Pending Authorization")
-        with patch(LINK_CLIENT, return_value=_client_reporting("authorized")):
-            known_seen = self._guest_get(LINK_CMD, payment_link=doc.name)
-            unknown_seen = self._guest_get(LINK_CMD, payment_link=UNKNOWN_LINK)
-        self.assertEqual(frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Authorized")
-        self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
+    def test_link_known_and_unknown_leak_no_message_for_any_identity(self):
+        """Link twin of the request test (replaces the refresh-driven message-leak test)."""
+        for label, prepare in self._each_identity().items():
+            with self.subTest(identity=label):
+                prepare()
+                doc = self._make_ppl("Pending Authorization")
+                with patch(LINK_CLIENT, return_value=_client_reporting("authorized")):
+                    known_seen = self._guest_get(LINK_CMD, payment_link=doc.name)
+                    unknown_seen = self._guest_get(LINK_CMD, payment_link=UNKNOWN_LINK)
+                self.assertEqual(
+                    frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
+                )
+                self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
 
     # ---- signing start embeds the token ----------------------------------------------
 
