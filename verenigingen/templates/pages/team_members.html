@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ _("Team Members") }} - {{ team.team_name }}{% endblock %}
+{% block title %}{{ _("Team Members") }} - {{ team.team_name|e }}{% endblock %}
 
 {% block head_include %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
@@ -246,17 +246,17 @@
     {% if available_teams %}
     <div class="members-grid">
         {% for team in available_teams %}
-        <a href="/team_members?team={{ team.name }}" class="member-card" style="text-decoration: none; color: inherit;">
+        <a href="/team_members?team={{ team.name|e }}" class="member-card" style="text-decoration: none; color: inherit;">
             <div class="member-header">
                 <div>
-                    <h4 class="member-name">{{ team.team_name }}</h4>
+                    <h4 class="member-name">{{ team.team_name|e }}</h4>
                     {% if team.chapter %}
-                    <div class="member-id">{{ _("Chapter") }}: {{ team.chapter }}</div>
+                    <div class="member-id">{{ _("Chapter") }}: {{ team.chapter|e }}</div>
                     {% endif %}
                 </div>
             </div>
             {% if team.description %}
-            <p style="margin-top: 1rem; color: #666;">{{ team.description }}</p>
+            <p style="margin-top: 1rem; color: #666;">{{ team.description|e }}</p>
             {% endif %}
         </a>
         {% endfor %}
@@ -272,7 +272,7 @@
     {% else %}
     <!-- Team Members View -->
     <div class="page-header">
-        <h1>{{ team.team_name }}</h1>
+        <h1>{{ team.team_name|e }}</h1>
         <p>{{ _("Team Members") }}</p>
     </div>
 
@@ -284,17 +284,17 @@
         <h3><span class="icon"><i class="fa fa-clipboard"></i></span>{{ _("Team Information") }}</h3>
 
         {% if team.description %}
-        <p><strong>{{ _("Description") }}:</strong> {{ team.description }}</p>
+        <p><strong>{{ _("Description") }}:</strong> {{ team.description|e }}</p>
         {% endif %}
 
         <div class="team-details" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
             <div class="detail-item">
                 <span class="detail-label">{{ _("Team Type") }}</span>
-                <span class="detail-value">{{ _(team.team_type) }}</span>
+                <span class="detail-value">{{ _(team.team_type)|e }}</span>
             </div>
             <div class="detail-item">
                 <span class="detail-label">{{ _("Status") }}</span>
-                <span class="detail-value">{{ _(team.status) }}</span>
+                <span class="detail-value">{{ _(team.status)|e }}</span>
             </div>
             <div class="detail-item">
                 <span class="detail-label">{{ _("Total Members") }}</span>
@@ -309,14 +309,14 @@
         <div class="member-card">
             <div class="member-header">
                 <div>
-                    <h4 class="member-name">{{ member.display_name }}</h4>
+                    <h4 class="member-name">{{ member.display_name|e }}</h4>
                     {% if member.member_id %}
-                    <div class="member-id">{{ _("ID") }}: {{ member.member_id }}</div>
+                    <div class="member-id">{{ _("ID") }}: {{ member.member_id|e }}</div>
                     {% endif %}
                 </div>
 
                 <div class="role-badge {% if member.role_type == 'Team Leader' %}leader{% elif member.role_type == 'Coordinator' %}coordinator{% elif member.role_type == 'Team Member' %}member{% else %}volunteer{% endif %}">
-                    {{ _(member.role_type) }}
+                    {{ _(member.role_type)|e }}
                 </div>
             </div>
 
@@ -324,27 +324,27 @@
                 {% if member.role and member.role != member.role_type %}
                 <div class="detail-item">
                     <span class="detail-label">{{ _("Specific Role") }}</span>
-                    <span class="detail-value">{{ member.role }}</span>
+                    <span class="detail-value">{{ member.role|e }}</span>
                 </div>
                 {% endif %}
 
                 {% if member.formatted_from_date %}
                 <div class="detail-item">
                     <span class="detail-label">{{ _("Since") }}</span>
-                    <span class="detail-value">{{ member.formatted_from_date }}</span>
+                    <span class="detail-value">{{ member.formatted_from_date|e }}</span>
                 </div>
                 {% endif %}
 
                 {% if member.formatted_to_date %}
                 <div class="detail-item">
                     <span class="detail-label">{{ _("Until") }}</span>
-                    <span class="detail-value">{{ member.formatted_to_date }}</span>
+                    <span class="detail-value">{{ member.formatted_to_date|e }}</span>
                 </div>
                 {% endif %}
 
                 <div class="detail-item">
                     <span class="detail-label">{{ _("Status") }}</span>
-                    <span class="detail-value">{{ _(member.status) }}</span>
+                    <span class="detail-value">{{ _(member.status)|e }}</span>
                 </div>
             </div>
 
@@ -352,7 +352,7 @@
             <div class="member-contact">
                 <div class="contact-item">
                     <i class="fa fa-envelope icon"></i>
-                    <span>{{ member.email }}</span>
+                    <span>{{ member.email|e }}</span>
                 </div>
             </div>
             {% endif %}

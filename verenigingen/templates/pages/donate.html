@@ -295,14 +295,14 @@
                 </svg>
             </div>
             <h1 class="text-3xl font-bold text-green-600 mb-4">{{ _("Thank You!") }}</h1>
-            <p class="text-xl mb-4">{{ _("Your donation of €{0} has been successfully processed.").format(donation_result.amount) }}</p>
+            <p class="text-xl mb-4">{{ _("Your donation of €{0} has been successfully processed.").format(donation_result.amount)|e }}</p>
             <div class="donation-details bg-gray-50 p-4 rounded-lg mb-6">
                 <h3 class="font-semibold mb-2">{{ _("Donation Details") }}:</h3>
-                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name }}</p>
-                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount }}</p>
-                <p><strong>{{ _("Date") }}:</strong> {{ donation_result.donation_date.strftime('%d %B %Y') }}</p>
+                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name|e }}</p>
+                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount|e }}</p>
+                <p><strong>{{ _("Date") }}:</strong> {{ donation_result.donation_date.strftime('%d %B %Y')|e }}</p>
                 {% if donation_result.donation_purpose %}
-                    <p><strong>{{ _("Purpose") }}:</strong> {{ donation_result.donation_purpose }}</p>
+                    <p><strong>{{ _("Purpose") }}:</strong> {{ donation_result.donation_purpose|e }}</p>
                 {% endif %}
             </div>
             <div class="action-buttons">
@@ -323,11 +323,11 @@
             <p class="text-xl mb-4">{{ _("Unfortunately, your payment could not be processed.") }}</p>
             <div class="donation-details bg-gray-50 p-4 rounded-lg mb-6">
                 <h3 class="font-semibold mb-2">{{ _("Attempted Donation") }}:</h3>
-                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount }}</p>
-                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name }}</p>
+                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount|e }}</p>
+                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name|e }}</p>
             </div>
             <div class="action-buttons">
-                <button type="button" class="btn btn-primary mr-3" onclick="retryPayment('{{ donation_result.name }}')">{{ _("Try Payment Again") }}</button>
+                <button type="button" class="btn btn-primary mr-3" onclick="retryPayment('{{ donation_result.name|e }}')">{{ _("Try Payment Again") }}</button>
                 <a href="/donate" class="btn btn-secondary">{{ _("Start New Donation") }}</a>
             </div>
         </div>
@@ -475,8 +475,8 @@
                     <select class="form-control" name="campaign_reference">
                         <option value="">{{ _("Select a campaign") }}</option>
                         {% for campaign in campaigns %}
-                        <option value="{{ campaign.name }}">
-                            {{ campaign.name }}
+                        <option value="{{ campaign.name|e }}">
+                            {{ campaign.name|e }}
                         </option>
                         {% endfor %}
                     </select>
@@ -493,8 +493,8 @@
                     <select class="form-control" name="chapter_reference">
                         <option value="">{{ _("Select a chapter") }}</option>
                         {% for chapter in chapters %}
-                        <option value="{{ chapter.name }}">
-                            {{ chapter.name }}
+                        <option value="{{ chapter.name|e }}">
+                            {{ chapter.name|e }}
                         </option>
                         {% endfor %}
                     </select>
@@ -541,7 +541,7 @@
                         <div class="form-group">
                             <label for="donor_name">{{ _("Full Name") }}</label>
                             <input type="text" class="form-control" name="donor_name" required
-                                   value="{% if existing_donor %}{{ existing_donor.donor_name }}{% elif user_info.full_name %}{{ user_info.full_name }}{% endif %}"
+                                   value="{% if existing_donor %}{{ existing_donor.donor_name|e }}{% elif user_info.full_name %}{{ user_info.full_name|e }}{% endif %}"
                                    placeholder="{{ _('Your full name') }}">
                         </div>
                     </div>
@@ -549,7 +549,7 @@
                         <div class="form-group">
                             <label for="donor_email">{{ _("Email Address") }}</label>
                             <input type="email" class="form-control" name="donor_email" required
-                                   value="{% if existing_donor %}{{ existing_donor.donor_email }}{% elif user_info.email %}{{ user_info.email }}{% endif %}"
+                                   value="{% if existing_donor %}{{ existing_donor.donor_email|e }}{% elif user_info.email %}{{ user_info.email|e }}{% endif %}"
                                    placeholder="{{ _('your.email@example.com') }}">
                         </div>
                     </div>
@@ -560,7 +560,7 @@
                         <div class="form-group">
                             <label for="donor_phone">{{ _("Phone Number") }} ({{ _("Optional") }})</label>
                             <input type="tel" class="form-control" name="donor_phone"
-                                   value="{% if existing_donor %}{{ existing_donor.phone }}{% endif %}"
+                                   value="{% if existing_donor %}{{ existing_donor.phone|e }}{% endif %}"
                                    placeholder="{{ _('Your phone number') }}">
                         </div>
                     </div>
@@ -569,10 +569,10 @@
                             <label for="donor_type">{{ _("Donor Type") }}</label>
                             <select class="form-control" name="donor_type">
                                 {% for dtype in donor_types %}
-                                <option value="{{ dtype.name }}"
+                                <option value="{{ dtype.name|e }}"
                                         {% if (existing_donor and dtype.name == existing_donor.donor_type) or
                                               (not existing_donor and dtype.name == default_donor_type) %}selected{% endif %}>
-                                    {{ dtype.donor_type }}
+                                    {{ dtype.donor_type|e }}
                                 </option>
                                 {% endfor %}
                             </select>
@@ -604,10 +604,10 @@
 
                 <div class="form-group">
                     {% for method in payment_methods %}
-                    <div class="payment-method" data-method="{{ method.value }}" onclick="selectPaymentMethod(this)">
-                        <input type="radio" name="payment_method" value="{{ method.value }}" style="display: none;">
-                        <h5>{{ method.label }}</h5>
-                        <p>{{ method.description }}</p>
+                    <div class="payment-method" data-method="{{ method.value|e }}" onclick="selectPaymentMethod(this)">
+                        <input type="radio" name="payment_method" value="{{ method.value|e }}" style="display: none;">
+                        <h5>{{ method.label|e }}</h5>
+                        <p>{{ method.description|e }}</p>
                     </div>
                     {% endfor %}
                 </div>

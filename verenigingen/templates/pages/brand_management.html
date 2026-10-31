@@ -339,7 +339,7 @@
         <div class="logo-preview">
             <h4 class="logo-preview-title">{{ _("Current Logo") }}</h4>
             <div class="logo-container">
-                <img src="{{ active_settings.logo }}" alt="{{ _('Organization Logo') }}" class="current-logo">
+                <img src="{{ active_settings.logo|e }}" alt="{{ _('Organization Logo') }}" class="current-logo">
             </div>
         </div>
         {% endif %}
@@ -347,24 +347,24 @@
         <h4 class="color-section-title">{{ _("Brand Colors") }}</h4>
         <div class="color-preview-grid">
             <div class="color-preview">
-                <div class="color-swatch" style="background-color: {{ active_settings.primary_color }}"></div>
+                <div class="color-swatch" style="background-color: {{ active_settings.primary_color|e }}"></div>
                 <div class="color-label">{{ _("Primary") }}</div>
-                <div class="color-value">{{ active_settings.primary_color }}</div>
+                <div class="color-value">{{ active_settings.primary_color|e }}</div>
             </div>
             <div class="color-preview">
-                <div class="color-swatch" style="background-color: {{ active_settings.secondary_color }}"></div>
+                <div class="color-swatch" style="background-color: {{ active_settings.secondary_color|e }}"></div>
                 <div class="color-label">{{ _("Secondary") }}</div>
-                <div class="color-value">{{ active_settings.secondary_color }}</div>
+                <div class="color-value">{{ active_settings.secondary_color|e }}</div>
             </div>
             <div class="color-preview">
-                <div class="color-swatch" style="background-color: {{ active_settings.accent_color }}"></div>
+                <div class="color-swatch" style="background-color: {{ active_settings.accent_color|e }}"></div>
                 <div class="color-label">{{ _("Accent") }}</div>
-                <div class="color-value">{{ active_settings.accent_color }}</div>
+                <div class="color-value">{{ active_settings.accent_color|e }}</div>
             </div>
             <div class="color-preview">
-                <div class="color-swatch" style="background-color: {{ active_settings.success_color }}"></div>
+                <div class="color-swatch" style="background-color: {{ active_settings.success_color|e }}"></div>
                 <div class="color-label">{{ _("Success") }}</div>
-                <div class="color-value">{{ active_settings.success_color }}</div>
+                <div class="color-value">{{ active_settings.success_color|e }}</div>
             </div>
         </div>
     </div>
@@ -386,13 +386,13 @@
                 </h4>
                 <p>{{ _("Configure your organization's brand colors, logo, and visual identity") }}</p>
                 {% if active_settings.description %}
-                <p><em>{{ active_settings.description }}</em></p>
+                <p><em>{{ active_settings.description|e }}</em></p>
                 {% endif %}
 
                 <div class="color-mini-preview">
-                    <div class="color-mini" style="background-color: {{ active_settings.primary_color }}" title="{{ _('Primary') }}: {{ active_settings.primary_color }}"></div>
-                    <div class="color-mini" style="background-color: {{ active_settings.secondary_color }}" title="{{ _('Secondary') }}: {{ active_settings.secondary_color }}"></div>
-                    <div class="color-mini" style="background-color: {{ active_settings.accent_color }}" title="{{ _('Accent') }}: {{ active_settings.accent_color }}"></div>
+                    <div class="color-mini" style="background-color: {{ active_settings.primary_color|e }}" title="{{ _('Primary') }}: {{ active_settings.primary_color|e }}"></div>
+                    <div class="color-mini" style="background-color: {{ active_settings.secondary_color|e }}" title="{{ _('Secondary') }}: {{ active_settings.secondary_color|e }}"></div>
+                    <div class="color-mini" style="background-color: {{ active_settings.accent_color|e }}" title="{{ _('Accent') }}: {{ active_settings.accent_color|e }}"></div>
                 </div>
             </div>
 
@@ -428,7 +428,7 @@
                     <p>{{ _("Your brand settings will automatically sync to Owl Theme Settings to customize the Frappe desk appearance.") }}</p>
 
                     {% if owl_theme_status.active_brand_settings %}
-                        <p><strong>{{ _("Active Brand Settings:") }}</strong> {{ owl_theme_status.active_brand_settings.settings_name }}</p>
+                        <p><strong>{{ _("Active Brand Settings:") }}</strong> {{ owl_theme_status.active_brand_settings.settings_name|e }}</p>
                     {% endif %}
 
                     <div class="integration-details" style="margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.3); border-radius: 6px;">

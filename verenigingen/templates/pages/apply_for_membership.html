@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ page_title }}{% endblock %}
+{% block title %}{{ page_title|e }}{% endblock %}
 
 {% block style %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
@@ -9,7 +9,7 @@
 <style>
     /* Dynamic gradient from brand colors */
     .brand-gradient-bg {
-        background: linear-gradient(to bottom right, {{ primary_color }}10, {{ secondary_color }}10);
+        background: linear-gradient(to bottom right, {{ primary_color|e }}10, {{ secondary_color|e }}10);
     }
 
     /* Form input styling - visible borders and good contrast */
@@ -35,8 +35,8 @@
     input.form-input:focus,
     select.form-input:focus,
     textarea.form-input:focus {
-        border-color: {{ primary_color }} !important;
-        box-shadow: 0 0 0 3px {{ primary_color }}20 !important;
+        border-color: {{ primary_color|e }} !important;
+        box-shadow: 0 0 0 3px {{ primary_color|e }}20 !important;
         outline: none !important;
     }
 
@@ -75,13 +75,13 @@
 
     .membership-type-option:has(input:checked),
     .payment-plan-option:has(input:checked) {
-        border-color: {{ primary_color }};
-        background-color: {{ primary_color }}10;
+        border-color: {{ primary_color|e }};
+        background-color: {{ primary_color|e }}10;
     }
 
     .membership-type-option:hover,
     .payment-plan-option:hover {
-        border-color: {{ primary_color }}80;
+        border-color: {{ primary_color|e }}80;
         background-color: #f9fafb;
     }
 
@@ -90,19 +90,19 @@
     .payment-plan-option input[type="radio"] {
         width: 1.25rem;
         height: 1.25rem;
-        accent-color: {{ primary_color }};
+        accent-color: {{ primary_color|e }};
     }
 
     /* Fallback for browsers without :has() support */
     .membership-type-option.border-primary-500,
     .payment-plan-option.border-primary-500 {
-        border-color: {{ primary_color }} !important;
-        background-color: {{ primary_color }}10 !important;
+        border-color: {{ primary_color|e }} !important;
+        background-color: {{ primary_color|e }}10 !important;
     }
 
     .membership-type-option.bg-primary-50,
     .payment-plan-option.bg-primary-50 {
-        background-color: {{ primary_color }}10 !important;
+        background-color: {{ primary_color|e }}10 !important;
     }
 </style>
 {% endblock %}
@@ -115,26 +115,26 @@
         <!-- Organization Logo & Header -->
         {% if organization_logo %}
         <div class="organization-logo animate-fade-in">
-            <img src="{{ organization_logo }}" alt="Organization Logo" class="logo-img">
+            <img src="{{ organization_logo|e }}" alt="Organization Logo" class="logo-img">
         </div>
         {% endif %}
 
         <div class="page-header animate-slide-up">
-            <h1 class="page-title">{{ page_title }}</h1>
-            <p class="page-subtitle">{{ page_subtitle }}</p>
+            <h1 class="page-title">{{ page_title|e }}</h1>
+            <p class="page-subtitle">{{ page_subtitle|e }}</p>
         </div>
 
         <!-- Progress Indicator -->
         <div class="progress-container animate-slide-up">
             <div class="progress-bar-container">
-                <div class="progress-bar" style="width: {{ step_width }}%" id="form-progress"></div>
+                <div class="progress-bar" style="width: {{ step_width|e }}%" id="form-progress"></div>
             </div>
             <div class="progress-steps">
                 <span class="progress-step active" data-step="1">{{ _("Personal Info") }}</span>
                 <span class="progress-step" data-step="2">{{ _("Address") }}</span>
                 <span class="progress-step" data-step="3">{{ _("Membership") }}</span>
                 {% if enable_volunteer_signup %}
-                <span class="progress-step" data-step="4">{{ volunteer_step_label }}</span>
+                <span class="progress-step" data-step="4">{{ volunteer_step_label|e }}</span>
                 <span class="progress-step" data-step="5">{{ _("Payment") }}</span>
                 <span class="progress-step" data-step="6">{{ _("Confirm") }}</span>
                 {% else %}
@@ -244,7 +244,7 @@
                                 <select class="form-input" id="country" name="country" required>
                                     <option value="">{{ _("Select country") }}</option>
                                     {% for country in available_countries %}
-                                    <option value="{{ country }}">{{ _(country) }}</option>
+                                    <option value="{{ country|e }}">{{ _(country)|e }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -289,13 +289,13 @@
                             <div id="membership-types" class="space-y-3">
                                 {% for mt in enhanced_membership_types %}
                                 <label class="membership-type-option flex items-start p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50 transition-colors">
-                                    <input type="radio" name="membership_type_selection" value="{{ mt.name }}"
+                                    <input type="radio" name="membership_type_selection" value="{{ mt.name|e }}"
                                            class="mt-1 mr-4 text-primary-600 focus:ring-primary-500"
-                                           data-description="{{ mt.description or '' }}">
+                                           data-description="{{ (mt.description or '')|e }}">
                                     <div class="flex-1">
-                                        <span class="font-medium text-gray-900">{{ mt.membership_type_name }}</span>
+                                        <span class="font-medium text-gray-900">{{ mt.membership_type_name|e }}</span>
                                         {% if mt.description %}
-                                        <p class="text-sm text-gray-500 mt-1">{{ mt.description }}</p>
+                                        <p class="text-sm text-gray-500 mt-1">{{ mt.description|e }}</p>
                                         {% endif %}
                                     </div>
                                 </label>
@@ -329,7 +329,7 @@
                         <!-- Income Calculator (supports both percentage and progressive modes) -->
                         <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator" style="display: none;">
                             <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
-                            <p class="text-sm text-gray-600 mb-4" id="calculator-description">{{ calculator_description }}</p>
+                            <p class="text-sm text-gray-600 mb-4" id="calculator-description">{{ calculator_description|e }}</p>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div class="input-group">
@@ -356,7 +356,7 @@
                                     <span id="calc-payment-frequency"></span>
                                 </p>
                                 <p class="text-xs text-green-600 mt-1">
-                                    {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate }}%</span> {{ _("of your monthly income") }}
+                                    {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate|e }}%</span> {{ _("of your monthly income") }}
                                 </p>
                             </div>
 
@@ -393,7 +393,7 @@
                                 </div>
                             </div>
 
-                            <button type="button" class="w-full text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 shadow-sm" id="apply-calculated-amount" style="display: none; background-color: {{ primary_color }};">
+                            <button type="button" class="w-full text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 shadow-sm" id="apply-calculated-amount" style="display: none; background-color: {{ primary_color|e }};">
                                 {{ _("Use This Amount") }}
                             </button>
                             <p class="text-xs text-gray-500 mt-2 text-center" id="calculator-hint">
@@ -494,12 +494,12 @@
                             <div id="skills-selection" class="space-y-4">
                                 {% for category in skill_categories %}
                                 <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ category.name }}</h4>
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ category.name|e }}</h4>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {% for skill in category.skills %}
                                         <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="{{ category.skill_category }}|{{ skill }}" class="form-input w-auto">
-                                            <span class="text-sm">{{ skill }}</span>
+                                            <input type="checkbox" name="volunteer_skills[]" value="{{ category.skill_category|e }}|{{ skill|e }}" class="form-input w-auto">
+                                            <span class="text-sm">{{ skill|e }}</span>
                                         </label>
                                         {% endfor %}
                                     </div>
@@ -514,7 +514,7 @@
                                     <div class="flex space-x-2 mb-2">
                                         <select id="custom-skill-category" class="form-input flex-none w-32">
                                             {% for category in skill_categories %}
-                                            <option value="{{ category.skill_category }}">{{ category.name }}</option>
+                                            <option value="{{ category.skill_category|e }}">{{ category.name|e }}</option>
                                             {% endfor %}
                                             <option value="Other">{{ _("Other") }}</option>
                                         </select>
@@ -576,8 +576,8 @@
                             <div class="grid grid-cols-1 md:grid-cols-{{ payment_methods|length if payment_methods|length <= 3 else 3 }} gap-4 mt-3">
                                 {% for pm in payment_methods %}
                                 <label class="flex items-center space-x-3 cursor-pointer">
-                                    <input type="radio" name="payment_method" value="{{ pm.value }}" class="form-input w-auto" required>
-                                    <span>{{ pm.label }}</span>
+                                    <input type="radio" name="payment_method" value="{{ pm.value|e }}" class="form-input w-auto" required>
+                                    <span>{{ pm.label|e }}</span>
                                 </label>
                                 {% endfor %}
                             </div>
@@ -724,8 +724,8 @@
         <div class="hidden" id="success-message">
             <div class="alert-success text-center">
                 <div class="text-2xl mb-4">🎉</div>
-                <h3 class="text-xl font-semibold mb-2">{{ success_title }}</h3>
-                <p class="mb-4">{{ success_message }}</p>
+                <h3 class="text-xl font-semibold mb-2">{{ success_title|e }}</h3>
+                <p class="mb-4">{{ success_message|e }}</p>
                 <p class="text-sm text-gray-600 mb-4">{{ _("You will receive a confirmation email shortly with your application details.") }}</p>
                 <a href="/" class="btn-primary inline-block">{{ _("Return to Home") }}</a>
             </div>
@@ -755,7 +755,7 @@ frappe.ready(function() {
 
         // Initialize the application with Tailwind-specific configuration
         const app = new MembershipApplication({
-            maxSteps: {{ total_steps }},
+            maxSteps: {{ total_steps|e }},
             enableVolunteerStep: {{ 'true' if enable_volunteer_signup else 'false' }},
             enableAutoSave: true,
             enableErrorHandling: true,
@@ -1440,7 +1440,7 @@ function applyCalculatedAmount() {
 
     setTimeout(() => {
         applyButton.textContent = originalText;
-        applyButton.style.backgroundColor = originalBgColor || '{{ primary_color }}';
+        applyButton.style.backgroundColor = originalBgColor || '{{ primary_color|e }}';
     }, 2000);
 
     // Update main app state if available - CRITICAL for step validation

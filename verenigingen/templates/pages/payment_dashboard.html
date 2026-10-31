@@ -260,15 +260,15 @@
                     <p class="text-gray-600 mb-4">{{ _("Select a member to view their payment dashboard:") }}</p>
                     <div class="space-y-2">
                         {% for m in members %}
-                        <a href="/payment_dashboard?member={{ m.name }}"
+                        <a href="/payment_dashboard?member={{ m.name|e }}"
                            class="portal-link-card">
                             <div class="flex items-center">
                                 <div class="portal-link-icon">
                                     <i class="fa fa-user text-primary-500"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="portal-link-title">{{ m.full_name }}</div>
-                                    <div class="portal-link-description">{{ m.name }} - {{ m.email }}</div>
+                                    <div class="portal-link-title">{{ m.full_name|e }}</div>
+                                    <div class="portal-link-description">{{ m.name|e }} - {{ m.email|e }}</div>
                                 </div>
                             </div>
                         </a>
@@ -283,7 +283,7 @@
             <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Payment Dashboard") }}</h1>
             {% if viewing_as_admin %}
             <p class="text-lg text-gray-600">
-                {{ _("Viewing as administrator for") }}: <strong>{{ member_name }}</strong>
+                {{ _("Viewing as administrator for") }}: <strong>{{ member_name|e }}</strong>
                 <a href="/payment_dashboard" class="ml-4 text-primary-600 hover:text-primary-700 text-sm font-medium">
                     {{ _("Select another member") }} &rarr;
                 </a>
@@ -343,14 +343,14 @@
                         <div class="metric-label">{{ _("Next Payment") }}</div>
                         <div class="metric-value" id="next-payment-date">
                             {% if financial_overview and financial_overview.next_payment %}
-                                {{ frappe.format_value(financial_overview.next_payment.due_date, {"fieldtype": "Date"}) }}
+                                {{ frappe.format_value(financial_overview.next_payment.due_date, {"fieldtype": "Date"})|e }}
                             {% else %}
                                 {{ _("No upcoming") }}
                             {% endif %}
                         </div>
                         <div class="text-sm text-gray-600 mt-1" id="next-payment-amount">
                             {% if financial_overview and financial_overview.next_payment %}
-                                {{ frappe.format_value(financial_overview.next_payment.amount, {"fieldtype": "Currency"}) }}
+                                {{ frappe.format_value(financial_overview.next_payment.amount, {"fieldtype": "Currency"})|e }}
                             {% else %}
                                 -
                             {% endif %}
@@ -369,19 +369,19 @@
                         <div class="metric-label">{{ _("Paid This Year") }}</div>
                         <div class="metric-value">
                             {% if financial_overview %}
-                                {{ frappe.format_value(financial_overview.total_paid_year, {"fieldtype": "Currency"}) }}
+                                {{ frappe.format_value(financial_overview.total_paid_year, {"fieldtype": "Currency"})|e }}
                             {% else %}
-                                {{ frappe.format_value(0, {"fieldtype": "Currency"}) }}
+                                {{ frappe.format_value(0, {"fieldtype": "Currency"})|e }}
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-2">
                             <div class="progress-container flex-1">
-                                <div class="progress-bar" style="width: {{ financial_overview.yearly_progress if financial_overview else 0 }}%"></div>
+                                <div class="progress-bar" style="width: {{ (financial_overview.yearly_progress if financial_overview else 0)|e }}%"></div>
                             </div>
-                            <span class="text-sm text-gray-600">{{ financial_overview.yearly_progress if financial_overview else 0 }}%</span>
+                            <span class="text-sm text-gray-600">{{ (financial_overview.yearly_progress if financial_overview else 0)|e }}%</span>
                         </div>
                         <div class="text-xs text-gray-500 mt-1">
-                            {{ financial_overview.payment_count if financial_overview else 0 }} {{ _("payments") }}
+                            {{ (financial_overview.payment_count if financial_overview else 0)|e }} {{ _("payments") }}
                         </div>
                     </div>
                     <div class="metric-icon bg-success-100">
@@ -418,17 +418,17 @@
                             <div class="payment-timeline">
                                 {% if recent_activity %}
                                     {% for item in recent_activity %}
-                                    <div class="timeline-item {{ item.status|lower }}">
+                                    <div class="timeline-item {{ item.status|lower|e }}">
                                         <div class="bg-white rounded-lg border border-gray-200 p-4">
                                             <div class="flex justify-between items-start">
                                                 <div>
-                                                    <h5 class="font-medium text-gray-800">{{ item.title }}</h5>
-                                                    <p class="text-sm text-gray-600">{{ item.description }}</p>
-                                                    <p class="text-xs text-gray-500 mt-1">{{ frappe.format_value(item.date, {"fieldtype": "Date"}) }}</p>
+                                                    <h5 class="font-medium text-gray-800">{{ item.title|e }}</h5>
+                                                    <p class="text-sm text-gray-600">{{ item.description|e }}</p>
+                                                    <p class="text-xs text-gray-500 mt-1">{{ frappe.format_value(item.date, {"fieldtype": "Date"})|e }}</p>
                                                 </div>
                                                 <div class="text-right">
                                                     <span class="font-semibold text-gray-800">
-                                                        {{ frappe.format_value(item.amount, {"fieldtype": "Currency"}) }}
+                                                        {{ frappe.format_value(item.amount, {"fieldtype": "Currency"})|e }}
                                                     </span>
                                                 </div>
                                             </div>
@@ -452,20 +452,20 @@
                                 <div class="flex justify-between">
                                     <span class="text-sm text-gray-600">{{ _("Status") }}</span>
                                     <span class="text-sm font-medium">
-                                        <span class="payment-badge payment-badge-success">{{ _(current_schedule.status) }}</span>
+                                        <span class="payment-badge payment-badge-success">{{ _(current_schedule.status)|e }}</span>
                                     </span>
                                 </div>
                                 <div class="flex justify-between">
                                     <span class="text-sm text-gray-600">{{ _("Contribution Mode") }}</span>
-                                    <span class="text-sm font-medium">{{ _(current_schedule.contribution_mode) if current_schedule.contribution_mode else '-' }}</span>
+                                    <span class="text-sm font-medium">{{ (_(current_schedule.contribution_mode) if current_schedule.contribution_mode else '-')|e }}</span>
                                 </div>
                                 <div class="flex justify-between">
                                     <span class="text-sm text-gray-600">{{ _("Dues Rate") }}</span>
                                     <span class="text-sm font-medium">
                                         {% set frequency_label = {"Monthly": _("month"), "Quarterly": _("quarter"), "Semi-Annual": _("6 months"), "Annual": _("year")}.get(current_schedule.billing_frequency, current_schedule.billing_frequency) %}
-                                        {{ frappe.format_value(current_schedule.dues_rate, {"fieldtype": "Currency"}) }} / {{ frequency_label }}
+                                        {{ frappe.format_value(current_schedule.dues_rate, {"fieldtype": "Currency"})|e }} / {{ frequency_label|e }}
                                         {% if current_schedule.billing_frequency != "Monthly" %}
-                                            <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}/{{ _("month") }})</span>
+                                            <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}/{{ _("month") }})</span>
                                         {% endif %}
                                     </span>
                                 </div>
@@ -473,7 +473,7 @@
                                     <span class="text-sm text-gray-600">{{ _("Next Invoice Date") }}</span>
                                     <span class="text-sm font-medium">
                                         {% if current_schedule.next_invoice_date %}
-                                            {{ frappe.format_value(current_schedule.next_invoice_date, {"fieldtype": "Date"}) }}
+                                            {{ frappe.format_value(current_schedule.next_invoice_date, {"fieldtype": "Date"})|e }}
                                         {% else %}
                                             -
                                         {% endif %}
@@ -518,7 +518,7 @@
                                             {% if not current_schedule.last_invoice_date or payment_date <= current_schedule.last_invoice_date %}
                                             <div class="flex items-center text-sm {% if loop.first %}font-medium text-gray-900{% else %}text-gray-600{% endif %}">
                                                 <i class="fa fa-calendar-o w-5 mr-2 {% if loop.first %}text-primary-600{% else %}text-gray-400{% endif %}"></i>
-                                                <span>{{ frappe.format_value(payment_date, {"fieldtype": "Date"}) }}</span>
+                                                <span>{{ frappe.format_value(payment_date, {"fieldtype": "Date"})|e }}</span>
                                                 {% if loop.first %}
                                                     <span class="ml-2 text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">{{ _("Next") }}</span>
                                                 {% endif %}
@@ -574,15 +574,15 @@
                                 <div class="space-y-2 text-sm">
                                     <p class="text-gray-700">
                                         <span class="font-medium">{{ _("IBAN:") }}</span><br>
-                                        <span class="font-mono">{{ current_details.iban or _("Not set") }}</span>
+                                        <span class="font-mono">{{ (current_details.iban or _("Not set"))|e }}</span>
                                     </p>
                                     <p class="text-gray-700">
                                         <span class="font-medium">{{ _("Account Holder:") }}</span><br>
-                                        {{ current_details.bank_account_name or (member_doc.full_name if member_doc else '') }}
+                                        {{ (current_details.bank_account_name or (member_doc.full_name if member_doc else ''))|e }}
                                     </p>
                                     {% if current_details.bic %}
                                     <p class="text-gray-700">
-                                        <span class="font-medium">{{ _("BIC:") }}</span> {{ current_details.bic }}
+                                        <span class="font-medium">{{ _("BIC:") }}</span> {{ current_details.bic|e }}
                                     </p>
                                     {% endif %}
                                 </div>
@@ -603,7 +603,7 @@
                                 <p class="text-sm text-gray-600 mt-3">
                                     {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
                                     {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
-                                    {{ _("Current rate") }}: <strong>{{ frappe.format_value(active_dues_schedule.amount, {"fieldtype": "Currency"}) }}</strong> {{ _("per") }} {{ frequency }}
+                                    {{ _("Current rate") }}: <strong>{{ frappe.format_value(active_dues_schedule.amount, {"fieldtype": "Currency"})|e }}</strong> {{ _("per") }} {{ frequency|e }}
                                     <a href="/membership_adjustment" class="text-primary-600 hover:text-primary-700 font-medium ml-1">{{ _("Adjust") }}</a>
                                 </p>
                                 {% endif %}
@@ -679,17 +679,17 @@
                                 <div class="space-y-3 text-sm">
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("Account Name:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Payments Settings", "company_account_holder") or _("Organization") }}</p>
+                                        <p class="font-mono text-gray-900">{{ (frappe.db.get_single_value("Verenigingen Payments Settings", "company_account_holder") or _("Organization"))|e }}</p>
                                     </div>
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("IBAN:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Payments Settings", "company_iban") or _("Contact us for details") }}</p>
+                                        <p class="font-mono text-gray-900">{{ (frappe.db.get_single_value("Verenigingen Payments Settings", "company_iban") or _("Contact us for details"))|e }}</p>
                                     </div>
                                     {% set org_bic = frappe.db.get_single_value("Verenigingen Payments Settings", "company_bic") %}
                                     {% if org_bic %}
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("BIC:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ org_bic }}</p>
+                                        <p class="font-mono text-gray-900">{{ org_bic|e }}</p>
                                     </div>
                                     {% endif %}
                                     {% set description_template = frappe.db.get_single_value("Verenigingen Payments Settings", "mollie_subscription_description_template") or "Contribution payment for member MEMBER_ID" %}
@@ -697,7 +697,7 @@
                                     {% set member_full_name = member_doc.full_name if member_doc else "" %}
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("Reference:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ description_template.replace("MEMBER_NAME", member_full_name).replace("MEMBER_ID", member_id) }}</p>
+                                        <p class="font-mono text-gray-900">{{ description_template.replace("MEMBER_NAME", member_full_name).replace("MEMBER_ID", member_id)|e }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -714,7 +714,7 @@
                         <h4 class="text-lg font-semibold text-gray-900 mb-4">{{ _("Set Up Bank Details") }}</h4>
 
                         <form method="post" id="bank-details-form" class="space-y-6" onsubmit="return submitBankDetailsForm(event)">
-                            <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token }}">
+                            <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token|e }}">
 
                             <div>
                                 <label for="iban" class="block text-sm font-medium text-gray-700 mb-2">
@@ -724,7 +724,7 @@
                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                                        id="iban"
                                        name="iban"
-                                       value="{{ current_details.iban if current_details else '' }}"
+                                       value="{{ (current_details.iban if current_details else '')|e }}"
                                        placeholder="{{ _('Enter your IBAN (e.g., NL91 ABNA 0417 1643 00)') }}"
                                        required>
                                 <p class="text-sm text-gray-600 mt-1">{{ _("International Bank Account Number - automatically formatted and validated") }}</p>
@@ -738,7 +738,7 @@
                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                                        id="account_holder_name"
                                        name="account_holder_name"
-                                       value="{{ current_details.bank_account_name if current_details else (member_doc.full_name if member_doc else '') }}"
+                                       value="{{ (current_details.bank_account_name if current_details else (member_doc.full_name if member_doc else ''))|e }}"
                                        required>
                                 <p class="text-sm text-gray-600 mt-1">{{ _("Name as it appears on your bank account") }}</p>
                             </div>
@@ -962,7 +962,7 @@ if (typeof escapeHtml === 'undefined') {
 // Initialize page
 document.addEventListener('DOMContentLoaded', function() {
     // Get member from context
-    memberParam = '{{ member }}';
+    memberParam = '{{ member|e }}';
     window.memberFullName = {{ member_doc.full_name | tojson if member_doc else '""' }};
 
     // Only load data if we have a member (not in selection mode)

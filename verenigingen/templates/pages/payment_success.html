@@ -166,7 +166,7 @@
 {% block page_content %}
 <div class="payment-status-container">
     <!-- Status Icon and Message -->
-    <div class="status-icon status-{{ payment_status }}">
+    <div class="status-icon status-{{ payment_status|e }}">
         {% if payment_status == "completed" %}
         ✅
         {% elif payment_status == "pending" %}
@@ -192,7 +192,7 @@
         {% endif %}
     </h1>
 
-    <p class="lead">{{ payment_message }}</p>
+    <p class="lead">{{ payment_message|e }}</p>
 
     <!-- Payment Details -->
     {% if document_info %}
@@ -202,26 +202,26 @@
         {% if document_info.doctype %}
         <div class="detail-row">
             <span>{{ _("Type") }}:</span>
-            <span>{{ _(document_info.doctype) }}</span>
+            <span>{{ _(document_info.doctype)|e }}</span>
         </div>
         {% endif %}
 
         {% if document_info.title and document_info.title != document_info.docname %}
         <div class="detail-row">
             <span>{{ _("Reference") }}:</span>
-            <span>{{ document_info.title }}</span>
+            <span>{{ document_info.title|e }}</span>
         </div>
         {% endif %}
 
         <div class="detail-row">
             <span>{{ _("ID") }}:</span>
-            <span>{{ document_info.docname }}</span>
+            <span>{{ document_info.docname|e }}</span>
         </div>
 
         {% if document_info.amount %}
         <div class="detail-row">
             <span>{{ _("Amount") }}:</span>
-            <span><strong>€{{ "%.2f"|format(document_info.amount) }}</strong></span>
+            <span><strong>€{{ "%.2f"|format(document_info.amount)|e }}</strong></span>
         </div>
         {% endif %}
 
@@ -257,11 +257,11 @@
 
         {% for step in next_steps %}
         <div class="step-card">
-            <div class="step-title">{{ step.title }}</div>
-            <div class="step-description">{{ step.description }}</div>
+            <div class="step-title">{{ step.title|e }}</div>
+            <div class="step-description">{{ step.description|e }}</div>
 
             {% if step.action %}
-            <a href="{{ step.action }}" class="btn btn-primary">
+            <a href="{{ step.action|e }}" class="btn btn-primary">
                 {% if step.action.startswith('mailto:') %}
                 {{ _("Contact Support") }}
                 {% elif '/donate' in step.action %}
@@ -316,10 +316,10 @@ function refreshPaymentStatus(isAutoRefresh = false) {
         frappe.call({
             method: 'verenigingen.templates.pages.payment_success.refresh_payment_status',
             args: {
-                doctype: '{{ document_info.doctype }}',
-                docname: '{{ document_info.docname }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}',
-                token: '{{ frappe.form_dict.get("token", "") }}'
+                doctype: '{{ document_info.doctype|e }}',
+                docname: '{{ document_info.docname|e }}',
+                payment_id: '{{ frappe.form_dict.get("payment_id", "")|e }}',
+                token: '{{ frappe.form_dict.get("token", "")|e }}'
             },
             callback(response) {
                 handleRefreshResponse(response.message, isAutoRefresh);
@@ -338,10 +338,10 @@ function refreshPaymentStatus(isAutoRefresh = false) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                doctype: '{{ document_info.doctype }}',
-                docname: '{{ document_info.docname }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}',
-                token: '{{ frappe.form_dict.get("token", "") }}'
+                doctype: '{{ document_info.doctype|e }}',
+                docname: '{{ document_info.docname|e }}',
+                payment_id: '{{ frappe.form_dict.get("payment_id", "")|e }}',
+                token: '{{ frappe.form_dict.get("token", "")|e }}'
             })
         })
         .then(response => response.json())

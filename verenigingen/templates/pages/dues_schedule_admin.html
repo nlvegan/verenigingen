@@ -19,7 +19,7 @@
                 <div class="col-md-3">
                     <div class="card text-center">
                         <div class="card-body">
-                            <h5 class="card-title">{{ stats.total_active_members }}</h5>
+                            <h5 class="card-title">{{ stats.total_active_members|e }}</h5>
                             <p class="card-text">{{ _("Active Members") }}</p>
                         </div>
                     </div>
@@ -27,7 +27,7 @@
                 <div class="col-md-3">
                     <div class="card text-center">
                         <div class="card-body">
-                            <h5 class="card-title">{{ stats.members_with_schedules }}</h5>
+                            <h5 class="card-title">{{ stats.members_with_schedules|e }}</h5>
                             <p class="card-text">{{ _("With Schedules") }}</p>
                         </div>
                     </div>
@@ -35,7 +35,7 @@
                 <div class="col-md-3">
                     <div class="card text-center">
                         <div class="card-body">
-                            <h5 class="card-title text-danger">{{ stats.members_without_schedules }}</h5>
+                            <h5 class="card-title text-danger">{{ stats.members_without_schedules|e }}</h5>
                             <p class="card-text">{{ _("Missing Schedules") }}</p>
                         </div>
                     </div>
@@ -43,7 +43,7 @@
                 <div class="col-md-3">
                     <div class="card text-center">
                         <div class="card-body">
-                            <h5 class="card-title">{{ stats.schedule_templates }}</h5>
+                            <h5 class="card-title">{{ stats.schedule_templates|e }}</h5>
                             <p class="card-text">{{ _("Templates") }}</p>
                         </div>
                     </div>
@@ -70,10 +70,10 @@
                 <tbody>
                     {% for member in preview_members %}
                     <tr>
-                        <td>{{ member.member_name }}</td>
-                        <td>{{ member.member_full_name }}</td>
-                        <td>{{ member.membership_type }}</td>
-                        <td>€{{ member.membership_type_amount or 0 }}</td>
+                        <td>{{ member.member_name|e }}</td>
+                        <td>{{ member.member_full_name|e }}</td>
+                        <td>{{ member.membership_type|e }}</td>
+                        <td>€{{ (member.membership_type_amount or 0)|e }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

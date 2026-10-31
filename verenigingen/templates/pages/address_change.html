@@ -122,16 +122,16 @@
                 <div class="current-address-box">
                     <h5>{{ _("Current Address") }}</h5>
                     <address id="current-address-display">
-                        {% if current_address.address_line1 %}{{ current_address.address_line1 }}<br>{% endif %}
-                        {% if current_address.address_line2 %}{{ current_address.address_line2 }}<br>{% endif %}
-                        {% if current_address.city %}{{ current_address.city }}{% endif %}
+                        {% if current_address.address_line1 %}{{ current_address.address_line1|e }}<br>{% endif %}
+                        {% if current_address.address_line2 %}{{ current_address.address_line2|e }}<br>{% endif %}
+                        {% if current_address.city %}{{ current_address.city|e }}{% endif %}
                         {% if current_address.state and current_address.city %}, {% endif %}
-                        {% if current_address.state %}{{ current_address.state }}{% endif %}
-                        {% if current_address.pincode %} - {{ current_address.pincode }}{% endif %}
+                        {% if current_address.state %}{{ current_address.state|e }}{% endif %}
+                        {% if current_address.pincode %} - {{ current_address.pincode|e }}{% endif %}
                         <br>
-                        {% if current_address.country %}{{ current_address.country }}<br>{% endif %}
-                        {% if current_address.phone %}<strong>{{ _("Phone") }}:</strong> {{ current_address.phone }}<br>{% endif %}
-                        {% if current_address.email_id %}<strong>{{ _("Email") }}:</strong> {{ current_address.email_id }}{% endif %}
+                        {% if current_address.country %}{{ current_address.country|e }}<br>{% endif %}
+                        {% if current_address.phone %}<strong>{{ _("Phone") }}:</strong> {{ current_address.phone|e }}<br>{% endif %}
+                        {% if current_address.email_id %}<strong>{{ _("Email") }}:</strong> {{ current_address.email_id|e }}{% endif %}
                     </address>
                 </div>
                 {% else %}
@@ -148,7 +148,7 @@
                             <div class="form-group">
                                 <label for="address_line1">{{ _("Street Address") }} <span class="required-field">*</span></label>
                                 <input type="text" class="form-control" id="address_line1" name="address_line1"
-                                       value="{{ address_data.address_line1 }}"
+                                       value="{{ address_data.address_line1|e }}"
                                        placeholder="{{ _('Enter your street address') }}" required>
                             </div>
                         </div>
@@ -159,7 +159,7 @@
                             <div class="form-group">
                                 <label for="address_line2">{{ _("Address Line 2") }}</label>
                                 <input type="text" class="form-control" id="address_line2" name="address_line2"
-                                       value="{{ address_data.address_line2 }}"
+                                       value="{{ address_data.address_line2|e }}"
                                        placeholder="{{ _('Apartment, suite, etc. (optional)') }}">
                             </div>
                         </div>
@@ -170,7 +170,7 @@
                             <div class="form-group">
                                 <label for="city">{{ _("City") }} <span class="required-field">*</span></label>
                                 <input type="text" class="form-control" id="city" name="city"
-                                       value="{{ address_data.city }}"
+                                       value="{{ address_data.city|e }}"
                                        placeholder="{{ _('Enter your city') }}" required>
                             </div>
                         </div>
@@ -178,7 +178,7 @@
                             <div class="form-group">
                                 <label for="state">{{ _("State/Province") }}</label>
                                 <input type="text" class="form-control" id="state" name="state"
-                                       value="{{ address_data.state }}"
+                                       value="{{ address_data.state|e }}"
                                        placeholder="{{ _('Enter your state/province') }}">
                             </div>
                         </div>
@@ -189,7 +189,7 @@
                             <div class="form-group">
                                 <label for="pincode">{{ _("Postal Code") }}</label>
                                 <input type="text" class="form-control" id="pincode" name="pincode"
-                                       value="{{ address_data.pincode }}"
+                                       value="{{ address_data.pincode|e }}"
                                        placeholder="{{ _('Enter your postal code') }}">
                             </div>
                         </div>
@@ -199,9 +199,9 @@
                                 <select class="form-control" id="country" name="country" required>
                                     <option value="">{{ _("Select Country") }}</option>
                                     {% for country in countries %}
-                                    <option value="{{ country.name }}"
+                                    <option value="{{ country.name|e }}"
                                             {% if address_data.country == country.name %}selected{% endif %}>
-                                        {{ country.name }}
+                                        {{ country.name|e }}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -214,7 +214,7 @@
                             <div class="form-group">
                                 <label for="phone">{{ _("Phone Number") }}</label>
                                 <input type="tel" class="form-control" id="phone" name="phone"
-                                       value="{{ address_data.phone }}"
+                                       value="{{ address_data.phone|e }}"
                                        placeholder="{{ _('Enter your phone number') }}">
                             </div>
                         </div>
@@ -222,7 +222,7 @@
                             <div class="form-group">
                                 <label for="email_id">{{ _("Email Address") }}</label>
                                 <input type="email" class="form-control" id="email_id" name="email_id"
-                                       value="{{ address_data.email_id }}"
+                                       value="{{ address_data.email_id|e }}"
                                        placeholder="{{ _('Enter your email address') }}">
                             </div>
                         </div>
@@ -285,14 +285,14 @@
 <script>
 $(document).ready(function() {
     let currentAddressData = {
-        address_line1: "{{ address_data.address_line1 }}",
-        address_line2: "{{ address_data.address_line2 }}",
-        city: "{{ address_data.city }}",
-        state: "{{ address_data.state }}",
-        country: "{{ address_data.country }}",
-        pincode: "{{ address_data.pincode }}",
-        phone: "{{ address_data.phone }}",
-        email_id: "{{ address_data.email_id }}"
+        address_line1: "{{ address_data.address_line1|e }}",
+        address_line2: "{{ address_data.address_line2|e }}",
+        city: "{{ address_data.city|e }}",
+        state: "{{ address_data.state|e }}",
+        country: "{{ address_data.country|e }}",
+        pincode: "{{ address_data.pincode|e }}",
+        phone: "{{ address_data.phone|e }}",
+        email_id: "{{ address_data.email_id|e }}"
     };
 
     // Handle form submission

@@ -6,16 +6,16 @@
     <div class="campaign-hero mb-5">
         {% if campaign.campaign_image %}
         <div class="campaign-image mb-4">
-            <img src="{{ campaign.campaign_image }}" alt="{{ campaign.campaign_name }}" class="img-fluid rounded">
+            <img src="{{ campaign.campaign_image|e }}" alt="{{ campaign.campaign_name|e }}" class="img-fluid rounded">
         </div>
         {% endif %}
 
-        <h1 class="campaign-title">{{ campaign.campaign_name }}</h1>
-        <p class="campaign-type text-muted">{{ campaign.campaign_type }}</p>
+        <h1 class="campaign-title">{{ campaign.campaign_name|e }}</h1>
+        <p class="campaign-type text-muted">{{ campaign.campaign_type|e }}</p>
 
         {% if campaign.description %}
         <div class="campaign-description lead">
-            {{ campaign.description }}
+            {{ campaign.description|e }}
         </div>
         {% endif %}
     </div>
@@ -28,16 +28,16 @@
                 <h3>{{ _("Fundraising Progress") }}</h3>
                 <div class="progress mb-3" style="height: 30px;">
                     <div class="progress-bar bg-success" role="progressbar"
-                         style="width: {{ progress_percentage }}%"
-                         aria-valuenow="{{ progress_percentage }}"
+                         style="width: {{ progress_percentage|e }}%"
+                         aria-valuenow="{{ progress_percentage|e }}"
                          aria-valuemin="0" aria-valuemax="100">
                         {{ progress_percentage|round|int }}%
                     </div>
                 </div>
                 <div class="progress-stats">
-                    <strong>€{{ campaign.total_raised|round(2) }}</strong> {{ _("raised") }}
+                    <strong>€{{ campaign.total_raised|round(2)|e }}</strong> {{ _("raised") }}
                     {% if campaign.monetary_goal %}
-                    {{ _("of") }} <strong>€{{ campaign.monetary_goal|round(2) }}</strong> {{ _("goal") }}
+                    {{ _("of") }} <strong>€{{ campaign.monetary_goal|round(2)|e }}</strong> {{ _("goal") }}
                     {% endif %}
                 </div>
             </div>
@@ -47,27 +47,27 @@
                 <h3>{{ _("Donor Progress") }}</h3>
                 <div class="progress mb-3" style="height: 30px;">
                     <div class="progress-bar bg-info" role="progressbar"
-                         style="width: {{ donor_progress_percentage }}%"
-                         aria-valuenow="{{ donor_progress_percentage }}"
+                         style="width: {{ donor_progress_percentage|e }}%"
+                         aria-valuenow="{{ donor_progress_percentage|e }}"
                          aria-valuemin="0" aria-valuemax="100">
                         {{ donor_progress_percentage|round|int }}%
                     </div>
                 </div>
                 <div class="progress-stats">
-                    <strong>{{ campaign.total_donors }}</strong> {{ _("donors") }}
-                    {{ _("of") }} <strong>{{ campaign.donor_goal }}</strong> {{ _("goal") }}
+                    <strong>{{ campaign.total_donors|e }}</strong> {{ _("donors") }}
+                    {{ _("of") }} <strong>{{ campaign.donor_goal|e }}</strong> {{ _("goal") }}
                 </div>
             </div>
             {% endif %}
         </div>
 
         <div class="campaign-stats mt-3">
-            <span class="badge bg-secondary">{{ campaign.total_donations }} {{ _("donations") }}</span>
+            <span class="badge bg-secondary">{{ campaign.total_donations|e }} {{ _("donations") }}</span>
             {% if campaign.average_donation_amount %}
-            <span class="badge bg-secondary">{{ _("Average") }}: €{{ campaign.average_donation_amount|round(2) }}</span>
+            <span class="badge bg-secondary">{{ _("Average") }}: €{{ campaign.average_donation_amount|round(2)|e }}</span>
             {% endif %}
             {% if campaign.end_date %}
-            <span class="badge bg-secondary">{{ _("Ends") }}: {{ frappe.utils.formatdate(campaign.end_date) }}</span>
+            <span class="badge bg-secondary">{{ _("Ends") }}: {{ frappe.utils.formatdate(campaign.end_date)|e }}</span>
             {% endif %}
         </div>
     </div>
@@ -80,7 +80,7 @@
                 <h3 class="card-title">{{ _("Make a Donation") }}</h3>
 
                 <form id="campaign-donation-form">
-                    <input type="hidden" name="donation_campaign" value="{{ campaign.name }}">
+                    <input type="hidden" name="donation_campaign" value="{{ campaign.name|e }}">
                     <input type="hidden" name="donation_purpose_type" value="Campaign">
 
                     <!-- Suggested Amounts -->
@@ -89,9 +89,9 @@
                         <div class="btn-group" role="group">
                             {% for amount in suggested_amounts %}
                             <input type="radio" class="btn-check" name="amount_option"
-                                   id="amount_{{ amount }}" value="{{ amount }}">
-                            <label class="btn btn-outline-primary" for="amount_{{ amount }}">
-                                €{{ amount }}
+                                   id="amount_{{ amount|e }}" value="{{ amount|e }}">
+                            <label class="btn btn-outline-primary" for="amount_{{ amount|e }}">
+                                €{{ amount|e }}
                             </label>
                             {% endfor %}
                             <input type="radio" class="btn-check" name="amount_option"
@@ -108,7 +108,7 @@
                         <div class="input-group">
                             <span class="input-group-text">€</span>
                             <input type="number" class="form-control" id="custom_amount"
-                                   name="amount" min="{{ campaign.minimum_donation_amount or 1 }}"
+                                   name="amount" min="{{ (campaign.minimum_donation_amount or 1)|e }}"
                                    step="0.01">
                         </div>
                     </div>
@@ -200,14 +200,14 @@
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>{{ donation.donor_name or _("Anonymous") }}</strong>
-                        <small class="text-muted">{{ frappe.utils.pretty_date(donation.date) }}</small>
+                        <strong>{{ (donation.donor_name or _("Anonymous"))|e }}</strong>
+                        <small class="text-muted">{{ frappe.utils.pretty_date(donation.date)|e }}</small>
                         {% if donation.donation_message %}
-                        <p class="mb-0 mt-1">{{ donation.donation_message }}</p>
+                        <p class="mb-0 mt-1">{{ donation.donation_message|e }}</p>
                         {% endif %}
                     </div>
                     <div class="text-end">
-                        <strong>€{{ donation.amount|round(2) }}</strong>
+                        <strong>€{{ donation.amount|round(2)|e }}</strong>
                     </div>
                 </div>
             </div>
@@ -225,11 +225,11 @@
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>{{ donor.donor_name }}</strong>
-                        <small class="text-muted">{{ donor.donation_count }} {{ _("donations") }}</small>
+                        <strong>{{ donor.donor_name|e }}</strong>
+                        <small class="text-muted">{{ donor.donation_count|e }} {{ _("donations") }}</small>
                     </div>
                     <div class="text-end">
-                        <strong>€{{ donor.total_amount|round(2) }}</strong>
+                        <strong>€{{ donor.total_amount|round(2)|e }}</strong>
                     </div>
                 </div>
             </div>

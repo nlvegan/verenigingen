@@ -92,7 +92,7 @@
             <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6">
                 <div class="flex items-center">
                     <i class="fa fa-exclamation-triangle mr-3"></i>
-                    <span>{{ adjustment_message }}</span>
+                    <span>{{ adjustment_message|e }}</span>
                 </div>
             </div>
             {% else %}
@@ -104,8 +104,8 @@
                     <div>
                         <p class="font-medium">{{ _("Dues Rate Adjustment Limits") }}</p>
                         <ul class="text-sm mt-2 space-y-1">
-                            <li>• {{ _("You can increase your rate up to") }} {{ maximum_fee_multiplier }}x {{ _("the base amount without approval") }}</li>
-                            <li>• {{ _("Adjustments allowed: {0} remaining of {1} per year").format(adjustments_remaining, settings.max_adjustments_per_year) }}</li>
+                            <li>• {{ _("You can increase your rate up to") }} {{ maximum_fee_multiplier|e }}x {{ _("the base amount without approval") }}</li>
+                            <li>• {{ _("Adjustments allowed: {0} remaining of {1} per year").format(adjustments_remaining, settings.max_adjustments_per_year)|e }}</li>
                         </ul>
                     </div>
                 </div>
@@ -116,12 +116,12 @@
                 <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Current Membership Information") }}</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Dues Rate") }}:</span> €{{ "%.2f"|format(standard_fee) }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Rate") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name|e }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Dues Rate") }}:</span> €{{ "%.2f"|format(standard_fee)|e }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Rate") }}:</span> €{{ "%.2f"|format(current_fee.amount)|e }}</p>
                     </div>
                     <div>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Rate") }}:</span> €{{ "%.2f"|format(minimum_fee) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Rate") }}:</span> €{{ "%.2f"|format(minimum_fee)|e }}</p>
                     </div>
                 </div>
             </div>
@@ -136,16 +136,16 @@
                         <div>
                             {% if request.amendment_type == 'Fee Change' %}
                                 <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Fee Adjustment") }}</p>
-                                <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> €{{ "%.2f"|format(request.requested_amount) }}</p>
+                                <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> €{{ "%.2f"|format(request.requested_amount)|e }}</p>
                             {% elif request.amendment_type == 'Membership Type Change' %}
                                 <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Membership Type Change") }}</p>
-                                <p class="mb-1"><span class="font-medium">{{ _("Requested Type") }}:</span> {{ request.requested_membership_type }}</p>
+                                <p class="mb-1"><span class="font-medium">{{ _("Requested Type") }}:</span> {{ request.requested_membership_type|e }}</p>
                             {% endif %}
-                            <p class="mb-1"><span class="font-medium">{{ _("Status") }}:</span> {{ _(request.status) }}</p>
-                            <p class="text-sm text-gray-600">{{ _("Submitted") }}: {{ frappe.utils.format_datetime(request.creation) }}</p>
+                            <p class="mb-1"><span class="font-medium">{{ _("Status") }}:</span> {{ _(request.status)|e }}</p>
+                            <p class="text-sm text-gray-600">{{ _("Submitted") }}: {{ frappe.utils.format_datetime(request.creation)|e }}</p>
                         </div>
                         <div class="mt-3 md:mt-0">
-                            <a href="/app/contribution-amendment-request/{{ request.name }}" class="inline-flex items-center px-3 py-1 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors duration-200 text-sm" target="_blank">
+                            <a href="/app/contribution-amendment-request/{{ request.name|e }}" class="inline-flex items-center px-3 py-1 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors duration-200 text-sm" target="_blank">
                                 {{ _("View Details") }}
                             </a>
                         </div>
@@ -162,9 +162,9 @@
                 <div class="bg-primary-50 border-l-4 border-primary-400 p-4 rounded-r-lg mb-6">
                     <h6 class="font-medium text-primary-800 mb-2">{{ _("Important Information") }}</h6>
                     <ul class="text-sm text-primary-700 space-y-1">
-                        <li>{{ _("You can adjust your dues rate up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
-                        <li>{{ _("Minimum rate is €%.2f")|format(minimum_fee) }}</li>
-                        <li>{{ _("Maximum rate via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier) }}</li>
+                        <li>{{ _("You can adjust your dues rate up to {0} times per year").format(settings.max_adjustments_per_year)|e }}</li>
+                        <li>{{ _("Minimum rate is €%.2f")|format(minimum_fee)|e }}</li>
+                        <li>{{ _("Maximum rate via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier)|e }}</li>
                         <li>{{ _("For higher amounts, please contact us directly") }}</li>
                         {% if settings.require_approval_for_decreases %}
                         <li>{{ _("Rate reductions require approval") }}</li>
@@ -177,15 +177,15 @@
 
                 <form id="fee-adjustment-form">
                     <div class="mb-6">
-                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Dues Rate").format(_(billing_frequency)) }}</label>
+                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Dues Rate").format(_(billing_frequency))|e }}</label>
                         <div class="w-full mb-4">
                             <input type="range"
                                    id="fee-slider"
                                    class="w-full cursor-pointer"
-                                   min="{{ minimum_fee }}"
-                                   max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                   min="{{ minimum_fee|e }}"
+                                   max="{{ (minimum_fee * maximum_fee_multiplier)|e }}"
                                    step="1"
-                                   value="{{ current_fee.amount }}">
+                                   value="{{ current_fee.amount|e }}">
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -193,15 +193,15 @@
                                 <input type="number"
                                        id="new-fee-amount"
                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                                       min="{{ minimum_fee }}"
-                                       max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                       min="{{ minimum_fee|e }}"
+                                       max="{{ (minimum_fee * maximum_fee_multiplier)|e }}"
                                        step="0.50"
-                                       value="{{ current_fee.amount }}"
+                                       value="{{ current_fee.amount|e }}"
                                        required>
                             </div>
                             <div class="flex items-center justify-center">
                                 <div class="text-2xl font-bold text-primary-600" id="fee-display">
-                                    €{{ "%.2f"|format(current_fee.amount) }}
+                                    €{{ "%.2f"|format(current_fee.amount)|e }}
                                 </div>
                             </div>
                         </div>
@@ -212,8 +212,8 @@
                         <input type="date"
                                id="effective-date"
                                class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                               value="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
-                               min="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
+                               value="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d')|e }}"
+                               min="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d')|e }}"
                                required>
                         <p class="mt-1 text-sm text-gray-500">
                             {{ _("Select today's date for immediate application, or a future date to schedule the change") }}
@@ -249,7 +249,7 @@
                     <ul class="text-sm text-info-700 space-y-1">
                         <li>{{ _("All membership type changes require approval") }}</li>
                         <li>{{ _("Your request will be reviewed by staff") }}</li>
-                        <li><strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date) }}</li>
+                        <li><strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date)|e }}</li>
                         <li class="text-xs text-info-600">{{ _("Type changes take effect at the end of your current billing period") }}</li>
                     </ul>
                 </div>
@@ -280,7 +280,7 @@
             {% if enable_income_calculator %}
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
                 <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
-                <p class="text-sm text-gray-600 mb-4">{{ calculator_description }}</p>
+                <p class="text-sm text-gray-600 mb-4">{{ calculator_description|e }}</p>
 
                 <div class="mb-4">
                     <label for="calc-monthly-income" class="block text-sm font-medium text-gray-700 mb-1">{{ _("Monthly Net Income (€)") }}</label>
@@ -303,7 +303,7 @@
                         <span id="calc-payment-frequency"></span>
                     </p>
                     <p class="text-xs text-accent-600 mt-1">
-                        {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate }}%</span> {{ _("of your monthly income") }}
+                        {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate|e }}%</span> {{ _("of your monthly income") }}
                     </p>
                 </div>
 
@@ -316,7 +316,7 @@
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Need Help?") }}</h5>
                 <p class="text-gray-600 mb-4">{{ _("If you have questions about rate adjustments or need financial assistance, please contact us.") }}</p>
-                <a href="mailto:{{ member_contact_email }}" class="inline-flex items-center px-4 py-2 border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 transition-colors duration-200 text-sm">
+                <a href="mailto:{{ member_contact_email|e }}" class="inline-flex items-center px-4 py-2 border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 transition-colors duration-200 text-sm">
                     {{ _("Contact Support") }}
                 </a>
             </div>
@@ -354,7 +354,7 @@ $(document).ready(function() {
 
     // Income calculator variables
     const calculatorSettings = {
-        enabled: {{ enable_income_calculator|default(false)|lower }},
+        enabled: {{ enable_income_calculator|default(false)|lower|e }},
         percentage: {{ income_percentage_rate|default(0.5)|float }}
     };
     let calculatedAmount = 0;
@@ -395,7 +395,7 @@ $(document).ready(function() {
         if (amount < minFee || amount > maxFee) {
             submitBtn.prop('disabled', true);
             submitBtn.text('{{ _("Contact us for amounts outside this range") }}');
-            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email|e) }}');
+            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email|e)|e }}');
         } else {
             submitBtn.prop('disabled', false);
 
@@ -714,7 +714,7 @@ $(document).ready(function() {
 
                         <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                             <p class="text-sm text-blue-800">
-                                <strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date) }}
+                                <strong>{{ _("Effective Date:") }}</strong> {{ frappe.utils.formatdate(type_change_effective_date)|e }}
                             </p>
                             <p class="text-xs text-blue-600 mt-1">{{ _("Type changes take effect at the end of your current billing period") }}</p>
                         </div>

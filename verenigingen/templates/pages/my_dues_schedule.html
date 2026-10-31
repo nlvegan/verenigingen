@@ -240,7 +240,7 @@
                     <p class="text-sm font-medium text-gray-500">{{ _("Current Schedule") }}</p>
                     <p class="text-2xl font-bold text-gray-800">
                         {% if current_schedule %}
-                            <span class="status-badge {{ current_schedule.status|lower }}">{{ _(current_schedule.status) }}</span>
+                            <span class="status-badge {{ current_schedule.status|lower|e }}">{{ _(current_schedule.status)|e }}</span>
                         {% else %}
                             <span class="text-gray-400">{{ _("None") }}</span>
                         {% endif %}
@@ -258,7 +258,7 @@
                     <p class="text-sm font-medium text-gray-500">{{ _("Monthly Amount") }}</p>
                     <p class="text-2xl font-bold text-gray-800">
                         {% if current_schedule %}
-                            {{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}
+                            {{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}
                         {% else %}
                             <span class="text-gray-400">--</span>
                         {% endif %}
@@ -276,7 +276,7 @@
                     <p class="text-sm font-medium text-gray-500">{{ _("Next Payment Request") }}</p>
                     <p class="text-2xl font-bold text-gray-800">
                         {% if next_payment %}
-                            {{ frappe.format_value(next_payment.due_date, {"fieldtype": "Date"}) }}
+                            {{ frappe.format_value(next_payment.due_date, {"fieldtype": "Date"})|e }}
                         {% else %}
                             <span class="text-gray-400">{{ _("None") }}</span>
                         {% endif %}
@@ -292,7 +292,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-500">{{ _("Coverage") }}</p>
-                    <p class="text-2xl font-bold text-gray-800">{{ coverage_percentage }}%</p>
+                    <p class="text-2xl font-bold text-gray-800">{{ coverage_percentage|e }}%</p>
                 </div>
                 <div class="p-3 bg-green-50 rounded-full">
                     <i class="fa fa-shield text-green-600"></i>
@@ -313,21 +313,21 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div>
                         <p class="text-sm text-gray-500 mb-1">{{ _("Contribution Mode") }}</p>
-                        <p class="font-medium text-gray-800">{{ _(current_schedule.contribution_mode) }}</p>
+                        <p class="font-medium text-gray-800">{{ _(current_schedule.contribution_mode)|e }}</p>
                     </div>
                     <div>
                         <p class="text-sm text-gray-500 mb-1">{{ _("Billing Frequency") }}</p>
-                        <p class="font-medium text-gray-800">{{ _(current_schedule.billing_frequency) }}</p>
+                        <p class="font-medium text-gray-800">{{ _(current_schedule.billing_frequency)|e }}</p>
                     </div>
                     <div>
                         <p class="text-sm text-gray-500 mb-1">{{ _("Start Date") }}</p>
-                        <p class="font-medium text-gray-800">{{ frappe.format_value(current_schedule.start_date, {"fieldtype": "Date"}) }}</p>
+                        <p class="font-medium text-gray-800">{{ frappe.format_value(current_schedule.start_date, {"fieldtype": "Date"})|e }}</p>
                     </div>
                     <div>
                         <p class="text-sm text-gray-500 mb-1">{{ _("End Date") }}</p>
                         <p class="font-medium text-gray-800">
                             {% if current_schedule.end_date %}
-                                {{ frappe.format_value(current_schedule.end_date, {"fieldtype": "Date"}) }}
+                                {{ frappe.format_value(current_schedule.end_date, {"fieldtype": "Date"})|e }}
                             {% else %}
                                 {{ _("Ongoing") }}
                             {% endif %}
@@ -339,11 +339,11 @@
                 <div class="mb-6">
                     <div class="flex justify-between items-center mb-2">
                         <p class="text-sm font-medium text-gray-700">{{ _("Coverage Progress") }}</p>
-                        <p class="text-sm text-gray-500">{{ coverage_percentage }}%</p>
+                        <p class="text-sm text-gray-500">{{ coverage_percentage|e }}%</p>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: {{ coverage_percentage }}%"></div>
-                        <div class="progress-text">{{ covered_months }} / {{ total_months }} {{ _("months") }}</div>
+                        <div class="progress-fill" style="width: {{ coverage_percentage|e }}%"></div>
+                        <div class="progress-text">{{ covered_months|e }} / {{ total_months|e }} {{ _("months") }}</div>
                     </div>
                 </div>
 
@@ -374,7 +374,7 @@
                             <i class="fa fa-chevron-left"></i>
                         </button>
                         <span id="current-month" class="font-medium text-gray-800 min-w-[120px] text-center">
-                            {{ calendar_month }} {{ calendar_year }}
+                            {{ calendar_month|e }} {{ calendar_year|e }}
                         </span>
                         <button id="next-month" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
                             <i class="fa fa-chevron-right"></i>
@@ -419,27 +419,27 @@
 
                 <div class="timeline" id="payment-timeline">
                     {% for payment in payment_timeline %}
-                    <div class="timeline-item {{ payment.status|lower }}">
+                    <div class="timeline-item {{ payment.status|lower|e }}">
                         <div class="flex items-center justify-between">
                             <div>
                                 <p class="font-medium text-gray-800">
-                                    {{ frappe.format_value(payment.amount, {"fieldtype": "Currency"}) }}
+                                    {{ frappe.format_value(payment.amount, {"fieldtype": "Currency"})|e }}
                                 </p>
                                 <p class="text-sm text-gray-500">
-                                    {{ frappe.format_value(payment.due_date, {"fieldtype": "Date"}) }}
+                                    {{ frappe.format_value(payment.due_date, {"fieldtype": "Date"})|e }}
                                 </p>
                             </div>
                             <div class="text-right">
-                                <span class="status-badge {{ payment.status|lower }}">{{ _(payment.status) }}</span>
+                                <span class="status-badge {{ payment.status|lower|e }}">{{ _(payment.status)|e }}</span>
                                 {% if payment.invoice_link %}
-                                <a href="{{ payment.invoice_link }}" class="block text-sm text-primary-600 hover:text-primary-700 mt-1">
+                                <a href="{{ payment.invoice_link|e }}" class="block text-sm text-primary-600 hover:text-primary-700 mt-1">
                                     {{ _("View Invoice") }}
                                 </a>
                                 {% endif %}
                             </div>
                         </div>
                         {% if payment.description %}
-                        <p class="text-sm text-gray-600 mt-1">{{ payment.description }}</p>
+                        <p class="text-sm text-gray-600 mt-1">{{ payment.description|e }}</p>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -481,7 +481,7 @@
                         <span class="text-sm text-gray-500">{{ _("Payment Method") }}</span>
                         <span class="text-sm font-medium text-gray-800">
                             {% if payment_method %}
-                                {{ _(payment_method) }}
+                                {{ _(payment_method)|e }}
                             {% else %}
                                 {{ _("Not Set") }}
                             {% endif %}
@@ -516,7 +516,7 @@
                 <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Need Help?") }}</h4>
                 <p class="text-sm text-gray-600 mb-4">{{ _("Questions about your dues schedule or payment options?") }}</p>
                 <div class="space-y-3">
-                    <a href="mailto:{{ member_contact_email }}" class="flex items-center p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors duration-200">
+                    <a href="mailto:{{ member_contact_email|e }}" class="flex items-center p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors duration-200">
                         <i class="fa fa-envelope mr-3"></i>
                         <span>{{ _("Contact Support") }}</span>
                     </a>
@@ -556,11 +556,11 @@
 <script>
 $(document).ready(function() {
     // Current calendar state
-    let currentMonth = {{ calendar_month_num }};
-    let currentYear = {{ calendar_year }};
+    let currentMonth = {{ calendar_month_num|e }};
+    let currentYear = {{ calendar_year|e }};
 
     // Payment data
-    const paymentData = {{ payment_data|safe }};
+    const paymentData = {{ payment_data|tojson }};
 
     // Initialize calendar
     renderCalendar();

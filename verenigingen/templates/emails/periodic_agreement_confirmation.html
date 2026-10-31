@@ -22,7 +22,7 @@
             {% endif %}
             <tr>
                 <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Annual Amount:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ annual_amount }}</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ annual_amount|e }}</td>
             </tr>
             <tr>
                 <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Payment Frequency:</strong></td>
@@ -30,7 +30,7 @@
             </tr>
             <tr>
                 <td style="padding: 8px 0;"><strong>Payment Amount:</strong></td>
-                <td style="padding: 8px 0;">€{{ payment_amount }}</td>
+                <td style="padding: 8px 0;">€{{ payment_amount|e }}</td>
             </tr>
         </table>
     </div>

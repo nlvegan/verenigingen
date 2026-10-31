@@ -58,13 +58,13 @@
                             <select class="form-control" id="bank_account" name="bank_account" required>
                                 <option value="">{{ _("Select Bank Account") }}</option>
                                 {% for account in bank_accounts %}
-                                <option value="{{ account.name }}"
-                                        data-bank="{{ account.bank }}"
-                                        data-iban="{{ account.iban or '' }}"
-                                        data-account-no="{{ account.bank_account_no or '' }}">
-                                    {{ account.account_name }}
-                                    {% if account.bank %}({{ account.bank }}){% endif %}
-                                    {% if account.iban %}- {{ account.iban }}{% endif %}
+                                <option value="{{ account.name|e }}"
+                                        data-bank="{{ account.bank|e }}"
+                                        data-iban="{{ (account.iban or '')|e }}"
+                                        data-account-no="{{ (account.bank_account_no or '')|e }}">
+                                    {{ account.account_name|e }}
+                                    {% if account.bank %}({{ account.bank|e }}){% endif %}
+                                    {% if account.iban %}- {{ account.iban|e }}{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
@@ -137,10 +137,10 @@
                             <select class="form-control" id="mollie_bank_account" name="mollie_bank_account" required>
                                 <option value="">{{ _("Select Bank Account") }}</option>
                                 {% for account in bank_accounts %}
-                                <option value="{{ account.name }}">
-                                    {{ account.account_name }}
-                                    {% if account.bank %}({{ account.bank }}){% endif %}
-                                    {% if account.iban %}- {{ account.iban }}{% endif %}
+                                <option value="{{ account.name|e }}">
+                                    {{ account.account_name|e }}
+                                    {% if account.bank %}({{ account.bank|e }}){% endif %}
+                                    {% if account.iban %}- {{ account.iban|e }}{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
@@ -466,7 +466,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const apiArgs = {
                 bank_account: bankAccountSelect.value,
                 file_content: fileContent,
-                company: '{{ company }}'
+                company: '{{ company|e }}'
             };
 
             // Call import API
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 from_date: fromDate,
                 to_date: toDate,
                 strategy: strategy,
-                company: '{{ company }}',
+                company: '{{ company|e }}',
                 bank_account: bankAccount
             },
             callback: function(r) {
