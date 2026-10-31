@@ -222,16 +222,23 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        if result.get("success"):
-            frappe.logger().info(f"Assigned member {member.name} to chapter {chapter}")
-        else:
-            frappe.logger().warning(
-                f"Chapter assignment returned non-success: {result.get('error', 'Unknown error')}"
+        # already_exists is the ordinary case of approving with the applicant's own chapter (its
+        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
+        # nowhere anyone reads (#1797).
+        if not result.get("success") and result.get("action") != "already_exists":
+            frappe.log_error(
+                title="Approval Chapter Assignment Failed",
+                message=f"Member {member.name}, chapter {chapter}: "
+                f"{result.get('error') or result.get('message') or 'unknown error'}",
             )
 
-    except Exception as e:
-        # Non-critical error - log but don't fail the approval
-        frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
+    except Exception:
+        # Non-critical: the approval still proceeds, but the failure must be visible.
+        frappe.log_error(
+            title="Approval Chapter Assignment Failed",
+            message=f"Member {member.name}, chapter {chapter}:\n{frappe.get_traceback()}",
+        )
 
 
 def _handle_idempotent_approval(member_name):
@@ -721,13 +728,6 @@ def _approve_membership_application_locked(
     membership_type = resolve_membership_type(member, membership_type)
     validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
-    # Assign member to chapter
-    assign_member_to_chapter(member, chapter)
-    if chapter:
-        member.reload()
-        member.update_current_chapter_display()
-        member.save()
-
     # Set the selected membership type in memory (will be saved during membership creation)
     try:
         member.selected_membership_type = membership_type
@@ -753,6 +753,16 @@ def _approve_membership_application_locked(
     membership = member.create_membership_on_approval(
         create_invoice=create_invoice, approval_fields=approval_fields
     )
+
+    # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
+    # add_member derives a NEW row's enabled/status from the Member's current status; run
+    # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
+    # activation step below (it only flips 'Pending' rows) never repaired.
+    assign_member_to_chapter(member, chapter)
+    if chapter:
+        member.reload()
+        member.update_current_chapter_display()
+        member.save()
 
     # Activate any pre-existing pending Chapter Member rows. The application
     # form creates a Chapter Member row in status "Pending" when the applicant
