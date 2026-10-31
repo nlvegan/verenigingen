@@ -23,6 +23,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import RETURN_PROOF_PURPOSE
 
 
 @contextmanager
@@ -52,6 +54,11 @@ def fake_request(**args):
     finally:
         frappe.local.request = original_request
         frappe.local.response = frappe._dict(original_response)
+
+
+def _return_proof_for(doc):
+    """The signed proof create_ponto_payment_request mints into the redirect_uri (#1833)."""
+    return generate_guest_return_token(RETURN_PROOF_PURPOSE, doc.name)
 
 
 class TestPontoPaymentCallback(FrappeTestCase):
@@ -204,7 +211,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         )
 
         doc = self._make_payment_link()
-        with fake_request(payment_link=doc.name, error="access_denied"):
+        with fake_request(payment_link=doc.name, error="access_denied", return_proof=_return_proof_for(doc)):
             payment_link_callback()
             self.assertIn("payment-success", frappe.local.response["location"])
 
@@ -219,7 +226,8 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
 
         doc = self._make_payment_link()
         with fake_request(
-            payment_link=doc.name, error="server_error", error_description="boom"
+            payment_link=doc.name, error="server_error", error_description="boom",
+            return_proof=_return_proof_for(doc),
         ):
             payment_link_callback()
             self.assertIn("payment-success", frappe.local.response["location"])
@@ -238,7 +246,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             "ponto_payment_link.PontoPaymentLink.refresh_status",
             return_value={"status": "Executed"},
         ) as refresh:
-            with fake_request(payment_link=doc.name):
+            with fake_request(payment_link=doc.name, return_proof=_return_proof_for(doc)):
                 cb.payment_link_callback()
                 self.assertIn("payment-success", frappe.local.response["location"])
         self.assertEqual(refresh.call_count, 0)
@@ -264,7 +272,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             "ponto_payment_link.PontoPaymentLink.refresh_status",
             return_value={"status": "Executed"},
         ):
-            with fake_request(payment_link=doc.name):
+            with fake_request(payment_link=doc.name, return_proof=_return_proof_for(doc)):
                 cb.payment_link_callback()
                 location = frappe.local.response["location"]
 

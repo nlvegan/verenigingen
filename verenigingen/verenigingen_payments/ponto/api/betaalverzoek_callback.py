@@ -34,6 +34,13 @@ from verenigingen.utils.service_user import get_service_user
 # (the #1055 payment-success proof), so neither verifies as the other.
 CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
 
+# Scopes the signed `return_proof` minted into the same redirect_uri (#1833). It is the ONLY
+# thing that lets payment_link_callback hand out the /payment-success token, so it must be a
+# third purpose: distinct from the cancel proof (which authorises a write, not a disclosure)
+# and from PONTO_RETURN_TOKEN_PURPOSE (the token it unlocks; if the two were the same string,
+# the token this callback hands out would itself pass as the proof for the next request).
+RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
+
 
 def _payment_success_redirect(payment_link_name):
     """Build the /payment-success redirect URL for a Ponto Payment Link return.
@@ -60,6 +67,8 @@ def payment_link_callback():
             or a missing or invalid token, is ignored (#1815)
         error_description: ignored
         cancel_token: signed proof that this browser was sent to Ponto for this link
+        return_proof: signed proof, minted into the redirect_uri at signing start, required
+            for the redirect to /payment-success; without it the answer is the unknown-name one
 
     Returns:
         Redirect to appropriate page based on result
@@ -89,12 +98,9 @@ def payment_link_callback():
         return
 
     try:
-        # Check if payment link exists
-        if not frappe.db.exists("Ponto Payment Link", payment_link_name):
-            frappe.logger().warning(f"Payment link callback for unknown link: {payment_link_name}")
-            frappe.local.response["type"] = "redirect"
-            frappe.local.response["location"] = get_url("/app/home")
-            return
+        exists = frappe.db.exists("Ponto Payment Link", payment_link_name)
+        if not exists:
+            frappe.logger().warning("Payment link callback for unknown link")
 
         # No status comes from the query string (#1815), with ONE ruled exception:
         # `error=access_denied` plus a valid `cancel_token` marks a Pending Authorization
@@ -103,13 +109,21 @@ def payment_link_callback():
         # Messages raised by the cancel's save are dropped from the response, as in
         # payment_callback, so a known name does not answer differently from an unknown one.
         messages_before = len(frappe.local.message_log or [])
-        if webhook_user:
+        if exists and webhook_user:
             _cancel_link_if_proved(payment_link_name)
         del frappe.local.message_log[messages_before:]
 
-        # Redirect to customer-friendly payment status page
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
+        # The /payment-success token (#1055) is handed out ONLY against the signed
+        # `return_proof` minted into the redirect_uri at signing start (#1833). A known name
+        # without a valid proof takes the same branch as an unknown one, so nothing here tells
+        # an anonymous caller which names exist. Links created before the proof existed carry
+        # none and so get the unknown-name answer.
+        if exists and _has_return_proof(payment_link_name):
+            frappe.local.response["type"] = "redirect"
+            frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
+        else:
+            frappe.local.response["type"] = "redirect"
+            frappe.local.response["location"] = get_url("/app/home")
 
     except Exception as e:
         frappe.logger().error(f"Payment link callback error: {e}")
@@ -119,6 +133,13 @@ def payment_link_callback():
         )
         frappe.local.response["type"] = "redirect"
         frappe.local.response["location"] = get_url("/app/home")
+
+
+def _has_return_proof(payment_link_name):
+    """True when the request carries the signed proof minted for THIS link at signing start."""
+    return verify_guest_return_token(
+        RETURN_PROOF_PURPOSE, payment_link_name, frappe.request.args.get("return_proof")
+    )
 
 
 def _cancel_link_if_proved(payment_link_name):

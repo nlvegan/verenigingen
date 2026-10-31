@@ -115,10 +115,19 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         frappe.local.form_dict = frappe._dict(args)
         frappe.local.response = frappe._dict()
         frappe.local.message_log = []
+        queries = []
+        real_sql = frappe.db.sql
+
+        def counting_sql(*a, **kw):
+            queries.append(1)
+            return real_sql(*a, **kw)
+
         try:
-            frappe.handler.execute_cmd(cmd)
+            with patch.object(frappe.db, "sql", counting_sql):
+                frappe.handler.execute_cmd(cmd)
         finally:
             seen = {
+                "queries": len(queries),
                 "session_user": frappe.session.user,
                 "response_type": frappe.local.response.get("type"),
                 "location": frappe.local.response.get("location"),
@@ -568,3 +577,184 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["cancel_token"][0]
             )
         )
+        # #1833: a SEPARATE proof, valid for its own purpose only
+        self.assertTrue(
+            verify_guest_return_token(
+                betaalverzoek_callback.RETURN_PROOF_PURPOSE, link.name, query["return_proof"][0]
+            )
+        )
+        self.assertNotEqual(query["return_proof"][0], query["cancel_token"][0])
+        self.assertFalse(
+            verify_guest_return_token(
+                betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["return_proof"][0]
+            )
+        )
+
+
+    # ---- #1833: /payment-success token only against a signed return proof ----------
+
+    def _proof(self, doc, purpose=None):
+        return generate_guest_return_token(purpose or betaalverzoek_callback.RETURN_PROOF_PURPOSE, doc.name)
+
+    def _shape(self, seen, name):
+        """Every guest-visible channel, with the document's own name masked out."""
+        return {
+            "response_type": seen["response_type"],
+            "location": (seen["location"] or "").replace(name, "<N>"),
+            "message_log": seen["message_log"],
+            "session_user": seen["session_user"],
+        }
+
+    def _guest_fetch_page(self, location):
+        """Fetch ``location`` (a /payment-success URL) the way a guest browser would: Guest
+        session, a real werkzeug request, rendered through the website router. Returns the
+        rendered HTML.
+
+        The page lives at the ROUTE ``/payment_success`` (templates/pages/payment_success.py).
+        The callback redirects to ``/payment-success`` (hyphen), which on a bench with the
+        ``payments`` app installed is served by THAT app's page instead (measured on
+        test_site_10: ValueError, a 500, because it reads form_dict.doctype). The disclosure
+        is reachable at the underscore route either way, so that is the one fetched here."""
+        from urllib.parse import parse_qsl, urlparse
+
+        from frappe.website.serve import get_response
+
+        parsed = urlparse(location)
+        route = parsed.path.replace("-", "_")
+        env = EnvironBuilder(path=route, query_string=parsed.query, method="GET").get_environ()
+        original_user = frappe.session.user
+        frappe.set_user("Guest")
+        frappe.local.request = Request(env)
+        frappe.local.form_dict = frappe._dict(parse_qsl(parsed.query))
+        frappe.local.response = frappe._dict()
+        try:
+            response = get_response(route.lstrip("/"))
+            return response.get_data(as_text=True)
+        finally:
+            frappe.set_user(original_user)
+
+    def _bad_return_proofs(self, link, other_link):
+        from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
+
+        return {
+            "missing": None,
+            "empty": "",
+            "garbage": "not-a-token",
+            "non_ascii": "h\u00e9llo",
+            "other_links_proof": self._proof(other_link),
+            "cancel_token_as_proof": self._link_token(link),
+            "payment_success_token_as_proof": self._proof(link, PONTO_RETURN_TOKEN_PURPOSE),
+            "request_cancel_purpose": self._proof(link, payment_callback.CANCEL_TOKEN_PURPOSE),
+        }
+
+    def test_known_link_without_a_valid_proof_answers_like_an_unknown_name(self):
+        """A known link name with a missing / wrong-link / wrong-purpose proof must equal an
+        unknown name on redirect, response type, message_log, session user and Error Log delta
+        (query count is compared as well and was equal when measured). Every control row is a
+        REAL link and a REAL (other) proof, so an accept-anything or pick-first fix finds a
+        row to get wrong."""
+        link, other_link = self._make_ppl(), self._make_ppl()
+        for label, proof in self._bad_return_proofs(link, other_link).items():
+            with self.subTest(proof=label):
+                args = {"return_proof": proof} if proof is not None else {}
+                c0 = frappe.db.count("Error Log")
+                known = self._guest_get(LINK_CMD, payment_link=link.name, **args)
+                c1 = frappe.db.count("Error Log")
+                unknown = self._guest_get(LINK_CMD, payment_link=UNKNOWN_LINK, **args)
+                c2 = frappe.db.count("Error Log")
+                self.assertEqual(self._shape(known, link.name), self._shape(unknown, UNKNOWN_LINK))
+                self.assertEqual(c1 - c0, c2 - c1)
+                self.assertEqual(known["queries"], unknown["queries"])
+                self.assertNotIn("token=", known["location"])
+                self.assertNotIn("payment-success", known["location"])
+
+    def test_a_valid_proof_redirects_to_payment_success_with_a_working_token(self):
+        """Control for the test above: the legitimate return still gets its token."""
+        from urllib.parse import parse_qs, urlparse
+
+        from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
+
+        link = self._make_ppl()
+        seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
+        parsed = urlparse(seen["location"])
+        self.assertEqual(parsed.path, "/payment-success")
+        query = parse_qs(parsed.query)
+        self.assertEqual(query["payment_link"], [link.name])
+        self.assertTrue(verify_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link.name, query["token"][0]))
+
+    def test_end_to_end_a_guest_knowing_only_the_name_gets_no_details_but_a_legitimate_return_does(self):
+        """Fetch /payment-success as a guest, following the callback's own redirect. Probe
+        shortcut: the link row is inserted directly (not through signing start), and the proof
+        is minted with the helper, standing in for the one create_ponto_payment_request puts
+        in the redirect_uri (that is asserted in test_signing_start_embeds_...)."""
+        link = self._make_ppl("Executed")
+
+        # (a) an anonymous caller who only knows the enumerable name
+        seen = self._guest_get(LINK_CMD, payment_link=link.name)
+        self.assertNotIn("/payment-success", seen["location"])
+        # Even handed the page URL by hand, with no token, the page discloses nothing.
+        from frappe.utils import get_url
+
+        bare = self._guest_fetch_page(get_url(f"/payment_success?payment_link={link.name}"))
+        self.assertIn("Payment link not found", bare)
+        self.assertNotIn(link.description, bare)
+
+        # Control: the page DOES disclose for a token minted directly, so the "nothing
+        # disclosed" results above are not just a page that never renders details.
+        from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
+
+        minted = generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link.name)
+        control = self._guest_fetch_page(
+            get_url(f"/payment_success?payment_link={link.name}&token={minted}")
+        )
+        self.assertIn(link.description, control)
+
+        # (b) the legitimate return (valid proof) lands on a page with the details
+        seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
+        page = self._guest_fetch_page(seen["location"])
+        self.assertNotIn("Payment link not found", page)
+        self.assertIn(link.description, page)
+        self.assertIn("Payment completed successfully", page)
+        self.assertNotIn("not found", page.lower().replace("payment link not found", ""))
+
+    def test_the_payment_success_token_handed_out_is_not_itself_a_proof(self):
+        """The token a valid return receives must not unlock the next callback: otherwise one
+        legitimate return would let anyone replay for a different request."""
+        from urllib.parse import parse_qs, urlparse
+
+        link = self._make_ppl()
+        seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
+        handed_out = parse_qs(urlparse(seen["location"]).query)["token"][0]
+        again = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=handed_out)
+        self.assertNotIn("payment-success", again["location"])
+
+    def test_return_proof_is_not_a_cancel_token_nor_a_cancel_the_proof(self):
+        """Purposes stay apart in both directions: the return proof does not authorise the
+        cancel write, and the cancel token does not authorise the disclosure."""
+        link = self._make_ppl("Pending Authorization")
+        self._guest_get(
+            LINK_CMD, payment_link=link.name, error="access_denied", cancel_token=self._proof(link)
+        )
+        self.assertEqual(
+            frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization"
+        )
+
+    def test_a_legitimate_cancelled_return_cancels_and_still_reaches_the_page(self):
+        """Ponto appends error=access_denied to the redirect_uri, which still carries both
+        proofs: the row is cancelled AND the payer lands on the page that says so."""
+        link = self._make_ppl("Pending Authorization")
+        seen = self._guest_get(
+            LINK_CMD, payment_link=link.name, error="access_denied",
+            cancel_token=self._link_token(link), return_proof=self._proof(link),
+        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
+        self.assertIn("/payment-success", seen["location"])
+        self.assertIn("The payment was cancelled", self._guest_fetch_page(seen["location"]))
+
+    def test_return_proof_works_without_a_webhook_user(self):
+        """#1834 + #1833: the disclosure gate does not depend on the service identity."""
+        self._unset_webhook_user()
+        link = self._make_ppl()
+        seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
+        self.assertIn("/payment-success", seen["location"])
+        self.assertEqual(seen["session_user"], "Guest")
