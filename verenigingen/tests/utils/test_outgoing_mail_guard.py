@@ -140,10 +140,15 @@ class TestBaseClassesCallTheGuard(unittest.TestCase):
         self.assertEqual(result.errors + result.failures, [])
         return seen
 
+    # The undo is asserted against the value BEFORE the class ran, not against None: CI's
+    # site_config already carries mail_server=localhost, so "None afterwards" was only true on a
+    # local site without it (shard 10 of #1881 failed exactly that way).
     def test_enhanced_test_case(self):
+        before = frappe.conf.get("mail_server")
         self.assertEqual(self._observed_conf(EnhancedTestCase)["mail_server"], "localhost")
-        self.assertIsNone(frappe.conf.get("mail_server"))
+        self.assertEqual(frappe.conf.get("mail_server"), before)
 
     def test_vereniging_test_case(self):
+        before = frappe.conf.get("mail_server")
         self.assertEqual(self._observed_conf(VereningingenTestCase)["mail_server"], "localhost")
-        self.assertIsNone(frappe.conf.get("mail_server"))
+        self.assertEqual(frappe.conf.get("mail_server"), before)
