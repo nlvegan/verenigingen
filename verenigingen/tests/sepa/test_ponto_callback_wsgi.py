@@ -12,8 +12,13 @@ request), which cannot see uncommitted data.
 Run as a SUBPROCESS: frappe.app.application calls frappe.destroy()/init() per request, which
 would tear down this test's own frappe.local (same approach and reason as
 test_core_client_permission_oracle). The subprocess owns every row it commits and deletes
-them, and restores the webhook_user setting, in a ``finally``. The test process commits
-nothing.
+them, restores the webhook_user setting, and removes the test user and the orphan
+Comment/Version rows its writes left behind, in a ``finally``. The test process commits
+nothing. Risk: if the subprocess is KILLED (not merely failing) the ``finally`` does not run,
+webhook_user stays pointed at the test user and its rows stay; re-running the module
+repairs both (it reuses the user and restores the setting recorded at the start of that run).
+Every request carries its own REMOTE_ADDR, so the per-IP rate-limit bucket (30 per 5 min,
+shared by all clients with no address) is never exhausted by repeated runs.
 
 Usage:
     bench --site test_site_10 run-tests --app verenigingen \
@@ -48,8 +53,17 @@ SCRIPT = textwrap.dedent(
     EMAIL = "ponto-wsgi-1883@example.com"
     SETTINGS = "Verenigingen Payments Settings"
     created = []
+    user_created = False
     previous_webhook_user = frappe.db.get_single_value(SETTINGS, "webhook_user")
     out = {{}}
+    TABLES = ("User", "Has Role", "Contact", "Notification Settings", "Version", "Comment",
+              "Ponto Payment Link", "Ponto Payment Request", "Deleted Document")
+
+    def table_counts():
+        return {{t: frappe.db.count(t) for t in TABLES}}
+
+    out["leak_before"] = table_counts()
+    run_started = frappe.utils.now()
 
     def fresh():
         # a new process-local connection: sees committed data only
@@ -70,7 +84,8 @@ SCRIPT = textwrap.dedent(
 
     try:
         frappe.set_user("Administrator")
-        if not frappe.db.exists("User", EMAIL):
+        user_created = not frappe.db.exists("User", EMAIL)
+        if user_created:
             user = frappe.new_doc("User")
             user.email = EMAIL
             user.first_name = "PontoWsgi"
@@ -131,8 +146,14 @@ SCRIPT = textwrap.dedent(
         LINK = "/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"
         REQ = "/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback.payment_callback"
 
+        import itertools, uuid
+        seq = itertools.count(1)
+        base = uuid.uuid4().int
+
         def get(path):
-            return client.get(path, headers=headers)
+            n = base + next(seq)
+            addr = f"10.{{(n >> 16) % 250 + 1}}.{{(n >> 8) % 250 + 1}}.{{n % 250 + 1}}"
+            return client.get(path, headers=headers, environ_base={{"REMOTE_ADDR": addr}})
 
         before = counts()
         # control rows: none of these may persist anything
@@ -176,9 +197,21 @@ SCRIPT = textwrap.dedent(
         frappe.set_user("Administrator")
         for doctype, name in created:
             frappe.db.delete(doctype, {{"name": name}})
+            frappe.db.delete("Comment", {{"reference_doctype": doctype, "reference_name": name}})
+            frappe.db.delete("Version", {{"ref_doctype": doctype, "docname": name}})
         frappe.db.set_single_value(SETTINGS, "webhook_user", previous_webhook_user)
+        if user_created:
+            frappe.delete_doc("User", EMAIL, force=True, ignore_permissions=True)
+            # delete_doc leaves its own audit trail (Deleted Document + "Deleted" Comments for
+            # the User, its Notification Settings and its Property Setters): remove what THIS
+            # run's delete wrote
+            frappe.db.delete("Comment", {{"comment_type": "Deleted", "creation": [">=", run_started]}})
+            frappe.db.delete("Deleted Document", {{"creation": [">=", run_started]}})
+            frappe.db.delete("Version", {{"ref_doctype": "User", "docname": EMAIL}})
+            frappe.db.delete("Comment", {{"reference_doctype": "User", "reference_name": EMAIL}})
         frappe.db.commit()
         out["cleaned"] = not any(frappe.db.exists(d, n) for d, n in created)
+        out["leak_after"] = table_counts()
     print("RESULT" + json.dumps(out))
     """
 )
@@ -202,7 +235,11 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         cls.out = json.loads(lines[-1][len("RESULT") :])
 
     def test_subprocess_cleaned_up_its_committed_rows(self):
+        """Row counts in the tables the run touches are identical before and after, so the
+        test user (Has Role, Contact, Notification Settings, Version) and the orphan Comment
+        and Version rows on the deleted Ponto rows are gone too."""
         self.assertTrue(self.out["cleaned"])
+        self.assertEqual(self.out["leak_after"], self.out["leak_before"])
 
     def test_a_token_proved_cancel_persists_for_a_payment_link(self):
         self.assertEqual(self.out["proved_link"], "Cancelled")
@@ -223,7 +260,10 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         delta = self.out["delta_proved"]
         self.assertEqual(delta["Error Log"], 0, delta)
         self.assertEqual(delta["Access Log"], 0, delta)
+        self.assertEqual(delta["Activity Log"], 0, delta)
         self.assertEqual(delta["Comment"], 0, delta)
+        # exactly one Version per proved cancel (one link, one request): the save itself
+        self.assertEqual(delta["Version"], 2, delta)
 
     def test_the_return_redirect_lands_on_a_page_with_the_details(self):
         """#1875: the URL the callback returns must render OUR page. At the hyphen route the

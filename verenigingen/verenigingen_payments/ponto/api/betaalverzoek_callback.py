@@ -9,7 +9,7 @@ Handles redirects from Ponto after customer payment authorization.
 When a customer authorizes a payment in the Ponto payment portal,
 they are redirected back to this callback URL. This endpoint:
 1. Validates the payment link
-2. Redirects to the payment-success page (status comes from the signed webhook)
+2. Redirects to the payment_success page (status comes from the signed webhook)
 
 Usage:
     Callback URL:
@@ -31,11 +31,11 @@ from verenigingen.utils.service_user import get_service_user
 
 # Scopes the signed `cancel_token` minted into the redirect_uri at signing start
 # (PontoPaymentLink.create_ponto_payment_request). Distinct from PONTO_RETURN_TOKEN_PURPOSE
-# (the #1055 payment-success proof), so neither verifies as the other.
+# (the #1055 payment_success proof), so neither verifies as the other.
 CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
 
 # Scopes the signed `return_proof` minted into the same redirect_uri (#1833). It is the ONLY
-# thing that lets payment_link_callback hand out the /payment-success token, so it must be a
+# thing that lets payment_link_callback hand out the payment_success token, so it must be a
 # third purpose: distinct from the cancel proof (which authorises a write, not a disclosure)
 # and from PONTO_RETURN_TOKEN_PURPOSE (the token it unlocks; if the two were the same string,
 # the token this callback hands out would itself pass as the proof for the next request).
@@ -43,7 +43,7 @@ RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
 
 
 def _payment_success_redirect(payment_link_name):
-    """Build the payment-success redirect URL for a Ponto Payment Link return.
+    """Build the payment_success redirect URL for a Ponto Payment Link return.
 
     Embeds an HMAC proof (#1055 finding 1) since Ponto Payment Link.autoname
     is a small sequential PONTO-LINK-{####} counter and payment_success.py's
@@ -72,7 +72,7 @@ def payment_link_callback():
         error_description: ignored
         cancel_token: signed proof that this browser was sent to Ponto for this link
         return_proof: signed proof, minted into the redirect_uri at signing start, required
-            for the redirect to /payment-success; without it the answer is the unknown-name one
+            for the redirect to /payment_success; without it the answer is the unknown-name one
 
     Returns:
         Redirect to appropriate page based on result
@@ -117,7 +117,7 @@ def payment_link_callback():
             _cancel_link_if_proved(payment_link_name)
         del frappe.local.message_log[messages_before:]
 
-        # The /payment-success token (#1055) is handed out ONLY against the signed
+        # The payment_success token (#1055) is handed out ONLY against the signed
         # `return_proof` minted into the redirect_uri at signing start (#1833). A known name
         # without a valid proof takes the same branch as an unknown one, so nothing here tells
         # an anonymous caller which names exist. Links created before the proof existed carry

@@ -208,7 +208,7 @@ class PontoPaymentLink(Document):
 
         cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
         # A separate proof (#1833): without it payment_link_callback will not hand out the
-        # /payment-success token for this link.
+        # payment_success token for this link.
         return_proof = generate_guest_return_token(RETURN_PROOF_PURPOSE, self.name)
         callback_url = get_url(
             f"/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"

@@ -786,6 +786,14 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             REQ_CMD, payment_request=signed.name, error="access_denied", cancel_token=self._req_token(signed)
         )
         self.assertFalse(seen["commit_flag"])
+        # link side: Executed and Authorized rows with a valid token are not cancellable either
+        for state in ("Executed", "Authorized"):
+            past = self._make_ppl(state)
+            seen = self._guest_get(
+                LINK_CMD, payment_link=past.name, error="access_denied", cancel_token=self._link_token(past)
+            )
+            self.assertFalse(seen["commit_flag"], state)
+            self.assertEqual(frappe.db.get_value("Ponto Payment Link", past.name, "status"), state)
         self.assertTrue(
             self._guest_get(
                 REQ_CMD, payment_request=req.name, error="access_denied", cancel_token=self._req_token(req)
@@ -808,5 +816,20 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             self.expectErrorLog("Ponto payment callback error")
             seen = self._guest_get(
                 REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=self._req_token(doc)
+            )
+        self.assertFalse(seen["commit_flag"])
+
+    def test_a_failed_link_cancel_does_not_ask_for_the_commit(self):
+        """Link twin of the request test: save() raising leaves the flag unset, and the flag
+        is not set before the save either."""
+        doc = self._make_ppl("Pending Authorization")
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.ponto_payment_link."
+            "ponto_payment_link.PontoPaymentLink.save",
+            side_effect=frappe.ValidationError("boom"),
+        ):
+            self.expectErrorLog("Ponto payment callback error")
+            seen = self._guest_get(
+                LINK_CMD, payment_link=doc.name, error="access_denied", cancel_token=self._link_token(doc)
             )
         self.assertFalse(seen["commit_flag"])
