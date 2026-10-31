@@ -316,6 +316,16 @@ def _mark_initial_setup_complete():
         print(f"⚠️ Could not mark initial setup complete: {str(e)}")
 
 
+def _raise_if_any_failed(what, failures):
+    """Raise ONE summary error for a loop that kept going past individual failures (#1662).
+
+    Per-item loops keep going so one bad row does not stop the others, but the failure must
+    still reach `_run_install_step`, which only sees exceptions.
+    """
+    if failures:
+        raise RuntimeError(f"{what} failed: " + "; ".join(failures))
+
+
 def execute_after_install():
     """
     Function executed after the app is installed
@@ -326,9 +336,9 @@ def execute_after_install():
 
     Every step runs independently (#1645): a step that RAISES is reported (printed and
     written to Error Log), the steps after it still run, and the initial-setup flag is not
-    set. The install itself is never aborted. Not every step raises on failure: several
-    swallow their own errors internally (#1662), so a clean return
-    does not prove every step succeeded.
+    set. The install itself is never aborted. Steps let their failures propagate (#1662); the
+    remaining swallowers are setup_workspace and load_application_fixtures, so a clean
+    return does not yet prove those succeeded.
     Returns the list of failed step names (empty when no step raised).
     """
     if _is_initial_setup_complete():
@@ -579,48 +589,47 @@ def _seed_default_document_categories(settings):
 
 
 def create_default_eboekhouden_settings():
-    """Create default E-Boekhouden Settings single document"""
-    try:
-        # E-Boekhouden Settings is a Single: frappe.db.exists(dt, dt) is
-        # unconditionally truthy for a Single (dt == dn short-circuits in
-        # frappe.db.exists), so it never actually detected "not yet seeded".
-        # Check whether the singleton has ever been saved instead (see #889).
-        if not frappe.db.get_singles_dict("E-Boekhouden Settings"):
-            settings = frappe.get_doc(
-                {
-                    "doctype": "E-Boekhouden Settings",
-                    "api_url": "https://secure.e-boekhouden.nl/verhuur/api_rpc.php",
-                    "source_application": "Verenigingen App",
-                    "default_currency": "EUR",
-                }
-            )
-            # default_company and api_token cannot be known at install time
-            # (no Company may exist yet, and the API token is operator
-            # credentials), so ignore_mandatory lets the placeholder be
-            # created for an administrator to complete via the Desk UI.
-            settings.insert(ignore_permissions=True, ignore_mandatory=True)
-            print("✅ Created default E-Boekhouden Settings")
-        else:
-            print("✅ E-Boekhouden Settings already exists")
-    except Exception as e:
-        print(f"⚠️ Failed to create E-Boekhouden Settings: {str(e)}")
+    """Create default E-Boekhouden Settings single document.
+
+    A failure propagates so the install runner records the step (#1662).
+    """
+    # E-Boekhouden Settings is a Single: frappe.db.exists(dt, dt) is
+    # unconditionally truthy for a Single (dt == dn short-circuits in
+    # frappe.db.exists), so it never actually detected "not yet seeded".
+    # Check whether the singleton has ever been saved instead (see #889).
+    if not frappe.db.get_singles_dict("E-Boekhouden Settings"):
+        settings = frappe.get_doc(
+            {
+                "doctype": "E-Boekhouden Settings",
+                "api_url": "https://secure.e-boekhouden.nl/verhuur/api_rpc.php",
+                "source_application": "Verenigingen App",
+                "default_currency": "EUR",
+            }
+        )
+        # default_company and api_token cannot be known at install time
+        # (no Company may exist yet, and the API token is operator
+        # credentials), so ignore_mandatory lets the placeholder be
+        # created for an administrator to complete via the Desk UI.
+        settings.insert(ignore_permissions=True, ignore_mandatory=True)
+        print("✅ Created default E-Boekhouden Settings")
+    else:
+        print("✅ E-Boekhouden Settings already exists")
 
 
 def setup_tax_exemption_on_install():
-    """Set up tax exemption during installation if enabled"""
-    try:
-        from verenigingen.utils.settings_utils import get_verenigingen_settings
+    """Set up tax exemption during installation if enabled.
 
-        settings = get_verenigingen_settings()
-        if settings and settings.get("tax_exempt_for_contributions"):
-            # Import and run the tax setup
-            from verenigingen.utils import setup_dutch_tax_exemption
+    A failure propagates so the install runner records the step (#1662).
+    """
+    from verenigingen.utils.settings_utils import get_verenigingen_settings
 
-            setup_dutch_tax_exemption()
-            print("Tax exemption templates set up during installation")
-    except Exception as e:
-        frappe.logger().error("Error setting up tax exemption during install: %s", str(e))
-        print(f"Warning: Could not set up tax exemption during install: {str(e)}")
+    settings = get_verenigingen_settings()
+    if settings and settings.get("tax_exempt_for_contributions"):
+        # Import and run the tax setup
+        from verenigingen.utils import setup_dutch_tax_exemption
+
+        setup_dutch_tax_exemption()
+        print("Tax exemption templates set up during installation")
 
 
 @frappe.whitelist()
@@ -691,76 +700,73 @@ def fix_btw_installation():
 
 
 def setup_termination_system_integration():
-    """Setup the termination system as part of app installation"""
-    try:
-        print("🔧 Setting up termination system...")
+    """Setup the termination system as part of app installation.
 
-        # Step 1: Setup termination-specific settings
-        setup_termination_settings()
+    Failures propagate so the install runner records the step and writes the Error Log
+    with the traceback (#1662); this used to log with swapped arguments and print.
+    """
+    print("🔧 Setting up termination system...")
 
-        # Step 2: Setup workflows (using separate workflow setup module)
-        from verenigingen.setup.workflow_setup import setup_workflows_corrected
+    # Step 1: Setup termination-specific settings
+    setup_termination_settings()
 
-        workflow_success = setup_workflows_corrected()
+    # Step 2: Setup workflows (using separate workflow setup module)
+    from verenigingen.setup.workflow_setup import setup_workflows_corrected
 
-        if workflow_success:
-            print("✅ Workflows created successfully")
-        else:
-            print("⚠️ Workflow creation had issues")
+    # Not turned into a failure: setup_workflows_corrected returns False on a healthy
+    # site too (it skips the appeals workflow when its DocType is not built, and the
+    # termination workflow is deliberately not built, #1640), so False cannot tell
+    # "nothing to build" from "broke". An exception inside it still propagates.
+    if setup_workflows_corrected():
+        print("✅ Workflows created successfully")
+    else:
+        print("⚠️ Workflow creation had issues")
 
-        # Step 3: Setup roles and permissions
-        setup_termination_roles_and_permissions()
+    # Step 3: Setup roles and permissions
+    setup_termination_roles_and_permissions()
 
-        print("✅ Termination system setup completed")
-
-    except Exception as e:
-        frappe.log_error(f"Termination system setup error: {str(e)}", "Termination Setup Error")
-        print(f"⚠️ Termination system setup failed: {str(e)}")
+    print("✅ Termination system setup completed")
 
 
 def setup_termination_settings():
-    """Setup termination system settings"""
+    """Setup termination system settings (a failure propagates, #1662)"""
 
-    try:
-        # Get or create Verenigingen Settings. frappe.db.exists(dt, dt) is
-        # unconditionally truthy for a Single (#889); check whether it has
-        # actually been saved instead.
-        if not frappe.db.get_singles_dict("Verenigingen Settings"):
-            # This should already be created by the main setup, but just in case
-            return
+    # Get or create Verenigingen Settings. frappe.db.exists(dt, dt) is
+    # unconditionally truthy for a Single (#889); check whether it has
+    # actually been saved instead.
+    if not frappe.db.get_singles_dict("Verenigingen Settings"):
+        # This should already be created by the main setup, but just in case
+        return
 
-        from verenigingen.utils.settings_utils import get_verenigingen_settings
+    from verenigingen.utils.settings_utils import get_verenigingen_settings
 
-        settings = get_verenigingen_settings()
+    settings = get_verenigingen_settings()
 
-        # Add termination system settings if they don't exist
-        termination_defaults = {
-            "enable_termination_system": 1,
-            "require_secondary_approval": 1,
-            "appeal_deadline_days": 30,
-            "appeal_review_days": 60,
-            "termination_grace_period_days": 30,
-            "auto_cancel_sepa_mandates": 1,
-            "auto_end_board_positions": 1,
-            "send_termination_notifications": 1,
-        }
+    # Add termination system settings if they don't exist
+    termination_defaults = {
+        "enable_termination_system": 1,
+        "require_secondary_approval": 1,
+        "appeal_deadline_days": 30,
+        "appeal_review_days": 60,
+        "termination_grace_period_days": 30,
+        "auto_cancel_sepa_mandates": 1,
+        "auto_end_board_positions": 1,
+        "send_termination_notifications": 1,
+    }
 
-        settings_updated = False
-        for field, default_value in termination_defaults.items():
-            if hasattr(settings, field):
-                if not getattr(settings, field):
-                    setattr(settings, field, default_value)
-                    settings_updated = True
+    settings_updated = False
+    for field, default_value in termination_defaults.items():
+        if hasattr(settings, field):
+            if not getattr(settings, field):
+                setattr(settings, field, default_value)
+                settings_updated = True
 
-        if settings_updated:
-            settings.save(ignore_permissions=True)
-            frappe.db.commit()
-            print("   ✓ Termination settings configured")
-        else:
-            print("   ✓ Termination settings already configured")
-
-    except Exception as e:
-        print(f"   ⚠️ Could not setup termination settings: {str(e)}")
+    if settings_updated:
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        print("   ✓ Termination settings configured")
+    else:
+        print("   ✓ Termination settings already configured")
 
 
 def setup_termination_workflows_and_templates():
@@ -784,28 +790,21 @@ def setup_termination_workflows_and_templates():
 
 
 def setup_termination_roles_and_permissions():
-    """Setup roles and basic permissions for termination system"""
+    """Setup roles and basic permissions for termination system (a failure propagates, #1662)"""
 
-    try:
-        # Create required roles
-        required_roles = [{"role_name": "Verenigingen Administrator", "desk_access": 1, "is_custom": 1}]
+    # Create required roles
+    required_roles = [{"role_name": "Verenigingen Administrator", "desk_access": 1, "is_custom": 1}]
 
-        for role_config in required_roles:
-            role_name = role_config["role_name"]
-            if not frappe.db.exists("Role", role_name):
-                try:
-                    role = frappe.get_doc({"doctype": "Role", **role_config})
-                    role.insert(ignore_permissions=True)
-                    print(f"   ✓ Created role: {role_name}")
-                except Exception as e:
-                    print(f"   ⚠️ Could not create role {role_name}: {str(e)}")
-            else:
-                print(f"   ✓ Role already exists: {role_name}")
+    for role_config in required_roles:
+        role_name = role_config["role_name"]
+        if not frappe.db.exists("Role", role_name):
+            role = frappe.get_doc({"doctype": "Role", **role_config})
+            role.insert(ignore_permissions=True)
+            print(f"   ✓ Created role: {role_name}")
+        else:
+            print(f"   ✓ Role already exists: {role_name}")
 
-        frappe.db.commit()
-
-    except Exception as e:
-        print(f"   ⚠️ Role setup failed: {str(e)}")
+    frappe.db.commit()
 
 
 # Add these API endpoints to your existing setup.py file
@@ -970,41 +969,37 @@ def setup_email_templates():
 
 
 def setup_membership_application_system():
-    """Set up membership application system with email templates and web pages"""
+    """Set up membership application system with email templates and web pages.
+
+    A failure in any part propagates so the install runner records the step (#1662).
+    """
     print("📧 Setting up membership application system...")
 
-    try:
-        # Create email templates
-        print("   📧 Creating basic application email templates...")
-        create_application_email_templates()
+    # Create email templates
+    print("   📧 Creating basic application email templates...")
+    create_application_email_templates()
 
-        # Create enhanced rejection email templates
-        try:
-            print("   📧 Creating enhanced rejection email templates...")
-            from verenigingen.api.membership_email_templates import create_default_email_templates
+    # Create enhanced rejection email templates
+    print("   📧 Creating enhanced rejection email templates...")
+    from verenigingen.api.membership_email_templates import create_default_email_templates
 
-            create_default_email_templates()
-        except Exception as e:
-            print(f"   ⚠️ Enhanced rejection templates failed: {str(e)}")
+    create_default_email_templates()
 
-        # Create comprehensive email templates for all notifications
-        try:
-            print("   📧 Creating comprehensive email templates...")
-            from verenigingen.api.email_template_manager import create_comprehensive_email_templates
+    # Create comprehensive email templates for all notifications
+    print("   📧 Creating comprehensive email templates...")
+    from verenigingen.api.email_template_manager import create_comprehensive_email_templates
 
-            create_comprehensive_email_templates()
-        except Exception as e:
-            print(f"   ⚠️ Comprehensive templates failed: {str(e)}")
+    result = create_comprehensive_email_templates()
+    # It reports a failed run by returning OperationResult.fail, not by raising
+    if not getattr(result, "success", True):
+        raise RuntimeError(f"Comprehensive email templates failed: {getattr(result, 'errors', None)}")
 
-        # Create web pages configuration
-        setup_application_web_pages()
+    # Create web pages configuration
+    setup_application_web_pages()
 
-        # Note: Donation Type DocType was removed - no longer creating default types
+    # Note: Donation Type DocType was removed - no longer creating default types
 
-        print("✅ Membership application system setup completed")
-
-    except Exception as e:
-        print(f"⚠️ Membership application system setup failed: {str(e)}")
+    print("✅ Membership application system setup completed")
 
 
 def create_application_email_templates():
@@ -1157,6 +1152,7 @@ def create_application_email_templates():
     ]
 
     created_count = 0
+    failures = []
     for template_data in templates:
         if not frappe.db.exists("Email Template", template_data["name"]):
             try:
@@ -1174,17 +1170,16 @@ def create_application_email_templates():
                 created_count += 1
                 print(f"   ✓ Created email template: {template_data['name']}")
             except Exception as e:
+                failures.append(f"{template_data['name']}: {e}")
                 print(f"   ❌ Failed to create email template '{template_data['name']}': {str(e)}")
         else:
             print(f"   ✓ Email template already exists: {template_data['name']}")
 
     if created_count > 0:
-        try:
-            frappe.db.commit()
-            print(f"   📧 Created {created_count} new email templates")
-        except Exception as e:
-            print(f"   ⚠️ Failed to commit email templates: {str(e)}")
+        frappe.db.commit()
+        print(f"   📧 Created {created_count} new email templates")
 
+    _raise_if_any_failed("email templates", failures)
     return created_count
 
 
@@ -1500,6 +1495,7 @@ def create_default_membership_types():
     ]
 
     created_count = 0
+    failures = []
     for mt_data in membership_types:
         name = mt_data["membership_type_name"]
         if not frappe.db.exists("Membership Type", name):
@@ -1509,6 +1505,7 @@ def create_default_membership_types():
                 created_count += 1
                 print(f"   ✓ Created membership type: {name}")
             except Exception as e:
+                failures.append(f"{name}: {e}")
                 print(f"   ⚠️ Could not create membership type '{name}': {str(e)}")
         else:
             print(f"   ✓ Membership type already exists: {name}")
@@ -1517,6 +1514,7 @@ def create_default_membership_types():
         frappe.db.commit()
         print(f"   👥 Created {created_count} default membership types")
 
+    _raise_if_any_failed("default membership types", failures)
     return created_count
 
 
@@ -1576,6 +1574,7 @@ def create_default_team_roles():
     ]
 
     created_count = 0
+    failures = []
     for role_data in team_roles:
         name = role_data["role_name"]
         if not frappe.db.exists("Team Role", name):
@@ -1585,6 +1584,7 @@ def create_default_team_roles():
                 created_count += 1
                 print(f"   ✓ Created team role: {name}")
             except Exception as e:
+                failures.append(f"{name}: {e}")
                 print(f"   ⚠️ Could not create team role '{name}': {str(e)}")
         else:
             print(f"   ✓ Team role already exists: {name}")
@@ -1593,6 +1593,7 @@ def create_default_team_roles():
         frappe.db.commit()
         print(f"   🎭 Created {created_count} default team roles")
 
+    _raise_if_any_failed("default team roles", failures)
     return created_count
 
 
@@ -1613,6 +1614,7 @@ def create_default_teams():
     ]
 
     created_count = 0
+    failures = []
     for team_data in teams:
         name = team_data["team_name"]
         if not frappe.db.exists("Team", name):
@@ -1622,6 +1624,7 @@ def create_default_teams():
                 created_count += 1
                 print(f"   ✓ Created team: {name}")
             except Exception as e:
+                failures.append(f"{name}: {e}")
                 print(f"   ⚠️ Could not create team '{name}': {str(e)}")
         else:
             print(f"   ✓ Team already exists: {name}")
@@ -1630,6 +1633,7 @@ def create_default_teams():
         frappe.db.commit()
         print(f"   👥 Created {created_count} default teams")
 
+    _raise_if_any_failed("default teams", failures)
     return created_count
 
 
@@ -1707,6 +1711,7 @@ def create_default_regions():
     ]
 
     created_count = 0
+    failures = []
     for region_data in regions:
         name = region_data["region_name"]
         if not frappe.db.exists("Region", name):
@@ -1716,6 +1721,7 @@ def create_default_regions():
                 created_count += 1
                 print(f"   ✓ Created region: {name}")
             except Exception as e:
+                failures.append(f"{name}: {e}")
                 print(f"   ⚠️ Could not create region '{name}': {str(e)}")
         else:
             # Self-heal canonical fields on a pre-existing region. A region row
@@ -1740,6 +1746,7 @@ def create_default_regions():
         frappe.db.commit()
         print(f"   🗺️ Created {created_count} default regions")
 
+    _raise_if_any_failed("default regions", failures)
     return created_count
 
 
@@ -1758,6 +1765,7 @@ def create_default_payment_modes():
     ]
 
     created_count = 0
+    failures = []
     for pm_data in payment_modes:
         name = pm_data["mode_of_payment"]
         if not frappe.db.exists("Mode of Payment", name):
@@ -1767,6 +1775,7 @@ def create_default_payment_modes():
                 created_count += 1
                 print(f"   ✓ Created payment mode: {name}")
             except Exception as e:
+                failures.append(f"{name}: {e}")
                 print(f"   ⚠️ Could not create payment mode '{name}': {str(e)}")
         else:
             print(f"   ✓ Payment mode already exists: {name}")
@@ -1775,12 +1784,14 @@ def create_default_payment_modes():
         frappe.db.commit()
         print(f"   💳 Created {created_count} default payment modes")
 
+    _raise_if_any_failed("default payment modes", failures)
     return created_count
 
 
 def create_membership_items():
     """Create membership-related items and item groups"""
     print("   📦 Setting up membership items...")
+    failures = []
 
     # Ensure Memberships item group exists
     if not frappe.db.exists("Item Group", "Memberships"):
@@ -1801,6 +1812,7 @@ def create_membership_items():
             doc.insert(ignore_permissions=True)
             print("   ✓ Created item group: Memberships")
         except Exception as e:
+            failures.append(f"item group Memberships: {e}")
             print(f"   ⚠️ Could not create item group 'Memberships': {str(e)}")
     else:
         print("   ✓ Item group already exists: Memberships")
@@ -1826,11 +1838,13 @@ def create_membership_items():
             doc.insert(ignore_permissions=True)
             print("   ✓ Created item: MEMBERSHIP")
         except Exception as e:
+            failures.append(f"item MEMBERSHIP: {e}")
             print(f"   ⚠️ Could not create item 'MEMBERSHIP': {str(e)}")
     else:
         print("   ✓ Item already exists: MEMBERSHIP")
 
     frappe.db.commit()
+    _raise_if_any_failed("membership items", failures)
 
 
 def configure_website_cors():
@@ -1841,31 +1855,25 @@ def configure_website_cors():
     """
     print("   🌐 Checking CORS configuration...")
 
-    try:
-        website_settings = frappe.get_single("Website Settings")
+    website_settings = frappe.get_single("Website Settings")
 
-        # Only configure if CORS origins not already set
-        if website_settings.get("cors_allowed_origins"):
-            print("   ✓ CORS already configured, skipping")
-            return
+    # Only configure if CORS origins not already set
+    if website_settings.get("cors_allowed_origins"):
+        print("   ✓ CORS already configured, skipping")
+        return
 
-        # Get the site URL to use as allowed origin
-        site_url = frappe.utils.get_url()
+    # Get the site URL to use as allowed origin
+    site_url = frappe.utils.get_url()
 
-        website_settings.enable_cors = 1
-        website_settings.cors_allowed_origins = site_url
-        website_settings.cors_allowed_methods = "GET, POST, PUT, DELETE, OPTIONS"
-        website_settings.cors_allowed_headers = (
-            "Content-Type, Authorization, X-Frappe-CSRF-Token, X-Frappe-Cmd"
-        )
-        website_settings.cors_allow_credentials = 1
-        website_settings.cors_max_age = 86400
-        website_settings.save(ignore_permissions=True)
-        frappe.db.commit()
-        print(f"   ✓ CORS configured with origin: {site_url}")
-
-    except Exception as e:
-        print(f"   ⚠️ Could not configure CORS: {str(e)}")
+    website_settings.enable_cors = 1
+    website_settings.cors_allowed_origins = site_url
+    website_settings.cors_allowed_methods = "GET, POST, PUT, DELETE, OPTIONS"
+    website_settings.cors_allowed_headers = "Content-Type, Authorization, X-Frappe-CSRF-Token, X-Frappe-Cmd"
+    website_settings.cors_allow_credentials = 1
+    website_settings.cors_max_age = 86400
+    website_settings.save(ignore_permissions=True)
+    frappe.db.commit()
+    print(f"   ✓ CORS configured with origin: {site_url}")
 
 
 def create_all_reference_data():
@@ -1885,15 +1893,25 @@ def create_all_reference_data():
     print("\n📊 Creating reference data...")
 
     # Note: Donation Type DocType was removed
-    create_default_membership_types()
-    create_default_team_roles()
-    create_default_teams()
-    create_default_regions()
-    create_default_payment_modes()
-    create_membership_items()
-    configure_website_cors()
-    create_background_service_user()
+    # One failing helper must not skip the rest, but must reach the install runner: run
+    # all of them, then raise ONE summary error (#1662).
+    failures = []
+    for helper in (
+        create_default_membership_types,
+        create_default_team_roles,
+        create_default_teams,
+        create_default_regions,
+        create_default_payment_modes,
+        create_membership_items,
+        configure_website_cors,
+        create_background_service_user,
+    ):
+        try:
+            helper()
+        except Exception as e:
+            failures.append(f"{helper.__name__}: {e}")
 
+    _raise_if_any_failed("reference data", failures)
     print("📊 Reference data creation complete\n")
 
 
@@ -1930,7 +1948,9 @@ def create_background_service_user():
         frappe.db.commit()
         print(f"   ✓ Created service user: {user_email}")
     except Exception as e:
+        # Print for the install log, then raise so the runner records the step (#1662)
         print(f"   ⚠️ Could not create service user: {str(e)}")
+        raise
 
 
 @frappe.whitelist()
