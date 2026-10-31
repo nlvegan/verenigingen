@@ -18,7 +18,7 @@ from werkzeug.wrappers import Request
 
 from verenigingen.api import short_application as sa
 from verenigingen.api.membership_application import submit_application
-from verenigingen.api.membership_application_review import approve_application
+from verenigingen.api.membership_application_review import approve_application, reject_application
 from verenigingen.services.member.application.application_record import confirm_application
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
 from verenigingen.services.member.lifecycle.member_status_notification_service import (
@@ -171,6 +171,16 @@ class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
             # Mock justified: External Service - SMTP delivery, not business logic
             with patch("frappe.sendmail"):
                 return approve_application(name, **kwargs)
+
+    def _reject_as(self, name, user=None, send_mail=False, **kwargs):
+        kwargs.setdefault("reason", "Does not fit our association")
+        if send_mail:  # let the mail reach the Email Queue so a test can read it
+            with self.as_user(user or self.admin_user.email):
+                return reject_application(name, **kwargs)
+        with self.as_user(user or self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                return reject_application(name, **kwargs)
 
     def _voluntarily_quit_member_with_iban(self, **fields):
         """A voluntarily-Quit member through the real termination service."""
@@ -447,6 +457,101 @@ class TestApproveApplication(ApprovalCase):
         )
 
 
+class TestRejectApplication(ApprovalCase):
+    """Rejection writes the application and nothing else (#1765 task 5). Driven through the real flow:
+    submit_application as Guest -> confirm link -> reject_application as staff. No probe shortcuts except
+    the Approved state in test_approved_application_cannot_be_rejected, which is reached by the real approve."""
+
+    def test_reject_new_applicant_creates_nothing(self):
+        name = self._stage_and_confirm()
+        before = {dt: frappe.db.count(dt) for dt in ("Member", "Address", "Customer", "Contact")}
+
+        result = self._reject_as(name, rejection_category="Other", internal_notes="staff only")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(before, {dt: frappe.db.count(dt) for dt in before})
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        row = frappe.db.get_value(
+            SUBMISSION, name, ["status", "reviewed_by", "review_date", "review_notes", "rejection_category"], as_dict=True
+        )
+        self.assertEqual(row.status, "Rejected")
+        self.assertEqual(row.reviewed_by, self.admin_user.email)
+        self.assertTrue(row.review_date)
+        self.assertEqual(row.rejection_category, "Other")
+        self.assertIn("Does not fit our association", row.review_notes)
+        self.assertIn("staff only", row.review_notes)
+
+    def test_reject_reapplication_leaves_member_untouched(self):
+        member = self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm(last_name=f"Renamed{frappe.generate_hash(length=5)}", iban=OTHER_IBAN, bank_account_name="Other Holder", payment_method="SEPA Direct Debit")
+        fields = ["modified", "iban", "status", "application_status", "last_name", "user", "customer"]
+        before = frappe.db.get_value("Member", member.name, fields, as_dict=True)
+        self.assertEqual(before.status, "Quit", "control: the Member this application would update exists and is Quit")
+
+        self._reject_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, ["status", "member"], as_dict=True), {"status": "Rejected", "member": None})
+
+    def test_rejected_application_can_reapply(self):
+        first = self._stage_and_confirm()
+        self._reject_as(first)
+
+        second = self._stage_and_confirm()
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, first, "status"), "Rejected")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, second, "status"), "Pending Review")
+
+    def test_non_pending_review_application_refused_and_unchanged(self):
+        approved = self._stage_and_confirm()
+        self._approve_as(approved)
+        self.email = self._fresh_applicant_email()
+        older = self._stage_and_confirm()
+        self._stage_and_confirm()
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded", "precondition")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, approved, "status"), "Approved", "precondition")
+        fields = ["status", "member", "reviewed_by", "review_date", "review_notes", "rejection_category"]
+
+        for name in (approved, older):
+            before = frappe.db.get_value(SUBMISSION, name, fields, as_dict=True)
+            with self.assertRaisesRegex(frappe.ValidationError, "cannot be rejected in its current state"):
+                self._reject_as(name)
+            self.assertEqual(frappe.db.get_value(SUBMISSION, name, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value("Member", {"email": self.email}), None)
+
+    def test_rejection_mail_goes_to_the_applicant_and_references_the_application(self):
+        """Spied, not stubbed (the real service still runs): this bare environment has no active email account,
+        so a mail never reaches the Email Queue here and the queue cannot be read."""
+        from verenigingen.services.communication.email_service import EmailService
+
+        name = self._stage_and_confirm()
+        real_send = EmailService.send_templated_email
+        calls = []
+
+        def spy(service, *args, **kwargs):
+            calls.append(kwargs)
+            return real_send(service, *args, **kwargs)
+
+        # Mock justified: spy on the mail boundary; the real service still runs
+        with patch.object(EmailService, "send_templated_email", spy):
+            self._reject_as(name, rejection_category="Other")
+
+        self.assertEqual(len(calls), 1, "exactly one rejection mail")
+        self.assertEqual(calls[0]["recipients"], [self.email])
+        self.assertEqual((calls[0]["reference_doctype"], calls[0]["reference_name"]), (SUBMISSION, name))
+        self.assertEqual(calls[0]["context"]["rejection_category"], "Other")
+        self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
+
+    def test_invalid_email_template_refused_before_anything_is_written(self):
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Invalid email template"):
+            self._reject_as(name, email_template="No Such Template")
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+
 def _message_log_without_exc_id(log):
     out = []
     for entry in log:
@@ -468,6 +573,24 @@ class TestApproveApplicationBoard(ApprovalCase):
         """A confirmed application whose chapter this board member holds no seat in."""
         self.email = self._fresh_applicant_email()
         return self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+
+    def _reject_as_board_probe(self, name):
+        """(type, message, message_log delta, Error Log delta, query count) of reject_application as the board user."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(self.board.user):
+            with count_queries() as counter:
+                try:
+                    reject_application(name, reason="No")
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
 
     def _approve_as_board_probe(self, name):
         """(type, message, message_log delta, Error Log delta, query count) of approve_application as the board user."""
@@ -516,3 +639,23 @@ class TestApproveApplicationBoard(ApprovalCase):
 
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
         self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+
+    def test_foreign_and_unknown_application_reject_refused_identically(self):
+        foreign = self._foreign_application()
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        self._reject_as_board_probe(unknown)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._reject_as_board_probe(foreign)
+        unknown_result = self._reject_as_board_probe(unknown)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, foreign, "status"), "Pending Review")
+
+    def test_board_member_rejects_own_chapter_application(self):
+        name = self._stage_and_confirm()
+
+        result = self._reject_as(name, user=self.board.user)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")

@@ -2,6 +2,8 @@
 API endpoints for reviewing and managing membership applications
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
@@ -833,7 +835,9 @@ def _approve_application_locked(
 ):
     from verenigingen.services.member.application.application_materialiser import materialise_member
 
-    application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
+    application = _lock_pending_review_application(
+        application_name, _("This application cannot be approved in its current state")
+    )
     _refuse_unless_approvable(application, chapter)
 
     savepoint = f"approve_{frappe.generate_hash(length=10)}"
@@ -868,12 +872,18 @@ def _approve_application_locked(
     return response
 
 
+def _lock_pending_review_application(application_name, refusal):
+    """Row-lock the application (fresh read) and refuse unless it is Pending Review; shared by approve and reject."""
+    application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
+    if application.status != "Pending Review":
+        frappe.throw(refusal)
+    return application
+
+
 def _refuse_unless_approvable(application, chapter):
     from verenigingen.api.membership_application import _handle_existing_member
     from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
 
-    if application.status != "Pending Review":
-        frappe.throw(_("This application cannot be approved in its current state"))
     # Only an admin may place the member in a chapter other than the one the application names.
     if chapter and chapter != application.chapter and get_user_manageable_chapters() != "all":
         frappe.throw(_("You don't have permission to approve this application"), frappe.PermissionError)
@@ -884,6 +894,59 @@ def _refuse_unless_approvable(application, chapter):
         _action, blocked = _handle_existing_member(existing, {})
         if blocked:  # became Active, or was terminated, since the application was confirmed
             frappe.throw(_("This application cannot be approved in its current state"))
+
+
+@frappe.whitelist()
+@high_security_api()  # Application rejection: touches only the application (#1765)
+def reject_application(
+    application_name: str,
+    reason: str,
+    email_template: str = None,
+    rejection_category: str = None,
+    internal_notes: str = None,
+):
+    """Reject a Membership Application Submission. No Member is read or written, and nothing is refunded
+    (an application never holds an invoice). Same permission order as approve_application (Ruling M)."""
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.utils.db_advisory_lock import advisory_lock
+
+    application_name = str(application_name)
+    sanitized = _sanitize_text_fields(
+        {
+            "reason": (reason, 1000, False),
+            "email_template": (email_template, 255),
+            "rejection_category": (rejection_category, 255),
+            "internal_notes": (internal_notes, 2000, False),
+        }
+    )
+    validate_application_permission_or_throw(application_name, "reject")
+    if sanitized["email_template"] and not frappe.db.exists("Email Template", sanitized["email_template"]):
+        frappe.throw(_("Invalid email template specified"))
+    with advisory_lock(f"reject_application:{application_name}", timeout=30):
+        application = _lock_pending_review_application(
+            application_name, _("This application cannot be rejected in its current state")
+        )
+        application.set_status("Rejected")
+        application.db_set(
+            {
+                "reviewed_by": frappe.session.user,
+                "review_date": now_datetime(),
+                "review_notes": _rejection_review_notes(sanitized),
+                "rejection_category": sanitized["rejection_category"],
+            }
+        )
+    send_application_rejection_notification(
+        application, sanitized["reason"], sanitized["email_template"], sanitized["rejection_category"]
+    )
+    return {"success": True, "message": _("Application rejected. Notification sent to applicant.")}
+
+
+def _rejection_review_notes(sanitized):
+    notes = f"Rejection Category: {sanitized['rejection_category'] or 'Not specified'}\n"
+    notes += f"Reason: {sanitized['reason']}\n"
+    if sanitized["internal_notes"]:
+        notes += f"Internal Notes: {sanitized['internal_notes']}\n"
+    return notes + f"Email Template Used: {sanitized['email_template'] or 'Default'}"
 
 
 @frappe.whitelist()
@@ -1106,7 +1169,42 @@ def send_approval_notification(member, invoice, membership_type):
 
 def send_rejection_notification(member, reason, email_template=None, rejection_category=None):
     """Send rejection notification to applicant using specified template - MIGRATED to unified EmailService"""
-    # MIGRATED: Use unified EmailService instead of direct frappe.sendmail and template handling
+    _send_rejection_email(
+        member,
+        reason,
+        email_template,
+        rejection_category,
+        application_id=getattr(member, "application_id", member.name),
+        reference_doctype="Member",
+        reference_name=member.name,
+    )
+
+
+def send_application_rejection_notification(
+    application, reason, email_template=None, rejection_category=None
+):
+    """Rejection mail for a Membership Application Submission: no Member exists to read the names from (#1765)."""
+    payload = json.loads(application.payload or "{}")
+    applicant = frappe._dict(
+        name=application.name,
+        email=application.email,
+        first_name=payload.get("first_name"),
+        full_name=application.applicant_name,
+    )
+    _send_rejection_email(
+        applicant,
+        reason,
+        email_template,
+        rejection_category,
+        application_id=application.application_id or application.name,
+        reference_doctype="Membership Application Submission",
+        reference_name=application.name,
+    )
+
+
+def _send_rejection_email(
+    member, reason, email_template, rejection_category, application_id, reference_doctype, reference_name
+):
     from verenigingen.services.communication.email_service import get_email_service
 
     # Prepare context with all necessary variables
@@ -1117,7 +1215,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         "company": frappe.defaults.get_global_default("company"),
         "member_name": member.full_name,
         "first_name": member.first_name,
-        "application_id": getattr(member, "application_id", member.name),
+        "application_id": application_id,
         "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")
         or "info@verenigingen.nl",
         "base_url": frappe.utils.get_url(),
@@ -1132,8 +1230,8 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         template_name=template_name,
         recipients=[member.email],
         context=context,
-        reference_doctype="Member",
-        reference_name=member.name,
+        reference_doctype=reference_doctype,
+        reference_name=reference_name,
         notification_key="member_application_rejected",
     )
 
