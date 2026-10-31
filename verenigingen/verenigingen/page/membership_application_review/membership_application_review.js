@@ -466,6 +466,13 @@ class MembershipApplicationReview {
 			}
 		});
 
+		$wrapper.on('click', '.action-more-info', (e) => {
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.request_more_info(applicationName);
+			}
+		});
+
 		$wrapper.on('click', '.action-details', (e) => {
 			const applicationName = $(e.currentTarget).data('application');
 			if (applicationName) {
@@ -667,6 +674,9 @@ class MembershipApplicationReview {
 						</button>
 						<button class="btn btn-danger btn-sm action-reject" data-application="${e(app.name)}">
 							<i class="fa fa-times"></i> Reject
+						</button>
+						<button class="btn btn-warning btn-sm action-more-info" data-application="${e(app.name)}">
+							<i class="fa fa-question"></i> ${__('Request More Info')}
 						</button>
 						<button class="btn btn-info btn-sm action-details" data-application="${e(app.name)}">
 							<i class="fa fa-eye"></i> Details
@@ -915,6 +925,51 @@ class MembershipApplicationReview {
 					dialog.hide();
 				} catch (error) {
 					frappe.msgprint(`Error rejecting application: ${frappe.utils.escape_html(error.message)}`);
+				}
+			}
+		});
+
+		dialog.show();
+	}
+
+	request_more_info(application_name) {
+		const app = this.applications.find((a) => a.name === application_name);
+		if (!app) {
+			return;
+		}
+
+		const dialog = new frappe.ui.Dialog({
+			title: __('Request More Information: {0}', [frappe.utils.escape_html(app.applicant_name)]),
+			fields: [
+				{
+					fieldtype: 'Small Text',
+					fieldname: 'info_needed',
+					label: __('Information needed'),
+					reqd: 1,
+					description: __('Describe what additional information you need from the applicant')
+				}
+			],
+			primary_action_label: __('Send Request'),
+			primary_action: async (values) => {
+				try {
+					const response = await frappe.call({
+						method: 'verenigingen.api.membership_application_review.request_more_info',
+						args: { application_name, info_needed: values.info_needed }
+					});
+					const result = response.message || {};
+					if (result.mail_sent === false) {
+						frappe.msgprint({ message: frappe.utils.escape_html(result.message), indicator: 'orange' });
+					} else {
+						frappe.show_alert({
+							message: __('Request sent to {0}', [frappe.utils.escape_html(app.applicant_name)]),
+							indicator: 'blue'
+						});
+					}
+					dialog.hide();
+				} catch (error) {
+					frappe.msgprint(
+						`${__('Error requesting more information')}: ${frappe.utils.escape_html(error.message)}`
+					);
 				}
 			}
 		});

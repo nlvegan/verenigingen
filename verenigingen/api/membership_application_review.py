@@ -971,6 +971,87 @@ def reject_application(
     }
 
 
+@frappe.whitelist()
+@high_security_api()  # Asks the applicant a question: touches no Member, changes no status (#1765, #1874)
+def request_more_info(application_name: str, info_needed: str):
+    """Ask the applicant for more information by mail, and record who asked and when on the application.
+
+    The mail is a Communication referencing the application, so the thread (and the applicant's reply)
+    attaches to it. There is no status for this: the application stays Pending Review and can still be
+    approved or rejected. Same permission order as reject_application (Ruling M).
+    """
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.utils.db_advisory_lock import advisory_lock
+
+    application_name = str(application_name)
+    # allow_html: the text is kept raw and escaped once, where it is rendered (mail body, timeline note)
+    info_needed = _sanitize_text_fields({"info_needed": (info_needed, 2000, True)})["info_needed"]
+    validate_application_permission_or_throw(application_name, "manage")
+    if not info_needed:
+        frappe.throw(_("Describe the information you need from the applicant"))
+    with advisory_lock(f"reject_application:{application_name}", timeout=30):
+        application = _lock_pending_review_application(
+            application_name, _("This application cannot be asked for more information in its current state")
+        )
+        application.add_comment(
+            "Info",
+            _("{0} asked the applicant for more information: {1}").format(
+                frappe.utils.escape_html(frappe.session.user), frappe.utils.escape_html(info_needed)
+            ),
+        )
+    if not _mail_information_request(application, info_needed):
+        message = _("Request recorded, but the mail could not be sent. Contact the applicant another way.")
+        frappe.msgprint(message, indicator="orange", alert=True)
+        return {"success": True, "mail_sent": False, "message": message}
+    return {"success": True, "mail_sent": True, "message": _("Request sent to the applicant.")}
+
+
+def _mail_information_request(application, info_needed) -> bool:
+    """Send the request as a Communication on the application; False (and an Error Log row) on failure.
+
+    `_make` rather than `make`: `make` re-checks the Frappe "email" permission on the application, which a
+    chapter board member does not hold; the application's own manage check has already passed. The call sits
+    in a savepoint so a failure after the Communication was inserted leaves no "Sent" row behind.
+    """
+    from frappe.core.doctype.communication.email import _make
+
+    escape = frappe.utils.escape_html
+    content = "".join(
+        (
+            "<p>{}</p>".format(_("Dear {0},").format(escape(application.applicant_name))),
+            "<p>{}</p>".format(
+                _(
+                    "Thank you for your membership application. We need some additional information to process it:"
+                )
+            ),
+            "<p><strong>{}</strong></p>".format(escape(info_needed).replace("\n", "<br>")),
+            "<p>{}</p>".format(_("Please reply to this email with the requested information.")),
+            "<p>{}<br>{}</p>".format(_("Best regards,"), _("The Membership Team")),
+        )
+    )
+    savepoint = f"info_request_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        _make(
+            doctype="Membership Application Submission",
+            name=application.name,
+            content=content,
+            subject=_("Additional Information Required for Your Membership Application"),
+            recipients=application.email,
+            send_email=True,
+        )
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # the server already discarded the transaction: the recorded request is gone, so do not report it
+    except Exception:  # swallow-ok: caller-checks (False is reported to the reviewer; traceback logged)
+        rollback_to_savepoint(savepoint)
+        frappe.log_error(
+            title=f"Information request mail failed for application {application.name}",
+            message=frappe.get_traceback(),
+        )
+        return False
+    return True
+
+
 def _notify_rejection_reporting_failure(application, sanitized) -> bool:
     """Mail the applicant; False (and an Error Log row) when the mail failed or the service raised.
 

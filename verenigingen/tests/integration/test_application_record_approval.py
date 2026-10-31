@@ -22,6 +22,7 @@ from verenigingen.api.membership_application_review import (
     approve_application,
     get_application_changes,
     reject_application,
+    request_more_info,
 )
 from verenigingen.services.member.application.application_record import confirm_application
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
@@ -1006,6 +1007,194 @@ class TestApplicationChanges(ApprovalCase):
 
         self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
         self.assertEqual(foreign_result, unknown_result)
+
+
+class TestRequestMoreInfo(ApprovalCase):
+    """#1765 task 7b / #1874: a reviewer asks an applicant for more information. Driven through the real flow
+    (submit -> confirm -> request_more_info -> approve). SMTP delivery is the only stub: the Communication
+    is inserted by the real `_make`, so the rows these tests read are the ones production writes."""
+
+    def setUp(self):
+        super().setUp()
+        self.other_chapter = self.factory.ensure_test_chapter(
+            f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
+        )
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def _ask_as(self, name, user=None, info="Please send a copy of your ID", **service):
+        from frappe.core.doctype.communication.communication import Communication
+
+        with self.as_user(user or self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery (and the site's outgoing account) are not the logic under test
+            with patch.object(Communication, "get_outgoing_email_account", return_value=True):
+                with patch.object(Communication, "send_email", **service):
+                    return request_more_info(name, info)
+
+    def _threads(self, doctype, name):
+        return frappe.get_all(
+            "Communication",
+            {"reference_doctype": doctype, "reference_name": name},
+            ["name", "recipients", "subject", "content", "sent_or_received"],
+        )
+
+    def _notes(self, name):
+        return frappe.get_all(
+            "Comment",
+            {"reference_doctype": SUBMISSION, "reference_name": name, "comment_type": "Info"},
+            ["content", "owner", "comment_email"],
+        )
+
+    def test_request_mails_the_applicant_through_the_application_and_records_the_asker(self):
+        name = self._stage_and_confirm()
+        before = frappe.db.get_value(SUBMISSION, name, ["status", "reviewed_by", "review_date"], as_dict=True)
+
+        result = self._ask_as(name, info="Please send a copy of your ID")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["mail_sent"])
+        threads = self._threads(SUBMISSION, name)
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(threads[0].recipients, self.email)
+        self.assertEqual(threads[0].sent_or_received, "Sent")
+        self.assertIn("Please send a copy of your ID", threads[0].content)
+        notes = self._notes(name)
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].owner, self.admin_user.email)
+        self.assertIn(self.admin_user.email, notes[0].content)
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, name, ["status", "reviewed_by", "review_date"], as_dict=True), before
+        )
+
+    def test_the_application_can_still_be_approved_afterwards(self):
+        name = self._stage_and_confirm()
+        self._ask_as(name)
+
+        approved = self._approve_as(name)
+
+        self.assertTrue(approved["success"], approved)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
+
+    def test_the_applicant_name_and_the_request_are_escaped_in_the_mail(self):
+        name = self._stage_and_confirm()
+        # Probe shortcut: the form refuses markup in a name, so the stored name is set directly. This proves the
+        # mail escapes whatever the record holds, not that a name with markup is reachable through the form.
+        frappe.db.set_value(SUBMISSION, name, "applicant_name", "<b>Bold</b>")
+
+        self._ask_as(name, info="<script>alert(1)</script> & more\nsecond line")
+
+        content = self._threads(SUBMISSION, name)[0].content
+        self.assertNotIn("<script>", content)
+        self.assertNotIn("<b>Bold</b>", content)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more<br>second line", content)
+        self.assertIn("&lt;b&gt;Bold&lt;/b&gt;", content)
+
+    def test_an_empty_request_is_refused_and_writes_nothing(self):
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Describe the information"):
+            self._ask_as(name, info="   ")
+
+        self.assertEqual(self._threads(SUBMISSION, name), [])
+        self.assertEqual(self._notes(name), [])
+
+    def test_non_pending_review_application_refused_and_unchanged(self):
+        approved = self._stage_and_confirm()
+        self._approve_as(approved)
+        self.email = self._fresh_applicant_email()
+        older = self._stage_and_confirm()
+        self._stage_and_confirm()
+        self.email = self._fresh_applicant_email()
+        rejected = self._stage_and_confirm()
+        self._reject_as(rejected)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded", "precondition")
+        fields = ["status", "member", "reviewed_by", "review_date", "review_notes", "modified"]
+
+        for name in (approved, older, rejected):
+            before = frappe.db.get_value(SUBMISSION, name, fields, as_dict=True)
+            threads = len(self._threads(SUBMISSION, name))
+            with self.assertRaisesRegex(frappe.ValidationError, "cannot be asked for more information"):
+                self._ask_as(name)
+            self.assertEqual(frappe.db.get_value(SUBMISSION, name, fields, as_dict=True), before)
+            self.assertEqual(len(self._threads(SUBMISSION, name)), threads, "no mail for a closed application")
+            self.assertEqual(self._notes(name), [])
+
+    def test_a_member_is_never_written_or_mailed(self):
+        member = self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm()
+        snapshot = frappe.db.get_value("Member", member.name, ["modified", "status", "application_status"])
+        threads = len(self._threads("Member", member.name))
+
+        self._ask_as(name)
+
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["modified", "status", "application_status"]), snapshot
+        )
+        self.assertEqual(len(self._threads("Member", member.name)), threads)
+        self.assertEqual(len(self._threads(SUBMISSION, name)), 1)
+
+    def test_mail_failure_is_reported_logged_and_keeps_the_request(self):
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Information request mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]})
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+
+        result = self._ask_as(name, side_effect=frappe.OutgoingEmailError("smtp boom"))
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]}), errors + 1
+        )
+        self.assertEqual(len(self._notes(name)), 1, "the request is still recorded")
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no phantom Sent communication")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def _ask_as_board_probe(self, name):
+        """(type, message, message_log delta, Error Log delta, query count) of request_more_info as the board user."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(self.board.user):
+            with count_queries() as counter:
+                try:
+                    request_more_info(name, "Anything")
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def test_foreign_and_unknown_application_refused_identically(self):
+        self.email = self._fresh_applicant_email()
+        foreign = self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        self._ask_as_board_probe(unknown)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._ask_as_board_probe(foreign)
+        unknown_result = self._ask_as_board_probe(unknown)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(self._threads(SUBMISSION, foreign), [])
+        self.assertEqual(self._notes(foreign), [])
+
+    def test_board_member_asks_about_own_chapter_application(self):
+        name = self._stage_and_confirm()
+
+        result = self._ask_as(name, user=self.board.user)
+
+        self.assertTrue(result["mail_sent"], result)
+        self.assertEqual(self._notes(name)[0].owner, self.board.user)
 
 
 def _norm(value):
