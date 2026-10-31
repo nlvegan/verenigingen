@@ -271,7 +271,7 @@ class TestShortApplicationRateLimitIsPerVisitor(VereningingenUnitTestCase):
         # The engine writes raw redis keys (incrby), so frappe.cache.delete_keys, which adds the
         # site prefix, would not match them.
         for op in ("submit_short_application", "confirm_short_application"):
-            for key in frappe.cache.keys(f"cor_rate_limit:{frappe.local.site}:*:{op}:*"):
+            for key in frappe.cache.keys(f"cor_rate_limit:{frappe.local.site}:*:*{op}:*"):
                 frappe.cache.delete(key)
 
     def _allowed_from(self, ip, operation):

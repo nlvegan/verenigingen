@@ -92,8 +92,10 @@ class RateLimitEngine:
                 reason="Rate limiting skipped in test/install/migrate/patch context",
             )
 
-        # Extract operation name from operation key
-        operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
+        # The COUNTER is keyed on the full dotted key: two same-named endpoints in
+        # different modules must not share a bucket (#1761). The RULE is looked up
+        # by the dotted key first, then the bare name (see _get_cor_config).
+        operation_name = operation_key
 
         # Get COR configuration for this operation
         cor_record = self._get_cor_config(operation_name)
@@ -168,13 +170,20 @@ class RateLimitEngine:
             "security_level",  # For rate limit enforcement in background context
         ]
 
-        # Try to find specific COR record for this operation
-        cor_record = frappe.db.get_value(
-            "Critical Operation Rule",
-            {"operation_name": operation_name, "enabled": 1},
-            fields,
-            as_dict=True,
-        )
+        # A row named by the full dotted path (module.function) wins; otherwise the
+        # bare function name, which is how every shipped and operator-tuned row is
+        # named (#1761). A bare name has no dot, so it is looked up once.
+        bare_name = operation_name.split(".")[-1]
+        cor_record = None
+        for candidate in dict.fromkeys((operation_name, bare_name)):
+            cor_record = frappe.db.get_value(
+                "Critical Operation Rule",
+                {"operation_name": candidate, "enabled": 1},
+                fields,
+                as_dict=True,
+            )
+            if cor_record:
+                break
 
         # If no specific COR found, use generic fallback
         if not cor_record:
@@ -334,7 +343,7 @@ class RateLimitEngine:
             Dict with X-RateLimit-* headers
         """
         try:
-            operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
+            operation_name = operation_key
 
             cor_record = self._get_cor_config(operation_name)
             if not cor_record:
