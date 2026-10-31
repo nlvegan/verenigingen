@@ -128,7 +128,7 @@ function addNewMember() {
 	window.location.href = '/app/member/new';
 }
 
-function approveMember(memberId) {
+function approveApplication(applicationName) {
 	if (!userPermissions.can_approve_members) {
 		frappe.msgprint(__('You do not have permission to approve members.'));
 		return;
@@ -138,10 +138,9 @@ function approveMember(memberId) {
 		showLoading();
 
 		frappe.call({
-			method: 'verenigingen.api.membership_application_review.approve_membership_application',
+			method: 'verenigingen.api.chapter_dashboard_api.quick_approve_application',
 			args: {
-				member_name: memberId,
-				chapter: selectedChapter
+				application_name: applicationName
 			},
 			callback(r) {
 				hideLoading();
@@ -157,7 +156,9 @@ function approveMember(memberId) {
 				} else {
 					frappe.msgprint({
 						title: __('Error'),
-						message: r.message ? r.message.error : __('Failed to approve member'),
+						message: frappe.utils.escape_html(
+							r.message ? r.message.error || r.message.message : __('Failed to approve member')
+						),
 						indicator: 'red'
 					});
 				}
@@ -174,9 +175,9 @@ function approveMember(memberId) {
 	});
 }
 
-function reviewMember(memberId) {
-	// Open member record for review
-	window.location.href = `/app/member/${encodeURIComponent(memberId)}`;
+function reviewApplication(applicationName) {
+	// Open the application for review
+	window.location.href = `/app/membership-application-submission/${encodeURIComponent(applicationName)}`;
 }
 
 function showPendingApplications() {
@@ -196,7 +197,7 @@ function showPendingApplications() {
 		apps.forEach((app) => {
 			html += `<div class="application-item ${app.is_overdue ? 'overdue' : ''}">`;
 			html += '<div class="app-info">';
-			html += `<strong>${app.full_name}</strong>`;
+			html += `<strong>${frappe.utils.escape_html(app.full_name)}</strong>`;
 			html += `<br><small>Applied ${app.days_pending} days ago</small>`;
 			if (app.is_overdue) {
 				html += '<span class="overdue-badge">OVERDUE</span>';
@@ -205,7 +206,7 @@ function showPendingApplications() {
 
 			if (userPermissions.can_approve_members) {
 				html += '<div class="app-actions">';
-				html += `<button class="btn btn-primary btn-sm" onclick="reviewMember('${app.member}')"><i class="fa fa-eye"></i> Review Application</button>`;
+				html += `<button class="btn btn-primary btn-sm" data-application="${frappe.utils.escape_html(app.application)}" onclick="reviewApplication(this.dataset.application)"><i class="fa fa-eye"></i> Review Application</button>`;
 				html += '</div>';
 			}
 			html += '</div>';
@@ -465,8 +466,8 @@ function emailAllMembers() {
 window.chapterDashboard = {
 	viewAllMembers,
 	addNewMember,
-	approveMember,
-	reviewMember,
+	approveApplication,
+	reviewApplication,
 	showPendingApplications,
 	viewFinancialReports,
 	manageBoardMembers,
@@ -477,8 +478,8 @@ window.chapterDashboard = {
 // Make functions globally available for HTML onclick handlers
 window.viewAllMembers = viewAllMembers;
 window.addNewMember = addNewMember;
-window.approveMember = approveMember;
-window.reviewMember = reviewMember;
+window.approveApplication = approveApplication;
+window.reviewApplication = reviewApplication;
 window.viewFinancialReports = viewFinancialReports;
 window.manageBoardMembers = manageBoardMembers;
 window.refreshDashboardData = refreshDashboardData;

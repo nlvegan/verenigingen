@@ -20,7 +20,7 @@ Real DB fixtures only; no business-logic mocking. @high_security_api /
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, now_datetime, today
 
 from verenigingen.api.membership_application_review import (
     _activate_pending_chapter_memberships,
@@ -748,80 +748,66 @@ class TestGetUserChapterAccess(EnhancedTestCase):
 
 
 class TestGetPendingApplications(EnhancedTestCase):
-    """get_pending_applications: listing + filters (run as Administrator)."""
+    """get_pending_applications: listing + filters (run as Administrator).
 
-    def _pending_member(self, *, application_date=None, membership_type=None):
-        member = self.create_test_member(
-            first_name="Pending",
-            last_name=f"App{frappe.generate_hash(length=6)}",
-            email=f"pendapp-{frappe.generate_hash(length=8)}@example.com",
-            birth_date=add_days(today(), -365 * 30),
-        )
-        member.db_set("status", "Pending", update_modified=False)
-        member.db_set("application_status", "Pending", update_modified=False)
-        if application_date:
-            member.db_set("application_date", application_date, update_modified=False)
-        if membership_type:
-            member.db_set("selected_membership_type", membership_type, update_modified=False)
-        frappe.db.commit()
-        return member
+    The list is Pending Review Membership Application Submissions, not Members (#1765). Fixture
+    shortcut, stated: each row is inserted, given `chapter`/`confirmed_on` and moved to Pending Review,
+    the writes confirmation makes; test_application_review_surfaces.py covers the permission scope.
+    """
 
-    def test_lists_pending_member(self):
-        membership_type = _ensure_membership_type()
-        member = self._pending_member(application_date=today(), membership_type=membership_type)
-        result = get_pending_applications()
-        names = [r["name"] for r in result]
-        self.assertIn(member.name, names)
-        row = next(r for r in result if r["name"] == member.name)
-        # A today-dated application has 0 days pending (pins the getdate diff).
-        self.assertEqual(row["days_pending"], 0)
-        self.assertEqual(row["current_chapter_display"], "Unassigned")
-
-    def test_days_overdue_filter_excludes_recent(self):
-        recent = self._pending_member(application_date=today())
-        # days_overdue=10 means application_date < today-10; a today application
-        # must be excluded.
-        result = get_pending_applications(days_overdue=10)
-        names = [r["name"] for r in result]
-        self.assertNotIn(recent.name, names)
-
-    def test_chapter_filter_unassigned_excludes_member_with_chapter(self):
-        """Pins the chapter-filter continue branch: 'Unassigned' includes a
-        chapterless member but excludes one that has a Chapter Member row."""
-        chapterless = self._pending_member(application_date=today())
-
-        # Second pending member WITH an enabled Chapter Member row.
-        region = frappe.get_all("Region", limit=1, pluck="name")
-        chapter = frappe.get_doc(
+    def _application(self, *, confirmed_on=None, chapter=None, membership_type=None):
+        application = frappe.get_doc(
             {
-                "doctype": "Chapter",
-                "name": f"Cov Filter Chapter {frappe.generate_hash(length=6)}",
-                "region": region[0] if region else None,
-                "published": 1,
-                "introduction": "Coverage filter chapter",
+                "doctype": "Membership Application Submission",
+                "email": f"pendapp-{frappe.generate_hash(length=8)}@example.com",
+                "source": "Full Form",
+                "applicant_name": f"Pending App{frappe.generate_hash(length=6)}",
+                "payload": "{}",
             }
         )
-        chapter.insert()
-        self.track_doc("Chapter", chapter.name)
+        application.insert()
+        self.track_doc("Membership Application Submission", application.name)
+        application.db_set("confirmed_on", confirmed_on or now_datetime())
+        if chapter:
+            application.db_set("chapter", chapter)
+        if membership_type:
+            application.db_set("membership_type", membership_type)
+        application.set_status("Pending Review")
+        return application
 
-        member_with_chapter = self._pending_member(application_date=today())
-        chapter.append(
-            "members",
-            {
-                "member": member_with_chapter.name,
-                "status": "Active",
-                "enabled": 1,
-                "chapter_join_date": today(),
-            },
-        )
-        chapter.save()
-        frappe.db.commit()
-
-        result = get_pending_applications(chapter="Unassigned")
+    def test_lists_pending_application(self):
+        membership_type = _ensure_membership_type()
+        application = self._application(membership_type=membership_type)
+        result = get_pending_applications()
         names = [r["name"] for r in result]
+        self.assertIn(application.name, names)
+        row = next(r for r in result if r["name"] == application.name)
+        # A today-confirmed application has 0 days pending (pins the getdate diff).
+        self.assertEqual(row["days_pending"], 0)
+        self.assertEqual(row["membership_type"], membership_type)
+        self.assertIsNone(row["chapter"])
+
+    def test_days_overdue_filter_excludes_recent(self):
+        recent = self._application()
+        old = self._application(confirmed_on=add_days(now_datetime(), -30))
+        # days_overdue=10 keeps applications confirmed before today-10.
+        names = [r["name"] for r in get_pending_applications(days_overdue=10)]
+        self.assertNotIn(recent.name, names)
+        self.assertIn(old.name, names)
+
+    def test_chapter_filter_unassigned_excludes_application_with_chapter(self):
+        """'Unassigned' includes a chapterless application but excludes one that names a chapter."""
+        chapterless = self._application()
+        chapter = self.create_test_chapter()
+        with_chapter = self._application(chapter=chapter.name)
+
+        names = [r["name"] for r in get_pending_applications(chapter="Unassigned")]
         self.assertIn(chapterless.name, names)
-        # Member WITH a chapter is skipped by the "Unassigned" continue branch.
-        self.assertNotIn(member_with_chapter.name, names)
+        self.assertNotIn(with_chapter.name, names)
+
+        names = [r["name"] for r in get_pending_applications(chapter=chapter.name)]
+        self.assertIn(with_chapter.name, names)
+        self.assertNotIn(chapterless.name, names)
 
 
 class TestAssignMemberToChapter(EnhancedTestCase):

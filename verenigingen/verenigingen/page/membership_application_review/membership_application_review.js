@@ -186,7 +186,7 @@ class MembershipApplicationReview {
 
 						<!-- Statistics Cards -->
 						<div class="row stats-section">
-							<div class="col-md-3">
+							<div class="col-md-4">
 								<div class="card stats-card">
 									<div class="card-body text-center">
 										<h3 class="card-title" id="total-pending">-</h3>
@@ -194,7 +194,7 @@ class MembershipApplicationReview {
 									</div>
 								</div>
 							</div>
-							<div class="col-md-3">
+							<div class="col-md-4">
 								<div class="card stats-card overdue-card">
 									<div class="card-body text-center">
 										<h3 class="card-title text-danger" id="overdue-count">-</h3>
@@ -202,19 +202,11 @@ class MembershipApplicationReview {
 									</div>
 								</div>
 							</div>
-							<div class="col-md-3">
+							<div class="col-md-4">
 								<div class="card stats-card">
 									<div class="card-body text-center">
 										<h3 class="card-title text-success" id="avg-processing">-</h3>
 										<p class="card-text text-muted">${__('Avg Processing (days)')}</p>
-									</div>
-								</div>
-							</div>
-							<div class="col-md-3">
-								<div class="card stats-card">
-									<div class="card-body text-center">
-										<h3 class="card-title text-info" id="volunteer-interest">-</h3>
-										<p class="card-text text-muted">${__('Volunteer Interest %')}</p>
 									</div>
 								</div>
 							</div>
@@ -451,23 +443,23 @@ class MembershipApplicationReview {
 
 		// Security: Event delegation for action buttons (prevents XSS from inline onclick)
 		$wrapper.on('click', '.action-approve', (e) => {
-			const memberName = $(e.currentTarget).data('member');
-			if (memberName) {
-				this.approve_application(memberName);
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.approve_application(applicationName);
 			}
 		});
 
 		$wrapper.on('click', '.action-reject', (e) => {
-			const memberName = $(e.currentTarget).data('member');
-			if (memberName) {
-				this.reject_application(memberName);
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.reject_application(applicationName);
 			}
 		});
 
 		$wrapper.on('click', '.action-details', (e) => {
-			const memberName = $(e.currentTarget).data('member');
-			if (memberName) {
-				this.view_details(memberName);
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.view_details(applicationName);
 			}
 		});
 
@@ -565,7 +557,8 @@ class MembershipApplicationReview {
 				const $select = $('#filter-chapter');
 				// Keep existing options (All Chapters, Unassigned) and add chapters
 				chapters.message.forEach((chapter) => {
-					$select.append(`<option value="${chapter.name}">${chapter.name}</option>`);
+					const chapterName = frappe.utils.escape_html(chapter.name);
+					$select.append(`<option value="${chapterName}">${chapterName}</option>`);
 				});
 			}
 		} catch (error) {
@@ -581,10 +574,9 @@ class MembershipApplicationReview {
 
 			if (response.message) {
 				const stats = response.message;
-				$('#total-pending').text(stats.by_status?.Pending || 0);
+				$('#total-pending').text(stats.by_status?.['Pending Review'] || 0);
 				$('#overdue-count').text(stats.overdue_count || 0);
 				$('#avg-processing').text(stats.avg_processing_days || 0);
-				$('#volunteer-interest').text(stats.volunteer_interest_rate || 0);
 			}
 		} catch (error) {
 			console.error('Error loading statistics:', error);
@@ -613,7 +605,7 @@ class MembershipApplicationReview {
 			console.error('Error loading applications:', error);
 			$('.applications-list').html(`
 				<div class="error-state text-center p-4 text-danger">
-					<i class="fa fa-exclamation-triangle"></i> Error loading applications: ${error.message}
+					<i class="fa fa-exclamation-triangle"></i> Error loading applications: ${frappe.utils.escape_html(error.message)}
 				</div>
 			`);
 		}
@@ -641,29 +633,26 @@ class MembershipApplicationReview {
 	render_application_card(app) {
 		const overdue = app.days_pending > 14;
 		const overdueClass = overdue ? 'border-danger' : '';
-		const volunteering = app.interested_in_volunteering
-			? '<span class="badge badge-info ml-2">Volunteer Interest</span>'
-			: '';
 
-		// Security: Use data attributes and event delegation instead of inline onclick
+		// Security: applicant names and emails are guest input. Every value is escaped, and the
+		// actions use data attributes with event delegation instead of inline onclick.
 		const e = (str) => this.escapeHtml(str);
 		return `
-			<div class="card application-card mb-3 ${overdueClass}" data-member="${e(app.name)}">
+			<div class="card application-card mb-3 ${overdueClass}" data-application="${e(app.name)}">
 				<div class="card-header d-flex justify-content-between align-items-center">
 					<div class="d-flex align-items-center">
-						<input type="checkbox" class="mr-2 app-checkbox" data-member="${e(app.name)}">
-						<strong>${e(app.full_name)}</strong>
-						${volunteering}
+						<input type="checkbox" class="mr-2 app-checkbox" data-application="${e(app.name)}">
+						<strong>${e(app.applicant_name)}</strong>
 						${overdue ? '<span class="badge badge-danger ml-2">Overdue</span>' : ''}
 					</div>
 					<div class="application-actions">
-						<button class="btn btn-success btn-sm action-approve" data-member="${e(app.name)}">
+						<button class="btn btn-success btn-sm action-approve" data-application="${e(app.name)}">
 							<i class="fa fa-check"></i> Approve
 						</button>
-						<button class="btn btn-danger btn-sm action-reject" data-member="${e(app.name)}">
+						<button class="btn btn-danger btn-sm action-reject" data-application="${e(app.name)}">
 							<i class="fa fa-times"></i> Reject
 						</button>
-						<button class="btn btn-info btn-sm action-details" data-member="${e(app.name)}">
+						<button class="btn btn-info btn-sm action-details" data-application="${e(app.name)}">
 							<i class="fa fa-eye"></i> Details
 						</button>
 					</div>
@@ -672,15 +661,13 @@ class MembershipApplicationReview {
 					<div class="row">
 						<div class="col-md-6">
 							<p class="mb-1"><strong>Email:</strong> ${e(app.email)}</p>
-							<p class="mb-1"><strong>Phone:</strong> ${e(app.contact_number) || 'Not provided'}</p>
-							<p class="mb-1"><strong>Age:</strong> ${e(app.age) || 'Not provided'}</p>
+							<p class="mb-1"><strong>Application ID:</strong> ${e(app.application_id) || 'Not assigned'}</p>
 						</div>
 						<div class="col-md-6">
 							<p class="mb-1"><strong>Application Date:</strong> ${e(frappe.datetime.str_to_user(app.application_date))}</p>
 							<p class="mb-1"><strong>Days Pending:</strong> ${e(app.days_pending)}</p>
-							<p class="mb-1"><strong>Chapter:</strong> ${e(app.current_chapter_display) || 'Unassigned'}</p>
-							<p class="mb-1"><strong>Membership Type:</strong> ${app.selected_membership_type || 'Not selected'}</p>
-							${app.membership_amount ? `<p class="mb-1"><strong>Amount:</strong> €${app.membership_amount}</p>` : ''}
+							<p class="mb-1"><strong>Chapter:</strong> ${e(app.chapter) || 'Unassigned'}</p>
+							<p class="mb-1"><strong>Membership Type:</strong> ${e(app.membership_type) || 'Not selected'}</p>
 						</div>
 					</div>
 				</div>
@@ -691,100 +678,39 @@ class MembershipApplicationReview {
 	update_local_statistics() {
 		const total = this.applications.length;
 		const overdue = this.applications.filter((app) => app.days_pending > 14).length;
-		const volunteer_interest = this.applications.filter((app) => app.interested_in_volunteering).length;
-		const interest_rate = total > 0 ? Math.round((volunteer_interest / total) * 100) : 0;
 
 		$('#total-pending').text(total);
 		$('#overdue-count').text(overdue);
-		$('#volunteer-interest').text(interest_rate);
 	}
 
-	async approve_application(member_name) {
-		const app = this.applications.find((a) => a.name === member_name);
+	async approve_application(application_name) {
+		const app = this.applications.find((a) => a.name === application_name);
 		if (!app) {
 			return;
 		}
 
-		// Check for duplicates before showing approval dialog
-		let duplicateCheckResult;
+		// What approving would change on an existing Member (nothing for a new applicant).
+		// Only Pending Review rows are listed, which is the state the preview is meant for.
+		let changesHtml = '';
 		try {
-			duplicateCheckResult = await frappe.call({
-				method: 'verenigingen.services.member.validation.member_duplicate_detection_service.check_duplicate_for_approval',
-				args: { member_name }
+			const changes = await frappe.call({
+				method: 'verenigingen.api.membership_application_review.get_application_changes',
+				args: { application_name }
 			});
+			changesHtml = frappe.pages['membership-application-review'].render_application_changes(changes.message);
 		} catch (error) {
-			console.error('Error checking duplicates:', error);
-			// Continue with approval even if duplicate check fails
+			console.error('Error loading application changes:', error);
 		}
 
-		// Build dialog fields
 		const dialogFields = [];
-
-		// Add duplicate warning section if duplicates found
-		if (duplicateCheckResult?.message?.has_duplicates) {
-			const duplicates = duplicateCheckResult.message;
-			const summary = duplicates.summary;
-
-			let warningHtml =
-				'<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 15px;">';
-			warningHtml +=
-				'<h5 style="margin-top: 0; color: #856404;"><i class="fa fa-exclamation-triangle"></i> Potential Duplicate Members Found</h5>';
-
-			if (summary.high > 0) {
-				warningHtml += `<p style="color: #721c24; font-weight: bold;">⚠️ ${summary.high} high-confidence match(es)</p>`;
-			}
-			if (summary.medium > 0) {
-				warningHtml += `<p style="color: #856404;">⚠ ${summary.medium} medium-confidence match(es)</p>`;
-			}
-			if (summary.low > 0) {
-				warningHtml += `<p style="color: #666;">ℹ ${summary.low} low-confidence match(es)</p>`;
-			}
-
-			// Show details for high and medium confidence matches
-			const importantMatches = [...duplicates.high_confidence, ...duplicates.medium_confidence];
-			if (importantMatches.length > 0) {
-				warningHtml +=
-					'<div style="margin-top: 10px;"><strong>Matches:</strong><ul style="margin-bottom: 5px;">';
-				importantMatches.forEach((match) => {
-					const confidence = Math.round(match.confidence * 100);
-					const details = match.details;
-					// SECURITY FIX: Escape all user-controlled data to prevent XSS
-					warningHtml += `<li>
-						<strong>${this.escapeHtml(details.full_name)}</strong> (${confidence}% match)<br>
-						<small style="color: #666;">
-							${this.escapeHtml(details.email) || 'No email'} |
-							Status: ${this.escapeHtml(details.status) || 'Unknown'} |
-							Reason: ${this.escapeHtml(details.reason)}
-							<a href="#Form/Member/${this.escapeHtml(match.member_name)}" target="_blank" style="margin-left: 10px;">View Record</a>
-						</small>
-					</li>`;
-				});
-				warningHtml += '</ul></div>';
-			}
-
-			warningHtml +=
-				'<p style="margin-bottom: 0; margin-top: 10px;"><strong>Please review these matches before approving.</strong></p>';
-			warningHtml += '</div>';
-
+		if (changesHtml) {
 			dialogFields.push({
 				fieldtype: 'HTML',
-				fieldname: 'duplicate_warning',
-				options: warningHtml
+				fieldname: 'application_changes',
+				options: `<h5>${__('Approving this application changes the existing member')}</h5>${changesHtml}`
 			});
-
-			// Add acknowledgment checkbox for high-confidence matches
-			if (summary.high > 0) {
-				dialogFields.push({
-					fieldtype: 'Check',
-					fieldname: 'acknowledge_duplicates',
-					label: 'I have reviewed the duplicate matches and want to proceed',
-					reqd: 1,
-					default: 0
-				});
-			}
 		}
 
-		// Add standard approval fields
 		dialogFields.push(
 			{
 				fieldtype: 'Link',
@@ -792,7 +718,7 @@ class MembershipApplicationReview {
 				label: 'Membership Type',
 				options: 'Membership Type',
 				reqd: 1,
-				default: app.selected_membership_type,
+				default: app.membership_type,
 				get_query: () => ({ filters: { is_active: 1 } })
 			},
 			{
@@ -800,7 +726,7 @@ class MembershipApplicationReview {
 				fieldname: 'chapter',
 				label: 'Chapter Assignment',
 				options: 'Chapter',
-				default: app.current_chapter_display !== 'Unassigned' ? app.current_chapter_display : ''
+				default: app.chapter || ''
 			},
 			{
 				fieldtype: 'Small Text',
@@ -815,17 +741,16 @@ class MembershipApplicationReview {
 			}
 		);
 
-		// Show approval dialog
 		const dialog = new frappe.ui.Dialog({
-			title: `Approve Application: ${app.full_name}`,
+			title: __('Approve Application: {0}', [frappe.utils.escape_html(app.applicant_name)]),
 			fields: dialogFields,
 			primary_action_label: 'Approve',
 			primary_action: async (values) => {
 				try {
 					const response = await frappe.call({
-						method: 'verenigingen.api.membership_application_review.approve_membership_application',
+						method: 'verenigingen.api.membership_application_review.approve_application',
 						args: {
-							member_name,
+							application_name,
 							membership_type: values.membership_type,
 							chapter: values.chapter,
 							notes: values.notes,
@@ -835,7 +760,7 @@ class MembershipApplicationReview {
 
 					if (response.message?.success) {
 						frappe.show_alert({
-							message: `Application approved for ${app.full_name}`,
+							message: __('Application approved for {0}', [frappe.utils.escape_html(app.applicant_name)]),
 							indicator: 'green'
 						});
 						this.load_applications();
@@ -843,7 +768,7 @@ class MembershipApplicationReview {
 					}
 					dialog.hide();
 				} catch (error) {
-					frappe.msgprint(`Error approving application: ${error.message}`);
+					frappe.msgprint(`Error approving application: ${frappe.utils.escape_html(error.message)}`);
 				}
 			}
 		});
@@ -851,63 +776,23 @@ class MembershipApplicationReview {
 		dialog.show();
 	}
 
-	async reject_application(member_name) {
-		const app = this.applications.find((a) => a.name === member_name);
+	async reject_application(application_name) {
+		const app = this.applications.find((a) => a.name === application_name);
 		if (!app) {
 			return;
 		}
 
-		// Show rejection dialog
 		const dialog = new frappe.ui.Dialog({
-			title: `Reject Application: ${app.full_name}`,
-			fields: [
-				{
-					fieldtype: 'Select',
-					fieldname: 'rejection_category',
-					label: 'Rejection Category',
-					options: ['General', 'Incomplete Information', 'Ineligible', 'Duplicate Application'],
-					reqd: 1
-				},
-				{
-					fieldtype: 'Small Text',
-					fieldname: 'reason',
-					label: 'Rejection Reason',
-					reqd: 1
-				},
-				{
-					fieldtype: 'Link',
-					fieldname: 'email_template',
-					label: 'Email Template',
-					options: 'Email Template',
-					get_query: () => ({
-						filters: {
-							name: ['like', 'membership_rejection%']
-						}
-					})
-				},
-				{
-					fieldtype: 'Small Text',
-					fieldname: 'internal_notes',
-					label: 'Internal Notes'
-				}
-			],
+			title: __('Reject Application: {0}', [frappe.utils.escape_html(app.applicant_name)]),
+			fields: this.rejection_fields(),
 			primary_action_label: 'Reject',
 			primary_action: async (values) => {
 				try {
-					const response = await frappe.call({
-						method: 'verenigingen.api.membership_application_review.reject_membership_application',
-						args: {
-							member_name,
-							reason: values.reason,
-							email_template: values.email_template,
-							rejection_category: values.rejection_category,
-							internal_notes: values.internal_notes
-						}
-					});
+					const response = await this.call_reject(application_name, values);
 
 					if (response.message?.success) {
 						frappe.show_alert({
-							message: `Application rejected for ${app.full_name}`,
+							message: __('Application rejected for {0}', [frappe.utils.escape_html(app.applicant_name)]),
 							indicator: 'orange'
 						});
 						this.load_applications();
@@ -915,7 +800,7 @@ class MembershipApplicationReview {
 					}
 					dialog.hide();
 				} catch (error) {
-					frappe.msgprint(`Error rejecting application: ${error.message}`);
+					frappe.msgprint(`Error rejecting application: ${frappe.utils.escape_html(error.message)}`);
 				}
 			}
 		});
@@ -923,8 +808,55 @@ class MembershipApplicationReview {
 		dialog.show();
 	}
 
-	view_details(member_name) {
-		frappe.set_route('Form', 'Member', member_name);
+	rejection_fields() {
+		return [
+			{
+				fieldtype: 'Select',
+				fieldname: 'rejection_category',
+				label: 'Rejection Category',
+				options: ['General', 'Incomplete Information', 'Ineligible', 'Duplicate Application'],
+				reqd: 1
+			},
+			{
+				fieldtype: 'Small Text',
+				fieldname: 'reason',
+				label: 'Rejection Reason',
+				reqd: 1
+			},
+			{
+				fieldtype: 'Link',
+				fieldname: 'email_template',
+				label: 'Email Template',
+				options: 'Email Template',
+				get_query: () => ({
+					filters: {
+						name: ['like', 'membership_rejection%']
+					}
+				})
+			},
+			{
+				fieldtype: 'Small Text',
+				fieldname: 'internal_notes',
+				label: 'Internal Notes'
+			}
+		];
+	}
+
+	call_reject(application_name, values) {
+		return frappe.call({
+			method: 'verenigingen.api.membership_application_review.reject_application',
+			args: {
+				application_name,
+				reason: values.reason,
+				email_template: values.email_template,
+				rejection_category: values.rejection_category,
+				internal_notes: values.internal_notes
+			}
+		});
+	}
+
+	view_details(application_name) {
+		frappe.set_route('Form', 'Membership Application Submission', application_name);
 	}
 
 	show_statistics() {
@@ -954,7 +886,10 @@ class MembershipApplicationReview {
 	render_statistics_html(stats) {
 		const by_chapter = stats.by_chapter || [];
 		const chapter_rows = by_chapter
-			.map((c) => `<tr><td>${c.current_chapter_display || 'Unassigned'}</td><td>${c.count}</td></tr>`)
+			.map(
+				(c) =>
+					`<tr><td>${frappe.utils.escape_html(c.current_chapter_display || 'Unassigned')}</td><td>${frappe.utils.escape_html(c.count)}</td></tr>`
+			)
 			.join('');
 
 		return `
@@ -964,7 +899,10 @@ class MembershipApplicationReview {
 					<table class="table table-bordered">
 						<tr><th>Status</th><th>Count</th></tr>
 						${Object.entries(stats.by_status || {})
-							.map(([status, count]) => `<tr><td>${status}</td><td>${count}</td></tr>`)
+							.map(
+								([status, count]) =>
+									`<tr><td>${frappe.utils.escape_html(status)}</td><td>${frappe.utils.escape_html(count)}</td></tr>`
+							)
 							.join('')}
 					</table>
 				</div>
@@ -980,7 +918,6 @@ class MembershipApplicationReview {
 				<div class="col-md-12">
 					<p><strong>Applications in last 30 days:</strong> ${stats.last_30_days || 0}</p>
 					<p><strong>Average processing time:</strong> ${stats.avg_processing_days || 0} days</p>
-					<p><strong>Volunteer interest rate:</strong> ${stats.volunteer_interest_rate || 0}%</p>
 				</div>
 			</div>
 		`;
@@ -996,44 +933,99 @@ class MembershipApplicationReview {
 		$('.selected-count').text(`${selected} selected`);
 	}
 
-	bulk_approve() {
-		const selected = $('.app-checkbox:checked')
+	selected_application_names() {
+		return $('.app-checkbox:checked')
 			.map(function () {
-				return $(this).data('member');
+				return $(this).data('application');
 			})
 			.get();
+	}
+
+	bulk_approve() {
+		const selected = this.selected_application_names();
 
 		if (selected.length === 0) {
 			frappe.msgprint('Please select applications to approve.');
 			return;
 		}
 
-		frappe.confirm(`Are you sure you want to approve ${selected.length} applications?`, () => {
-			// Process each application
-			selected.forEach((member_name) => {
-				this.approve_application(member_name);
-			});
+		// One decision for the whole selection; each application keeps its own membership type
+		// and chapter. They are approved one after the other, and every outcome is reported.
+		frappe.confirm(`Are you sure you want to approve ${selected.length} applications?`, async () => {
+			const results = { done: [], failed: [] };
+			for (const application_name of selected) {
+				const app = this.applications.find((a) => a.name === application_name);
+				try {
+					const response = await frappe.call({
+						method: 'verenigingen.api.membership_application_review.approve_application',
+						args: {
+							application_name,
+							membership_type: app && app.membership_type,
+							chapter: app && app.chapter,
+							create_invoice: 1
+						}
+					});
+					(response.message?.success ? results.done : results.failed).push({
+						application_name,
+						error: response.message?.message
+					});
+				} catch (error) {
+					results.failed.push({ application_name, error: error.message });
+				}
+			}
+			this.report_bulk_result(__('Approved'), results);
 		});
 	}
 
 	bulk_reject() {
-		const selected = $('.app-checkbox:checked')
-			.map(function () {
-				return $(this).data('member');
-			})
-			.get();
+		const selected = this.selected_application_names();
 
 		if (selected.length === 0) {
 			frappe.msgprint('Please select applications to reject.');
 			return;
 		}
 
-		frappe.confirm(`Are you sure you want to reject ${selected.length} applications?`, () => {
-			// Process each application
-			selected.forEach((member_name) => {
-				this.reject_application(member_name);
-			});
+		const dialog = new frappe.ui.Dialog({
+			title: __('Reject {0} applications', [selected.length]),
+			fields: this.rejection_fields(),
+			primary_action_label: 'Reject',
+			primary_action: async (values) => {
+				dialog.hide();
+				const results = { done: [], failed: [] };
+				for (const application_name of selected) {
+					try {
+						const response = await this.call_reject(application_name, values);
+						(response.message?.success ? results.done : results.failed).push({
+							application_name,
+							error: response.message?.message
+						});
+					} catch (error) {
+						results.failed.push({ application_name, error: error.message });
+					}
+				}
+				this.report_bulk_result(__('Rejected'), results);
+			}
 		});
+
+		dialog.show();
+	}
+
+	report_bulk_result(label, results) {
+		const failures = results.failed
+			.map(
+				(f) =>
+					`<li>${frappe.utils.escape_html(f.application_name)}: ${frappe.utils.escape_html(f.error || '')}</li>`
+			)
+			.join('');
+		frappe.msgprint({
+			title: __('Bulk result'),
+			indicator: results.failed.length ? 'orange' : 'green',
+			message: `<p>${frappe.utils.escape_html(label)}: ${results.done.length}</p>${
+				failures ? `<p>${__('Failed')}: ${results.failed.length}</p><ul>${failures}</ul>` : ''
+			}`
+		});
+		this.load_applications();
+		this.load_statistics();
 	}
 
 	async create_email_templates() {
@@ -1049,7 +1041,7 @@ class MembershipApplicationReview {
 				});
 			}
 		} catch (error) {
-			frappe.msgprint(`Error creating email templates: ${error.message}`);
+			frappe.msgprint(`Error creating email templates: ${frappe.utils.escape_html(error.message)}`);
 		}
 	}
 

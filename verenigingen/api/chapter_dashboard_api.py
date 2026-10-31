@@ -128,183 +128,43 @@ def get_chapter_member_emails(chapter_name: str):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member approval operations
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
-def quick_approve_member(member_name: str, chapter_name: str | None = None):
+def quick_approve_application(application_name: str):
+    """Approve a Pending Review application from the chapter dashboard (#1765).
+
+    This is `approve_application` and nothing else: it creates or updates the Member, assigns the
+    chapter and runs the approval core. The permission check (an Admin-level seat on the application's
+    chapter, or an administrator) is approve_application's own and comes first, so an unknown and a
+    foreign application are refused the same way. The old branch that flipped only the Chapter
+    Member row of a "pending" member is gone: an application has no Member until it is approved.
+    (A chapter JOIN request from an existing member is a different flow and is no longer approved
+    from this dashboard.)
+
+    Returns the dict `approve_application` returns (`success`, `member`, `application`, ...).
     """
-    Quickly approve a pending member application from the chapter dashboard.
+    from verenigingen.api.membership_application_review import approve_application
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.templates.pages.chapter_dashboard import get_user_board_role
 
-    This function allows chapter board members to approve pending membership
-    applications with a single API call. It handles the complete approval
-    workflow including status updates and notification triggers.
+    validate_required_fields({"application_name": application_name}, ["application_name"])
+    application_name = str(application_name)
 
-    Args:
-        member_name (str): The unique identifier/name of the member to approve.
-                          Must be a valid Member document name.
-        chapter_name (str, optional): The chapter name for the approval.
-                                     If not provided, will be determined from
-                                     the member's pending chapter membership
-                                     record.
+    # approve_application repeats this check; it comes first here so the dashboard's own gate below
+    # never runs for an application the caller may not even see (an unknown and a foreign application
+    # are refused identically, #1765 Ruling M).
+    validate_application_permission_or_throw(application_name, "approve")
 
-    Returns:
-        dict: Approval result with success status and updated member information.
-
-    Example:
-        >>> result = quick_approve_member("MEM-2024-001", "Amsterdam")
-        >>> print(result)
-        {
-            'success': True,
-            'member_name': 'MEM-2024-001',
-            'chapter': 'Amsterdam',
-            'status': 'Approved',
-            'approval_date': '2024-08-02 14:30:00'
-        }
-
-    Raises:
-        PermissionError: If user is not a board member or lacks access to the chapter
-        ValidationError: If member_name is invalid or member is not in pending status
-
-    Security:
-        - Validates user has board member role for the target chapter
-        - Sanitizes all input parameters
-        - Uses high-security API decorators
-        - Logs all approval actions for audit trail
-
-    Performance:
-        - Monitoring threshold: 2000ms (approval can involve multiple operations)
-        - Optimized database queries for member lookup
-        - Batch processing for related updates
-
-    Business Logic:
-        - Only pending applications can be approved
-        - Triggers post-approval workflows (welcome emails, etc.)
-        - Updates member status and chapter membership records
-        - Creates audit trail for the approval action
-
-    Database Access:
-        - Reads from: tabMember, tabChapter Member
-        - Updates: Member status, Chapter Member status
-        - Creates: Audit log entries
-    """
-
-    # Validate inputs
-    validate_required_fields({"member_name": member_name}, ["member_name"])
-
-    member_name = APIValidator.sanitize_text(member_name, max_length=100)
-    chapter_name = APIValidator.sanitize_text(chapter_name, max_length=100) if chapter_name else None
-
-    # Verify permissions
-    from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters, get_user_board_role
-
-    user_chapters = get_user_board_chapters()
-    if not user_chapters:
-        raise PermissionError("You must be a board member to approve applications")
-
-    # Get member's chapter if not specified. The chapter an approval is FOR is
-    # whichever chapter has a "Pending" Chapter Member row for this member --
-    # both the chapter-join-request flow and the membership-application flow
-    # write that row at submission (application_helpers.py::
-    # create_pending_chapter_membership). Member.current_chapter_display is an
-    # HTML-fieldtype field with no DB column (#1516): querying it here always
-    # raised OperationalError, before the access check below -- or the two
-    # frappe.throw()s #1360 flagged as a possible existence-oracle pair --
-    # were ever reached.
-    #
-    # WHY refuse identically for "no pending row anywhere" (nonexistent member,
-    # or one with none) and "pending in more than one chapter at once"
-    # (picking either would be a silent wrong-chapter approval): both now
-    # throw the exact same message as "resolved a chapter, but not one the
-    # caller manages" below. Distinguishing any of these would let a board
-    # member learn things about members outside their chapter -- the
-    # existence-oracle variant #1360 flagged, dormant only because this line
-    # always crashed first.
-    if not chapter_name:
-        pending_chapters = set(
-            frappe.get_all(
-                "Chapter Member",
-                filters={"member": member_name, "status": "Pending"},
-                pluck="parent",
-            )
-        )
-        if len(pending_chapters) != 1:
-            frappe.throw(_("You don't have access to this chapter"))
-        chapter_name = pending_chapters.pop()
-
-    # Verify user has access to this chapter
-    if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
-        frappe.throw(_("You don't have access to this chapter"))
-
-    # Check approval permissions
-    user_role = get_user_board_role(chapter_name)
+    # The dashboard's own gate, kept from before: approving here needs a board role that carries
+    # can_approve_members on the application's chapter (or an administrator). Staff have no board role,
+    # so this stays a board action even though staff may approve on the review page.
+    chapter = frappe.db.get_value("Membership Application Submission", application_name, "chapter")
+    user_role = get_user_board_role(chapter)
     if not (user_role and user_role.get("permissions", {}).get("can_approve_members", False)):
         frappe.throw(_("You don't have permission to approve members"))
 
-    try:
-        # Check if this is a chapter join request (pending Chapter Member) or membership application
-        pending_chapter_member = frappe.db.get_value(
-            "Chapter Member", {"member": member_name, "parent": chapter_name, "status": "Pending"}, "name"
-        )
-
-        if pending_chapter_member:
-            chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            result = chapter_doc.member_manager.approve_member_request(  # ast-skip: @property not field
-                member_id=member_name, approved_by=frappe.session.user
-            )
-        else:
-            # This is a membership application - use existing approval function
-            from verenigingen.api.membership_application_review import approve_membership_application
-
-            result = approve_membership_application(
-                member_name=member_name,
-                chapter=chapter_name,
-                notes=f"Approved via chapter dashboard by {frappe.session.user}",
-            )
-
-        if result.get("success"):
-            # Log the dashboard approval
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            # WHY: frappe.get_user() returns a UserPermissions object, which has
-            # no `full_name` attribute -> AttributeError. That exception was caught
-            # by the broad except below and surfaced as {"success": False}, so the
-            # caller saw a *failure* even though the membership approval had already
-            # committed. Use frappe.utils.get_fullname(session.user) instead.
-            approver_full_name = frappe.utils.get_fullname(frappe.session.user)
-            comment_doc = frappe.get_doc(
-                {
-                    "doctype": "Comment",
-                    "comment_type": "Info",
-                    "reference_doctype": "Member",
-                    "reference_name": member_name,
-                    "content": f"Member approved via chapter dashboard by {approver_full_name}",
-                }
-            )
-
-            # Secure audit trail comment creation with explicit permission validation
-            comment_result = secure_document_operation(
-                operation="insert",
-                doc=comment_doc,
-                justification=f"Chapter governance audit trail for member approval {member_name}",
-                required_permissions=["Comment:create"],
-            )
-
-            if not comment_result.success:
-                frappe.logger().warning(
-                    f"Failed to create approval audit trail comment: {'; '.join(comment_result.errors)}"
-                )
-                # Don't block the approval if audit trail fails
-
-            return {"success": True, "message": _("Member approved successfully"), "member_name": member_name}
-        else:
-            return {"success": False, "error": result.get("message", "Unknown error occurred")}
-
-    # #505: this catch-all sits below @handle_api_error; without this a 1205/1213
-    # here is logged and returned as a plain failure dict one frame below the
-    # decorator's own guard (#504). Re-raise unconditionally.
-    except NON_RESUMABLE_DB_ERRORS:
-        raise
-    except Exception as e:
-        frappe.log_error(f"Error in quick_approve_member: {str(e)}", "Chapter Dashboard API")
-        return {"success": False, "error": str(e)}
+    return approve_application(
+        application_name=application_name,
+        notes=f"Approved via chapter dashboard by {frappe.session.user}",
+    )
 
 
 @frappe.whitelist()
@@ -447,26 +307,17 @@ def get_active_members_count(chapter: str | None = None):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)  # Application count statistics - read-only
 def get_pending_applications_count(chapter: str | None = None):
-    """Get count of pending applications for dashboard number card"""
+    """Count of Pending Review applications for the dashboard number card (#1765).
 
-    if chapter:
-        _dashboard_chapter_scope(chapter)  # refuse a chapter the caller cannot see (#1666)
+    The same rows the application list shows: the MAS permission query scopes them, and the chapter
+    scope (an explicit chapter the caller cannot see is refused, #1666) narrows them further.
+    """
+    from verenigingen.services.member.application.pending_applications import (
+        count_pending_review_applications,
+    )
 
-    if not chapter:
-        from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
-
-        user_chapters = get_user_board_chapters()
-        if not user_chapters:
-            return {"value": 0, "fieldtype": "Data"}
-
-        total = 0
-        for ch in user_chapters:
-            count = frappe.db.count("Chapter Member", {"parent": ch["chapter_name"], "status": "Pending"})
-            total += count
-        return {"value": total, "fieldtype": "Data"}
-    else:
-        count = frappe.db.count("Chapter Member", {"parent": chapter, "status": "Pending"})
-        return {"value": count, "fieldtype": "Data"}
+    scope = _dashboard_chapter_scope(chapter)
+    return {"value": count_pending_review_applications(chapters=scope), "fieldtype": "Data"}
 
 
 @frappe.whitelist()

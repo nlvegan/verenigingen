@@ -543,27 +543,20 @@ class TestBoardMemberRealShapePendingApplication(EnhancedTestCase):
         member.reload()
         return member
 
-    def test_board_member_sees_real_shape_pending_application(self):
+    def test_board_member_can_review_real_shape_pending_application(self):
+        """can_review_application (member-keyed, retired with the member-keyed endpoints in task 9).
+        The review LIST is no longer Members: get_pending_applications lists applications, and its
+        scope is tested in test_application_review_surfaces.py (#1765)."""
         chapter = self.ensure_test_chapter("TEST Real Shape Own")
         board = self.create_test_board_member(chapter.name, permissions_level="Admin")
         applicant = self._create_real_shape_applicant(chapter.name, "own")
 
-        from verenigingen.api.membership_application_review import (
-            can_review_application,
-            get_pending_applications,
-        )
+        from verenigingen.api.membership_application_review import can_review_application
 
         with self.as_user(board.user):
-            applications = get_pending_applications()
             can_review = can_review_application(applicant.name)
 
-        application_names = [a["name"] for a in applications]
-        self.assertIn(
-            applicant.name,
-            application_names,
-            "board member must see their own chapter's REAL-shape pending application",
-        )
-        self.assertTrue(can_review, "can_review_application must agree with get_pending_applications")
+        self.assertTrue(can_review, "board member must be able to review their own chapter's applicant")
 
     def test_board_member_can_approve_real_shape_pending_application(self):
         chapter = self.ensure_test_chapter("TEST Real Shape Approve")
@@ -613,17 +606,11 @@ class TestBoardMemberRealShapePendingApplication(EnhancedTestCase):
         board = self.create_test_board_member(own_chapter.name, permissions_level="Admin")
         outsider = self._create_real_shape_applicant(other_chapter.name, "cross")
 
-        from verenigingen.api.membership_application_review import (
-            can_review_application,
-            get_pending_applications,
-        )
+        from verenigingen.api.membership_application_review import can_review_application
 
         with self.as_user(board.user):
-            applications = get_pending_applications()
             can_review = can_review_application(outsider.name)
 
-        application_names = [a["name"] for a in applications]
-        self.assertNotIn(outsider.name, application_names)
         self.assertFalse(can_review)
 
         with self.as_user(board.user):
@@ -640,52 +627,12 @@ class TestBoardMemberRealShapePendingApplication(EnhancedTestCase):
             "a denied approval must not have mutated application_status",
         )
 
-    def test_board_member_cannot_act_on_disabled_chapter_member_row(self):
-        """A disabled (enabled=0) Chapter Member row must not grant access,
-        even with the widened status filter."""
-        chapter = self.ensure_test_chapter("TEST Real Shape Disabled")
-        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
-        applicant = self._create_real_shape_applicant(chapter.name, "disabled")
-
-        row_name = frappe.db.get_value(
-            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
-        )
-        frappe.db.set_value("Chapter Member", row_name, "enabled", 0)
-
-        from verenigingen.api.membership_application_review import get_pending_applications
-
-        with self.as_user(board.user):
-            applications = get_pending_applications()
-
-        application_names = [a["name"] for a in applications]
-        self.assertNotIn(applicant.name, application_names)
-
-    def test_board_member_cannot_act_on_inactive_chapter_member_row(self):
-        """An Inactive Chapter Member row (a former member) must not grant
-        access -- the widened filter is Active OR Pending, never Inactive."""
-        chapter = self.ensure_test_chapter("TEST Real Shape Inactive")
-        board = self.create_test_board_member(chapter.name, permissions_level="Admin")
-        applicant = self._create_real_shape_applicant(chapter.name, "inactive")
-
-        row_name = frappe.db.get_value(
-            "Chapter Member", {"parent": chapter.name, "member": applicant.name}, "name"
-        )
-        frappe.db.set_value("Chapter Member", row_name, "status", "Inactive")
-
-        from verenigingen.api.membership_application_review import get_pending_applications
-
-        with self.as_user(board.user):
-            applications = get_pending_applications()
-
-        application_names = [a["name"] for a in applications]
-        self.assertNotIn(applicant.name, application_names)
-
     def test_member_write_permission_denied_for_disabled_same_chapter_row(self):
         """#1518 review, SIGNIFICANT 2: `_is_member_in_chapters`'s own status
         filter (permissions.py, consumed by has_member_permission) was
         untested -- every existing disabled/inactive control above drives
-        `get_pending_applications`, which goes through chapter_security.py's
-        SQL, never permissions.py's. Drive `has_member_permission` directly
+        `get_pending_applications` (which listed Members through chapter_security.py's
+        SQL until #1765), never permissions.py's. Drive `has_member_permission` directly
         (the write-permission gate `member.save()` triggers during approve/
         reject) for a same-chapter, disabled (enabled=0) row, so a mutant that
         drops `_is_member_in_chapters`'s status/enabled filter is caught here
@@ -844,7 +791,6 @@ class TestBoardMemberJoinChapterEscalation(EnhancedTestCase):
         from verenigingen.api.membership_application_review import (
             approve_membership_application,
             can_review_application,
-            get_pending_applications,
             reject_membership_application,
         )
 
@@ -863,15 +809,6 @@ class TestBoardMemberJoinChapterEscalation(EnhancedTestCase):
                 can_review_application(member.name),
                 "can_review_application must not treat a join-chapter request as "
                 "a manageable application",
-            )
-
-            applications = get_pending_applications()
-            application_names = [a["name"] for a in applications]
-            self.assertNotIn(
-                member.name,
-                application_names,
-                "an Active, already-approved member must never appear in the "
-                "pending-applications list",
             )
 
             with self.assertRaises(frappe.PermissionError):

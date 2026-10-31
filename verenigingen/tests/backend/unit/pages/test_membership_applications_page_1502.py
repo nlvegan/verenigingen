@@ -51,43 +51,56 @@ cleared by "Verenigingen Chapter Board Member", "Verenigingen Volunteer" AND
 for BOTH endpoints the "sees nothing" behaviour for a Volunteer/Auditor caller
 must come from this file's own scoping code (an empty list / a zeroed stats
 dict) -- there is no tier-gate refusal to lean on here.
+
+## Since #1765
+
+Both endpoints list Membership Application Submissions, not Members, and the scope is the MAS
+permission query (`frappe.get_list`), not `_manageable_chapters_for_current_user`. The fixtures below
+therefore build applications; the behaviours asserted (chapter scope, the explicit-chapter bypass,
+"a caller without a seat sees nothing") are unchanged.
 """
 
-from frappe.utils import add_days, today
+import frappe
+from frappe.utils import add_days, now_datetime
 
 from verenigingen.pages.membership_applications import get_application_stats, get_pending_applications
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.member_ownership_probe_mixin import MemberOwnershipProbeMixin
 
 
+def _make_application(test_case, chapter_name, first_name):
+    """A Pending Review application naming `chapter_name` (an application is its own record, #1765).
+
+    Fixture shortcut, stated: an inserted row given `chapter`/`confirmed_on` and moved to Pending Review,
+    the writes confirmation makes. Returns a dict with the application `name` and its `full_name`.
+    """
+    application = frappe.get_doc(
+        {
+            "doctype": "Membership Application Submission",
+            "email": f"p1502.{frappe.generate_hash(length=8).lower()}@example.org",
+            "source": "Full Form",
+            "applicant_name": f"{first_name} {frappe.generate_hash(length=4)}",
+            "payload": "{}",
+        }
+    ).insert()
+    test_case.track_doc("Membership Application Submission", application.name)
+    application.db_set("chapter", chapter_name)
+    application.db_set("confirmed_on", now_datetime())
+    application.set_status("Pending Review")
+    return frappe._dict(name=application.name, full_name=application.applicant_name)
+
+
 def _make_pending_applicant(test_case, chapter_name, first_name):
-    """A Pending applicant holding an ACTIVE Chapter Member row for `chapter_name`
-    (the live equivalent of the removed `suggested_chapter` field)."""
-    member = test_case.create_test_member(first_name=first_name)
-    test_case.add_member_to_test_chapter(member.name, chapter_name)
-    member.reload()
-    member.application_status = "Pending"
-    member.status = "Pending"
-    member.save(ignore_permissions=True)
-    member.reload()
-    return member
+    return _make_application(test_case, chapter_name, first_name)
 
 
 def _make_reviewed_applicant(test_case, chapter_name, first_name, *, approved):
-    """A member whose application was reviewed (approved or rejected) within
-    the last 30 days, still holding a Chapter Member row for `chapter_name`
-    (true for an approval; a real rejection deletes this row -- see the
-    "opposite harm" note in TestGetApplicationStatsChapterScope below)."""
-    member = test_case.create_test_member(first_name=first_name)
-    test_case.add_member_to_test_chapter(member.name, chapter_name)
-    member.reload()
-    member.application_status = "Approved" if approved else "Rejected"
-    member.status = "Active" if approved else "Rejected"
-    member.review_date = add_days(today(), -1)
-    member.reviewed_by = "Administrator"
-    member.save(ignore_permissions=True)
-    member.reload()
-    return member
+    """An application decided (approved or rejected) within the last 30 days."""
+    applicant = _make_application(test_case, chapter_name, first_name)
+    application = frappe.get_doc("Membership Application Submission", applicant.name)
+    application.set_status("Approved" if approved else "Rejected")
+    application.db_set({"review_date": add_days(now_datetime(), -1), "reviewed_by": "Administrator"})
+    return applicant
 
 
 class TestMembershipApplicationsPageAdminReproduction(EnhancedTestCase):

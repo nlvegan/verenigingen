@@ -6,7 +6,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import getdate, now_datetime, today
 
 from verenigingen.services.member.account.member_user_account_service import (
     create_secure_user_account_for_member,
@@ -1304,133 +1304,15 @@ def _send_rejection_email(
 @frappe.whitelist()
 @standard_api()  # Application listing - read-only
 def get_pending_applications(chapter: str | None = None, days_overdue: int | None = None):
-    """Get list of pending membership applications"""
-    filters = {"application_status": "Pending", "status": "Pending"}
+    """Pending Review applications (not Members) the caller may read (#1765).
 
-    # Filter by overdue if specified
-    if days_overdue:
-        cutoff_date = add_days(today(), -days_overdue)
-        filters["application_date"] = ["<", cutoff_date]
+    Rows: name, application_id, applicant_name, email, membership_type, chapter, application_date
+    (the confirmation time), days_pending. The scope is the MAS permission query, applied by
+    `frappe.get_list`: a board member sees the chapters they hold a seat in, an admin everything.
+    """
+    from verenigingen.services.member.application.pending_applications import pending_review_applications
 
-    # Chapter-based permission filtering is applied at the end of this function
-    # via filter_applications_by_permission() from chapter_security.py, which
-    # calls get_user_manageable_chapters() and can_user_manage_application()
-    # for each result. No inline permission check is needed here.
-
-    # Get applications
-    applications = frappe.get_all(
-        "Member",
-        filters=filters,
-        fields=[
-            "name",
-            "application_id",
-            "full_name",
-            "email",
-            "contact_number",
-            "application_date",
-            # "current_chapter_display",  # HTML field - not in database
-            "selected_membership_type",
-            "interested_in_volunteering",
-            "age",
-        ],
-        order_by="application_date desc",
-    )
-
-    # Optimize chapter lookup by fetching all chapter memberships at once
-    member_names = [app.name for app in applications]
-
-    # Get all chapter memberships for these members in a single query
-    chapter_memberships = {}
-    if member_names:
-        all_memberships = frappe.db.sql(
-            """
-            SELECT member, parent as chapter_name
-            FROM `tabChapter Member`
-            WHERE member IN %(member_names)s AND enabled = 1
-            ORDER BY chapter_join_date DESC
-        """,
-            {"member_names": member_names},
-            as_dict=True,
-        )
-
-        # Group by member (taking the most recent chapter)
-        for membership in all_memberships:
-            if membership.member not in chapter_memberships:
-                chapter_memberships[membership.member] = membership.chapter_name
-
-    # Get all membership types in one query for amount lookup
-    membership_types = {app.selected_membership_type for app in applications if app.selected_membership_type}
-    membership_type_data = {}
-    if membership_types:
-        type_data = frappe.get_all(
-            "Membership Type",
-            filters={"name": ["in", list(membership_types)]},
-            fields=["name", "minimum_amount", "dues_schedule_template"],
-        )
-
-        # Optimize template amount queries - batch fetch all templates
-        template_names = [mt.dues_schedule_template for mt in type_data if mt.dues_schedule_template]
-        template_data = {}
-
-        if template_names:
-            templates = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"name": ["in", template_names]},
-                fields=["name", "dues_rate", "suggested_amount"],
-            )
-            template_data = {t.name: t for t in templates}
-
-        # Get template amounts for each membership type using cached data
-        for mt in type_data:
-            billing_amount = 0
-            if mt.dues_schedule_template and mt.dues_schedule_template in template_data:
-                template = template_data[mt.dues_schedule_template]
-                billing_amount = template.dues_rate or template.suggested_amount or 0
-
-            # Fallback to minimum_amount if no template amount available
-            if not billing_amount:
-                billing_amount = mt.minimum_amount
-
-            # Store the membership type data with calculated billing_amount
-            membership_type_data[mt.name] = {
-                "name": mt.name,
-                "minimum_amount": mt.minimum_amount,
-                "dues_schedule_template": mt.dues_schedule_template,
-                "billing_amount": billing_amount,
-            }
-
-    # Add additional info and apply chapter filtering
-    filtered_applications = []
-    for app in applications:
-        app["days_pending"] = (getdate(today()) - getdate(app.application_date)).days
-
-        # Get membership type amount from cached data or application
-        if app.selected_membership_type and app.selected_membership_type in membership_type_data:
-            mt = membership_type_data[app.selected_membership_type]
-            # Amount should come from the application itself
-            app["membership_amount"] = (
-                app.get("payment_amount") or app.get("membership_fee") or mt["billing_amount"]
-            )
-            # Currency should come from application or default to EUR
-            app["membership_currency"] = app.get("currency") or "EUR"
-
-        # Get chapter information from pre-loaded data
-        app["current_chapter_display"] = chapter_memberships.get(app.name, "Unassigned")
-
-        # Apply chapter filter if specified
-        if chapter:
-            member_chapter = chapter_memberships.get(app.name)
-            if chapter == "Unassigned" and member_chapter:
-                continue  # Skip if looking for unassigned but member has chapters
-            elif chapter != "Unassigned" and member_chapter != chapter:
-                continue  # Skip if doesn't match requested chapter
-
-        filtered_applications.append(app)
-
-    # Apply chapter-based security filtering
-    from verenigingen.services.chapter.chapter_security import filter_applications_by_permission
-
-    return filter_applications_by_permission(filtered_applications)
+    return pending_review_applications(chapter=chapter, days_overdue=days_overdue)
 
 
 def update_payment_history_for_invoice(member_name: str, invoice_name: str):

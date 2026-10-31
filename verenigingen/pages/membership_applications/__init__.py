@@ -1,129 +1,36 @@
 import frappe
-from frappe.utils import format_datetime, getdate
+from frappe.utils import add_days, format_datetime, getdate, today
 
-from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.services.member.application.pending_applications import (
+    SUBMISSION,
+    pending_review_applications,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-
-
-def _manageable_chapters_for_current_user():
-    """Chapters the caller may see applications for.
-
-    Returns ``None`` for an unrestricted caller (Roles.ADMIN_ROLES: System
-    Manager / Verenigingen Administrator / Verenigingen Staff). Otherwise
-    resolves the caller's own active Chapter Board Member seat(s) via
-    ``permissions._get_board_chapters_for_member()`` -- the same helper #1329's
-    SEPA mandate diagnostics scoping reuses -- and returns that list, which is
-    empty for a caller (e.g. Volunteer, Auditor) holding no active board seat.
-    """
-    if set(frappe.get_roles()) & Roles.ADMIN_ROLES:
-        return None
-
-    from verenigingen.permissions import _get_board_chapters_for_member
-
-    member = get_current_user_member_name()
-    return _get_board_chapters_for_member(member) if member else []
-
-
-def _member_names_in_chapters(chapter_names):
-    """Names of members holding a Chapter Member row on any of `chapter_names`.
-
-    Member has no `suggested_chapter` field; the chapter an application is for
-    lives on the Chapter Member child table row the application flow writes at
-    submission time (application_helpers.py::create_pending_chapter_membership).
-    `enabled=1`, no status filter -- mirrors
-    api/membership_application_review.py::get_pending_applications, the
-    already-working sibling this page duplicates.
-    """
-    if not chapter_names:
-        return []
-    return frappe.get_all(
-        "Chapter Member",
-        filters={"parent": ["in", chapter_names], "enabled": 1},
-        pluck="member",
-    )
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_pending_applications(chapter: str = None):
-    """Get pending membership applications"""
-    filters = {"application_status": "Pending", "status": "Pending"}
+    """Pending Review applications (Membership Application Submissions) the caller may read.
 
-    allowed_chapters = _manageable_chapters_for_current_user()
-    if allowed_chapters is not None and not allowed_chapters:
-        # No active board seat anywhere: nothing to show.
-        return []
-
-    scoped_chapters = None
-    if chapter:
-        if allowed_chapters is not None and chapter not in allowed_chapters:
-            return []
-        scoped_chapters = [chapter]
-    elif allowed_chapters is not None:
-        scoped_chapters = allowed_chapters
-
-    if scoped_chapters is not None:
-        member_names = _member_names_in_chapters(scoped_chapters)
-        if not member_names:
-            return []
-        filters["name"] = ["in", list(set(member_names))]
-
-    # Get pending applications. `current_chapter_display` and `address_display`
-    # are HTML-fieldtype fields with no DB column (confirmed live) and cannot
-    # be requested here; chapter is attached below from Chapter Member instead.
-    applications = frappe.get_all(
-        "Member",
-        filters=filters,
-        fields=[
-            "name",
-            "full_name",
-            "email",
-            "contact_number",
-            "application_date",
-            "payment_method",
-            "birth_date",
-            "age",
-        ],
-        order_by="application_date desc",
-    )
-
-    # Batch-fetch each application's chapter for display (same query shape as
-    # api/membership_application_review.py::get_pending_applications).
-    app_names = [app.name for app in applications]
-    chapter_by_member = {}
-    if app_names:
-        rows = frappe.db.sql(
-            """
-            SELECT member, parent as chapter_name
-            FROM `tabChapter Member`
-            WHERE member IN %(names)s AND enabled = 1
-            ORDER BY chapter_join_date DESC
-            """,
-            {"names": app_names},
-            as_dict=True,
-        )
-        for row in rows:
-            chapter_by_member.setdefault(row.member, row.chapter_name)
-
-    # Enhance with additional info
+    Scope is the MAS permission query (`frappe.get_list`): a board member sees the chapters of their
+    seats, an admin everything, anyone without a seat nothing (#1765, #1486 item 3).
+    """
+    applications = pending_review_applications(chapter=chapter)
     for app in applications:
-        app["days_pending"] = (getdate() - getdate(app.application_date)).days
-        app["application_date_formatted"] = format_datetime(app.application_date)
-        app["suggested_chapter"] = chapter_by_member.get(app.name)
-
-        # Get any existing communications
+        app["full_name"] = app["applicant_name"]
+        app["application_date_formatted"] = format_datetime(app["application_date"])
+        app["suggested_chapter"] = app["chapter"]
         app["communications"] = frappe.db.count(
-            "Communication", {"reference_doctype": "Member", "reference_name": app.name}
+            "Communication", {"reference_doctype": SUBMISSION, "reference_name": app["name"]}
         )
-
     return applications
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_application_stats():
-    """Get statistics for membership applications"""
+    """Statistics for membership applications, over the applications the caller may read."""
     stats = {
         "total_pending": 0,
         "pending_by_chapter": {},
@@ -132,138 +39,75 @@ def get_application_stats():
         "recent_rejections": [],
     }
 
-    allowed_chapters = _manageable_chapters_for_current_user()
-    if allowed_chapters is not None and not allowed_chapters:
-        # No active board seat: same "sees nothing" outcome as
-        # chapter_security's approval-permission checks for a caller who
-        # clears the bare REPORTING tier (Volunteer/Auditor, #1486) but has no
-        # legitimate front door to this data.
-        return stats
+    pending = pending_review_applications()
+    stats["total_pending"] = len(pending)
+    for app in pending:
+        if app["chapter"]:
+            stats["pending_by_chapter"][app["chapter"]] = (
+                stats["pending_by_chapter"].get(app["chapter"], 0) + 1
+            )
 
-    scope_filter = {}
-    if allowed_chapters is not None:
-        scoped_member_names = _member_names_in_chapters(allowed_chapters)
-        if not scoped_member_names:
-            return stats
-        # A board member's view is scoped to members currently linked to
-        # their chapter(s). Two cases fall out of that and are both visible
-        # to admins only (safe -- nothing leaks -- though less complete than
-        # admin's unrestricted view):
-        #  - A rejected application's Chapter Member row is deleted on
-        #    rejection (remove_all_pending_chapter_memberships), so it becomes
-        #    invisible to non-admin callers once rejected.
-        #  - An applicant with NO Chapter Member row at all: reachable, since
-        #    _create_pending_chapter_membership_safe (application_helpers.py)
-        #    is fire-and-forget and can silently fail to create it.
-        scope_filter["name"] = ["in", list(set(scoped_member_names))]
+    approved = _readable_decided("Approved", ["confirmed_on", "review_date"])
+    if approved:
+        total_days = sum((getdate(a.review_date) - getdate(a.confirmed_on)).days for a in approved)
+        stats["avg_processing_time"] = round(total_days / len(approved), 1)
 
-    pending_filters = {"application_status": "Pending", "status": "Pending", **scope_filter}
-
-    # Get pending count
-    stats["total_pending"] = frappe.db.count("Member", pending_filters)
-
-    # Get pending by chapter. Member has no `suggested_chapter` field; the
-    # live equivalent is the Chapter Member child table row the application
-    # flow writes at submission (create_pending_chapter_membership).
-    pending_member_names = frappe.get_all("Member", filters=pending_filters, pluck="name")
-    if pending_member_names:
-        pending_by_chapter = frappe.db.sql(
-            """
-            SELECT parent as chapter_name, COUNT(DISTINCT member) as count
-            FROM `tabChapter Member`
-            WHERE member IN %(members)s AND enabled = 1
-            GROUP BY parent
-            """,
-            {"members": pending_member_names},
-            as_dict=True,
-        )
-        for row in pending_by_chapter:
-            stats["pending_by_chapter"][row.chapter_name] = row.count
-
-    # Get average processing time for approved applications
-    approved_filters = {
-        "application_status": "Approved",
-        "review_date": ["is", "set"],
-        "application_date": ["is", "set"],
-        **scope_filter,
-    }
-    approved_dates = frappe.get_all(
-        "Member", filters=approved_filters, fields=["application_date", "review_date"]
-    )
-    if approved_dates:
-        total_days = sum((getdate(m.review_date) - getdate(m.application_date)).days for m in approved_dates)
-        stats["avg_processing_time"] = round(total_days / len(approved_dates), 1)
-
-    # Get recent approvals. `current_chapter_display` is an HTML-fieldtype
-    # field with no DB column (confirmed live) and cannot be requested here;
-    # chapter is attached below from Chapter Member instead.
-    recent_approvals = frappe.get_all(
-        "Member",
-        filters={
-            "application_status": "Approved",
-            "review_date": [">=", frappe.utils.add_days(frappe.utils.today(), -30)],
-            **scope_filter,
-        },
-        fields=["name", "full_name", "review_date", "reviewed_by"],
-        order_by="review_date desc",
+    since = add_days(today(), -30)
+    stats["recent_approvals"] = _readable_decided(
+        "Approved",
+        ["name", "applicant_name", "chapter", "review_date", "reviewed_by"],
+        {"review_date": [">=", since]},
         limit=5,
     )
-    approval_chapters = {}
-    if recent_approvals:
-        rows = frappe.db.sql(
-            """
-            SELECT member, parent as chapter_name
-            FROM `tabChapter Member`
-            WHERE member IN %(names)s AND enabled = 1
-            ORDER BY chapter_join_date DESC
-            """,
-            {"names": [m.name for m in recent_approvals]},
-            as_dict=True,
-        )
-        for row in rows:
-            approval_chapters.setdefault(row.member, row.chapter_name)
-    for approval in recent_approvals:
-        approval["current_chapter_display"] = approval_chapters.get(approval.name)
-    stats["recent_approvals"] = recent_approvals
-
-    # Get recent rejections
-    stats["recent_rejections"] = frappe.get_all(
-        "Member",
-        filters={
-            "application_status": "Rejected",
-            "review_date": [">=", frappe.utils.add_days(frappe.utils.today(), -30)],
-            **scope_filter,
-        },
-        fields=["full_name", "review_date", "reviewed_by", "review_notes"],
-        order_by="review_date desc",
+    for approval in stats["recent_approvals"]:
+        approval["full_name"] = approval["applicant_name"]
+        approval["current_chapter_display"] = approval["chapter"]
+    stats["recent_rejections"] = _readable_decided(
+        "Rejected",
+        ["applicant_name", "review_date", "reviewed_by", "review_notes"],
+        {"review_date": [">=", since]},
         limit=5,
     )
-
+    for rejection in stats["recent_rejections"]:
+        rejection["full_name"] = rejection["applicant_name"]
     return stats
+
+
+def _readable_decided(status, fields, extra_filters=None, limit=None):
+    """Decided applications (`status`) the caller may read; [] for a caller who may not read any."""
+    try:
+        return frappe.get_list(
+            SUBMISSION,
+            filters={"status": status, "review_date": ["is", "set"], **(extra_filters or {})},
+            fields=fields,
+            order_by="review_date desc",
+            limit_page_length=limit or 0,
+        )
+    except frappe.PermissionError:
+        return []
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def bulk_approve_applications(member_names: str, membership_type: str, create_invoices: bool = True):
-    """Bulk approve multiple membership applications"""
-    if isinstance(member_names, str):
+def bulk_approve_applications(application_names: str, membership_type: str, create_invoices: bool = True):
+    """Bulk approve multiple membership applications (by application name)"""
+    if isinstance(application_names, str):
         import json
 
-        member_names = json.loads(member_names)
+        application_names = json.loads(application_names)
 
     results = {"success": [], "failed": []}
 
-    for member_name in member_names:
+    for application_name in application_names:
         try:
-            # Use the existing approval function
-            from verenigingen.api.membership_application_review import approve_membership_application
+            from verenigingen.api.membership_application_review import approve_application
 
-            approve_membership_application(
-                member_name, create_invoice=create_invoices, membership_type=membership_type
+            approve_application(
+                application_name, create_invoice=create_invoices, membership_type=membership_type
             )
-            results["success"].append(member_name)
+            results["success"].append(application_name)
         except Exception as e:
-            results["failed"].append({"member": member_name, "error": str(e)})
+            results["failed"].append({"application": application_name, "error": str(e)})
 
     return results
 
@@ -460,10 +304,10 @@ function render_applications(applications) {
                     <input type="checkbox" class="application-checkbox" value="${app.name}">
                 </td>
                 <td>
-                    <a href="/app/member/${app.name}" target="_blank">${app.full_name}</a>
+                    <a href="/app/membership-application-submission/${encodeURIComponent(app.name)}" target="_blank">${frappe.utils.escape_html(app.full_name)}</a>
                 </td>
-                <td>${app.email}</td>
-                <td>${app.suggested_chapter || '-'}</td>
+                <td>${frappe.utils.escape_html(app.email)}</td>
+                <td>${frappe.utils.escape_html(app.suggested_chapter || '-')}</td>
                 <td>${app.application_date_formatted}</td>
                 <td>
                     <span class="badge ${app.days_pending > 7 ? 'badge-warning' : 'badge-info'}">
@@ -501,16 +345,16 @@ function update_selected_applications() {
     $('#bulk-approve-btn').prop('disabled', selected_applications.length === 0);
 }
 
-function approve_application(member_name) {
-    window.open('/app/member/' + member_name, '_blank');
+function approve_application(application_name) {
+    window.open('/app/membership-application-submission/' + encodeURIComponent(application_name), '_blank');
 }
 
-function reject_application(member_name) {
-    window.open('/app/member/' + member_name, '_blank');
+function reject_application(application_name) {
+    window.open('/app/membership-application-submission/' + encodeURIComponent(application_name), '_blank');
 }
 
-function view_application(member_name) {
-    window.open('/app/member/' + member_name, '_blank');
+function view_application(application_name) {
+    window.open('/app/membership-application-submission/' + encodeURIComponent(application_name), '_blank');
 }
 
 function bulk_approve_selected() {
@@ -539,7 +383,7 @@ function bulk_approve_selected() {
             frappe.call({
                 method: 'verenigingen.verenigingen.page.membership_applications.bulk_approve_applications',
                 args: {
-                    member_names: selected_applications,
+                    application_names: selected_applications,
                     membership_type: values.membership_type,
                     create_invoices: values.create_invoices
                 },

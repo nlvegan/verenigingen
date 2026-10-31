@@ -12,9 +12,8 @@ national-board members were wrongly restricted:
 - ``api.membership_application_review.get_user_chapter_access`` — must report
   ``has_national_access`` / ``restrict_to_chapters=False`` for a member with a
   Membership-level board seat in the configured national chapter.
-- ``report.pending_membership_applications.get_user_chapter_filter`` — must
-  return ``None`` (see-all, including unassigned) when the user's *only*
-  accessible chapter is the configured national chapter.
+- ``report.pending_membership_applications`` — scoped by the application permission query
+  since #1765 (see TestPendingApplicationsChapterScope).
 
 The national chapter is configured via NON-committed ``set_single_value`` so it
 rolls back with the test and production reads it in the same transaction (no
@@ -24,7 +23,7 @@ committed Single -> no parallel-shard race).
 import time
 
 import frappe
-from frappe.utils import today
+from frappe.utils import now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
@@ -127,31 +126,52 @@ class TestGetUserChapterAccess(NationalChapterAccessBase):
             frappe.set_user(original_user)
 
 
-class TestPendingApplicationsChapterFilter(NationalChapterAccessBase):
-    """report.pending_membership_applications.get_user_chapter_filter"""
+class TestPendingApplicationsChapterScope(NationalChapterAccessBase):
+    """report.pending_membership_applications scope (#1765).
 
-    def test_national_only_member_sees_all(self):
+    The report used to open up to see-all for a board member whose ONLY chapter was the configured
+    national board chapter (get_user_chapter_filter, now removed with the Member-based query). It now
+    reads applications through the MAS permission query: a seat scopes the rows to that seat's chapter
+    whether or not the chapter is the national one; the "Verenigingen National Board Member" ROLE (Ruling
+    O) is what sees all. This pins the new rule and the control that the national setting alone widens
+    nothing. Whether a national-chapter SEAT should still see all is tracked in a follow-up issue.
+    """
+
+    def _application(self, chapter):
+        application = frappe.get_doc(
+            {
+                "doctype": "Membership Application Submission",
+                "email": f"nat-app-{frappe.generate_hash(length=8)}@example.org",
+                "source": "Full Form",
+                "payload": "{}",
+            }
+        ).insert()
+        self.track_doc("Membership Application Submission", application.name)
+        application.db_set("confirmed_on", now_datetime())
+        if chapter:
+            application.db_set("chapter", chapter)
+        application.set_status("Pending Review")
+        return application.name
+
+    def test_national_chapter_seat_is_scoped_to_its_chapter(self):
         from verenigingen.verenigingen.report.pending_membership_applications.pending_membership_applications import (
-            get_user_chapter_filter,
+            execute,
         )
+
+        other = self.create_chapter(
+            chapter_name=f"Nat Other {self.token}", region=self._ensure_region()
+        )
+        own_application = self._application(self.national_like_chapter.name)
+        other_application = self._application(other.name)
+        unassigned = self._application(None)
 
         original_user = frappe.session.user
         try:
             frappe.set_user(self.board_user.name)
-
-            # Pre-condition: without the national chapter configured, the single
-            # accessible chapter yields a chapter-scoped (non-None) filter.
-            self._set_national_chapter(None)
-            scoped = get_user_chapter_filter()
-            self.assertIsNotNone(scoped)
-            self.assertIn(self.national_like_chapter.name, scoped)
-
-            # When their only accessible chapter IS the national chapter, the
-            # filter opens up to see-all (None).
-            self._set_national_chapter(self.national_like_chapter.name)
-            self.assertIsNone(
-                get_user_chapter_filter(),
-                "national-only board member must see all pending applications",
-            )
+            for national in (None, self.national_like_chapter.name):
+                self._set_national_chapter(national)
+                names = {row["name"] for row in execute({})[1]}
+                self.assertIn(own_application, names)
+                self.assertFalse({other_application, unassigned} & names, (national, names))
         finally:
             frappe.set_user(original_user)

@@ -282,26 +282,9 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         self.assertIsInstance(emails, list)
         self.assertIn(self.board_email, emails)
 
-    def test_staff_may_not_approve_members(self):
-        """The safety property that keeps the staff grant read-only.
-
-        quick_approve_member takes a SECOND gate - get_user_board_role(), which has no
-        staff branch and returns None - so staff are denied despite seeing every
-        chapter. If someone ever adds staff to get_user_board_role's admin
-        short-circuit, this fails, and that is the point.
-
-        The denial is a RETURN value, not an exception: @handle_api_error converts the
-        frappe.throw into an OperationResult/dict. Asserting assertRaises here would
-        fail even though access is correctly denied.
-        """
-        from verenigingen.api.chapter_dashboard_api import quick_approve_member
-
-        with self.as_user(self.staff_email):
-            result = quick_approve_member(member_name=self.board_member.name, chapter_name=self.chapter.name)
-
-        payload = result.to_dict() if hasattr(result, "to_dict") else result
-        self.assertFalse(payload.get("success"))
-        self.assertIn("permission", str(payload).lower())
+    # test_staff_may_not_approve_members moved to tests/member/test_application_review_surfaces.py as
+    # test_staff_may_not_approve_from_the_dashboard: quick_approve_member is now quick_approve_application
+    # and keyed by application (#1765). test_staff_have_no_board_role below still pins the property itself.
 
     def test_staff_have_no_board_role(self):
         """get_user_board_role() must stay staff-free - it is what denies mutations."""

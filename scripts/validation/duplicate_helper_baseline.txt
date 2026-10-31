@@ -494,7 +494,7 @@ _pay_invoice::4  # clone family, 1 near-identical pair(s)
 _payload::2
 _payment::19  # clone family, 1 near-identical pair(s)
 _pdf::3  # clone family, 3 near-identical pair(s)
-_pending_member::4  # clone family, 1 near-identical pair(s)
+_pending_member::2  # clone family, 1 near-identical pair(s)
 _percentile::4  # clone family, 2 near-identical pair(s)
 _persist_account::9  # clone family, 6 near-identical pair(s)
 _persist_bank_gl_account::2

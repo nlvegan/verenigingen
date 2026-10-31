@@ -127,7 +127,7 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
     # Resolve the member strictly (Member.user link ONLY). #1546 maintainer
     # ruling: board identity is Member.user only, full stop, for every board
     # permission check -- this function gates board mutations
-    # (quick_approve_member takes permissions.can_approve_members from it), so
+    # (quick_approve_application takes permissions.can_approve_members from it), so
     # it is squarely one of them. It previously fell back to Member.email,
     # which disagreed with permissions.assign_chapter_board_role() (which
     # decides who IS a board member) and get_user_board_chapters() (the
@@ -326,6 +326,15 @@ def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
     }
 
 
+def _pending_application_count(chapter_name: str) -> int:
+    """Pending Review applications for this chapter, as many as the session user may read (#1765)."""
+    from verenigingen.services.member.application.pending_applications import (
+        count_pending_review_applications,
+    )
+
+    return count_pending_review_applications(chapters=[chapter_name])
+
+
 def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     """Get key metrics for dashboard cards"""
 
@@ -344,7 +353,7 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     # Calculate statistics in Python for better maintainability
     total_members = len(members)
     active_members = sum(1 for m in members if m.status == "Active" and m.enabled == 1)
-    pending_members = sum(1 for m in members if m.status == "Pending")
+    pending_members = _pending_application_count(chapter_name)
     inactive_members = sum(1 for m in members if m.enabled == 0)
     # Terminated members are those who left (enabled=0)
     terminated_members = inactive_members
@@ -523,69 +532,30 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
         frappe.log_error(f"Error fetching recent members for {chapter_name}: {str(e)}")
         recent_members = []
 
-    # Get pending applications - modernized with efficient ORM queries
-    try:
-        # Get pending chapter members
-        pending_chapter_members = frappe.get_all(
-            "Chapter Member",
-            filters={"parent": chapter_name, "status": "Pending"},
-            fields=["member", "chapter_join_date"],
-            order_by="chapter_join_date asc",
-            limit_page_length=0,
-        )
-
-        # Batch fetch member details
-        member_ids = [pcm.member for pcm in pending_chapter_members if pcm.member]
-        if member_ids:
-            members_data = frappe.get_all(
-                "Member",
-                filters={"name": ["in", member_ids]},
-                fields=["name", "full_name", "application_date"],
-                limit_page_length=0,
-            )
-            member_details = {m.name: m for m in members_data}
-        else:
-            member_details = {}
-
-        # Calculate days pending and combine data
-        from frappe.utils import date_diff, getdate
-
-        pending_applications = []
-        for pcm in pending_chapter_members:
-            member_data = member_details.get(pcm.member, {})
-
-            # Skip orphaned Chapter Member records (Member was deleted)
-            if not member_data:
-                frappe.logger().warning(
-                    f"Orphaned Chapter Member record found: {pcm.member} in chapter {chapter_name}. "
-                    f"The linked Member record no longer exists."
-                )
-                continue
-
-            # Calculate days pending using frappe utilities
-            reference_date = member_data.get("application_date") or pcm.chapter_join_date
-            days_pending = 0
-            if reference_date:
-                days_pending = date_diff(getdate(), getdate(reference_date))
-
-            pending_applications.append(
-                {
-                    "member": pcm.member,
-                    "full_name": member_data.get("full_name", "Unknown"),
-                    "chapter_join_date": pcm.chapter_join_date,
-                    "application_date": member_data.get("application_date"),
-                    "days_pending": days_pending,
-                }
-            )
-    except Exception as e:
-        frappe.log_error(f"Error fetching pending applications for {chapter_name}: {str(e)}")
-        pending_applications = []
+    # Pending applications are Membership Application Submissions, not Members (#1765). The list is
+    # the caller's own readable rows (MAS permission query), narrowed to this chapter.
+    pending_applications = _pending_application_rows(chapter_name)
 
     return {
         "recent_members": recent_members,  # Return all members (no limit)
         "pending_applications": pending_applications,
         "total_pending": len(pending_applications),
     }
+
+
+def _pending_application_rows(chapter_name: str) -> List[Dict[str, Any]]:
+    """The Pending Review applications for this chapter that the session user may read."""
+    from verenigingen.services.member.application.pending_applications import pending_review_applications
+
+    return [
+        {
+            "application": row["name"],
+            "full_name": row["applicant_name"] or "Unknown",
+            "application_date": row["application_date"],
+            "days_pending": row["days_pending"],
+        }
+        for row in pending_review_applications(chapters=[chapter_name])
+    ]
 
 
 def get_pending_actions(chapter_name: str) -> Dict[str, Any]:

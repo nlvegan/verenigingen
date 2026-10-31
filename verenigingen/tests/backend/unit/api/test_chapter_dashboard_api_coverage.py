@@ -7,8 +7,7 @@ Coverage-focused integration tests for verenigingen/api/chapter_dashboard_api.py
 
 Covers the production chapter-dashboard endpoints:
   - get_chapter_member_emails (board-access gate + DISTINCT active-email query)
-  - quick_approve_member (board-permission gate + Chapter-Member-join approval
-    path + membership-application path + error/no-permission paths)
+  - (quick_approve_application is covered in tests/member/test_application_review_surfaces.py)
   - the number-card REPORTING endpoints: get_active_members_count,
     get_pending_applications_count, get_board_members_count,
     get_new_members_count, get_filed_expense_claims_count,
@@ -188,189 +187,8 @@ class TestChapterDashboardMemberEmails(_ChapterDashboardBase):
                 chapter_dashboard_api.get_chapter_member_emails(self.chapter.name)
 
 
-class TestChapterDashboardQuickApprove(_ChapterDashboardBase):
-    """quick_approve_member."""
-
-    def test_approve_pending_chapter_member(self):
-        """Board head approves a pending Chapter Member join request."""
-        board_member, board_user, _vol = self._make_board_user(
-            chapter_role_name=f"CD Head {self.uid}"
-        )
-        # The "Chapter Head" role name drives get_role_permissions (can_approve).
-        # get_user_board_role maps by chapter_role NAME, so use a known-approving
-        # role name. Re-seat the board member under "Chapter Head".
-        applicant = self._make_member()
-        self._add_chapter_member(applicant.name, status="Pending")
-
-        # Give the board user an approving role: re-seat under "Chapter Head".
-        self._reseat_board_as_chapter_head(_vol.name)
-
-        with self._as_user(board_user.name):
-            # The post-approval audit Comment is inserted via secure_document_operation,
-            # which requires elevated-operation permission the board user lacks; the
-            # endpoint deliberately logs that and continues (approval is NOT blocked).
-            self.expectErrorLog()
-            result = chapter_dashboard_api.quick_approve_member(
-                applicant.name, self.chapter.name
-            )
-
-        self.assertTrue(result.get("success"), msg=result)
-        # The Chapter Member row should now be Active.
-        status = frappe.db.get_value(
-            "Chapter Member", {"member": applicant.name, "parent": self.chapter.name}, "status"
-        )
-        self.assertEqual(status, "Active")
-
-    def test_approve_requires_board_membership(self):
-        """A plain member is rejected by the @high_security_api tier gate before
-        the body's board-membership check is reached."""
-        from verenigingen.utils.error_handling import PermissionError as VPermissionError
-
-        plain = self._make_member()
-        user = self._link_member_to_user(plain, roles=("Verenigingen Member",))
-        applicant = self._make_member()
-        self._add_chapter_member(applicant.name, status="Pending")
-        with self._as_user(user.name):
-            self.expectErrorLog()
-            with self.assertRaises(VPermissionError):
-                chapter_dashboard_api.quick_approve_member(applicant.name, self.chapter.name)
-
-    def test_approve_board_member_without_permission_role(self):
-        """A board member whose chapter role does NOT grant can_approve_members
-        is blocked at the permission check (frappe.throw -> serialized failure)."""
-        # Use a role NAME that is not in get_role_permissions' approving set, so
-        # default_permissions (can_approve_members=False) applies.
-        board_member, board_user, _vol = self._make_board_user(
-            chapter_role_name=f"CD NonApprover {self.uid}"
-        )
-        applicant = self._make_member()
-        self._add_chapter_member(applicant.name, status="Pending")
-        with self._as_user(board_user.name):
-            self.expectErrorLog()
-            result = chapter_dashboard_api.quick_approve_member(
-                applicant.name, self.chapter.name
-            )
-        self.assertIsInstance(result, dict)
-        self.assertFalse(result.get("success"))
-
-    def _reseat_board_as_chapter_head(self, volunteer_name):
-        """Ensure 'Chapter Head' role exists and seat volunteer under it so
-        get_user_board_role returns approving permissions."""
-        self.factory.ensure_chapter_role(
-            "Chapter Head", attributes={"permissions_level": "Admin"}
-        )
-        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
-        for bm in chapter_doc.board_members:
-            if bm.volunteer == volunteer_name:
-                bm.chapter_role = "Chapter Head"
-        chapter_doc.save()
-
-    def test_approve_without_chapter_name_infers_from_pending_row(self):
-        """#1516: no chapter_name -> the function used to read
-        Member.current_chapter_display, an HTML field with no DB column,
-        which raised OperationalError unconditionally. It must instead
-        resolve the chapter from the applicant's Pending Chapter Member row
-        (the same relation the explicit-chapter test above exercises) and
-        complete the approval."""
-        board_member, board_user, _vol = self._make_board_user(
-            chapter_role_name=f"CD Head NoChapter {self.uid}"
-        )
-        applicant = self._make_member()
-        self._add_chapter_member(applicant.name, status="Pending")
-        self._reseat_board_as_chapter_head(_vol.name)
-
-        with self._as_user(board_user.name):
-            self.expectErrorLog()
-            result = chapter_dashboard_api.quick_approve_member(applicant.name)
-
-        self.assertTrue(result.get("success"), msg=result)
-        status = frappe.db.get_value(
-            "Chapter Member", {"member": applicant.name, "parent": self.chapter.name}, "status"
-        )
-        self.assertEqual(status, "Active")
-
-    def test_approve_without_chapter_name_refuses_identically_regardless_of_reason(self):
-        """#1516/#1360: with the current_chapter_display crash removed, a board
-        member calling without chapter_name for (a) a nonexistent member, (b) a
-        real member pending in a chapter the caller doesn't manage, and (c) a
-        real member pending in TWO chapters at once (ambiguous -- picking
-        either one silently would be the "pick first chapter" wrong fix) must
-        all refuse with the EXACT same message/error_code/http_status/errors
-        shape. Distinguishing any of these would reopen the existence-oracle
-        variant #1360 flagged (dormant only because this line always crashed
-        first)."""
-        board_member, board_user, _vol = self._make_board_user()
-
-        other_chapter = self.factory.create_chapter(
-            chapter_name=f"CDOtherChapter-{self.uid}", region="Test Region CD2"
-        )
-
-        def _add_pending_row(chapter_name, member_name):
-            chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            chapter_doc.append(
-                "members",
-                {
-                    "member": member_name,
-                    "status": "Pending",
-                    "enabled": 1,
-                    "chapter_join_date": frappe.utils.today(),
-                },
-            )
-            chapter_doc.save()
-
-        # Pending in a chapter the board_user does NOT manage.
-        foreign_member = self._make_member()
-        _add_pending_row(other_chapter.name, foreign_member.name)
-
-        # Pending in BOTH chapters at once -- ambiguous; must not be
-        # silently resolved to either one.
-        ambiguous_member = self._make_member()
-        _add_pending_row(self.chapter.name, ambiguous_member.name)
-        _add_pending_row(other_chapter.name, ambiguous_member.name)
-
-        unknown_member_name = f"NONEXISTENT-{self.uid}"
-
-        with self._as_user(board_user.name):
-            self.expectErrorLog()
-            unknown_result = chapter_dashboard_api.quick_approve_member(unknown_member_name)
-            self.expectErrorLog()
-            foreign_result = chapter_dashboard_api.quick_approve_member(foreign_member.name)
-            self.expectErrorLog()
-            ambiguous_result = chapter_dashboard_api.quick_approve_member(ambiguous_member.name)
-
-        for label, result in (
-            ("unknown", unknown_result),
-            ("foreign", foreign_result),
-            ("ambiguous", ambiguous_result),
-        ):
-            self.assertFalse(result.get("success"), msg=f"{label}: {result}")
-
-        # OperationResult.to_dict()'s nested (default) schema puts the failure
-        # detail under "error": {"message", "errors", "code", "http_status"}.
-        channels = ("message", "errors", "code", "http_status")
-        for channel in channels:
-            self.assertEqual(
-                unknown_result["error"].get(channel),
-                foreign_result["error"].get(channel),
-                msg=f"channel {channel!r} differs between unknown and foreign member: "
-                f"{unknown_result['error']} vs {foreign_result['error']}",
-            )
-            self.assertEqual(
-                unknown_result["error"].get(channel),
-                ambiguous_result["error"].get(channel),
-                msg=f"channel {channel!r} differs between unknown and ambiguous member: "
-                f"{unknown_result['error']} vs {ambiguous_result['error']}",
-            )
-
-        # The ambiguous member must NOT have been silently approved into
-        # either chapter -- refusal, not a pick-first guess.
-        for chapter_name in (self.chapter.name, other_chapter.name):
-            status = frappe.db.get_value(
-                "Chapter Member",
-                {"member": ambiguous_member.name, "parent": chapter_name},
-                "status",
-            )
-            self.assertEqual(status, "Pending")
+# quick_approve_member (a Pending Chapter Member approval) became quick_approve_application (#1765): its
+# tests live in tests/member/test_application_review_surfaces.py, driven through real applications.
 
 
 class TestChapterDashboardNumberCards(_ChapterDashboardBase):
@@ -405,13 +223,28 @@ class TestChapterDashboardNumberCards(_ChapterDashboardBase):
         self.assertEqual(res["value"], 0)
 
     def test_pending_applications_count_explicit_chapter(self):
+        """The card counts Pending Review applications (not Pending Chapter Member rows)."""
         m1 = self._make_member()
-        m2 = self._make_member()
-        self._add_chapter_member(m1.name, status="Pending")
-        self._add_chapter_member(m2.name, status="Active")
+        self._add_chapter_member(m1.name, status="Pending")  # a join request: must NOT be counted
+        before = chapter_dashboard_api.get_pending_applications_count(self.chapter.name)["value"]
+        for status in ("Pending Review", "Pending Review", "Approved"):
+            email = f"cd-app-{self.uid}-{frappe.generate_hash(length=6)}@example.org"
+            application = frappe.get_doc(
+                {
+                    "doctype": "Membership Application Submission",
+                    "email": email,
+                    "source": "Full Form",
+                    "payload": "{}",
+                }
+            ).insert()
+            self.track_doc("Membership Application Submission", application.name)
+            application.db_set("chapter", self.chapter.name)
+            application.set_status("Pending Review")
+            if status != "Pending Review":
+                application.set_status(status)
 
         res = chapter_dashboard_api.get_pending_applications_count(self.chapter.name)
-        self.assertEqual(res["value"], 1)
+        self.assertEqual(res["value"], before + 2)
 
     def test_pending_applications_count_no_board_returns_zero(self):
         user = self._make_privileged_non_board_user()
