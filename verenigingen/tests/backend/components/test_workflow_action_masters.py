@@ -10,7 +10,6 @@ import os
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils.fixtures import import_doc
 
 WORKFLOW_NAME = "Periodic Donation Agreement Workflow"
 
@@ -29,7 +28,11 @@ def _shipped_workflows():
     rows = []
     for fname in sorted(os.listdir(_wf1700_fixtures_dir())):
         if fname.endswith(".json"):
-            rows += [r for r in _wf1700_load_fixture(fname) if isinstance(r, dict) and r.get("doctype") == "Workflow"]
+            rows += [
+                r
+                for r in _wf1700_load_fixture(fname)
+                if isinstance(r, dict) and r.get("doctype") == "Workflow"
+            ]
     return rows
 
 
@@ -67,17 +70,20 @@ class TestWorkflowActionMasters(FrappeTestCase):
                     exported |= set(values)
         self.assertLessEqual(_shipped_masters(), exported)
 
-    def test_workflow_resaves_once_the_masters_fixture_is_imported(self):
-        """Real behaviour: Workflow validation links every transition's action.
-        Import the masters fixture exactly as sync_fixtures does (same call, same
-        file), then save the Workflow that the fixtures dir already imported."""
+    def test_masters_from_the_fixture_exist_and_the_workflow_resaves(self):
+        """Discriminating check: after loading the shipped masters fixture, every
+        action the workflow uses has a master (red when the fixture lacks them).
+        Second check: Workflow validation links every action, so the re-save
+        passes. Rows are inserted one by one (no import_doc: it commits), so the
+        test's rollback undoes them."""
         if not frappe.db.exists("Workflow", WORKFLOW_NAME):
-            import_doc(os.path.join(_wf1700_fixtures_dir(), "periodic_donation_agreement_workflow.json"))
-        # A previous run (or a synced site) may already hold the masters; start
-        # from the state a pre-fix site is in. Rolled back with the test.
+            for row in _shipped_workflows():
+                frappe.get_doc(row).insert(ignore_if_duplicate=True, ignore_links=True)
+        # Start from the state a pre-fix site is in.
         for action in _shipped_actions():
             frappe.db.delete("Workflow Action Master", {"name": action})
-        import_doc(os.path.join(_wf1700_fixtures_dir(), "workflow_action_master.json"))
+        for row in _wf1700_load_fixture("workflow_action_master.json"):
+            frappe.get_doc(row).insert(ignore_if_duplicate=True)
 
         for action in _shipped_actions():
             self.assertTrue(frappe.db.exists("Workflow Action Master", action), action)
