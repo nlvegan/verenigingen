@@ -61,11 +61,11 @@ after_migrate = [
     # a site installed before this existed (or one where the install step failed --
     # execute_after_install swallows the error and prints a warning) could never
     # converge, leaving Verenigingen Payments Settings.webhook_user unset and every
-    # gateway service running as Administrator via get_service_user()'s fallback.
+    # gateway webhook refusing to run (get_service_user() has no Administrator fallback, #1876).
     # Safe to run repeatedly only because generate_webhook_user_email() is now
     # deterministic; it previously returned a deliberately-unused address, so this
     # would have minted a new user on every migrate.
-    "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+    "verenigingen.setup.webhook_user_setup.ensure_webhook_user",
     # The public document creator is only ever impersonated in-process and must hold no
     # password / API key / session (#1670). Sites that created it earlier still carry them.
     "verenigingen.setup.public_document_creator_setup.harden_public_document_creator",

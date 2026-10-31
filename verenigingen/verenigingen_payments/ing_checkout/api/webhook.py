@@ -28,6 +28,7 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.service_user import ServiceUserUnavailable
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -58,7 +59,15 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
 
     # Authenticate: process_payment is @high_security_api(FINANCIAL) and would
     # reject the Guest webhook context. Runs AFTER signature verification.
-    authenticate_webhook()
+    try:
+        authenticate_webhook()
+    except ServiceUserUnavailable:
+        # No webhook user (#1876): refuse with a 5xx so Pay.nl redelivers, and return
+        # DIRECTLY, never raise. handle_payment's generic except writes a Webhook
+        # Processing Log row, and any row (error included) makes the identical retry a
+        # 200 "duplicate" that never finalizes. The Error Log row was written already.
+        frappe.local.response["http_status_code"] = 500
+        return True
 
     status_code = (order_object.get("status") or {}).get("code")
     gateway_status = {100: "paid", -63: "failed", -90: "failed", -64: "expired"}.get(status_code, "pending")

@@ -52,6 +52,13 @@ class TestWebhookUserSetup(VereningingenTestCase):
         cls._restore_settings_webhook_user(
             frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
         )
+        # ...and a restored value is still not a USER. The gateway webhooks have no
+        # Administrator fallback any more (#1876), so a shard that runs this module and
+        # then a webhook-user-dependent one (the Ponto executed-payment job, ING plan
+        # finalization) must find the site converged the way migrate leaves it. Without
+        # this, the sweep above leaves webhook_user unset or dangling for every later
+        # module in the shard.
+        w.setup_webhook_user()
         super().tearDownClass()
 
     def tearDown(self):

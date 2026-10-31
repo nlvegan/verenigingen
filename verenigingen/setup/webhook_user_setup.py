@@ -86,6 +86,28 @@ def setup_webhook_user():
         return {"success": False, "message": error_msg}
 
 
+def ensure_webhook_user():
+    """after_migrate entry point: setup_webhook_user() that cannot fail silently.
+
+    setup_webhook_user reports failure by RETURNING {"success": False}, which the
+    after_migrate runner ignores, so a failed setup used to leave webhook_user unset
+    with only a print. That was survivable while get_service_user fell back to
+    Administrator; now every gateway webhook refuses without the user (#1876), so a
+    failure leaves an Error Log row. It does not raise: that would abort the hooks
+    after it. A deliberate skip (disable_webhook_user_autosetup) is a success.
+    """
+    result = setup_webhook_user()
+    if not result.get("success"):
+        frappe.log_error(
+            title="Webhook user setup failed",
+            message=(
+                f"{result.get('message')}\n\nNo enabled webhook user is guaranteed, so Mollie, "
+                f"ING Checkout and Ponto webhooks will refuse (5xx) until this is fixed."
+            ),
+        )
+    return result
+
+
 def generate_webhook_user_email():
     """Resolve the webhook user's email. DETERMINISTIC -- the same site always
     resolves to the same address.
@@ -248,6 +270,14 @@ def assign_webhook_roles(webhook_email):
                 sync_module_profiles()
             finally:
                 frappe.flags.in_install = original_in_install
+        # The roles themselves, not just the profile row: the profile can gain a role
+        # after this user was set up (its fan-out to users is a background job), and a
+        # user holding the profile row but not the role was never repaired. A save
+        # re-applies the profile's roles. Without them the webhook gateways now refuse
+        # to run as anyone else (#1876).
+        profile_roles = {r.role for r in frappe.get_doc("Role Profile", "Verenigingen Webhook User").roles}
+        needs_profile_roles = not profile_roles <= {r.role for r in user_doc.roles}
+
         needs_module_profile = user_doc.module_profile != "Verenigingen Webhook User"
         if needs_module_profile:
             user_doc.module_profile = "Verenigingen Webhook User"
@@ -256,7 +286,7 @@ def assign_webhook_roles(webhook_email):
         # and an unconditional save bumps `modified` and re-fires the whole User
         # on_update chain (role-cache invalidation, field sync, desk settings,
         # chapter permission cleanup) plus Frappe's own share/role work, every time.
-        if not (has_webhook_role and has_role_profile) or needs_module_profile:
+        if not (has_webhook_role and has_role_profile) or needs_module_profile or needs_profile_roles:
             user_doc.save(ignore_permissions=True)
             frappe.db.commit()
 

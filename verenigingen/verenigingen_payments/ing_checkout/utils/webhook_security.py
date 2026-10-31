@@ -38,11 +38,10 @@ import hmac
 from typing import List, Optional
 
 import frappe
-from frappe import _
 from frappe.utils import cint, now_datetime
 
 from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.service_user import get_service_user, require_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.webhook.logging import (
     compute_webhook_hash as _unified_compute_hash,
@@ -305,15 +304,13 @@ def verify_ing_checkout_webhook(
     )
 
 
-def get_webhook_user() -> str:
+def get_webhook_user() -> Optional[str]:
     """
     Get the configured webhook user for background job execution.
 
     Returns:
-        str: Username from Verenigingen Payments Settings
-
-    Raises:
-        ValueError: If no valid user is available
+        str | None: Username from Verenigingen Payments Settings, None when no enabled
+            user is configured (never Administrator, #1876)
     """
     return get_service_user(
         settings_doctype="Verenigingen Payments Settings",
@@ -326,23 +323,14 @@ def authenticate_webhook():
     """
     Authenticate ING Checkout webhook request by setting proper user context.
 
-    Sets the webhook user from settings and validates permissions.
+    Raises ServiceUserUnavailable (after writing an Error Log row) when no enabled
+    webhook user is configured; there is no Administrator fallback (#1876).
     """
-    webhook_user = get_webhook_user()
-
-    if not webhook_user:
-        frappe.log_error(
-            "Webhook user not configured in Verenigingen Payments Settings",
-            "ING Checkout Webhook Authentication Error",
-        )
-        frappe.throw(_("Webhook user not configured"))
-
-    if not frappe.db.exists("User", webhook_user):
-        frappe.log_error(
-            f"Webhook user {webhook_user} does not exist",
-            "ING Checkout Webhook Authentication Error",
-        )
-        frappe.throw(_("Webhook user does not exist"))
+    webhook_user = require_service_user(
+        settings_doctype="Verenigingen Payments Settings",
+        user_field="webhook_user",
+        service_name="ING Checkout Webhook",
+    )
 
     # Set user context
     frappe.set_user(webhook_user)

@@ -4,45 +4,73 @@
 """
 Service User Helper
 
-Provides a reusable pattern for getting configured service users with
-validation and audit logging when fallback is used.
+Resolves the configured service user (e.g. the webhook user). There is NO fallback:
+a missing, unset, disabled or unreadable user means "no service user", never
+Administrator (#1876).
 """
 
 import frappe
-from frappe import _
+
+
+class ServiceUserUnavailable(Exception):
+    """No usable service user is configured.
+
+    Deliberately a plain Exception, not frappe.ValidationError: ``frappe.throw`` appends
+    its message to ``message_log``, which the framework serialises into the
+    ``_server_messages`` of an anonymous webhook caller's response. The reason goes to
+    the Error Log only.
+    """
+
+
+def _lookup_service_user(settings_doctype: str, user_field: str) -> tuple[str | None, str]:
+    """(user, "") when usable, else (None, why). Never raises."""
+    messages_before = len(frappe.local.message_log or [])
+    try:
+        configured = frappe.db.get_single_value(settings_doctype, user_field)
+        if not configured:
+            return None, f"{user_field} is not set in {settings_doctype}"
+        if frappe.db.get_value("User", configured, "enabled"):
+            return configured, ""
+        return None, f"'{configured}' is disabled or does not exist"
+    except Exception as e:
+        # a failed lookup may have frappe.throw()n on the way (a missing doctype does),
+        # and that message would surface in an anonymous caller's _server_messages
+        del (frappe.local.message_log or [])[messages_before:]
+        return None, f"reading {user_field} from {settings_doctype} raised {type(e).__name__}: {e}"
 
 
 def get_service_user(
     settings_doctype: str,
     user_field: str,
     service_name: str,
-    fallback_user: str = "Administrator",
-) -> str:
+    fallback_user: str | None = None,
+) -> str | None:
     """
-    Get configured service user with validation and audit logging.
+    Get the configured service user, or None when there is no usable one.
 
-    This helper provides a consistent pattern for:
-    - Reading a user from a settings DocType
-    - Validating the user exists and is enabled
-    - Falling back to a default user with audit logging
-    - Raising an error if no valid user is available
+    Reads a user from a settings DocType and validates it exists and is enabled. It never
+    elevates: no Administrator fallback, whatever the reason (unset, disabled, deleted,
+    or a lookup that raises). Writes no Error Log row and does not raise; a caller that
+    must refuse without a user uses ``require_service_user``.
 
     Args:
         settings_doctype: DocType to read settings from (e.g., "Verenigingen Payments Settings")
         user_field: Field name containing the user (e.g., "webhook_user")
-        service_name: Human-readable service name for logging (e.g., "Ponto Webhook")
-        fallback_user: User to fall back to if configured user is invalid (default: "Administrator")
+        service_name: Human-readable service name (e.g., "Ponto Webhook"); only
+            ``require_service_user`` uses it, kept so both share one call shape
+        fallback_user: Kept for signature compatibility. Must be None: any other value
+            (Administrator included) raises ValueError.
 
     Returns:
-        str: Valid username
+        str | None: Valid username, or None when no usable user is configured
 
     Raises:
-        ValueError: If no valid user is available
+        ValueError: If a fallback_user is passed
 
     Example - set the identity INSIDE the job, never via an enqueue kwarg:
 
         def my_job(some_arg):
-            frappe.set_user(get_service_user(
+            frappe.set_user(require_service_user(
                 settings_doctype="Verenigingen Payments Settings",
                 user_field="webhook_user",
                 service_name="Ponto Webhook",
@@ -59,44 +87,27 @@ def get_service_user(
     enqueued, which for an allow_guest webhook is Guest. This example previously showed
     the broken form and it was copied to three call sites.
     """
-    configured_user = None
+    if fallback_user is not None:
+        raise ValueError(f"{service_name}: get_service_user no longer supports a fallback user (#1876)")
+    return _lookup_service_user(settings_doctype, user_field)[0]
 
-    try:
-        settings = frappe.get_single(settings_doctype)
-        configured_user = getattr(settings, user_field, None)
 
-        if configured_user:
-            # Validate user exists and is enabled
-            user_enabled = frappe.db.get_value("User", configured_user, "enabled")
-            if user_enabled:
-                return configured_user
+def require_service_user(settings_doctype: str, user_field: str, service_name: str) -> str:
+    """The service user, or fail closed.
 
-            frappe.logger().warning(
-                f"{service_name}: Configured user '{configured_user}' is disabled. "
-                f"Falling back to {fallback_user}."
-            )
-    except Exception as e:
-        frappe.logger().error(f"{service_name}: Could not get {user_field} from {settings_doctype}: {e}")
-
-    # Validate fallback user exists
-    if not frappe.db.exists("User", fallback_user):
-        raise ValueError(
-            f"{service_name}: No valid user configured and {fallback_user} not available. "
-            f"Configure {user_field} in {settings_doctype}."
-        )
-
-    # Audit log when fallback is used (once per request per service)
-    fallback_flag = f"_service_user_fallback_logged_{service_name.replace(' ', '_').lower()}"
-    if not getattr(frappe.local, fallback_flag, False):
-        frappe.log_error(
-            title=f"{service_name} Using {fallback_user} Fallback",
-            message=(
-                f"No valid {user_field} configured in {settings_doctype}. "
-                f"{service_name} operations are running as {fallback_user}. "
-                f"For security, configure a dedicated service user with minimal permissions."
-            ),
-        )
-        setattr(frappe.local, fallback_flag, True)
-
-    frappe.logger().warning(f"{service_name}: No valid user configured. Using {fallback_user} as fallback.")
-    return fallback_user
+    With no usable user this writes an Error Log row (the operator-visible signal, with
+    the reason) and raises ``ServiceUserUnavailable``. The caller must not write anything
+    and, for a webhook, must answer non-2xx so the gateway redelivers.
+    """
+    user, reason = _lookup_service_user(settings_doctype, user_field)
+    if user:
+        return user
+    frappe.log_error(
+        title=f"{service_name}: no usable service user",
+        message=(
+            f"{reason}. {service_name} refused to run: there is deliberately no Administrator "
+            f"fallback. Set an enabled user in {settings_doctype}.{user_field} (migrate "
+            f"re-creates the webhook user unless disable_webhook_user_autosetup is set)."
+        ),
+    )
+    raise ServiceUserUnavailable(f"{service_name}: no usable {user_field}")
