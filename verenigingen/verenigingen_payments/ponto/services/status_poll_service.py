@@ -39,11 +39,6 @@ _POLLED = (
     ("Ponto Payment Link", ["Pending Authorization", "Authorized"], "ponto_request_id"),
 )
 
-# Flag read by PontoPaymentLink.refresh_status: do not adopt the betaalverzoek
-# client's own ``closed`` marker (closedAt without a status) as Executed. A manual
-# refresh still does; an unattended poll must not book a Payment Entry on it (#1840).
-SKIP_CLOSED_MARKER_FLAG = "ponto_poll_skip_closed"
-
 
 def poll_open_ponto_payment_statuses():
     """Scheduler entry: refresh every open, recent Ponto Request and Link."""
@@ -87,7 +82,6 @@ def _refresh_one(doctype, name):
     frappe.db.savepoint(savepoint)
     try:
         doc = frappe.get_doc(doctype, name)
-        doc.flags[SKIP_CLOSED_MARKER_FLAG] = True
         doc.refresh_status()
     except NON_RESUMABLE_DB_ERRORS:
         raise
