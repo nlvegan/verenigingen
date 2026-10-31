@@ -32,7 +32,8 @@ permission_query_conditions = {
 }
 
 # Document-level permission checkers
-# Each function receives (doc, user, permission_type) and returns True/False
+# Each function receives (doc, user, ptype) and returns True/False. The parameter MUST be
+# named `ptype`: frappe.call drops undeclared keywords (#1778).
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
     "Employee": "verenigingen.permissions.has_employee_permission",
