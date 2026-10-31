@@ -141,6 +141,16 @@ def require_may_remove_profile_for(doctype: str, entity: str, user: str) -> None
     permission on that Team/Chapter AND the target must have (or have had) a row there.
     An unknown entity, a forbidden one and an unrelated target are refused identically.
     """
+    _require_may_manage_profiles_for(doctype, entity, lambda: _target_has_a_row(doctype, entity, user))
+
+
+def require_may_bulk_assign_profiles_for(doctype: str, entity: str) -> None:
+    """Gate the whitelisted bulk_assign_* endpoints (#1686): same authority as the remove
+    endpoints (administrator, or write permission on that Team/Chapter), without a target."""
+    _require_may_manage_profiles_for(doctype, entity, lambda: True)
+
+
+def _require_may_manage_profiles_for(doctype, entity, target_ok) -> None:
     if frappe.session.user == "Administrator" or {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(
         frappe.get_roles()
     ):
@@ -149,7 +159,7 @@ def require_may_remove_profile_for(doctype: str, entity: str, user: str) -> None
         isinstance(entity, str)
         and frappe.db.exists(doctype, entity)
         and frappe.has_permission(doctype, "write", doc=entity)
-        and _target_has_a_row(doctype, entity, user)
+        and target_ok()
     ):
         frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
 
