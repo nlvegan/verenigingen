@@ -303,7 +303,6 @@ verenigingen/services/volunteer/volunteer_expense_setup.py::get_or_create_expens
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_statistics::1
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_summary::1
 verenigingen/setup/__init__.py::install_missing_btw_fields::1
-verenigingen/setup/__init__.py::setup_termination_system_integration::1
 verenigingen/setup/document_links.py::add_member_ledger_link_to_expense_claim::1
 verenigingen/setup/document_links.py::get_member_from_expense_claim::2
 verenigingen/setup/document_links.py::setup_custom_document_links::1

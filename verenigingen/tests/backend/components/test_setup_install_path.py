@@ -459,15 +459,14 @@ class TestLoadApplicationFixtures(FrappeTestCase):
 
 class TestBackgroundServiceUser(FrappeTestCase):
     """create_background_service_user() is the account webhooks and scheduled
-    jobs authenticate as. It swallows its own failure, so its prerequisites have
-    to hold or a fresh site silently ends up without the account."""
+    jobs authenticate as. Its prerequisites have to hold or the insert fails (the
+    failure now reaches the install runner, #1662)."""
 
     EMAIL = "background.service@verenigingen.local"
 
     def test_webhook_role_exists_so_the_insert_can_succeed(self):
         """The user is created with roles=[{"role": "Verenigingen Webhook User"}].
-        If that Role is missing the insert dies on link validation and the
-        exception is printed, not raised."""
+        If that Role is missing the insert dies on link validation."""
         self.assertTrue(frappe.db.exists("Role", "Verenigingen Webhook User"))
 
     def test_service_user_exists_enabled_and_carries_the_webhook_role(self):
