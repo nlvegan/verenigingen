@@ -32,6 +32,7 @@ from verenigingen.tests.setup import (
     disable_workflow_action_emails,
     workflow_action_emails_disabled,
 )
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.paths import APP_ROOT
 from verenigingen.tests.utils.source_probes import called_names
 
@@ -326,7 +327,7 @@ class FixtureLoadFailuresAreNotSwallowedTest(unittest.TestCase):
         try:
             _load([{"doctype": "Role", "role_name": role}])
         finally:
-            frappe.delete_doc("Role", role, force=True)
+            delete_role_and_grants(role)
 
 
 class VerenigingenSettingsInstallationIsNotSwallowedTest(unittest.TestCase):

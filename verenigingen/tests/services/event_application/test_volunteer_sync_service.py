@@ -21,6 +21,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.fixtures.enhanced_test_factory import (
     EnhancedTestCase,
     suspend_insert_capture,
@@ -2070,7 +2071,7 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
 
     def _cleanup_role(self, role_name):
         try:
-            frappe.delete_doc("Role", role_name, ignore_permissions=True, force=True)
+            delete_role_and_grants(role_name)
         except Exception:
             pass
         frappe.db.commit()
