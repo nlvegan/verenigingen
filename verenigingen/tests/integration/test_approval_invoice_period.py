@@ -204,3 +204,109 @@ class TestApprovalInvoicePeriod(EnhancedTestCase):
         self.assertIsNone(result["invoice"])
         self.assertFalse(result["invoice_failed"])
         self.assertNotIn("NOT be created", result["message"])
+
+    # -- callers that read invoice_failed (#1774) -----------------------------
+
+    def _break_invoicing(self):
+        """Same real break as above: Verenigingen Settings names a company that does not exist."""
+        original = frappe.db.get_single_value("Verenigingen Settings", "company")
+        frappe.db.set_single_value("Verenigingen Settings", "company", "No Such Company 1774")
+        self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "company", original)
+        self.expectErrorLog(
+            "Membership Invoice Creation Failed",
+            "Membership Invoice Security",
+            "BTW Tax Exemption Error",
+            "Secure Operation Failed",
+        )
+
+    def test_chapter_board_approver_gets_an_invoice_with_the_dashboards_default(self):
+        """M-4 control: a board approver (Accounts User + Sales User, so Item read without the
+        Administrator grant) approves with create_invoice=True, the chapter dashboard default."""
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        member = self._submit_invoice_applicant(
+            f"inv-{frappe.generate_hash(length=8)}@example.com", self.annual_template, self.minimum + 80
+        )
+        with self.as_user(board.user):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                result = approve_membership_application(
+                    member_name=member,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                    create_invoice=True,
+                )
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["invoice_failed"], result)
+        self.assertTrue(result["invoice"])
+
+    def _board_applicant(self):
+        """A real submitted application whose Chapter Member row is Active, not Pending, so
+        quick_approve_member takes its membership-application branch (not approve_member_request).
+        PROBE SHORTCUT: the row's status is set directly to stand in for a chapter that
+        activated it at submission."""
+        member = self._submit_invoice_applicant(
+            f"quick-{frappe.generate_hash(length=8)}@example.com", self.annual_template, self.minimum + 83
+        )
+        rows = frappe.get_all(
+            "Chapter Member", filters={"member": member, "parent": self.chapter.name}, pluck="name"
+        )
+        self.assertEqual(len(rows), 1, "precondition: submission wrote one Chapter Member row")
+        frappe.db.set_value("Chapter Member", rows[0], {"status": "Active", "enabled": 1})
+        return member
+
+    def test_quick_approve_member_passes_the_invoice_failure_through(self):
+        from verenigingen.api.chapter_dashboard_api import quick_approve_member
+
+        board = self.create_test_board_member(
+            self.chapter.name, permissions_level="Admin", role_name="Secretary"
+        )
+        member = self._board_applicant()
+        self._break_invoicing()
+        with self.as_user(board.user):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                result = quick_approve_member(member, self.chapter.name)
+        self.assertTrue(result["success"], result)
+        self.assertTrue(result["invoice_failed"], result)
+        self.assertIn("NOT be created", result["message"])
+        self.assertNotEqual(result["message"], "Member approved successfully")
+
+    def test_quick_approve_member_with_an_invoice_is_plain_success(self):
+        """Control: a working invoice keeps the plain message and invoice_failed False."""
+        from verenigingen.api.chapter_dashboard_api import quick_approve_member
+
+        board = self.create_test_board_member(
+            self.chapter.name, permissions_level="Admin", role_name="Secretary"
+        )
+        member = self._board_applicant()
+        with self.as_user(board.user):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                result = quick_approve_member(member, self.chapter.name)
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["invoice_failed"], result)
+        self.assertEqual(result["message"], "Member approved successfully")
+
+    def _bulk_approve(self, member):
+        from verenigingen.pages.membership_applications import bulk_approve_applications
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                return bulk_approve_applications(
+                    frappe.as_json([member]), self.membership_type.name, create_invoices=True
+                )
+
+    def test_bulk_approve_counts_invoice_failures_apart_from_clean_successes(self):
+        clean = self._submit_invoice_applicant(
+            f"inv-{frappe.generate_hash(length=8)}@example.com", self.annual_template, self.minimum + 81
+        )
+        broken = self._submit_invoice_applicant(
+            f"inv-{frappe.generate_hash(length=8)}@example.com", self.annual_template, self.minimum + 82
+        )
+        ok_result = self._bulk_approve(clean)
+        self.assertEqual((ok_result["success"], ok_result["invoice_failed"]), ([clean], []))
+        self._break_invoicing()
+        bad_result = self._bulk_approve(broken)
+        self.assertEqual((bad_result["success"], bad_result["invoice_failed"]), ([], [broken]))
+        self.assertEqual(bad_result["failed"], [])

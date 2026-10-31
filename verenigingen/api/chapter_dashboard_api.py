@@ -293,7 +293,15 @@ def quick_approve_member(member_name: str, chapter_name: str | None = None):
                 )
                 # Don't block the approval if audit trail fails
 
-            return {"success": True, "message": _("Member approved successfully"), "member_name": member_name}
+            # An approval whose invoice failed must not read as plain success (#1774): keep the
+            # server's own message and the flag. approve_member_request has neither.
+            invoice_failed = bool(result.get("invoice_failed"))
+            return {
+                "success": True,
+                "message": result["message"] if invoice_failed else _("Member approved successfully"),
+                "invoice_failed": invoice_failed,
+                "member_name": member_name,
+            }
         else:
             return {"success": False, "error": result.get("message", "Unknown error occurred")}
 
