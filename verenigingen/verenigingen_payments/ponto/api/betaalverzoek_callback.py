@@ -43,7 +43,7 @@ RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
 
 
 def _payment_success_redirect(payment_link_name):
-    """Build the /payment-success redirect URL for a Ponto Payment Link return.
+    """Build the payment-success redirect URL for a Ponto Payment Link return.
 
     Embeds an HMAC proof (#1055 finding 1) since Ponto Payment Link.autoname
     is a small sequential PONTO-LINK-{####} counter and payment_success.py's
@@ -51,7 +51,11 @@ def _payment_success_redirect(payment_link_name):
     one place we construct that URL, so it's the one place that can mint it.
     """
     token = generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, payment_link_name)
-    return get_url(f"/payment-success?payment_link={payment_link_name}&token={token}")
+    # INTERIM (#1878, #1875): our details page is routed at /payment_success (underscore).
+    # /payment-success (hyphen) is served by the payments app, which 500s for these args.
+    # Revert to the shared route once frappe/payments#192 lands. Mollie and ING still build
+    # the hyphen URL; deliberately not changed here.
+    return get_url(f"/payment_success?payment_link={payment_link_name}&token={token}")
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -155,6 +159,10 @@ def _cancel_link_if_proved(payment_link_name):
     doc.status = "Cancelled"
     # The webhook user has write permission on Ponto Payment Link (added 2026-01-10).
     doc.save()
+    # A GET is rolled back by frappe/app.py::sync_database unless flags.commit is set, so
+    # without this the cancel never persists on a real request (#1883). Only here, after a
+    # successful token-proved cancel; every other path is still rolled back.
+    frappe.local.flags.commit = True
     return True
 
 

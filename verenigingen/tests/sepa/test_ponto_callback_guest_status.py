@@ -116,6 +116,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         frappe.local.response = frappe._dict()
         frappe.local.message_log = []
         queries = []
+        frappe.local.flags.commit = None
         real_sql = frappe.db.sql
 
         def counting_sql(*a, **kw):
@@ -127,6 +128,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 frappe.handler.execute_cmd(cmd)
         finally:
             seen = {
+                "commit_flag": frappe.local.flags.commit,
                 "queries": len(queries),
                 "session_user": frappe.session.user,
                 "response_type": frappe.local.response.get("type"),
@@ -591,7 +593,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         )
 
 
-    # ---- #1833: /payment-success token only against a signed return proof ----------
+    # ---- #1833: payment-success token only against a signed return proof ----------
 
     def _proof(self, doc, purpose=None):
         return generate_guest_return_token(purpose or betaalverzoek_callback.RETURN_PROOF_PURPOSE, doc.name)
@@ -606,21 +608,16 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         }
 
     def _guest_fetch_page(self, location):
-        """Fetch ``location`` (a /payment-success URL) the way a guest browser would: Guest
-        session, a real werkzeug request, rendered through the website router. Returns the
-        rendered HTML.
-
-        The page lives at the ROUTE ``/payment_success`` (templates/pages/payment_success.py).
-        The callback redirects to ``/payment-success`` (hyphen), which on a bench with the
-        ``payments`` app installed is served by THAT app's page instead (measured on
-        test_site_10: ValueError, a 500, because it reads form_dict.doctype). The disclosure
-        is reachable at the underscore route either way, so that is the one fetched here."""
+        """Fetch ``location`` (the URL a callback returned) the way a guest browser would:
+        Guest session, a real werkzeug request, rendered through the website router. Returns
+        the rendered HTML. The path is used AS RETURNED: an earlier version rewrote ``-`` to
+        ``_`` and so hid that the callback pointed at the payments app's page (#1875)."""
         from urllib.parse import parse_qsl, urlparse
 
         from frappe.website.serve import get_response
 
         parsed = urlparse(location)
-        route = parsed.path.replace("-", "_")
+        route = parsed.path
         env = EnvironBuilder(path=route, query_string=parsed.query, method="GET").get_environ()
         original_user = frappe.session.user
         frappe.set_user("Guest")
@@ -666,7 +663,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 self.assertEqual(c1 - c0, c2 - c1)
                 self.assertEqual(known["queries"], unknown["queries"])
                 self.assertNotIn("token=", known["location"])
-                self.assertNotIn("payment-success", known["location"])
+                self.assertNotIn("payment_success", known["location"])
 
     def test_a_valid_proof_redirects_to_payment_success_with_a_working_token(self):
         """Control for the test above: the legitimate return still gets its token."""
@@ -677,13 +674,13 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         link = self._make_ppl()
         seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
         parsed = urlparse(seen["location"])
-        self.assertEqual(parsed.path, "/payment-success")
+        self.assertEqual(parsed.path, "/payment_success")
         query = parse_qs(parsed.query)
         self.assertEqual(query["payment_link"], [link.name])
         self.assertTrue(verify_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link.name, query["token"][0]))
 
     def test_end_to_end_a_guest_knowing_only_the_name_gets_no_details_but_a_legitimate_return_does(self):
-        """Fetch /payment-success as a guest, following the callback's own redirect. Probe
+        """Fetch the payment-success page as a guest, following the callback's own redirect. Probe
         shortcut: the link row is inserted directly (not through signing start), and the proof
         is minted with the helper, standing in for the one create_ponto_payment_request puts
         in the redirect_uri (that is asserted in test_signing_start_embeds_...)."""
@@ -691,7 +688,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
 
         # (a) an anonymous caller who only knows the enumerable name
         seen = self._guest_get(LINK_CMD, payment_link=link.name)
-        self.assertNotIn("/payment-success", seen["location"])
+        self.assertNotIn("/payment_success", seen["location"])
         # Even handed the page URL by hand, with no token, the page discloses nothing.
         from frappe.utils import get_url
 
@@ -726,7 +723,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
         handed_out = parse_qs(urlparse(seen["location"]).query)["token"][0]
         again = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=handed_out)
-        self.assertNotIn("payment-success", again["location"])
+        self.assertNotIn("payment_success", again["location"])
 
     def test_return_proof_is_not_a_cancel_token_nor_a_cancel_the_proof(self):
         """Purposes stay apart in both directions: the return proof does not authorise the
@@ -748,7 +745,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             cancel_token=self._link_token(link), return_proof=self._proof(link),
         )
         self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
-        self.assertIn("/payment-success", seen["location"])
+        self.assertIn("/payment_success", seen["location"])
         self.assertIn("The payment was cancelled", self._guest_fetch_page(seen["location"]))
 
     def test_return_proof_works_without_a_webhook_user(self):
@@ -756,5 +753,60 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         self._unset_webhook_user()
         link = self._make_ppl()
         seen = self._guest_get(LINK_CMD, payment_link=link.name, return_proof=self._proof(link))
-        self.assertIn("/payment-success", seen["location"])
+        self.assertIn("/payment_success", seen["location"])
         self.assertEqual(seen["session_user"], "Guest")
+
+    # ---- #1883: only a successful token-proved cancel asks for the request commit ---------
+
+    def test_only_a_successful_proved_cancel_sets_the_commit_flag(self):
+        """frappe/app.py::sync_database rolls a GET back unless flags.commit is set. The flag
+        must be set by a successful proved cancel and by NOTHING else (the end-to-end
+        persistence is in test_ponto_callback_wsgi). Control rows are real and in the
+        cancellable state, so an unconditional flag fails here."""
+        req, link = self._make_ppr("Pending"), self._make_ppl("Pending Authorization")
+        refused = [
+            self._guest_get(REQ_CMD, payment_request=req.name, error="access_denied"),
+            self._guest_get(
+                REQ_CMD, payment_request=req.name, error="access_denied", cancel_token=self._link_token(link)
+            ),
+            self._guest_get(
+                REQ_CMD, payment_request=req.name, error="server_error", cancel_token=self._req_token(req)
+            ),
+            self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied"),
+            self._guest_get(
+                LINK_CMD, payment_link=link.name, error="server_error", cancel_token=self._link_token(link)
+            ),
+            self._guest_get(REQ_CMD, payment_request="PONTO-PAY-NOPE-1815", error="access_denied"),
+        ]
+        for one in refused:
+            self.assertFalse(one["commit_flag"])
+        # already past the cancellable state: a valid token still must not ask to commit
+        signed = self._make_ppr("Signed")
+        seen = self._guest_get(
+            REQ_CMD, payment_request=signed.name, error="access_denied", cancel_token=self._req_token(signed)
+        )
+        self.assertFalse(seen["commit_flag"])
+        self.assertTrue(
+            self._guest_get(
+                REQ_CMD, payment_request=req.name, error="access_denied", cancel_token=self._req_token(req)
+            )["commit_flag"]
+        )
+        self.assertTrue(
+            self._guest_get(
+                LINK_CMD, payment_link=link.name, error="access_denied", cancel_token=self._link_token(link)
+            )["commit_flag"]
+        )
+
+    def test_a_failed_cancel_does_not_ask_for_the_commit(self):
+        """save() raising must leave the flag unset (the request is rolled back)."""
+        doc = self._make_ppr("Pending")
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.ponto_payment_request."
+            "ponto_payment_request.PontoPaymentRequest.save",
+            side_effect=frappe.ValidationError("boom"),
+        ):
+            self.expectErrorLog("Ponto payment callback error")
+            seen = self._guest_get(
+                REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=self._req_token(doc)
+            )
+        self.assertFalse(seen["commit_flag"])

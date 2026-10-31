@@ -122,4 +122,13 @@ def _cancel_if_proved(payment_request_name):
     doc.status = "Cancelled"
     # The webhook user has write permission on Ponto Payment Request (added 2026-01-10).
     doc.save()
+    _persist_this_get()
     return True
+
+
+def _persist_this_get():
+    """A GET is rolled back by frappe/app.py::sync_database unless flags.commit is set, so
+    without this the cancel above never persists on a real request (#1883). Called ONLY after
+    a successful token-proved cancel; every other path (refused, failed, no token) is still
+    rolled back."""
+    frappe.local.flags.commit = True

@@ -213,7 +213,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         doc = self._make_payment_link()
         with fake_request(payment_link=doc.name, error="access_denied", return_proof=_return_proof_for(doc)):
             payment_link_callback()
-            self.assertIn("payment-success", frappe.local.response["location"])
+            self.assertIn("payment_success", frappe.local.response["location"])
 
         self.assertEqual(
             frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
@@ -230,7 +230,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             return_proof=_return_proof_for(doc),
         ):
             payment_link_callback()
-            self.assertIn("payment-success", frappe.local.response["location"])
+            self.assertIn("payment_success", frappe.local.response["location"])
 
         self.assertEqual(
             frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
@@ -248,7 +248,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         ) as refresh:
             with fake_request(payment_link=doc.name, return_proof=_return_proof_for(doc)):
                 cb.payment_link_callback()
-                self.assertIn("payment-success", frappe.local.response["location"])
+                self.assertIn("payment_success", frappe.local.response["location"])
         self.assertEqual(refresh.call_count, 0)
         self.assertEqual(
             frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
