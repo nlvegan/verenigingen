@@ -256,8 +256,13 @@ class ChapterAssignmentService(StatelessService):
                 result["cleanup_performed"] = False
             return result
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # A deadlock/lock timeout is not a refusal to report: propagate (#561).
+        except NON_RESUMABLE_DB_ERRORS as e:
+            # Propagate (#561), but a 1205 keeps the transaction and its savepoints alive,
+            # so the cleanup would otherwise stay applied with no add and a later commit
+            # would make that durable. A 1213 has already destroyed the savepoint;
+            # rollback_to_savepoint tolerates that.
+            if isinstance(e, frappe.QueryTimeoutError):
+                rollback_to_savepoint(savepoint)
             raise
         except Exception as e:
             rollback_to_savepoint(savepoint)
