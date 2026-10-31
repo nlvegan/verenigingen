@@ -38,7 +38,7 @@ from frappe.utils import get_url
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.transaction_errors import atomic_status_transition
-from verenigingen.verenigingen_payments.ponto.core.status_maps import is_backward_move, map_link_status
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
 
 
 class PontoPaymentLink(Document):
@@ -295,7 +295,7 @@ class PontoPaymentLink(Document):
             new_status = (
                 "Executed" if ponto_status == "closed" else map_link_status(ponto_status)
             ) or self.status
-            if is_backward_move(self.status, new_status):
+            if is_refused_move(self.status, new_status):
                 new_status = self.status
 
             if new_status != self.status:
@@ -403,39 +403,47 @@ class PontoPaymentLink(Document):
         Args:
             new_status: New status value
             debtor_info: Optional dict with debtor details from webhook
+
+        Returns:
+            True if the status moved; False if it already was ``new_status`` or
+            the move was refused (see ``is_refused_move``). A refused move also
+            drops ``debtor_info``.
         """
-        if new_status != self.status and not is_backward_move(self.status, new_status):
-            # Status + Payment Entry are one atomic unit -- #1362 (#1288/#1323
-            # class). See refresh_status()'s identical
-            # `with atomic_status_transition(...)` block above for why: this
-            # call is already wrapped in a per-link savepoint one layer up
-            # (webhook_handlers._update_payment_link_status()), but this
-            # method's own boundary is what protects it if that ever changes or
-            # a future caller does not wrap it.
-            with atomic_status_transition("ppl_status_pe"):
-                self.status = new_status
+        if new_status == self.status or is_refused_move(self.status, new_status):
+            return False
 
-                # Update debtor info if provided
-                if debtor_info:
-                    if debtor_info.get("name"):
-                        self.debtor_name = debtor_info["name"]
-                    if debtor_info.get("iban"):
-                        self.debtor_iban = debtor_info["iban"]
-                    if debtor_info.get("bank"):
-                        self.debtor_bank = debtor_info["bank"]
+        # Status + Payment Entry are one atomic unit -- #1362 (#1288/#1323
+        # class). See refresh_status()'s identical
+        # `with atomic_status_transition(...)` block above for why: this
+        # call is already wrapped in a per-link savepoint one layer up
+        # (webhook_handlers._update_payment_link_status()), but this
+        # method's own boundary is what protects it if that ever changes or
+        # a future caller does not wrap it.
+        with atomic_status_transition("ppl_status_pe"):
+            self.status = new_status
 
-                frappe.logger("security").info(
-                    f"Webhook status update: Ponto Payment Link {self.name} "
-                    f"status changed from {frappe.db.get_value('Ponto Payment Link', self.name, 'status')} "
-                    f"to {new_status} (debtor: {debtor_info.get('name') if debtor_info else 'N/A'})"
-                )
-                # Security: Webhook callback with signature verification - only updates status on existing doc
-                self.save(ignore_permissions=True)
+            # Update debtor info if provided
+            if debtor_info:
+                if debtor_info.get("name"):
+                    self.debtor_name = debtor_info["name"]
+                if debtor_info.get("iban"):
+                    self.debtor_iban = debtor_info["iban"]
+                if debtor_info.get("bank"):
+                    self.debtor_bank = debtor_info["bank"]
 
-                if new_status == "Executed":
-                    self.process_payment_received()
+            frappe.logger("security").info(
+                f"Webhook status update: Ponto Payment Link {self.name} "
+                f"status changed from {frappe.db.get_value('Ponto Payment Link', self.name, 'status')} "
+                f"to {new_status} (debtor: {debtor_info.get('name') if debtor_info else 'N/A'})"
+            )
+            # Security: Webhook callback with signature verification - only updates status on existing doc
+            self.save(ignore_permissions=True)
 
-            frappe.logger().info(f"Ponto Payment Link {self.name} status updated to {new_status} via webhook")
+            if new_status == "Executed":
+                self.process_payment_received()
+
+        frappe.logger().info(f"Ponto Payment Link {self.name} status updated to {new_status} via webhook")
+        return True
 
     def increment_payment_count(self):
         """Increment total payments collected for periodic payments."""

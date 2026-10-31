@@ -863,9 +863,14 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
         self.assertEqual(result["reason"], "payment_link_not_found")
 
     def test_status_mapping(self):
-        """Should correctly map Ponto statuses to internal statuses."""
-        # Test the mapping logic
-        status_map = {
+        """The Link map the poll and the webhook share is exactly this (#1841).
+
+        This used to assert a local dict against itself. Now it pins the real
+        LINK_STATUS_MAP the handlers import.
+        """
+        from verenigingen.verenigingen_payments.ponto.core.status_maps import LINK_STATUS_MAP
+
+        expected = {
             "pending": "Pending Authorization",
             "unsigned": "Pending Authorization",
             "signed": "Authorized",
@@ -876,10 +881,7 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
             "cancelled": "Cancelled",
             "expired": "Expired",
         }
-
-        for ponto_status, expected in status_map.items():
-            mapped = status_map.get(ponto_status.lower())
-            self.assertEqual(mapped, expected, f"Status {ponto_status} should map to {expected}")
+        self.assertEqual(LINK_STATUS_MAP, expected)
 
 
 class TestPontoPaymentEntryCreation(FrappeTestCase):

@@ -15,9 +15,8 @@ Every key is a status string that already appeared in this app as a Ponto
 status: the webhook handler maps, the ``PaymentStatus`` fixture enum
 (tests/fixtures/ponto_test_data_factory.py), or the doctype status-flow
 docstrings. The set of statuses Ponto can actually return is NOT established
-here. In particular ``expired`` is mapped for the Link only: the Payment
-Request doctype has no ``Expired`` Select option, and adding one is a product
-decision.
+here. ``expired`` is mapped for both doctypes (maintainer ruling 2026-10-31;
+the Payment Request gained an ``Expired`` Select option for it).
 
 An unmapped status returns ``None`` and the caller keeps the current status.
 """
@@ -32,6 +31,7 @@ REQUEST_STATUS_MAP = {
     "rejected": "Rejected",
     "failed": "Failed",
     "cancelled": "Cancelled",
+    "expired": "Expired",
 }
 
 LINK_STATUS_MAP = {
@@ -46,19 +46,11 @@ LINK_STATUS_MAP = {
     "expired": "Expired",
 }
 
-# Position in the forward chain of a payment that is still alive. A late or
-# duplicated event/poll that says "pending" must not move a Signed or Executed
-# row back. Rejected, Failed, Cancelled and Expired are deliberately NOT ranked:
-# a request cancelled locally can still be paid at Ponto (the callback cancel is
-# local only), so Executed must stay reachable from them.
-_FORWARD_RANK = {
-    "Draft": 0,
-    "Pending": 1,
-    "Pending Authorization": 1,
-    "Signed": 2,
-    "Authorized": 2,
-    "Executed": 3,
-}
+# Local statuses a live payment can still move away from, by what is guarded.
+_FINAL = "Executed"
+_NOT_YET_SIGNED = {"Draft", "Pending", "Pending Authorization"}
+_CLOSED_WITHOUT_PAYMENT = {"Cancelled", "Rejected", "Failed", "Expired"}
+_SIGNED = {"Signed", "Authorized"}
 
 
 def map_request_status(ponto_status: Optional[str]) -> Optional[str]:
@@ -71,8 +63,24 @@ def map_link_status(ponto_status: Optional[str]) -> Optional[str]:
     return LINK_STATUS_MAP.get((ponto_status or "").lower())
 
 
-def is_backward_move(current: Optional[str], new: str) -> bool:
-    """True when ``new`` would move a live payment backwards along the forward chain."""
-    if current not in _FORWARD_RANK or new not in _FORWARD_RANK:
-        return False
-    return _FORWARD_RANK[new] < _FORWARD_RANK[current]
+def is_refused_move(current: Optional[str], new: str) -> bool:
+    """True when a poll or webhook must not move a row from ``current`` to ``new``.
+
+    Maintainer rulings, 2026-10-31:
+
+    * Executed is FINAL: it never moves to any other status.
+    * Cancelled, Rejected, Failed and Expired may still move FORWARD (to
+      Signed/Authorized or Executed), because the cancel is local and money may
+      have moved at Ponto. They never move back to Draft, Pending or Pending
+      Authorization: a late "pending" must not revive a row, which for a Link
+      would make it payable again.
+    * Signed/Authorized never move back to Pending/Pending Authorization.
+
+    NOT guarded: Signed/Authorized -> Cancelled/Rejected/Failed/Expired, and moves
+    between the closed statuses (e.g. Rejected -> Failed). Those are Ponto's word.
+    """
+    if current == _FINAL:
+        return new != _FINAL
+    if new in _NOT_YET_SIGNED:
+        return current in _SIGNED or current in _CLOSED_WITHOUT_PAYMENT
+    return False

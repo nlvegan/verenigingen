@@ -17,6 +17,7 @@ Status Flow:
                     -> Rejected (if signing fails)
                     -> Cancelled (if cancelled before signing)
                     -> Failed (if execution fails)
+                    -> Expired (if Ponto reports the request expired)
 """
 
 from datetime import date
@@ -29,7 +30,7 @@ from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
-from verenigingen.verenigingen_payments.ponto.core.status_maps import is_backward_move, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 
 
 class PontoPaymentRequest(Document):
@@ -210,7 +211,7 @@ class PontoPaymentRequest(Document):
             # Map Ponto status to our status. Shared with the webhook (#1835).
             # Unmapped keeps the current status; a backward move is refused.
             new_status = map_request_status(payment.status) or self.status
-            if is_backward_move(self.status, new_status):
+            if is_refused_move(self.status, new_status):
                 new_status = self.status
 
             if new_status != self.status:
@@ -414,19 +415,24 @@ class PontoPaymentRequest(Document):
 
         Args:
             new_status: New status value
+
+        Returns:
+            True if the status moved; False if it already was ``new_status`` or
+            the move was refused (see ``is_refused_move``).
         """
-        if new_status != self.status and not is_backward_move(self.status, new_status):
-            # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
-            # See refresh_status()'s identical `with atomic_status_transition(...)`
-            # block above for why.
-            with atomic_status_transition("ppr_status_pe"):
-                self.status = new_status
-                # Security: Webhook callback - status update from verified Ponto event
-                self.save(ignore_permissions=True)
+        if new_status == self.status or is_refused_move(self.status, new_status):
+            return False
 
-                if new_status == "Executed":
-                    self.create_payment_entry()
+        # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
+        # See refresh_status()'s identical `with atomic_status_transition(...)`
+        # block above for why.
+        with atomic_status_transition("ppr_status_pe"):
+            self.status = new_status
+            # Security: Webhook callback - status update from verified Ponto event
+            self.save(ignore_permissions=True)
 
-            frappe.logger().info(
-                f"Ponto Payment Request {self.name} status updated to {new_status} via webhook"
-            )
+            if new_status == "Executed":
+                self.create_payment_entry()
+
+        frappe.logger().info(f"Ponto Payment Request {self.name} status updated to {new_status} via webhook")
+        return True
