@@ -56,10 +56,12 @@ REFERENCES_TO_DELETE = (
     ("Notification Log", "document_type", "document_name"),
     ("View Log", "reference_doctype", "reference_name"),
     ("Activity Log", "reference_doctype", "reference_name"),
-    ("Activity Log", "timeline_doctype", "timeline_name"),
-    ("Error Log", "reference_doctype", "reference_name"),
     ("Email Unsubscribe", "reference_doctype", "reference_name"),
 )
+
+
+# A global opt-out that happens to name an application is the address's opt-out, not the application's.
+EXTRA_FILTERS = {"Email Unsubscribe": {"global_unsubscribe": 0}}
 
 
 def stage_application(source: str, email: str, payload: dict, door: str | None = None) -> None:
@@ -184,28 +186,72 @@ def _delete_dependents(names):
     with the recipient and the text), parks a full copy of the row in Deleted Document unless told not to,
     and defers the rest of its cleanup to a job after commit. Instead each reference is swept explicitly;
     the set was found by asking information_schema which tables hold the name (see
-    test_purging_a_rejected_application_removes_what_the_information_request_attached).
+    test_purging_sweeps_every_kind_of_dependent). Deleting a Communication also takes it off the Contact
+    timelines it was linked to: that is the intended retention outcome, the mail is the applicant's data.
+
+    Deliberately NOT swept: Error Log (operator evidence, and Frappe has its own retention for it) and a
+    global Email Unsubscribe (re-subscribing a global opt-out would be worse than keeping the name).
     """
-    _delete_attached_files(names)
-    _delete_communications(names)
+    communications = _communications_of(names)
+    _delete_files(names, communications)
+    _delete_communications(communications)
     _delete_email_queue(names)
     for doctype, doctype_field, name_field in REFERENCES_TO_DELETE:
-        frappe.db.delete(doctype, {doctype_field: SUBMISSION, name_field: ["in", names]})
+        frappe.db.delete(
+            doctype, {doctype_field: SUBMISSION, name_field: ["in", names], **EXTRA_FILTERS.get(doctype, {})}
+        )
     frappe.db.delete("Communication Link", {"link_doctype": SUBMISSION, "link_name": ["in", names]})
+    for doctype_field, name_field in (("timeline_doctype", "timeline_name"), ("link_doctype", "link_name")):
+        # another document's log row: Frappe clears the pointer rather than delete it
+        frappe.db.set_value(
+            "Activity Log",
+            {doctype_field: SUBMISSION, name_field: ["in", names]},
+            {doctype_field: None, name_field: None},
+            update_modified=False,
+        )
 
 
-def _delete_attached_files(names):
-    # delete_doc, not a table delete: it also removes the file on disk
-    for file_name in frappe.get_all(
-        "File", {"attached_to_doctype": SUBMISSION, "attached_to_name": ["in", names]}, pluck="name"
-    ):
-        # Security: the scheduler runs as Administrator-less system code; these files belong to a row the retention rule deletes
-        frappe.delete_doc("File", file_name, force=True, ignore_permissions=True, delete_permanently=True)
-
-
-def _delete_communications(names):
+def _communications_of(names):
     filters = {"reference_doctype": SUBMISSION, "reference_name": ["in", names]}
-    communications = frappe.get_all("Communication", filters, pluck="name")
+    return frappe.get_all("Communication", filters, pluck="name")
+
+
+def _delete_files(names, communications):
+    """Delete the File rows attached to the applications and to their Communications (a reply's attachment).
+
+    Rows go now, the disk files only after commit, and only when no other File row still uses the url: a
+    rollback must not leave a row pointing at a deleted file. A table delete rather than `delete_doc`, which
+    would also write an "Attachment Removed" Comment onto the document being removed.
+    """
+    attached_to = [("File", {"attached_to_doctype": SUBMISSION, "attached_to_name": ["in", names]})]
+    if communications:
+        attached_to.append(
+            ("File", {"attached_to_doctype": "Communication", "attached_to_name": ["in", communications]})
+        )
+    files = []
+    for doctype, filters in attached_to:
+        files += frappe.get_all(doctype, filters, ["name", "file_url", "thumbnail_url"])
+    if files:
+        frappe.db.delete("File", {"name": ["in", [f.name for f in files]]})
+        frappe.db.after_commit.add(lambda: _remove_unused_disk_files(files))
+
+
+def _remove_unused_disk_files(files):
+    from frappe.core.doctype.file.utils import delete_file
+
+    for file in files:
+        if file.file_url and frappe.db.exists("File", {"file_url": file.file_url}):
+            continue  # another File row shares the content
+        try:
+            delete_file(file.file_url)
+            delete_file(file.thumbnail_url)
+        except (
+            Exception
+        ):  # swallow-ok: the row is already gone; a leftover file is logged, not a failed purge
+            frappe.log_error(title="Application purge: file not removed", message=frappe.get_traceback())
+
+
+def _delete_communications(communications):
     if communications:
         frappe.db.delete("Communication Link", {"parent": ["in", communications]})
         frappe.db.delete("Communication", {"name": ["in", communications]})

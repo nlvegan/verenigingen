@@ -8,6 +8,7 @@ the harness's create_test_board_member.
 """
 
 import json
+import os
 import secrets
 from unittest.mock import patch
 
@@ -1042,6 +1043,7 @@ REFERENCE_COLUMNS = (
     "document_name",
     "reference_docname",
     "share_name",
+    "timeline_name",
     "parent",
 )
 
@@ -1323,58 +1325,169 @@ class TestRequestMoreInfo(ApprovalCase):
         self.assertFalse(frappe.db.exists(SUBMISSION, name))
         self.assertEqual(rows_referencing(name), {})
 
-    def test_purging_sweeps_every_kind_of_dependent(self):
-        """Probe shortcut, stated: the dependents a real flow does not write today (File, ToDo, Email Queue, Version,
-        Error Log, Activity Log, a Communication timeline link) are inserted by hand, so the claim is that the sweep
-        removes each KIND, not that today's flows produce them. rows_referencing asks information_schema, so a kind
-        missing from this list still fails the final assertion."""
+    def _rejected_application_with_a_request(self):
         name = self._stage_and_confirm()
         self.assertTrue(self._ask_as(name)["success"])
         self.assertTrue(self._reject_as(name)["success"])
         communication = frappe.get_all(
             "Communication", {"reference_doctype": SUBMISSION, "reference_name": name}, pluck="name"
         )[0]
-        frappe.get_doc(
-            {
-                "doctype": "Communication Link",
-                "parent": communication,
-                "parenttype": "Communication",
-                "parentfield": "timeline_links",
-                "link_doctype": SUBMISSION,
-                "link_name": name,
-            }
-        ).db_insert()
-        frappe.get_doc(
-            {"doctype": "File", "file_name": "id.txt", "content": "passport", "is_private": 1,
-             "attached_to_doctype": SUBMISSION, "attached_to_name": name}
+        return name, communication
+
+    def _raw_row(self, doctype, **values):
+        """Probe shortcut, stated: a row inserted without validation or hooks, standing in for what a real flow
+        would write. The claim made with it is "the purge removes / keeps this KIND", not "this flow writes it"."""
+        if doctype == "Error Log":
+            self.expectErrorLog("probe")  # the row is the fixture, not a failure
+        doc = frappe.get_doc({"doctype": doctype, **values})
+        doc.name = frappe.generate_hash(length=10)
+        doc.db_insert()
+        self.track_doc(doctype, doc.name)
+        return doc.name
+
+    def _file_on_disk(self, **attached):
+        file = frappe.get_doc(
+            {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "passport",
+             "is_private": 1, **attached}
         ).insert()
-        frappe.get_doc(
-            {"doctype": "ToDo", "description": "call the applicant", "reference_type": SUBMISSION, "reference_name": name}
-        ).insert()
-        frappe.get_doc(
-            {"doctype": "Error Log", "method": "probe", "error": "probe", "reference_doctype": SUBMISSION, "reference_name": name}
-        ).insert()
-        frappe.get_doc(
-            {"doctype": "Activity Log", "subject": "probe", "reference_doctype": SUBMISSION, "reference_name": name}
-        ).insert()
-        frappe.get_doc(
-            {"doctype": "Version", "ref_doctype": SUBMISSION, "docname": name, "data": "{}"}
-        ).insert()
-        queue = frappe.get_doc(
-            {"doctype": "Email Queue", "sender": "a@example.org", "message": "x", "reference_doctype": SUBMISSION,
-             "reference_name": name, "recipients": [{"recipient": "b@example.org"}]}
-        ).insert()
+        return file.name, frappe.get_site_path(file.file_url.lstrip("/"))
+
+    def test_purging_sweeps_every_kind_of_dependent(self):
+        """Probe shortcut, stated: the dependents a real flow does not write today are inserted by hand (File, ToDo,
+        Email Queue, Version, Activity Log, DocShare, Document Follow, Notification Log, View Log, Email Unsubscribe,
+        a Communication timeline link), so the claim is that the sweep removes each KIND. rows_referencing asks
+        information_schema, so a kind missing from this list still fails the final assertion. Error Log is the
+        one reference that is KEPT: it is operator evidence with its own retention."""
+        name, communication = self._rejected_application_with_a_request()
+        self._raw_row("Communication Link", parent=communication, parenttype="Communication",
+                      parentfield="timeline_links", link_doctype=SUBMISSION, link_name=name)
+        self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        self._raw_row("ToDo", description="call the applicant", reference_type=SUBMISSION, reference_name=name)
+        self._raw_row("Activity Log", subject="probe", reference_doctype=SUBMISSION, reference_name=name)
+        self._raw_row("Version", ref_doctype=SUBMISSION, docname=name, data="{}")
+        self._raw_row("DocShare", user="Administrator", share_doctype=SUBMISSION, share_name=name, read=1)
+        self._raw_row("Document Follow", ref_doctype=SUBMISSION, ref_docname=name, user="Administrator")
+        self._raw_row("Notification Log", subject="probe", document_type=SUBMISSION, document_name=name,
+                      for_user="Administrator")
+        self._raw_row("View Log", reference_doctype=SUBMISSION, reference_name=name, viewed_by="Administrator")
+        self._raw_row("Email Unsubscribe", email="x@example.org", reference_doctype=SUBMISSION,
+                      reference_name=name, global_unsubscribe=0)
+        self._raw_row("Error Log", method="probe", error="probe", reference_doctype=SUBMISSION, reference_name=name)
+        queue = self._raw_row("Email Queue", sender="a@example.org", message="x", reference_doctype=SUBMISSION,
+                              reference_name=name)
+        self._raw_row("Email Queue Recipient", parent=queue, parenttype="Email Queue", parentfield="recipients",
+                      recipient="b@example.org")
         attached = rows_referencing(name)
         for kind in ("File.attached_to_name", "ToDo.reference_name", "Email Queue.reference_name", "Version.docname",
-                     "Error Log.reference_name", "Activity Log.reference_name", "Communication Link.link_name",
-                     "Communication.reference_name", "Comment.reference_name"):
+                     "Activity Log.reference_name", "Communication Link.link_name", "Communication.reference_name",
+                     "Comment.reference_name", "DocShare.share_name", "Document Follow.ref_docname",
+                     "Notification Log.document_name", "View Log.reference_name", "Email Unsubscribe.reference_name"):
             self.assertIn(kind, attached)  # not vacuous: each kind is really there to be removed
 
         self._age_past_the_purge(name)
 
-        self.assertEqual(rows_referencing(name), {})
-        self.assertFalse(frappe.db.exists("Email Queue Recipient", {"parent": queue.name}))
+        self.assertEqual(rows_referencing(name), {"Error Log.reference_name": 1})
+        self.assertFalse(frappe.db.exists("Email Queue Recipient", {"parent": queue}))
         self.assertFalse(frappe.db.exists("Deleted Document", {"deleted_doctype": SUBMISSION, "deleted_name": name}))
+
+    def test_purging_removes_files_attached_to_the_communications_rows_and_disk(self):
+        """A reply's attachment sits on the Communication, not on the application. Probe shortcut, stated: the File is
+        attached by hand (no inbound mail is processed here). The disk file goes only after commit, so a rollback
+        cannot leave a row pointing at a deleted file; frappe.db.after_commit.run() stands in for the commit."""
+        name, communication = self._rejected_application_with_a_request()
+        file_name, path = self._file_on_disk(attached_to_doctype="Communication", attached_to_name=communication)
+        self.assertTrue(os.path.exists(path))
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("File", file_name))
+        self.assertFalse(frappe.db.exists("Communication", communication))
+        self.assertTrue(os.path.exists(path), "the disk file went before the commit")
+        frappe.db.after_commit.run()
+        self.assertFalse(os.path.exists(path))
+
+    def test_purging_does_not_remove_a_disk_file_another_file_row_still_uses(self):
+        """Control with a real row: a File of a kept application shares the content (same file_url), so the disk
+        file stays when only the purged application's row goes."""
+        name, _communication = self._rejected_application_with_a_request()
+        file_name, path = self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        kept = frappe.get_doc("File", file_name)
+        twin = frappe.copy_doc(kept)
+        twin.attached_to_name = self._stage_and_confirm()  # a Pending Review application: kept
+        twin.insert()
+
+        self._age_past_the_purge(name)
+        frappe.db.after_commit.run()
+
+        self.assertFalse(frappe.db.exists("File", file_name))
+        self.assertTrue(frappe.db.exists("File", twin.name))
+        self.assertTrue(os.path.exists(path))
+
+    def test_purging_keeps_a_global_unsubscribe_and_error_log_that_name_the_application(self):
+        name, _communication = self._rejected_application_with_a_request()
+        email = f"optout.{frappe.generate_hash(length=6)}@example.org"
+        local = self._raw_row("Email Unsubscribe", email=email, reference_doctype=SUBMISSION,
+                              reference_name=name, global_unsubscribe=0)
+        opt_out = self._raw_row("Email Unsubscribe", email=email, reference_doctype=SUBMISSION,
+                                reference_name=name, global_unsubscribe=1)
+        error = self._raw_row("Error Log", method="probe", error="probe", reference_doctype=SUBMISSION,
+                              reference_name=name)
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("Email Unsubscribe", local))
+        self.assertTrue(frappe.db.exists("Email Unsubscribe", opt_out), "a global opt-out was re-subscribed")
+        self.assertTrue(frappe.db.exists("Error Log", error), "operator evidence was deleted")
+
+    def test_purging_clears_an_activity_log_timeline_link_instead_of_deleting_the_row(self):
+        name, _communication = self._rejected_application_with_a_request()
+        own = self._raw_row("Activity Log", subject="about the application", reference_doctype=SUBMISSION,
+                            reference_name=name)
+        other = self._raw_row("Activity Log", subject="about a member", reference_doctype="Member",
+                              reference_name="some-member", timeline_doctype=SUBMISSION, timeline_name=name)
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("Activity Log", own))
+        row = frappe.db.get_value("Activity Log", other, ["reference_name", "timeline_doctype", "timeline_name"], as_dict=True)
+        self.assertEqual(row.reference_name, "some-member")  # the other document's log row survives
+        self.assertFalse(row.timeline_doctype or row.timeline_name)
+
+    def test_purging_touches_only_rows_of_this_doctype_with_the_same_name(self):
+        """Decoys with a real row: for every table the sweep deletes from, a row of ANOTHER doctype that happens to
+        carry the application's name. A sweep that matches on the name alone deletes them. Hand-inserted (probe
+        shortcut): the claim is the doctype half of each filter."""
+        name, communication = self._rejected_application_with_a_request()
+        decoys = {
+            ("Comment", "reference_doctype", "reference_name"): {"comment_type": "Info", "content": "decoy"},
+            ("Version", "ref_doctype", "docname"): {"data": "{}"},
+            ("ToDo", "reference_type", "reference_name"): {"description": "decoy"},
+            ("DocShare", "share_doctype", "share_name"): {"user": "Administrator", "read": 1},
+            ("Document Follow", "ref_doctype", "ref_docname"): {"user": "Administrator"},
+            ("Notification Log", "document_type", "document_name"): {"subject": "decoy", "for_user": "Administrator"},
+            ("View Log", "reference_doctype", "reference_name"): {"viewed_by": "Administrator"},
+            ("Activity Log", "reference_doctype", "reference_name"): {"subject": "decoy"},
+            ("Email Unsubscribe", "reference_doctype", "reference_name"): {"email": "d@example.org", "global_unsubscribe": 0},
+            ("Communication", "reference_doctype", "reference_name"): {"subject": "decoy", "communication_type": "Communication"},
+            ("Email Queue", "reference_doctype", "reference_name"): {"sender": "a@example.org", "message": "x"},
+        }
+        rows = {
+            (doctype, doctype_field): self._raw_row(doctype, **{doctype_field: "Member", name_field: name}, **extra)
+            for (doctype, doctype_field, name_field), extra in decoys.items()
+        }
+        decoy_communication = rows[("Communication", "reference_doctype")]
+        rows[("Communication Link", "link_doctype")] = self._raw_row(  # parented by the decoy, not by the purged mail
+            "Communication Link", parent=decoy_communication, parenttype="Communication",
+            parentfield="timeline_links", link_doctype="Member", link_name=name,
+        )
+        file_name, _path = self._file_on_disk(attached_to_doctype="Member", attached_to_name=name)
+
+        self._age_past_the_purge(name)
+
+        for (doctype, doctype_field), row in rows.items():
+            self.assertTrue(frappe.db.exists(doctype, row), f"a {doctype} row of another doctype was deleted")
+        self.assertTrue(frappe.db.exists("File", file_name), "a File of another doctype was deleted")
+        self.assertFalse(frappe.db.exists(SUBMISSION, name))
 
     def test_purge_keeps_everything_attached_to_an_approved_application(self):
         """Control with a real row: the Approved twin, with its own request Comment and Communication, is kept whole."""
