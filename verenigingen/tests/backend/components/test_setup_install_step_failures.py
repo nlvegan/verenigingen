@@ -114,6 +114,12 @@ class TestInstallStepsSurfaceTheirFailures(FrappeTestCase):
         self.assertIn("membership_application_confirmation", str(ctx.exception))
 
     def test_termination_roles(self):
+        with _fresh_site_refusing("Role", "Verenigingen Administrator"):
+            with self.assertRaises(frappe.ValidationError):
+                setup_mod.setup_termination_roles_and_permissions()
+
+    def test_termination_roles_missing_also_fails_the_step(self):
+        """Through the runner: with the role absent the workflow prerequisites fail first."""
         self._assert_step_failed("set up termination system", "Role", "Verenigingen Administrator")
 
     def test_termination_workflow_setup_raising_is_a_failure(self):
@@ -123,12 +129,60 @@ class TestInstallStepsSurfaceTheirFailures(FrappeTestCase):
             failed = setup_mod.execute_after_install()
         self.assertIn("set up termination system", failed)
 
-    def test_a_false_workflow_result_is_benign_on_a_healthy_site(self):
-        """Control for the opposite harm: False is what a healthy site returns (the appeals
-        DocType is not built), so it must NOT fail the step."""
+    def test_a_false_workflow_result_is_a_failure(self):
+        """False means validate_prerequisites or the commit failed."""
         with mock.patch("verenigingen.setup.workflow_setup.setup_workflows_corrected", return_value=False):
-            failed = setup_mod.execute_after_install()
+            failed, flag_set = self._run_unfaulted()
+        self.assertIn("set up termination system", failed)
+        self.assertFalse(flag_set)
+
+    def test_the_real_workflow_setup_returns_true_on_a_healthy_site(self):
+        """Control: the REAL function (no stub) is True on a healthy site, and the step
+        is not failed."""
+        from verenigingen.setup.workflow_setup import setup_workflows_corrected
+
+        self.assertTrue(setup_workflows_corrected())
+        failed, _ = self._run_unfaulted()
         self.assertNotIn("set up termination system", failed)
+
+    def _run_unfaulted(self):
+        with mock.patch.object(setup_mod, "_mark_initial_setup_complete") as mark:
+            failed = setup_mod.execute_after_install()
+        return failed, mark.called
+
+    def test_website_cors(self):
+        """Only configures when origins are unset, so force that state on a copy of the
+        doc; the save is refused for real."""
+        real_get_single = frappe.get_single
+
+        def get_single(dt, *a, **k):
+            doc = real_get_single(dt, *a, **k)
+            if dt == "Website Settings":
+                doc.cors_allowed_origins = ""
+            return doc
+
+        with mock.patch.object(frappe, "get_single", get_single):
+            with self.assertRaises(Exception) as ctx:
+                with mock.patch.object(
+                    Document, "save", side_effect=frappe.ValidationError("refused save (test)")
+                ):
+                    setup_mod.configure_website_cors()
+        self.assertIn("refused save", str(ctx.exception))
+
+    def test_termination_settings(self):
+        """A settings doc whose save is refused (real Document.save raising)."""
+        settings = frappe.get_single("Verenigingen Settings")
+        for field in ("enable_termination_system", "appeal_deadline_days"):
+            setattr(settings, field, 0)
+        with mock.patch.object(frappe.db, "get_singles_dict", return_value={"x": 1}):
+            with mock.patch(
+                "verenigingen.utils.settings_utils.get_verenigingen_settings", return_value=settings
+            ):
+                with mock.patch.object(
+                    Document, "save", side_effect=frappe.ValidationError("refused save (test)")
+                ):
+                    with self.assertRaises(frappe.ValidationError):
+                        setup_mod.setup_termination_settings()
 
     def test_comprehensive_email_templates_reporting_failure(self):
         """It returns OperationResult.fail on a failed run instead of raising."""
@@ -156,10 +210,11 @@ class TestInstallStepsSurfaceTheirFailures(FrappeTestCase):
         title; the runner's keyword call records the traceback, which names the cause."""
         flt = {"method": ["like", "%install step failed: set up termination%"]}
         before = frappe.db.count("Error Log", flt)
-        self._run("Role", "Verenigingen Administrator")
+        with mock.patch("verenigingen.setup.workflow_setup.setup_workflows_corrected", return_value=False):
+            self._run_unfaulted()
         rows = frappe.get_all("Error Log", filters=flt, fields=["error"], order_by="creation desc")
         self.assertGreater(len(rows), before)
-        self.assertIn("refused insert of Role", rows[0].error)
+        self.assertIn("Termination workflow setup reported failure", rows[0].error)
 
 
 class TestHealthySiteStillInstallsTwice(FrappeTestCase):

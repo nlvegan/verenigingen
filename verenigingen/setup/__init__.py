@@ -713,14 +713,11 @@ def setup_termination_system_integration():
     # Step 2: Setup workflows (using separate workflow setup module)
     from verenigingen.setup.workflow_setup import setup_workflows_corrected
 
-    # Not turned into a failure: setup_workflows_corrected returns False on a healthy
-    # site too (it skips the appeals workflow when its DocType is not built, and the
-    # termination workflow is deliberately not built, #1640), so False cannot tell
-    # "nothing to build" from "broke". An exception inside it still propagates.
-    if setup_workflows_corrected():
-        print("✅ Workflows created successfully")
-    else:
-        print("⚠️ Workflow creation had issues")
+    # setup_workflows_corrected returns True on a healthy site (the appeals skip counts as
+    # success); False means its prerequisites or the commit failed, so it is a failure.
+    if not setup_workflows_corrected():
+        raise RuntimeError("Termination workflow setup reported failure")
+    print("✅ Workflows created successfully")
 
     # Step 3: Setup roles and permissions
     setup_termination_roles_and_permissions()
