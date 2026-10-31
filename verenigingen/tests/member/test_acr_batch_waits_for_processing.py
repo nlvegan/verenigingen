@@ -112,7 +112,7 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
         finally:
             connection.close()
 
-    def _run_batch(self, worker_cls, on_tick=None):
+    def _run_batch_with_waiting(self, worker_cls, on_tick=None):
         ticks = []
         enqueued = []
 
@@ -142,7 +142,7 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
 
     def test_completion_committed_by_the_worker_is_seen_without_waiting(self):
         """The worker finishes and commits on its own connection before the wait starts."""
-        ticks, enqueued = self._run_batch(_WorkerThatCompletesRequest)
+        ticks, enqueued = self._run_batch_with_waiting(_WorkerThatCompletesRequest)
 
         self.assertEqual(self._committed_status(self.request_name), "Completed", "precondition")
         self.assertEqual(len(ticks), 0, "the loop kept reading a stale snapshot and waited")
@@ -159,7 +159,7 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
                     (self.request_name,),
                 )
 
-        ticks, enqueued = self._run_batch(_WorkerThatLeavesRequestProcessing, other_connection_completes)
+        ticks, enqueued = self._run_batch_with_waiting(_WorkerThatLeavesRequestProcessing, other_connection_completes)
 
         # Exactly flip_on_tick sleeps: it waited while Processing (#1744) and stopped once the
         # other connection committed (#1788). 0 would mean Processing was not counted; the full
@@ -168,7 +168,39 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
         self.assertEqual(enqueued, [("b2", flip_on_tick, "Completed")])
 
     def test_a_batch_that_never_finishes_still_times_out_and_queues_next(self):
-        ticks, enqueued = self._run_batch(_WorkerThatLeavesRequestProcessing)
+        ticks, enqueued = self._run_batch_with_waiting(_WorkerThatLeavesRequestProcessing)
 
         self.assertEqual(len(ticks), FULL_TIMEOUT_TICKS)
         self.assertEqual(enqueued, [("b2", FULL_TIMEOUT_TICKS, "Processing")])
+
+
+class TestCountBatchRequestsByStatus(VereningingenTestCase):
+    """_count_batch_requests filters on the statuses it is given (the batch summary asks
+    for Completed and Failed separately; nothing else asserts those two counts)."""
+
+    def setUp(self):
+        frappe.db.rollback()
+        uid = frappe.generate_hash(length=8)
+        self.names = {
+            status: f"ACR-T1788-{status[:4]}-{uid}" for status in ("Completed", "Failed", "Processing")
+        }
+        for status, name in self.names.items():
+            _on_other_connection(
+                "INSERT INTO `tabAccount Creation Request` (name, creation, modified, modified_by, owner, "
+                "docstatus, idx, request_type, source_record, email, full_name, status) "
+                "VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, 'Member', %s, %s, %s, %s)",
+                (name, "T1788-no-such-member", f"{name.lower()}@test.invalid", "Acr1788 Probe", status),
+            )
+            self.addCleanup(
+                _on_other_connection, "DELETE FROM `tabAccount Creation Request` WHERE name = %s", (name,)
+            )
+        super().setUp()
+
+    def test_counts_are_per_status(self):
+        everything = list(self.names.values())
+        self.assertEqual(api._count_batch_requests(everything, ["Completed"]), 1)
+        self.assertEqual(api._count_batch_requests(everything, ["Failed"]), 1)
+        self.assertEqual(api._count_batch_requests(everything, api._OPEN_ACR_STATUSES), 1)
+        self.assertEqual(api._count_batch_requests(everything, ["Completed", "Failed"]), 2)
+        self.assertEqual(api._count_batch_requests([self.names["Failed"]], ["Completed"]), 0)
+        self.assertEqual(api._count_batch_requests([], ["Completed"]), 0)
