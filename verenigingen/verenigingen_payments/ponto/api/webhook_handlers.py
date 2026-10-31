@@ -16,6 +16,7 @@ from typing import Any, Dict
 import frappe
 
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
@@ -307,18 +308,8 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
         )
         return {"handled": True, "action": "logged", "reason": "payment_request_not_found"}
 
-    # Map Ponto status to our status
-    status_map = {
-        "pending": "Pending",
-        "unsigned": "Pending",
-        "signed": "Signed",
-        "executed": "Executed",
-        "rejected": "Rejected",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-    }
-
-    mapped_status = status_map.get(new_status.lower() if new_status else "", None)
+    # Shared with refresh_status() so both paths classify alike (#1835)
+    mapped_status = map_request_status(new_status)
 
     if mapped_status:
         updated_requests = []
@@ -403,20 +394,8 @@ def _update_payment_link_status(
         frappe.logger().warning(f"No Ponto Payment Link found for request ID: {request_id}")
         return {"handled": True, "action": "logged", "reason": "payment_link_not_found"}
 
-    # Map Ponto status to our status
-    status_map = {
-        "pending": "Pending Authorization",
-        "unsigned": "Pending Authorization",
-        "signed": "Authorized",
-        "authorized": "Authorized",
-        "executed": "Executed",
-        "rejected": "Rejected",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-        "expired": "Expired",
-    }
-
-    mapped_status = status_map.get(new_status.lower() if new_status else "", None)
+    # Shared with refresh_status() so both paths classify alike (#1835)
+    mapped_status = map_link_status(new_status)
 
     if mapped_status:
         updated_links = []

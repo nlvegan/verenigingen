@@ -38,6 +38,7 @@ from frappe.utils import get_url
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.transaction_errors import atomic_status_transition
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_backward_move, map_link_status
 
 
 class PontoPaymentLink(Document):
@@ -283,22 +284,19 @@ class PontoPaymentLink(Document):
             client = get_betaalverzoek_client()
             request = client.get_payment_request(self.ponto_request_id)
 
-            # Map Ponto status to our status
-            # Note: Ponto API doesn't return a 'status' field - we infer it from
-            # signedAt/closedAt timestamps in betaalverzoek_client.from_api_response()
-            status_map = {
-                "pending": "Pending Authorization",
-                "unsigned": "Pending Authorization",
-                "signed": "Authorized",
-                "authorized": "Authorized",
-                "closed": "Executed",  # closedAt is set when payment reaches final state
-                "executed": "Executed",
-                "rejected": "Rejected",
-                "failed": "Failed",
-                "expired": "Expired",
-            }
-
-            new_status = status_map.get(request.status.lower(), self.status)
+            # Map Ponto status to our status. Shared with the webhook (#1835).
+            # Ponto API doesn't return a 'status' field here - betaalverzoek_client.
+            # from_api_response() infers "pending"/"signed"/"closed" from
+            # signedAt/closedAt. "closed" is that client's own marker, not a Ponto
+            # status, so it is handled here and is not in the shared map (the webhook
+            # never sees it). Unmapped keeps the current status; a backward move is
+            # refused.
+            ponto_status = (request.status or "").lower()
+            new_status = (
+                "Executed" if ponto_status == "closed" else map_link_status(ponto_status)
+            ) or self.status
+            if is_backward_move(self.status, new_status):
+                new_status = self.status
 
             if new_status != self.status:
                 # Status + Payment Entry are one atomic unit -- #1362 (the
@@ -406,7 +404,7 @@ class PontoPaymentLink(Document):
             new_status: New status value
             debtor_info: Optional dict with debtor details from webhook
         """
-        if new_status != self.status:
+        if new_status != self.status and not is_backward_move(self.status, new_status):
             # Status + Payment Entry are one atomic unit -- #1362 (#1288/#1323
             # class). See refresh_status()'s identical
             # `with atomic_status_transition(...)` block above for why: this
