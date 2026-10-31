@@ -194,6 +194,8 @@ class ImplicitCommitCallsTest(unittest.TestCase):
         "frappe.db.add_unique('X', ['a'])",
         "frappe.db.updatedb('X')",
         "frappe.db.sql('select 1', auto_commit=True)",
+        "frappe.db.sql('select 1', auto_commit=1)",
+        "frappe.db.sql('select 1', auto_commit=flag)",
     ]
 
     def _kinds(self, body, func="test_a"):
@@ -217,6 +219,7 @@ class ImplicitCommitCallsTest(unittest.TestCase):
         for call in (
             "frappe.db.sql('SELECT 1')",
             "frappe.db.sql('SELECT 1', auto_commit=False)",
+            "frappe.db.sql('SELECT 1', auto_commit=0)",
             "frappe.db.sql('ALTER TABLE `tabX` ADD c int')",  # raw DDL: see _COMMITTING_DB_CALLS
             "frappe.db.get_value('X', 'a', 'b')",
             "frappe.db.has_index('tabX', 'a')",

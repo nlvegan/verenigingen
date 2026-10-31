@@ -218,8 +218,11 @@ def _has_limit_one(call):
 #   truncate            -> sql_ddl;  change_column_type, rename_column -> sql_ddl
 #   rename_table        plain self.sql("RENAME TABLE ..."); MariaDB DDL autocommits
 #                       server-side (frappe's own ImplicitCommitError list omits rename)
-#   add_index/add_unique  self.commit() before the ALTER, when the index is missing
-#   updatedb            self.commit() after syncing the table
+#   add_index/add_unique  self.commit() before the ALTER, only when the index is missing
+#   updatedb            self.commit() after syncing the table, only for non-Single
+#                       doctypes
+# add_index/add_unique/updatedb are conditional; flagging them statically is the
+# deliberate over-approximation.
 # NOT matched, on purpose: a raw `db.sql("ALTER|CREATE|DROP|TRUNCATE ...")`. Frappe
 # raises ImplicitCommitError for those whenever writes are pending (measured), so it
 # cannot silently commit a row; a string-literal keyword match would also need
@@ -238,11 +241,19 @@ _COMMITTING_DB_CALLS = (
 
 
 def _is_auto_commit_sql(chain, call):
-    """`frappe.db.sql(..., auto_commit=True)` commits before and after the query."""
+    """`frappe.db.sql(..., auto_commit=<x>)` commits before and after the query.
+
+    Any `auto_commit` keyword whose value is not a literal False/0/None is treated as
+    committing (`auto_commit=1`, `auto_commit=flag`): over-approximating is the safe
+    direction for a ratchet. KNOWN GAP: a `**kw` expansion and the positional 9th
+    argument are not inspected; neither occurs in this tree, and flagging every `**`
+    would false-positive on unrelated calls.
+    """
     if not chain.endswith("db.sql"):
         return False
     return any(
-        kw.arg == "auto_commit" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+        kw.arg == "auto_commit"
+        and not (isinstance(kw.value, ast.Constant) and kw.value.value in (False, 0, None))
         for kw in call.keywords
     )
 
