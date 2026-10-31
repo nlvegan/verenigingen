@@ -361,7 +361,7 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
             validation_result = recovery_validation()
             self.assertTrue(validation_result["success"], "Validation should complete even with errors")
 
-    def test_performance_under_integrated_load(self):
+    def test_payment_history_queueing_is_query_free_under_integrated_load(self):
         """Payment-history updates stay cheap under integrated load.
 
         #1578: this used to assert a 10 s wall-clock bound, which measured
@@ -407,18 +407,22 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
                 "history_queries": history_queries,
             }
 
-        # Pin the process-global drain clock (see docstring); restore afterwards.
-        had_clock = "payments" in FinancialHistoryBatchProcessor._last_processed
-        old_clock = FinancialHistoryBatchProcessor._last_processed.get("payments")
-        FinancialHistoryBatchProcessor._last_processed["payments"] = now_datetime()
+        # Pin the process-global drain clocks (see docstring) for both queues,
+        # since the expense queue drains from the same call. Register the
+        # restore BEFORE applying the pin so a failure mid-way cannot leak it.
+        clocks = FinancialHistoryBatchProcessor._last_processed
+        saved = {k: clocks[k] for k in ("payments", "expenses") if k in clocks}
 
         def restore_clock():
-            if had_clock:
-                FinancialHistoryBatchProcessor._last_processed["payments"] = old_clock
-            else:
-                FinancialHistoryBatchProcessor._last_processed.pop("payments", None)
+            for k in ("payments", "expenses"):
+                if k in saved:
+                    clocks[k] = saved[k]
+                else:
+                    clocks.pop(k, None)
 
         self.addCleanup(restore_clock)
+        for k in ("payments", "expenses"):
+            clocks[k] = now_datetime()
 
         # Performance test with integrated security
         with self.as_user(self.test_user.email):
