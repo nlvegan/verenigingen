@@ -26,109 +26,6 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollb
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
-def _sanitize_member_name_for_review(member_name, operation_label):
-    """Sanitize the raw member_name input for review operations (approve/reject).
-
-    Split out of the combined sanitize+exists-check that used to be
-    ``_validate_member_for_review`` (#1414) so a member_name can be sanitized
-    and used for the chapter-permission decision BEFORE any existence-revealing
-    check runs -- see ``_check_member_exists_for_review`` for why the ordering
-    matters. Sanitizing here first is safe for every caller: it never touches
-    whether member_name refers to a real Member.
-
-    Args:
-        member_name: Raw member name from API call
-        operation_label: Label for security logs (e.g. "approval", "rejection")
-
-    Returns:
-        Sanitized member_name string.
-
-    Raises:
-        frappe.ValidationError: On sanitization failure.
-    """
-    try:
-        return APIValidator.sanitize_text(str(member_name), max_length=255)
-    except frappe.ValidationError:
-        raise
-    except Exception as e:
-        log_security_event(
-            "validation_failed",
-            {"message": f"Input validation failed for {operation_label}: {str(e)}"},
-            severity="warning",
-        )
-        frappe.throw(_("Invalid input data provided"))
-
-
-def _check_member_exists_for_review(member_name, operation_label):
-    """Existence check carrying the friendly, existence-REVEALING "Invalid
-    member reference" message.
-
-    #1414: approve_membership_application/reject_membership_application must
-    call validate_chapter_permission_or_throw BEFORE this. That gate already
-    refuses an unknown member_name identically to an existing-but-foreign one
-    -- can_user_manage_application() finds zero `Chapter Member` rows either
-    way, so a caller SCOPED to specific chapters (chapter access != "all")
-    never reaches this function for an unknown id at all. Calling this only
-    after that gate means a distinguishable "doesn't exist" answer is given
-    only to a caller whose chapter access already covers every member
-    (staff/admin, get_user_manageable_chapters() == "all"), for whom
-    existence reveals nothing new. Reordering this ahead of the permission
-    check would restore the oracle this fix closes.
-
-    Raises:
-        frappe.ValidationError: If member_name does not refer to a real Member.
-    """
-    if not frappe.db.exists("Member", member_name):
-        log_security_event(
-            "unauthorized_access_attempt",
-            {"message": f"Attempted {operation_label} of non-existent member: {member_name}"},
-            severity="error",
-        )
-        frappe.throw(_("Invalid member reference"))
-
-
-def _throw_membership_deletion_blocked(membership):
-    """#1264 round 2: deleting a draft Membership during rejection can raise
-    LinkExistsError if a Membership Dues Schedule linked to it is still
-    referenced elsewhere (Membership.on_trash's own cleanup now respects
-    ordinary link-integrity instead of bypassing it with force=True). Before
-    that fix, the delete silently succeeded and force-deleted the schedule
-    out from under whatever still named it -- #1250's exact shape (a Sales
-    Invoice left with a dangling membership_dues_schedule_display). Now it
-    correctly refuses, but the raw LinkExistsError is not a fit message for a
-    reviewer clicking "Reject" -- name the specific invoice(s) when we can
-    find one, so this fails loudly with something actionable rather than
-    either silently corrupting data or surfacing a raw technical error.
-    """
-    schedule_names = frappe.get_all(
-        "Membership Dues Schedule", filters={"membership": membership.name}, pluck="name"
-    )
-    invoice_names = (
-        frappe.get_all(
-            "Sales Invoice",
-            filters={"membership_dues_schedule_display": ["in", schedule_names]},
-            pluck="name",
-        )
-        if schedule_names
-        else []
-    )
-    if invoice_names:
-        frappe.throw(
-            _(
-                "Cannot reject this application: Membership {0} still has a dues schedule "
-                "referenced by invoice(s) {1}. Resolve those invoices before rejecting."
-            ).format(membership.name, ", ".join(invoice_names)),
-            title=_("Cannot Reject Application"),
-        )
-    frappe.throw(
-        _(
-            "Cannot reject this application: Membership {0} could not be deleted because "
-            "other records still reference it or its dues schedule."
-        ).format(membership.name),
-        title=_("Cannot Reject Application"),
-    )
-
-
 def _sanitize_text_fields(text_fields):
     """Sanitize text input fields for API endpoints.
 
@@ -539,154 +436,12 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
     return response
 
 
-@frappe.whitelist()
-@standard_api()  # Read-only permission probe
-def can_review_application(member_name: str) -> bool:
-    """Whether the CURRENT user may approve or reject this application.
-
-    Exists so the UI can ASK the server instead of re-deriving chapter/board rules
-    in JavaScript. member.js previously gated its Review Actions buttons on a
-    client-side stub that always returned False, so chapter board members never saw
-    them; the alternative -- reimplementing the board lookup in JS -- would be a
-    second copy of the rule that can drift from this one.
-
-    This is a UX affordance, NOT the access control. Approval and rejection are
-    enforced server-side by validate_chapter_permission_or_throw regardless of what
-    the client renders, so a stale or bypassed check here cannot grant anything.
-
-    Deliberately does NOT call _check_member_exists_for_review (unlike
-    approve_membership_application/reject_membership_application below, and
-    unlike this same function before #1394). That check's unscoped
-    frappe.db.exists() throws a distinct "Invalid member reference" for an
-    unknown id, while can_user_manage_application() returns a plain False for
-    an existing-but-inaccessible one -- an existence oracle over Member ids
-    reachable by any MEDIUM-tier caller (Volunteer, Auditor, Chapter Board
-    Member, ...), not just staff (#1394). A read-only probe has no legitimate
-    reason to distinguish "doesn't exist" from "exists, not yours", so both
-    now fall through the identical code path to can_user_manage_application's
-    own False -- never raising for either.
-    """
-    from verenigingen.services.chapter.chapter_security import can_user_manage_application
-
-    return can_user_manage_application(str(member_name))
-
-
-@frappe.whitelist()
-@high_security_api()  # Member application approval workflow
-def approve_membership_application(
-    member_name: str,
-    membership_type: str = None,
-    chapter: str = None,
-    notes: str = None,
-    create_invoice: bool = True,
-    activate_as_volunteer: bool = False,
-):
-    """
-    Approve a membership application with focused responsibilities
-
-    This function is the canonical approval pathway and handles:
-    - Idempotency: Safe to call multiple times for the same member
-    - Input validation and security checks
-    - Member status updates and chapter assignments
-    - Membership record and invoice creation
-    - Notification sending
-
-    Delegated to AccountCreationManager:
-    - User account creation
-    - Role assignment and management
-    - Employee record creation
-
-    Args:
-        member_name (str): Member document name
-        membership_type (str, optional): Membership type to assign (auto-resolved if not provided)
-        chapter (str, optional): Chapter to assign member to
-        notes (str, optional): Review notes
-        create_invoice (bool, optional): Whether to create initial invoice (default True)
-        activate_as_volunteer (bool, optional): Whether to activate as volunteer and assign Volunteer role profile (default False)
-
-    Returns:
-        dict: Approval result with structure:
-            {
-                "success": bool,
-                "message": str,
-                "invoice": str (invoice name),
-                "amount": float,
-                "user_account": dict,
-                "membership": str (membership name),
-                "idempotent": bool (optional, True if member was already approved)
-            }
-
-    Idempotency:
-        If the member is already approved (application_status == "Approved"), the function
-        returns success with existing membership/invoice data and sets idempotent=True.
-        This prevents duplicate memberships, invoices, or status changes.
-
-    Internal approval_fields dict structure:
-        {
-            "application_status": "Approved",
-            "status": "Active",
-            "member_since": date,
-            "reviewed_by": str (user),
-            "review_date": datetime,
-            "selected_membership_type": str (membership type),
-            "review_notes": str (optional),
-            "fee_override_reason": str (optional, auto-set if custom dues_rate)
-        }
-
-    This separation ensures proper security compliance and maintainable code.
-    """
-    # Input validation and sanitization
-    member_name = _sanitize_member_name_for_review(member_name, "approval")
-    sanitized = _sanitize_text_fields(
-        {
-            "membership_type": (membership_type, 255),
-            "chapter": (chapter, 255),
-            "notes": (notes, 2000, False),
-        }
-    )
-    membership_type = sanitized["membership_type"]
-    chapter = sanitized["chapter"]
-    notes = sanitized["notes"]
-
-    # Check chapter-based permissions BEFORE any existence-revealing check
-    # (#1414). validate_chapter_permission_or_throw already refuses an unknown
-    # member_name identically to an existing-but-foreign one for a caller
-    # scoped to specific chapters (can_user_manage_application finds zero
-    # Chapter Member rows either way) -- this ordering is what closes the
-    # existence oracle that let a non-staff Chapter Board Member enumerate
-    # real Member ids. Only a caller whose chapter access is "all" reaches the
-    # existence check below, and for them existence reveals nothing new.
-    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-    validate_chapter_permission_or_throw(member_name, "approve")
-    _check_member_exists_for_review(member_name, "approval")
-
-    # Serialize concurrent approvals of the SAME member with a per-member advisory
-    # lock. Without it, concurrent approvals each pass the idempotency guard while
-    # the member is still Pending and create duplicate Memberships/invoices,
-    # because the membership creation service issues intermediate commits that
-    # release any FOR UPDATE row lock mid-operation. A MySQL advisory lock
-    # (GET_LOCK) is NOT released by commit, so it holds for the whole approval.
-    from verenigingen.utils.db_advisory_lock import advisory_lock
-
-    with advisory_lock(f"approve_membership:{member_name}", timeout=30):
-        # NB: the idempotency guard inside the locked helper reads
-        # application_status with for_update=True. Under MySQL REPEATABLE READ a
-        # plain read would return this transaction's snapshot (taken at the first
-        # read above, before a racing winner committed); a locking "current read"
-        # returns the latest committed value instead. This avoids an
-        # isolation-breaking commit/rollback of the caller's transaction.
-        return _approve_membership_application_locked(
-            member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
-        )
-
-
 def _approve_membership_application_locked(
     member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
 ):
     """Core approval logic, executed while holding the per-member advisory lock.
 
-    Split out of approve_membership_application so the whole critical section
+    Split out of approve_application so the whole critical section
     (idempotency re-check through membership creation) runs under the lock. See
     the caller for why the lock + snapshot refresh are required.
     """
@@ -709,16 +464,15 @@ def _approve_membership_application_locked(
     # that termination look superseded to member_utils.
     # update_termination_status_display -- but it is NOT a genuine rejoin. A
     # genuine rejoin's application_date is set to now() by
-    # update_member_from_reapplication, strictly AFTER the termination it
+    # materialise_member, strictly AFTER the termination it
     # responds to; here the application predates the termination, so this is
     # the SAME still-open application, not a new one. Whether it should
     # proceed with the member reactivated, left Quit, or something else is a
     # product decision nobody has made -- refuse instead of guessing.
     _refuse_if_terminated_after_application(member)
 
-    # Chapter permission and existence were already checked in
-    # approve_membership_application, before the advisory lock (#1414) --
-    # do not re-check here.
+    # Chapter permission was already checked in approve_application, before
+    # the advisory lock (#1414) -- do not re-check here.
 
     # Resolve and validate membership type
     membership_type = resolve_membership_type(member, membership_type)
@@ -1090,124 +844,6 @@ def _rejection_review_notes(sanitized):
 
 
 @frappe.whitelist()
-@high_security_api()  # Member application rejection workflow
-def reject_membership_application(
-    member_name: str,
-    reason: str,
-    email_template: str = None,
-    rejection_category: str = None,
-    internal_notes: str = None,
-    process_refund: bool = False,
-):
-    """Reject a membership application with enhanced template support and input validation"""
-    # Input validation and sanitization
-    member_name = _sanitize_member_name_for_review(member_name, "rejection")
-    sanitized = _sanitize_text_fields(
-        {
-            "reason": (reason, 1000, False),
-            "email_template": (email_template, 255),
-            "rejection_category": (rejection_category, 255),
-            "internal_notes": (internal_notes, 2000, False),
-        }
-    )
-    reason = sanitized["reason"]
-    email_template = sanitized["email_template"]
-    rejection_category = sanitized["rejection_category"]
-    internal_notes = sanitized["internal_notes"]
-
-    # Check chapter-based permissions BEFORE any existence-revealing check
-    # (#1414) -- see approve_membership_application for why the ordering
-    # matters: this is what closes the existence oracle that let a non-staff
-    # Chapter Board Member enumerate real Member ids.
-    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-    validate_chapter_permission_or_throw(member_name, "reject")
-    _check_member_exists_for_review(member_name, "rejection")
-
-    # Validate email template if provided
-    if email_template and not frappe.db.exists("Email Template", email_template):
-        frappe.throw(_("Invalid email template specified"))
-
-    member = frappe.get_doc("Member", member_name)
-
-    # Validate application can be rejected. Approval is final: once an application
-    # is "Approved" it cannot be rejected (that would strand the membership/invoice
-    # created on approval). This matches the deprecated
-    # api.membership_application.reject_membership_application, which never allowed
-    # rejecting an approved application.
-    if member.application_status not in ["Pending", "Payment Failed", "Payment Cancelled"]:
-        frappe.throw(_("This application cannot be rejected in its current state"))
-
-    # Note: Frappe automatically manages transactions for @frappe.whitelist() functions
-
-    # Build comprehensive review notes
-    review_notes = f"Rejection Category: {rejection_category or 'Not specified'}\n"
-    review_notes += f"Reason: {reason}\n"
-    if internal_notes:
-        review_notes += f"Internal Notes: {internal_notes}\n"
-    review_notes += f"Email Template Used: {email_template or 'Default'}"
-
-    # Update member status
-    member.application_status = "Rejected"
-    member.status = "Rejected"
-    member.reviewed_by = frappe.session.user
-    member.review_date = now_datetime()
-    member.review_notes = review_notes
-    member.save()
-
-    # Process refund if payment was made
-    refund_processed = False
-    if (
-        process_refund
-        and hasattr(member, "application_invoice")
-        and getattr(member, "application_invoice", None)
-    ):
-        from verenigingen.api.payment_processing import process_application_refund
-
-        refund_result = process_application_refund(member_name, "Application Rejected: " + reason)
-        refund_processed = refund_result.get("success", False)
-
-    # Cancel any pending membership
-    if frappe.db.exists(
-        "Membership", {"member": member.name, "status": ["in", ["Draft", "Pending", "Active"]]}
-    ):
-        membership = frappe.get_doc("Membership", {"member": member.name})
-        if membership.docstatus == 1:
-            membership.cancel()
-        else:
-            try:
-                frappe.delete_doc("Membership", membership.name)
-            except frappe.LinkExistsError:
-                _throw_membership_deletion_blocked(membership)
-
-    # Remove pending chapter memberships. Elevated: validate_chapter_permission_or_throw
-    # above has already authorized this caller to reject THIS application, so the
-    # cleanup removes every one of the applicant's own Pending rows -- including in
-    # chapters the caller does not personally manage -- rather than stranding rows
-    # the caller merely lacks board access to (#1573 maintainer ruling).
-    from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
-
-    remove_all_pending_chapter_memberships(member, elevated=True)
-
-    # Update CRM Lead status if exists
-    if frappe.db.exists("Lead", {"member": member.name}):
-        lead = frappe.get_doc("Lead", {"member": member.name})
-        lead.status = "Do Not Contact"
-        lead.save()
-
-    # Send rejection notification with specified template
-    send_rejection_notification(member, reason, email_template, rejection_category)
-
-    # Note: Frappe automatically commits successful transactions
-
-    return {
-        "success": True,
-        "message": _("Application rejected. Notification sent to applicant."),
-        "refund_processed": refund_processed,
-    }
-
-
-@frappe.whitelist()
 @standard_api  # User chapter access - read-only
 def get_user_chapter_access(**kwargs):
     """Get user's chapter access for filtering applications"""
@@ -1305,23 +941,6 @@ def send_approval_notification(member, invoice, membership_type):
         )
 
     return result
-
-
-def send_rejection_notification(member, reason, email_template=None, rejection_category=None):
-    """Send rejection notification to applicant using specified template - MIGRATED to unified EmailService"""
-    result = _send_rejection_email(
-        member,
-        reason,
-        email_template,
-        rejection_category,
-        application_id=getattr(member, "application_id", member.name),
-        reference_doctype="Member",
-        reference_name=member.name,
-    )
-    if not result.success:  # legacy member-keyed path, unchanged; retired in Task 9
-        frappe.logger("membership_review").warning(
-            f"Failed to send rejection notification to {member.email}: {'; '.join(result.errors)}"
-        )
 
 
 def send_application_rejection_notification(

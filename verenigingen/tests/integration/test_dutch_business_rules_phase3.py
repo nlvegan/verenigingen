@@ -66,7 +66,7 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
         Test complete membership approval workflow with real API calls.
         
         This replaces mocked approval tests with real integration testing
-        that validates the actual approve_membership_application() API.
+        that validates the actual approve_application() API.
         """
         # Create test application data with Dutch business logic - use Member field names
         application_data = {

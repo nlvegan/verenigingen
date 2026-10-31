@@ -382,7 +382,9 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         pending chapter memberships.
 
         Repointed from MemberLifecycleService to the canonical API in T4.1
-        step 4. The SQL query in _activate_pending_chapter_memberships
+        step 4; calls the approval core directly since the member-keyed entry
+        point was removed in #1765 (test_application_record_approval covers the
+        entry point, approve_application). The SQL query in _activate_pending_chapter_memberships
         finds Chapter Member rows by member+status='Pending' (parent column
         carries the chapter; Chapter Member is a child table). Earlier
         versions of this code used a non-existent 'chapter' column and the
@@ -390,9 +392,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
         Regression test for: Chapter Member status staying "Pending" after approval.
         """
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-        )
+        from verenigingen.api.membership_application_review import _approve_membership_application_locked
 
         # 1. Create pending member application
         member = self.create_test_member(
@@ -438,11 +438,9 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             "Query should correctly return chapter name via 'parent as chapter'"
         )
 
-        # 5. Now approve via the canonical API.
+        # 5. Now approve via the canonical core.
         member.reload()
-        approve_membership_application(
-            member_name=member.name, membership_type="Standard Member", chapter=None
-        )
+        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
 
         # 6. Verify chapter membership status changed to Active.
         chapter_doc.reload()
@@ -468,9 +466,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         _activate_pending_chapter_memberships correctly processes multiple
         pending Chapter Member rows for a single member.
         """
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-        )
+        from verenigingen.api.membership_application_review import _approve_membership_application_locked
 
         # Create a second test chapter
         second_chapter = self._create_test_chapter(f"Test Chapter 2 {int(now_datetime().timestamp())}")
@@ -503,11 +499,9 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
         self.assertEqual(pending_count, 2, "Should have 2 pending chapter memberships")
 
-        # 4. Approve via the canonical API.
+        # 4. Approve via the canonical core.
         member.reload()
-        approve_membership_application(
-            member_name=member.name, membership_type="Standard Member", chapter=None
-        )
+        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
 
         # 5. Verify BOTH chapter memberships are now Active
         active_count = frappe.db.count(

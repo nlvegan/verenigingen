@@ -41,8 +41,6 @@ verenigingen/api/anbi_operations.py::send_consent_requests::2
 verenigingen/api/anbi_operations.py::update_anbi_consent::1
 verenigingen/api/anbi_operations.py::update_donor_tax_identifiers::1
 verenigingen/api/anbi_operations.py::validate_bsn::1
-verenigingen/api/background_approval_api.py::approve_membership_application_background::3
-verenigingen/api/background_approval_api.py::get_approval_progress::1
 verenigingen/api/chapter_dashboard_api.py::reprocess_mt940_import::1
 verenigingen/api/chapter_join.py::get_chapter_join_context::2
 verenigingen/api/chapter_join.py::get_user_chapter_requests::1
@@ -79,11 +77,9 @@ verenigingen/api/member_management.py::_sanitize_member_filters::1
 verenigingen/api/member_management.py::add_member_to_chapter_roster::1
 verenigingen/api/member_management.py::bulk_assign_members_to_chapters::1
 verenigingen/api/member_management.py::get_members_without_chapter::1
-verenigingen/api/membership_application.py::_create_pending_chapter_membership_safe::1
 verenigingen/api/membership_application.py::_validate_membership_amount::2
 verenigingen/api/membership_application.py::check_application_eligibility_endpoint::1
 verenigingen/api/membership_application.py::get_application_form_data::1
-verenigingen/api/membership_application.py::reject_membership_application::1
 verenigingen/api/membership_application.py::submit_application::1
 verenigingen/api/membership_application.py::suggest_chapters_for_postal_code::1
 verenigingen/api/membership_application.py::validate_postal_code::2

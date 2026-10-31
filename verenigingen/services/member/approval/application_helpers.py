@@ -783,101 +783,6 @@ def _reset_application_dues_choice(member, data):
     member.application_custom_fee = None
 
 
-def update_member_from_reapplication(member_name, data, application_id, address=None):
-    """
-    Update existing member record from reapplication data.
-
-    Used for:
-    - Rejected applications reapplying
-    - Pending applications being updated
-    - Voluntary terminations rejoining
-    """
-    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
-
-    # Get existing member
-    member = frappe.get_doc("Member", member_name)
-
-    # Sanitize names before updating
-    first_name, middle_name, tussenvoegsel, last_name = _sanitize_application_names(data)
-
-    # Update member fields with new application data
-    member.first_name = first_name
-    member.middle_name = middle_name
-    member.tussenvoegsel = tussenvoegsel
-    member.last_name = last_name
-    member.contact_number = data.get("contact_number", "")
-    member.birth_date = data.get("birth_date")
-    member.pronouns = data.get("pronouns", "")
-
-    # Update address if provided
-    if address:
-        member.primary_address = address.name
-
-    # Reset to pending status for reapplication
-    member.status = "Pending"
-    member.application_status = "Pending"
-    member.application_date = now_datetime()
-    member.application_id = application_id
-
-    # Update application-specific fields
-    member.selected_membership_type = data.get("selected_membership_type")
-    member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
-    # Convert opt-out preference to opt-in field (inverted logic)
-    member.accepts_optional_communications = 0 if data.get("opt_out_optional_emails") else 1
-    # No default -- see create_member_from_application.
-    member.application_source = data.get("application_source")
-    member.payment_method = map_payment_method(data.get("payment_method", ""))
-    member.current_chapter_display = data.get("selected_chapter", "")
-
-    # Update bank details
-    member.iban = data.get("iban", "")
-    member.bic = data.get("bic", "")
-    member.bank_account_name = data.get("bank_account_name", "")
-
-    # Transfer volunteer skills (consistency with new applications)
-    volunteer_skills = data.get("volunteer_skills", [])
-    if volunteer_skills:
-        member.volunteer_skills = volunteer_skills
-
-    # Transfer volunteer areas of interest (consistency with new applications)
-    volunteer_interests = data.get("volunteer_interests", [])
-    if volunteer_interests:
-        member.volunteer_interests = volunteer_interests
-
-    # Transfer volunteer availability/experience level (consistency with new
-    # applications, #821)
-    volunteer_availability = data.get("volunteer_availability", "")
-    if volunteer_availability:
-        member.volunteer_availability = volunteer_availability
-
-    volunteer_experience_level = data.get("volunteer_experience_level", "")
-    if volunteer_experience_level:
-        member.volunteer_experience_level = volunteer_experience_level
-
-    # Add chapter information to notes for approver visibility
-    _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
-
-    # Add reapplication timestamp note
-    from verenigingen.utils import append_to_text_field
-
-    reapp_note = f"Reapplication submitted: {now_datetime()}"
-    append_to_text_field(member, "notes", reapp_note, separator="\n")
-
-    # Suppress customer creation messages during reapplication processing
-    member._suppress_customer_messages = True
-
-    # Handle custom membership amount (after the reset: it only ever sets fields)
-    _reset_application_dues_choice(member, data)
-    _apply_custom_contribution_fee(member, data, context_label="reapplication")
-
-    # Save with proper permissions
-    system_user = get_system_user_for_operation("member_reapplication_update")
-    with secure_user_context(system_user, f"Update member {member_name} from reapplication {application_id}"):
-        member.save()
-
-    return member
-
-
 # Wire-level codes the public application form's `volunteer_areas[]`
 # checkboxes send (apply_for_membership.html). Each value is exactly the
 # checkbox's own (untranslated) label text, so the category a submission
@@ -1901,9 +1806,8 @@ def remove_all_pending_chapter_memberships(member, elevated=False):
         elevated: Passed through to remove_pending_chapter_membership -- see its
             docstring. Only a caller that has ALREADY authorized the acting user
             for THIS member's application should pass True (#1573 maintainer
-            ruling: reject_membership_application does, having just called
-            validate_chapter_permission_or_throw; nothing else in this codebase
-            calls this function).
+            ruling: the member-keyed rejection did, having just authorised the
+            reviewer; it was removed in #1765 and no caller remains).
 
     Returns:
         list: Chapter names where pending memberships were removed
@@ -1919,8 +1823,8 @@ def remove_all_pending_chapter_memberships(member, elevated=False):
             Error Log via remove_pending_chapter_membership's own logging and the
             log_error call just below. Raising at all (rather than reporting
             partial success) lets the caller's own transaction fail atomically --
-            reject_membership_application does not commit before this cleanup
-            runs.
+            the member-keyed rejection (removed, #1765) did not commit before this cleanup
+            ran.
     """
     if not member:
         return []

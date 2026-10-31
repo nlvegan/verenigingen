@@ -741,40 +741,10 @@ class TestDuplicateWarning(ApprovalCase):
         self.assertEqual(outcomes[1], outcomes[2])
 
 
-class TestReportOrderAndBulkErrors(SurfaceCase):
+class TestReportOrder(SurfaceCase):
     def test_report_lists_the_oldest_application_first(self):
         newest = self._application(self.chapter_a.name, days_ago=1)
         oldest = self._application(self.chapter_a.name, days_ago=20)
         middle = self._application(self.chapter_a.name, days_ago=9)
         names = [row["name"] for row in report.execute({"chapter": self.chapter_a.name})[1]]
         self.assertEqual(names, [oldest, middle, newest])
-
-    def test_bulk_approve_does_not_loop_on_after_a_deadlock(self):
-        """A deadlock (1213) destroys the transaction; carrying on to the next application would run on a
-        dead transaction. Mock justified: a deadlock cannot be forced from one connection."""
-        from unittest.mock import patch
-
-        from verenigingen.pages.membership_applications import bulk_approve_applications
-
-        calls = []
-
-        def deadlock(name, **_kwargs):
-            calls.append(name)
-            raise frappe.QueryDeadlockError("forced")
-
-        with patch("verenigingen.api.membership_application_review.approve_application", deadlock):
-            with self.assertRaises(frappe.QueryDeadlockError):
-                bulk_approve_applications(json.dumps(["a1", "a2"]), "Any Type")
-        self.assertEqual(calls, ["a1"], "the second application must not be attempted")
-
-    def test_bulk_approve_reports_an_ordinary_failure_and_continues(self):
-        from unittest.mock import patch
-
-        from verenigingen.pages.membership_applications import bulk_approve_applications
-
-        def refuse(name, **_kwargs):
-            raise frappe.ValidationError("no")
-
-        with patch("verenigingen.api.membership_application_review.approve_application", refuse):
-            result = bulk_approve_applications(json.dumps(["a1", "a2"]), "Any Type")
-        self.assertEqual([f["application"] for f in result["failed"]], ["a1", "a2"])

@@ -9,6 +9,7 @@ from pathlib import Path
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 import unittest
 
@@ -109,62 +110,6 @@ class TestValidationRegression(EnhancedTestCase):
 
         return base_data
 
-    def test_application_flow_volunteer_status_regression(self):
-        """Regression test for the volunteer status bug that was fixed"""
-
-        # Self-seed a membership type rather than assuming a site-specific one
-        # ("Maandlid") exists — in isolation that master is absent.
-        membership_type = self.create_test_membership_type()
-
-        # This test specifically checks that the bug we fixed doesn't regress
-        test_data = {
-            "first_name": "Regression",
-            "last_name": f"Test Volunteer {frappe.utils.random_string(5)}",
-            "email": f"regression.test.{frappe.utils.random_string(5).lower()}@example.com",
-            "birth_date": "1990-01-01",
-            "address_line1": "Regression Test Street 123",
-            "city": "Amsterdam",
-            "postal_code": "1000AA",
-            "country": "Netherlands",
-            "selected_membership_type": membership_type.name,
-            "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer"}
-
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
-
-        # This should NOT fail with volunteer status validation error
-        result = submit_and_materialise(data=test_data)
-
-        self.assertTrue(
-            result.get("success"),
-            f"Application submission should succeed - regression check failed: {result}",
-        )
-
-        if result.get("success"):
-            # submit_application returns the nested-envelope schema; the member
-            # record id lives under data.member_record (not at the top level).
-            member_record = (result.get("data") or {}).get("member_record")
-            self.assertIsNotNone(member_record, f"member_record missing in result: {result}")
-            self.add_cleanup("Member", member_record)
-
-            # Verify volunteer was created with correct status
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": member_record}, fields=["name", "status"]
-            )
-
-            if volunteers:
-                self.add_cleanup("Volunteer", volunteers[0]["name"])
-                self.assertEqual(
-                    volunteers[0]["status"],
-                    "New",
-                    "Volunteer status regression: should be 'New', not 'Pending'",
-                )
-
-            # Clean up address if created
-            member = frappe.get_doc("Member", member_record)
-            if member.primary_address:
-                self.add_cleanup("Address", member.primary_address)
-
     def test_doctype_field_consistency(self):
         """Test that doctype fields are consistent and properly defined"""
 
@@ -244,9 +189,9 @@ class TestValidationRegression(EnhancedTestCase):
             "selected_membership_type": "INVALID_MEMBERSHIP_TYPE",
             "interested_in_volunteering": 1}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
+        from verenigingen.api.membership_application import submit_application
 
-        result = submit_and_materialise(data=invalid_data)
+        result = submit_application(data=invalid_data)
 
         # Should fail but not crash
         self.assertFalse(result.get("success"), "Invalid data should cause graceful failure")
@@ -334,6 +279,30 @@ class TestValidationRegression(EnhancedTestCase):
                     continue
         
         return violations
+
+
+class TestApplicationFlowVolunteerStatusRegression(ApprovalCase):
+    """Regression test for the volunteer status bug that was fixed: the Volunteer an applicant's approval
+    creates must start as 'New', not 'Pending'. Driven through the real flow (submit -> confirm -> approve)."""
+
+    def test_application_flow_volunteer_status_regression(self):
+        name = self._stage_and_confirm(interested_in_volunteering=1, payment_method="Bank Transfer")
+
+        result = self._approve_as(name)  # This should NOT fail with volunteer status validation error
+
+        self.assertTrue(
+            result.get("success"),
+            f"Application approval should succeed - regression check failed: {result}",
+        )
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"member": result["member"]}, fields=["name", "status"]
+        )
+        self.assertTrue(volunteers, "control: an interested applicant must get a Volunteer, or this checks nothing")
+        self.assertEqual(
+            volunteers[0]["status"],
+            "New",
+            "Volunteer status regression: should be 'New', not 'Pending'",
+        )
 
 
 def run_validation_regression_tests():

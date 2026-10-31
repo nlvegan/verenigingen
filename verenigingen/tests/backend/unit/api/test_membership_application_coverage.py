@@ -11,8 +11,6 @@ suites (test_validation_endpoint_wrappers, test_membership_application):
 - _handle_existing_member reapplication scenarios (Rejected/Active/Quit/unknown)
   via the public submit_application entry point.
 - suggest_chapters_for_postal_code + the pure _match_chapter_* matchers.
-- The deprecated reject_membership_application / approve_membership_application
-  redirect endpoints in this module.
 - validate_email / validate_postal_code response shaping.
 - get_application_form_data success path.
 
@@ -30,9 +28,7 @@ from verenigingen.api.membership_application import (
     _handle_existing_member,
     _match_chapter_postal_codes,
     _match_chapter_region_heuristic,
-    approve_membership_application as deprecated_approve,
     get_application_form_data,
-    reject_membership_application as deprecated_reject,
     submit_application,
     suggest_chapters_for_postal_code,
     validate_email,
@@ -450,59 +446,3 @@ class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
         self.assertTrue(result["success"], msg=json.dumps(result))
         self.assertEqual(frappe.db.count("Member", {"email": email}), 0)
         self.assertEqual(len(self._staged_for(email)), 1)
-
-
-# ---------------------------------------------------------------------------
-# Deprecated redirect endpoints in this module
-# ---------------------------------------------------------------------------
-
-
-class TestDeprecatedRejectEndpoint(EnhancedTestCase):
-    """membership_application.reject_membership_application (deprecated path)."""
-
-    def _pending_member(self):
-        member = self.create_test_member(
-            first_name="DepReject",
-            last_name=f"Member{frappe.generate_hash(length=6)}",
-            email=f"depreject-{frappe.generate_hash(length=8)}@example.com",
-            birth_date=add_days(today(), -365 * 30),
-        )
-        member.db_set("status", "Pending", update_modified=False)
-        member.db_set("application_status", "Pending", update_modified=False)
-        member.reload()
-        return member
-
-    def test_reject_pending_member_sets_rejected(self):
-        member = self._pending_member()
-        # send_rejection_notification renders an email template; in the test bench
-        # (no SMTP / template config) it may log. Allow those expected titles.
-        self.expectErrorLog(
-            "Email", "Notification", "Template", "rejection", "membership_application_rejected"
-        )
-        result = deprecated_reject(member.name, "Incomplete application")
-
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        member.reload()
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.review_notes, "Incomplete application")
-
-    def test_reject_already_approved_member_fails(self):
-        member = self._pending_member()
-        member.db_set("application_status", "Approved", update_modified=False)
-
-        result = deprecated_reject(member.name, "too late")
-        self.assertFalse(result["success"])
-        self.assertIn("invalid_application_status", json.dumps(result))
-
-
-class TestDeprecatedApproveRedirect(EnhancedTestCase):
-    """membership_application.approve_membership_application redirects to canonical."""
-
-    def test_approve_nonexistent_member_returns_failure_dict(self):
-        # The canonical implementation throws for a non-existent member; the
-        # @high_security_api wrapper serialises that into a failure dict.
-        self.expectErrorLog("Invalid member", "member access", "approval", "Member", "security")
-        result = deprecated_approve("NONEXISTENT-MEMBER-COV-12345")
-        self.assertIsInstance(result, dict)
-        self.assertFalse(result["success"])

@@ -40,17 +40,17 @@ import frappe
 from frappe.utils import add_months, getdate, today
 
 from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.tests.support.termination_request import (
     create_draft_termination_request,
     execute_real_termination,
 )
-from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import (
     calculate_cohort_data,
 )
 
 
-class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
+class TestCohortRetentionRejoinTerminations(ApprovalCase):
     """calculate_cohort_data()'s retention exclusion, driven through real flows."""
 
     def setUp(self):
@@ -87,46 +87,19 @@ class TestCohortRetentionRejoinTerminations(VereningingenTestCase):
 
     def _real_rejoin_and_approve(self, member, membership_type="Standard Member"):
         """Drive the REAL reapplication + approval flow for a Quit member:
-        api/membership_application.py::_handle_existing_member (Scenario 3)
-        -> services/member/approval/application_helpers.py::
-        update_member_from_reapplication -> api/membership_application_review.py::
-        approve_membership_application. Returns the reloaded member.
+        submit_application (a Membership Application Submission, no Member
+        touched) -> the emailed confirm link -> approve_application, which runs
+        materialise_member (updates this Member to Pending) and the approval core.
+        Returns the reloaded member.
         """
-        from verenigingen.api.membership_application import _handle_existing_member
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
+        name = self._stage_and_confirm(
+            first_name=member.first_name,
+            last_name=member.last_name,
+            email=member.email,
+            birth_date=str(member.birth_date),
+            selected_membership_type=membership_type,
         )
-        from verenigingen.services.member.approval.application_helpers import (
-            generate_application_id,
-            update_member_from_reapplication,
-        )
-
-        existing_member = frappe.db.get_value(
-            "Member",
-            {"email": member.email},
-            ["name", "status", "application_status"],
-            as_dict=True,
-        )
-        data = {
-            "first_name": member.first_name,
-            "last_name": member.last_name,
-            "email": member.email,
-            "birth_date": str(member.birth_date),
-            "selected_membership_type": membership_type,
-        }
-        action, blocked = _handle_existing_member(existing_member, data)
-        self.assertEqual(action, "update", "Voluntary-terminated member must be allowed to reapply")
-        self.assertIsNone(blocked)
-
-        update_member_from_reapplication(member.name, data, generate_application_id(), address=None)
-        member.reload()
-        self.assertEqual(member.application_status, "Pending")
-
-        approve_membership_application(
-            member_name=member.name,
-            membership_type=membership_type,
-            chapter=None,
-        )
+        self._approve_as(name, membership_type=membership_type)
         member.reload()
         self.assertEqual(member.application_status, "Approved")
         return member

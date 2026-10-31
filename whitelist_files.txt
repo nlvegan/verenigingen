@@ -257,7 +257,6 @@
 ./verenigingen/fixtures/add_sepa_database_indexes.py
 ./verenigingen/hooks.py
 ./verenigingen/monitoring/zabbix_integration.py
-./verenigingen/pages/membership_applications/__init__.py
 ./verenigingen/permissions.py
 ./verenigingen/services/billing/dues_schedule_auto_creator.py
 ./verenigingen/services/billing/dues_schedule_health_manager.py

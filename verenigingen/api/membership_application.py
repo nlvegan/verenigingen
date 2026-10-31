@@ -10,11 +10,9 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import cint
 
-from verenigingen.api.membership_application_review import send_rejection_notification
 from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
 from verenigingen.utils.application_helpers import (
     check_application_status as check_application_status_util,
-    create_pending_chapter_membership,
     get_form_data,
     get_member_field_info,
     get_membership_fee_info as get_membership_fee_info_util,
@@ -27,7 +25,6 @@ from verenigingen.utils.application_helpers import (
 from verenigingen.utils.application_payments import (
     get_payment_methods as get_payment_methods_util,
 )
-from verenigingen.utils.constants import Roles
 
 # Import enhanced utilities
 from verenigingen.utils.error_handling import ValidationError, handle_api_error, log_error
@@ -37,15 +34,10 @@ from verenigingen.utils.performance_utils import performance_monitor
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    high_security_api,
     public_api,
-    standard_api,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
-from verenigingen.utils.validation.api_validators import (
-    APIValidator,
-    require_roles,
-)
+from verenigingen.utils.validation.api_validators import APIValidator
 
 # Import our utility modules
 from verenigingen.utils.validation.application_validators import (
@@ -674,12 +666,6 @@ def _validate_membership_amount(data):
     return None
 
 
-def _as_application_system_user(description):
-    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
-
-    return secure_user_context(get_system_user_for_operation("member_update_during_application"), description)
-
-
 def _only_if_selectable_chapter(chapter_name):
     """Return chapter_name only if the application form could have offered it, else None.
 
@@ -694,164 +680,6 @@ def _only_if_selectable_chapter(chapter_name):
     if chapter and chapter.published and chapter.status == "Active":
         return chapter_name
     return None
-
-
-def _save_suggested_chapter(member, suggested_chapter, application_id):
-    """Set suggested chapter on member and save with retry on timestamp mismatch.
-
-    Fire-and-forget: logs errors but does not raise.
-    """
-    if hasattr(member, "suggested_chapter"):
-        member.suggested_chapter = suggested_chapter
-    else:
-        member.current_chapter_display = suggested_chapter
-
-    from verenigingen.utils.secure_operations import (
-        get_system_user_for_operation,
-        secure_user_context,
-    )
-
-    system_user = get_system_user_for_operation("member_update_during_application")
-    with secure_user_context(system_user, f"Update suggested chapter for application {application_id}"):
-        try:
-            member.save()
-        except frappe.TimestampMismatchError:
-            member.reload()
-            if hasattr(member, "suggested_chapter"):
-                member.suggested_chapter = suggested_chapter
-            else:
-                member.current_chapter_display = suggested_chapter
-            member.save()
-
-
-def _create_pending_chapter_membership_safe(member, suggested_chapter):
-    """Create pending Chapter Member record after member commit.
-
-    Fire-and-forget: logs errors but never fails the application submission.
-    """
-    try:
-        chapter_member = create_pending_chapter_membership(member, suggested_chapter)
-        if chapter_member:
-            frappe.logger().info(
-                f"Created pending chapter membership for {member.name} in {suggested_chapter}"
-            )
-        else:
-            frappe.logger().warning(
-                f"Failed to create pending chapter membership for {member.name} in {suggested_chapter}"
-            )
-    except Exception as e:
-        try:
-            frappe.log_error(
-                f"Chapter membership creation failed for {member.name}: {str(e)[:200]}",
-                "Chapter Setup Error",
-            )
-        except Exception:
-            frappe.logger().error(f"Chapter membership creation failed for {member.name}")
-
-
-@frappe.whitelist()
-@high_security_api()  # Member application approval
-@handle_api_error
-@performance_monitor(threshold_ms=2000)
-@require_roles(list(Roles.ADMIN_ROLES))
-def approve_membership_application(member_name: str, notes=None) -> OperationResult[Dict[str, Any]]:
-    """
-    DEPRECATED: Use verenigingen.api.membership_application_review.approve_membership_application instead.
-
-    This function redirects to the canonical implementation for backward compatibility.
-    Will be removed in a future version.
-    """
-    frappe.logger("membership").warning(
-        "DEPRECATED: membership_application.approve_membership_application called. "
-        "Use membership_application_review.approve_membership_application instead."
-    )
-
-    # Redirect to canonical implementation
-    from verenigingen.api.membership_application_review import (
-        approve_membership_application as canonical_approve,
-    )
-
-    # Call canonical function with compatible parameters
-    # Note: This doesn't pass membership_type or chapter, assuming defaults
-    result = canonical_approve(member_name=member_name, notes=notes, create_invoice=True)
-
-    # If result is already OperationResult, return it directly
-    # If it's a dict (legacy format), wrap it
-    if isinstance(result, OperationResult):
-        return result
-    elif isinstance(result, dict):
-        if result.get("success"):
-            return OperationResult.ok(
-                result, message=_(result.get("message", "Application approved successfully"))
-            )
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Application approval failed")),
-                errors=[result.get("error", "approval_failed")],
-                context=result,
-            )
-    else:
-        return OperationResult.fail(
-            _("Unexpected response from approval function"),
-            errors=["unexpected_response"],
-            context={"operation": "approve_membership_application"},
-        )
-
-
-@frappe.whitelist()
-@high_security_api()  # Member application rejection
-def reject_membership_application(member_name: str, reason) -> OperationResult[Dict[str, Any]]:
-    """Reject a membership application — DEPRECATED, use membership_application_review version."""
-    frappe.logger("membership").warning(
-        "DEPRECATED: membership_application.reject_membership_application called. "
-        "Use membership_application_review.reject_membership_application instead."
-    )
-    try:
-        member = frappe.get_doc("Member", member_name)
-
-        if member.application_status not in ["Pending", "Under Review"]:
-            return OperationResult.fail(
-                _("This application cannot be rejected in its current state"),
-                errors=["invalid_application_status"],
-                context={
-                    "current_status": member.application_status,
-                    "operation": "reject_membership_application",
-                },
-            )
-
-        # Member.reject_application was removed in T4.1. Apply the rejection
-        # directly here (mirrors the canonical path in
-        # api.membership_application_review.reject_membership_application):
-        # mark the application rejected and record the reviewer + reason.
-        member.application_status = "Rejected"
-        member.status = "Rejected"
-        member.reviewed_by = frappe.session.user
-        member.review_date = frappe.utils.now_datetime()
-        member.review_notes = reason
-        member.flags.ignore_status_validation = True
-        member.save()
-
-        # Send rejection notification using modern EmailService
-        send_rejection_notification(member, reason)
-
-        return OperationResult.ok(
-            {
-                "member_id": member_name,
-                "status": "Rejected",
-            },
-            message=_("Application rejected and notification sent"),
-        )
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error rejecting application: {str(e)}\n{traceback.format_exc()}",
-            "Application Rejection Error",
-        )
-        return OperationResult.fail(
-            _("Error rejecting application"),
-            errors=[str(e)],
-            context={"operation": "reject_membership_application"},
-        )
 
 
 @frappe.whitelist(allow_guest=True)

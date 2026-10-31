@@ -3,19 +3,19 @@ Comprehensive tests for membership application submission edge cases and validat
 """
 
 import frappe
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 import unittest
 
 
-class TestApplicationSubmissionValidation(EnhancedTestCase):
+class TestApplicationSubmissionValidation(ApprovalCase):
     """Test application submission validation and edge cases"""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Seed masters so submit_application (which creates Member -> Customer and
+        # Seed masters so approve_application (which creates Member -> Customer and
         # may run the creation_user-gated secure paths) succeeds in ISOLATION.
         # before_tests is unreliable for single-module runs in this v16 setup.
         from verenigingen.tests.setup import ensure_member_test_masters
@@ -43,6 +43,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             test_case=self,
         )["membership_type"]
         self.membership_type_name = self.membership_type.name
+        self.membership_type.get_or_create_membership_item()  # approval needs the type's item (ApprovalCase did it for its own type)
 
     def _standard_amount(self):
         """The rate `validate_membership_amount_selection` compares against.
@@ -96,9 +97,8 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
-
-        result = submit_and_materialise(data=test_data)
+        # Real flow: submit -> the emailed confirm link -> approve_application creates the Member and Volunteer.
+        result = self._approve_as(self._stage_and_confirm(**test_data))
 
         # Application should succeed
         self.assertTrue(
@@ -106,7 +106,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         )
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # Check volunteer was created with correct status
@@ -204,13 +204,11 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,  # No volunteer interest
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
-
-        result = submit_and_materialise(data=test_data_no_volunteer)
+        result = self._approve_as(self._stage_and_confirm(**test_data_no_volunteer))
         self.assertTrue(result.get("success"), "Application without volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # Should NOT create volunteer record
@@ -235,11 +233,11 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,  # With volunteer interest
             "payment_method": "Bank Transfer"}
 
-        result = submit_and_materialise(data=test_data_with_volunteer)
+        result = self._approve_as(self._stage_and_confirm(**test_data_with_volunteer))
         self.assertTrue(result.get("success"), "Application with volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # SHOULD create volunteer record
@@ -271,9 +269,10 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
+        from verenigingen.api.membership_application import submit_application
 
-        result = submit_and_materialise(data=invalid_data)
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
+        result = submit_application(data=invalid_data)
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
         self.assertIn("error", result, "Error should be reported for invalid membership type")
 
@@ -304,13 +303,10 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # for this path.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
+        from verenigingen.api.membership_application import submit_application
 
-        result = submit_and_materialise(data=test_data)
-
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
+        result = submit_application(data=test_data)
 
         self.assertFalse(
             result.get("success"),
@@ -358,13 +354,10 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # it when the applicant types an amount instead of using the calculator.
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
+        from verenigingen.api.membership_application import submit_application
 
-        result = submit_and_materialise(data=test_data)
-
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
+        result = submit_application(data=test_data)
 
         self.assertTrue(
             result.get("success"),
@@ -389,13 +382,11 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.tests.utils.legacy_submit import submit_and_materialise
-
-        result = submit_and_materialise(data=test_data)
+        result = self._approve_as(self._stage_and_confirm(**test_data))
         self.assertTrue(result.get("success"), "Application with special characters should succeed")
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # Check volunteer was created correctly

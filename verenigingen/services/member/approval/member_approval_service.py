@@ -3,7 +3,7 @@ Member Approval Service - Reusable approval workflow utilities.
 
 This module provides utility functions used during the membership approval process.
 The main approval orchestration lives in:
-- API layer: api/membership_application_review.py::approve_membership_application()
+- API layer: api/membership_application_review.py::approve_application()
 - Service layer: services/member/approval/membership_creation_service.py::MembershipCreationService
 
 Functions in this module:

@@ -378,35 +378,6 @@ class TestCreateMemberFromApplication(EnhancedTestCase):
             self.assertIn("collision", r.error.lower())
 
 
-class TestReapplicationUpdate(EnhancedTestCase):
-    """update_member_from_reapplication."""
-
-    def setUp(self):
-        super().setUp()
-        self.mt = _make_membership_type(self.factory, amount=15.0)
-        helpers.ensure_payment_modes_exist()
-        self.member = self.create_test_member(first_name="Old", last_name="Name", email="reapply@example.com")
-
-    def test_updates_existing_member_to_pending(self):
-        new_app_id = helpers.generate_application_id()
-        data = {
-            "first_name": "New",
-            "last_name": "Surname",
-            "email": self.member.email,
-            "selected_membership_type": self.mt.name,
-            "payment_method": "bank_transfer",
-            "birth_date": "1985-05-05",
-        }
-        updated = helpers.update_member_from_reapplication(self.member.name, data, new_app_id)
-
-        self.assertEqual(updated.first_name, "New")
-        self.assertEqual(updated.last_name, "Surname")
-        self.assertEqual(updated.application_status, "Pending")
-        self.assertEqual(updated.status, "Pending")
-        self.assertEqual(updated.application_id, new_app_id)
-        self.assertIn("Reapplication submitted", updated.notes or "")
-
-
 class TestChapterMembershipLifecycle(EnhancedTestCase):
     """create_pending / activate / remove chapter membership helpers."""
 

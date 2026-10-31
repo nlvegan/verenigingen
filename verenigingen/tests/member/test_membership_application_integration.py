@@ -132,15 +132,17 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         return invoice
 
     def test_function_signature_compatibility(self):
-        """Test that the approve_membership_application function accepts all expected parameters"""
-        from verenigingen.api.membership_application_review import approve_membership_application
+        """Test that approve_application accepts every parameter the review page's JavaScript sends"""
+        from verenigingen.api.membership_application_review import approve_application
         import inspect
         
         # Get function signature
-        sig = inspect.signature(approve_membership_application)
+        sig = inspect.signature(approve_application)
         
-        # Check that all expected parameters exist
-        expected_params = ["member_name", "membership_type", "chapter", "notes", "create_invoice"]
+        # Check that all expected parameters exist (membership_application_review.js approve dialog)
+        expected_params = [
+            "application_name", "membership_type", "chapter", "notes", "create_invoice", "activate_as_volunteer"
+        ]
         actual_params = list(sig.parameters.keys())
         
         for param in expected_params:
@@ -174,29 +176,6 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         self.assertIn("creditor_id", payments_fields,
             "Verenigingen Payments Settings missing required field: creditor_id")
 
-    def test_approval_function_with_all_parameters(self):
-        """Test approval function with all JavaScript parameters - REAL business logic (NO MOCKS)"""
-        from verenigingen.api.membership_application_review import approve_membership_application
-        
-        # Test with all parameters that JavaScript sends
-        try:
-            # Use REAL system settings - no mocking of business configuration
-            self._ensure_system_email_settings()
-            
-            # This should not raise an error about missing parameters
-            result = approve_membership_application(
-                member_name=self.test_member.name,
-                membership_type=self.membership_type.name,
-                chapter=None,
-                notes="Test approval",
-                create_invoice=True
-            )
-            
-            # The function should complete without parameter errors
-            self.assertIsNotNone(result)
-            
-        except TypeError as e:
-            self.fail(f"Function signature mismatch: {str(e)}")
 
     def test_missing_field_error_handling(self):
         """Test that missing field errors are handled gracefully - REAL business logic (NO MOCKS)"""
@@ -261,65 +240,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
                     self.fail(f"Unexpected error in email notification: {str(e)}")
                 # Expected error for missing email template - this is acceptable
 
-    def test_application_approval_complete_workflow(self):
-        """Test the complete approval workflow end-to-end - REAL business logic (NO MOCKS)"""
-        from verenigingen.api.membership_application_review import approve_membership_application
-        
-        # Use REAL system settings instead of mocking business configuration
-        self._ensure_system_email_settings()
-        
-        # Only mock email infrastructure to prevent actual sending during tests
-        # Mock justified: External Service - SMTP delivery, not business logic
-        with patch('frappe.sendmail') as mock_sendmail:
-            # Run the complete approval workflow
-            try:
-                result = approve_membership_application(
-                    member_name=self.test_member.name,
-                    membership_type=self.membership_type.name,
-                    create_invoice=True
-                )
-                
-                # Check that the member status was updated
-                self.test_member.reload()
-                self.assertEqual(self.test_member.application_status, "Approved")
-                
-                # Email may or may not be sent depending on business logic state
-                # The main focus is that the API call completed without parameter errors
-                # This test validates JavaScript-Python integration, not email business logic
-                
-            except Exception as e:
-                self.fail(f"Complete workflow failed: {str(e)}")
 
-    def test_javascript_parameter_validation(self):
-        """Test that we catch JavaScript-Python parameter mismatches"""
-        # Simulate the exact parameters that JavaScript sends
-        js_parameters = {
-            "member_name": self.test_member.name,
-            "create_invoice": True,
-            "membership_type": self.membership_type.name,
-            "chapter": None,
-            "notes": "Test approval from JS"
-        }
-        
-        from verenigingen.api.membership_application_review import approve_membership_application
-        
-        # Use REAL system settings instead of mocking business configuration
-        self._ensure_system_email_settings()
-        
-        # Only mock email infrastructure to prevent actual sending during tests
-        # Mock justified: External Service - SMTP delivery, not business logic
-        with patch('frappe.sendmail'):
-            try:
-                # This should work without any parameter errors
-                result = approve_membership_application(**js_parameters)
-                self.assertIsNotNone(result)
-                        
-            except TypeError as e:
-                if "unexpected keyword argument" in str(e) or "missing" in str(e):
-                    self.fail(f"JavaScript-Python parameter mismatch: {str(e)}")
-                else:
-                    # Other errors are acceptable for this test
-                    pass
 
     def test_field_name_consistency(self):
         """Test that field names used in code match actual DocType fields"""

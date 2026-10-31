@@ -74,7 +74,7 @@ class MemberManager(BaseManager):
                     # see create_pending_chapter_membership -- so reaching HERE
                     # with enabled=0 means an application in progress is being
                     # re-touched, e.g. via assign_member_to_chapter during
-                    # approve_membership_application, which runs BEFORE the
+                    # approve_application, which runs BEFORE the
                     # applicant's Member.status is flipped to Active, or via
                     # remove_member(permanent=False) disabling a Pending row that
                     # is then re-added). Deriving from member_doc.status there

@@ -671,7 +671,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             ``_is_member_in_chapters`` for the has_permission half only (the
             permission_query half -- list views -- is untouched and stays
             Active-only; see that function's own docstring). #1518: Membership
-            passes True because a board member's approve_membership_application
+            passes True because a board member's approve_application
             creates the applicant's Membership record BEFORE their Chapter
             Member row is activated from "Pending" to "Active"
             (activate_pending_chapter_memberships runs after
@@ -880,10 +880,10 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 # Indexed rather than unpacked into `_`: this module does not import frappe's translation
 # function today, but binding `_` at module scope would silently shadow it if anyone does.
 #
-# include_pending=True (#1518): approve_membership_application creates this very
+# include_pending=True (#1518): approve_application creates this very
 # Membership record BEFORE activate_pending_chapter_memberships flips the applicant's
 # Chapter Member row from "Pending" to "Active", so an Active-only check here refused
-# the insert -- the board member had already cleared can_user_manage_application and
+# the insert -- the board member had already cleared the approval permission check and
 # Member.save() by that point, and the create failed one step later on Membership
 # itself for the identical underlying reason.
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]

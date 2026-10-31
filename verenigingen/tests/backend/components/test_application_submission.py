@@ -4,29 +4,14 @@ Test script to verify the complete membership application submission process
 
 import frappe
 from frappe.utils import random_string
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 
 
-class TestApplicationSubmission(VereningingenTestCase):
+class TestApplicationSubmission(ApprovalCase):
     """Test complete application submission process"""
 
     def test_application_submission(self):
-        """Test complete application submission"""
-        # Get an existing membership type or create one
-        membership_types = frappe.get_all("Membership Type", limit=1)
-        if not membership_types:
-            # Create a test membership type
-            membership_type = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type": "Test Standard",
-                "amount": 50.0
-            })
-            membership_type.insert()
-            self.track_doc("Membership Type", membership_type.name)
-            selected_membership_type = membership_type.name
-        else:
-            selected_membership_type = membership_types[0]["name"]
-        
+        """Test complete application submission: submit -> confirm -> approve creates the Member"""
         # Create test data that mimics form submission
         form_data = {
             "first_name": "TestApp",
@@ -38,7 +23,6 @@ class TestApplicationSubmission(VereningingenTestCase):
             "city": "Amsterdam",
             "postal_code": "1012AB",
             "country": "Netherlands",
-            "selected_membership_type": selected_membership_type,
             "membership_amount": 65.0,  # Custom amount
             "uses_custom_amount": True,
             "custom_amount_reason": "Supporter contribution",
@@ -49,46 +33,33 @@ class TestApplicationSubmission(VereningingenTestCase):
             "terms": True,
             "newsletter": True}
 
-        # Call the API method that handles form submissions
-        result = frappe.call(
-            "verenigingen.tests.utils.legacy_submit.submit_and_materialise", **form_data
-        )
+        # The real endpoint stages the application; following the emailed link confirms it. No Member
+        # exists until approval (#1765), so the Member's fields are checked after approve_application.
+        name = self._stage_and_confirm(**form_data)
+        self.assertEqual(frappe.db.count("Member", {"email": form_data["email"]}), 0)
+        result = self._approve_as(name)
+        self.assertTrue(result.get("success"), f"Application approval failed: {result}")
 
-        # Verify result
-        self.assertIsNotNone(result, "Application submission should return a result")
-        self.assertTrue(result.get("success"), f"Application submission failed: {result}")
+        member_id = result.get("member")
+        self.assertIsNotNone(member_id, f"Approval should return the member. Got result: {result}")
+        application_id = frappe.db.get_value("Membership Application Submission", name, "application_id")
+        self.assertIsNotNone(application_id, "Application should have an application_id")
 
-        # API returns nested structure: {'success': True, 'data': {...}, ...}
-        # Extract data from nested structure
-        result_data = result.get("data", result)  # Fall back to result itself if no 'data' key
-
-        # Verify the created member
-        member_id = result_data.get("member_record")
-        self.assertIsNotNone(member_id, f"Application should return a member_record. Got result: {result}")
-
-        # Also verify application ID
-        application_id = result_data.get("application_id")
-        self.assertIsNotNone(application_id, "Application should return an application_id")
-        
         member = frappe.get_doc("Member", member_id)
         self.track_doc("Member", member.name)  # Track for cleanup
-        
+
         # Verify member fields
         self.assertEqual(member.first_name, form_data["first_name"])
         self.assertEqual(member.last_name, form_data["last_name"])
-        self.assertEqual(member.email, form_data["email"])
-        
+        # The staged application stores the address lower-cased (the confirm link proves that spelling).
+        self.assertEqual(member.email, form_data["email"].lower())
+        self.assertEqual(member.application_id, application_id)
+
         # Most importantly - check that NO _pending_fee_change was created
         self.assertFalse(hasattr(member, "_pending_fee_change"),
                         "New application should not create _pending_fee_change!")
-        
-        # Verify status (check what the actual status is)
-        # Based on the result, status should be "pending_review"
-        self.assertEqual(result_data.get("status"), "pending_review")
-        
-        # Verify application was submitted successfully
-        self.assertEqual(result.get("success"), True)
 
+        self.assertEqual((member.application_status, member.status), ("Approved", "Active"))
 
     def test_backend_fee_adjustment(self):
         """Test backend fee adjustment for existing member"""

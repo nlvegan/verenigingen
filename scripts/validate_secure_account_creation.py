@@ -132,8 +132,8 @@ def validate_account_creation_integration():
             
         # Check if the integration function exists
         try:
-            from verenigingen.api.membership_application_review import approve_membership_application
-            print("✅ approve_membership_application function accessible")
+            from verenigingen.api.membership_application_review import approve_application
+            print("✅ approve_application function accessible")
         except ImportError as e:
             raise Exception(f"Integration function missing: {e}")
             

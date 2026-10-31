@@ -211,7 +211,7 @@ verenigingen/setup/security_setup.py::setup_password_policy::1
 verenigingen/setup/workflow_setup.py::create_appeals_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
 verenigingen/templates/pages/chapter_dashboard.py::get_context::1
-verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::2
+verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::1
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
 verenigingen/templates/pages/chapter_dashboard.py::get_recent_activity::1
