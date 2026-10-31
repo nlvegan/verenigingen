@@ -514,13 +514,15 @@ def get_quit_members_without_executed_termination():
 
     The termination service sets Quit and the Executed request together, so this state
     comes from a hand edit of Member.status or the CSV import ('opgezegd' rows), never
-    from the service (#1777).
+    from the service (#1777). Members created by an import (`import_source` set: the
+    importers write Quit for historical ex-members without any request) are excluded.
     """
     return frappe.db.sql_list(
         """
         SELECT m.name
         FROM `tabMember` m
         WHERE m.status = 'Quit'
+        AND IFNULL(m.import_source, '') = ''
         AND NOT EXISTS (
             SELECT 1 FROM `tabMembership Termination Request` mtr
             WHERE mtr.member = m.name AND mtr.status = 'Executed'
