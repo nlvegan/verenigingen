@@ -390,6 +390,19 @@ class ShrinkExplainerTest(unittest.TestCase):
         self.assertEqual(len(unexplained), 1)
         self.assertEqual(unexplained[0].reason, "suppressed")
 
+    def test_unchanged_site_outside_the_count_is_reported_as_unscanned(self):
+        """The probe dir sits under /tests/, which `_counts` skips: an unchanged plain swapped
+        site there no longer counts, and must be reported (the abuse this step exists for)."""
+        self._write("def f(e):\n    frappe.log_error(f'boom {e}', 'Title')\n")
+        unexplained = lev.explain_shrink({f"{self.rel}::f": 1}, [str(lev.REPO_ROOT / "scripts")])
+        self.assertEqual([(u.lineno, u.reason) for u in unexplained], [(2, "unscanned")])
+
+    def test_every_uncounted_site_is_reported_not_just_one(self):
+        """Pins the excess exactly: two uncounted plain sites, both reported."""
+        self._write("def f(e):\n    frappe.log_error(f'boom {e}', 'Title')\n    frappe.log_error(f'x {e}', 'T')\n")
+        unexplained = lev.explain_shrink({f"{self.rel}::f": 2}, [str(lev.REPO_ROOT / "scripts")])
+        self.assertEqual([(u.lineno, u.reason) for u in unexplained], [(2, "unscanned"), (3, "unscanned")])
+
     def test_genuine_fix_is_not_reported(self):
         self._write("def f(e):\n    frappe.log_error(title='Title', message=f'boom {e}')\n")
         baseline = {f"{self.rel}::f": 1}
