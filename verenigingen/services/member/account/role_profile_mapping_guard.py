@@ -145,15 +145,29 @@ def require_may_remove_profile_for(doctype: str, entity: str, user: str) -> None
 
 
 def require_may_bulk_assign_profiles_for(doctype: str, entity: str) -> None:
-    """Gate the whitelisted bulk_assign_* endpoints (#1686): same authority as the remove
-    endpoints (administrator, or write permission on that Team/Chapter), without a target."""
+    """Gate the whitelisted team bulk assign endpoint (#1686): same authority as the remove
+    endpoints (administrator, or write permission on that Team/Chapter, which for a Team means
+    the Team Lead role AND team scope; a plain member has no Team write), without a target.
+    The chapter board bulk endpoints are admin-only instead: see require_profile_admin."""
     _require_may_manage_profiles_for(doctype, entity, lambda: True)
 
 
+def require_profile_admin() -> None:
+    """Admin-only gate (#1686 ruling, 2026-10-31) for the chapter board bulk endpoints: System
+    Manager / Verenigingen Administrator only, Treasurer, National Board Member and Staff
+    refused. Same message as the other guards, so an unknown and a forbidden chapter answer alike."""
+    if not _is_profile_admin():
+        frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
+
+
+def _is_profile_admin() -> bool:
+    return frappe.session.user == "Administrator" or bool(
+        {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(frappe.get_roles())
+    )
+
+
 def _require_may_manage_profiles_for(doctype, entity, target_ok) -> None:
-    if frappe.session.user == "Administrator" or {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(
-        frappe.get_roles()
-    ):
+    if _is_profile_admin():
         return
     if not (
         isinstance(entity, str)
