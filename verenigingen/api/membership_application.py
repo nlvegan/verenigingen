@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import cint
 
 from verenigingen.api.membership_application_review import send_rejection_notification
+from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
 from verenigingen.templates.pages.application_status import APPLICATION_STATUS_TOKEN_PURPOSE
 from verenigingen.utils.application_helpers import (
     check_application_status as check_application_status_util,
@@ -647,12 +648,7 @@ def _handle_existing_member(existing_member, data):
 
     # Scenario 3: Terminated member - check termination type
     if status == "Quit":
-        termination_result = frappe.db.get_value(
-            "Membership Termination Request",
-            {"member": member_name, "status": "Executed"},
-            ["termination_type"],
-            order_by="execution_date desc",
-        )
+        termination_result = get_latest_executed_termination_type(member_name)
 
         if not termination_result:
             frappe.log_error(

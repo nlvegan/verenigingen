@@ -136,6 +136,36 @@ class DuesScheduleLifecycleService(StatelessService):
             f"Schedule {schedule_doc.name} resumed. " f"Next invoice date: {schedule_doc.next_invoice_date}"
         )
 
+    def reactivate_for_rejoin(self, schedule_doc: "Document", membership_name: str, start_date) -> None:
+        """
+        Reuse a schedule that a voluntary termination cancelled for the member's new membership.
+
+        Cancelled is otherwise terminal, so this is the one sanctioned way out of it: it sets
+        the flag that lets the caller's save() pass validate_status_transition. The caller must
+        already have applied the new template/amount (the next invoice date depends on the
+        frequency) and must save the document.
+
+        The months between the old membership and the rejoin are never billed: the coverage
+        anchor makes the coverage sequence restart on ``start_date`` (see
+        CoverageCalculator.get_latest_coverage_end_date), and the tracking fields describing the
+        OLD membership's last invoice are cleared so nothing reads them as this one's.
+
+        Args:
+            schedule_doc: The Cancelled Membership Dues Schedule (not saved here)
+            membership_name: The new Membership the schedule now belongs to
+            start_date: The new membership's start date
+        """
+        schedule_doc.flags.rejoin_reactivation = True
+        schedule_doc.status = "Active"
+        schedule_doc.membership = membership_name
+        schedule_doc.end_date = None
+        schedule_doc.coverage_anchor_date = start_date
+        schedule_doc.last_invoice_date = None
+        schedule_doc.last_generated_invoice = None
+        schedule_doc.last_invoice_coverage_start = None
+        schedule_doc.last_invoice_coverage_end = None
+        schedule_doc.next_invoice_date = schedule_doc.calculate_next_invoice_date(from_date=start_date)
+
     def validate_status_transition(self, schedule_doc: "Document") -> None:
         """
         Validate that a status transition is allowed.
@@ -159,6 +189,13 @@ class DuesScheduleLifecycleService(StatelessService):
         new_status = schedule_doc.status
 
         if old_status == new_status:
+            return
+
+        if (
+            old_status == "Cancelled"
+            and new_status == "Active"
+            and schedule_doc.flags.get("rejoin_reactivation") is True
+        ):
             return
 
         allowed = self.ALLOWED_TRANSITIONS.get(old_status, [])

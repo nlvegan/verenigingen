@@ -38,6 +38,7 @@
   "last_generated_invoice",
   "last_invoice_coverage_start",
   "last_invoice_coverage_end",
+  "coverage_anchor_date",
   "section_notes",
   "notes",
   "section_contribution",
@@ -268,6 +269,13 @@
    "fieldname": "last_invoice_coverage_end",
    "fieldtype": "Date",
    "label": "Previous Invoice Coverage End",
+   "read_only": 1
+  },
+  {
+   "description": "A rejoining member is billed from this date: coverage before it is never caught up. Set when the schedule is reactivated for a rejoin.",
+   "fieldname": "coverage_anchor_date",
+   "fieldtype": "Date",
+   "label": "Coverage Anchor Date",
    "read_only": 1
   },
   {
@@ -506,7 +514,7 @@
   }
  ],
  "links": [],
- "modified": "2025-12-28 12:15:19.750288",
+ "modified": "2026-10-30 21:05:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Dues Schedule",
