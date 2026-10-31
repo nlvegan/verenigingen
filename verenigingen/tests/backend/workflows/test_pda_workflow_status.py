@@ -90,6 +90,15 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self.assertEqual(doc.status, status)
         self.assertEqual(doc.docstatus, 0)
 
+    def test_pending_verification_writes_no_status(self):
+        """Pins the design choice: Pending Verification has no Select value of its own,
+        so it must not write `status` at all (mapping it to "Draft" would also pass the
+        lifecycle tests but hide the state's intent)."""
+        workflow = frappe.get_doc("Workflow", WORKFLOW)
+        state = next(s for s in workflow.states if s.state == "Pending Verification")
+        self.assertFalse(state.update_field)
+        self.assertFalse(state.update_value)
+
     def test_fixture_precondition_draft_start(self):
         doc = frappe.get_doc(DOCTYPE, self.agreement.name)
         self._assert_at(doc, "Draft", "Draft")
