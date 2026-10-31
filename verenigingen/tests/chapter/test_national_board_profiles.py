@@ -12,8 +12,6 @@ The profiles are asserted, never the literal roles of the same name (#1512: the
 National Board Member profile does not grant its namesake role).
 """
 
-import unittest
-
 import frappe
 
 from verenigingen.services.member.account.user_role_profile_calculator import (
@@ -48,15 +46,19 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         _ensure_employee_for_profile() inserts and COMMITS an Employee for that
         User. Nothing here created it, so nothing tracked it: the User was deleted
         and the Employee stayed behind with a dangling user_id (same shape as
-        #1689). Registered after the User, so the reverse-order cleanup deletes the
-        Employee first.
+        #1689). Cleanup runs in reverse registration order, so registering the
+        Employee AFTER its User deletes the Employee first.
+
+        After the drain, assert none survived: this fires on every test in the
+        module that seats a user, without re-running any test.
         """
-        for doc_info in list(self._test_docs):
-            if doc_info["doctype"] != "User":
-                continue
-            for employee in frappe.get_all("Employee", filters={"user_id": doc_info["name"]}, pluck="name"):
-                self.track_doc("Employee", employee, depends_on=("User", doc_info["name"]))
+        users = [d["name"] for d in self._test_docs if d["doctype"] == "User"]
+        for user in users:
+            for employee in frappe.get_all("Employee", filters={"user_id": user}, pluck="name"):
+                self.track_doc("Employee", employee)
         super().tearDown()
+        survivors = frappe.get_all("Employee", filters={"user_id": ["in", users or [""]]}, pluck="name")
+        self.assertEqual(survivors, [], "Employee rows outlived their User (#1694)")
 
     # ------------------------------------------------------------------ helpers
 
@@ -1057,44 +1059,3 @@ class TestNationalBoardProfiles(VereningingenTestCase):
 
         self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}), "no volunteer created")
         self.assertNotIn("Verenigingen Volunteer", get_user_role_profiles(user.name))
-
-
-class TestNationalBoardProfilesLeaveNoEmployees(VereningingenTestCase):
-    """#1694 guard, in its own class: the nested run must not share the outer
-    test's national-chapter setting, which the seating test rewrites itself."""
-
-    def _dangling_employees(self):
-        return {
-            row[0]
-            for row in frappe.db.sql(
-                """
-                SELECT e.name FROM `tabEmployee` e
-                LEFT JOIN `tabUser` u ON u.name = e.user_id
-                WHERE e.user_id LIKE %s AND u.name IS NULL
-                """,
-                ("natboard.%",),
-            )
-        }
-
-    def test_a_seating_test_leaves_no_employee_pointing_at_a_deleted_user(self):
-        """Run a seating test through its REAL setUp/tearDown, then look for
-        Employees whose User is gone.
-
-        Seating a board member applies a role profile carrying the Employee role,
-        and _ensure_employee_for_profile() inserts and COMMITS a stub Employee that
-        nothing tracked. The User was deleted, the Employee stayed with a dangling
-        user_id, and HRMS notify_approver later read it as `from_user` ("Could not
-        find From User: natboard...") in an unrelated module. Compared as a
-        before/after set so earlier leaks do not mask or fake it.
-        """
-        before = self._dangling_employees()
-        seat_test = TestNationalBoardProfiles(
-            "test_changing_the_national_chapter_recalculates_both_chapters_seat_holders"
-        )
-        result = unittest.TestResult()
-        seat_test.run(result)
-        self.assertTrue(
-            result.wasSuccessful(), f"the seating test itself failed: {result.errors + result.failures}"
-        )
-
-        self.assertEqual(self._dangling_employees() - before, set(), "Employee rows outlived their User")
