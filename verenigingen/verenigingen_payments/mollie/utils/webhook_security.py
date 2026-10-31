@@ -11,6 +11,7 @@ This module provides:
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
@@ -39,7 +40,7 @@ def authenticate_mollie_webhook() -> str:
     from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 
     # Get client IP and webhook ID for rate limiting
-    ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+    ip_address = get_client_ip()
     webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
 
     rate_limiter = get_webhook_rate_limiter()

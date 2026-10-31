@@ -1162,8 +1162,10 @@ class MemberManager(BaseManager):
         """Get member name, with caching"""
         if member_id not in self.member_cache:
             try:
-                member_doc = frappe.get_doc("Member", member_id)
-                self.member_cache[member_id] = member_doc.full_name
+                # One row, not the whole Member and its child tables (#1743). A missing
+                # Member gives None here where get_doc raised, so it falls back the same way.
+                row = frappe.db.get_value("Member", member_id, ["name", "full_name"], as_dict=True)
+                self.member_cache[member_id] = row.full_name if row else member_id
             except Exception:
                 self.member_cache[member_id] = member_id
 

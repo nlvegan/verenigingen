@@ -640,6 +640,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         rate_limit_mock.start()
         self._active_mocks.append(rate_limit_mock)
 
+        # tearDown does not run when setUp raises or skips (#1782): without this the stubs
+        # above outlive the test. _cleanup_test_mocks is idempotent.
+        self.addCleanup(self._cleanup_test_mocks)
+
     def _cleanup_test_mocks(self):
         """Clean up test mocks"""
         for mock in getattr(self, "_active_mocks", []):

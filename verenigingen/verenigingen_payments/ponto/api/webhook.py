@@ -40,6 +40,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.webhook.logging import create_webhook_log
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -227,7 +228,7 @@ def handle_ponto_webhook():
 
     try:
         # STEP 0: Rate limiting (before any expensive operations)
-        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        ip_address = get_client_ip()
         # Use event ID from headers if available for rate limit tracking
         header_webhook_id = frappe.request.headers.get("X-Event-ID") if frappe.request else None
 

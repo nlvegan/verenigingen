@@ -5,7 +5,8 @@
 Additional branch coverage for ING Checkout webhook_security.py.
 
 Complements test_webhook_security.py by hitting branches it does not:
-- get_request_ip: X-Forwarded-For (multi-IP), X-Real-IP, remote_addr fallback.
+- get_request_ip: moved to verenigingen/tests/payment/test_webhook_limiter_client_ip.py
+  (#1764: the old assertions here encoded the spoofable leftmost-XFF / X-Real-IP behaviour).
 - fetch_paynl_ip_addresses: fresh cache hit (no HTTP), dict {"ipAddresses": [...]}
   and {"data": [...]} response shapes.
 - verify_ing_checkout_webhook: secret configured but no signature AND IP not
@@ -13,7 +14,6 @@ Complements test_webhook_security.py by hitting branches it does not:
 """
 
 from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from frappe.tests.utils import FrappeTestCase
@@ -23,46 +23,8 @@ from verenigingen.verenigingen_payments.ing_checkout.utils import webhook_securi
 from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security import (
     INGCheckoutWebhookError,
     fetch_paynl_ip_addresses,
-    get_request_ip,
     verify_ing_checkout_webhook,
 )
-
-
-def _fake_request(headers=None, remote_addr=None):
-    """Build a minimal request-like object exposing .headers.get and .remote_addr."""
-    headers = headers or {}
-    return SimpleNamespace(
-        headers=SimpleNamespace(get=lambda key, default=None: headers.get(key, default)),
-        remote_addr=remote_addr,
-    )
-
-
-class TestGetRequestIPBranches(FrappeTestCase):
-    def _with_request(self, req):
-        """Patch frappe.request for the duration of one assertion."""
-        import frappe
-
-        return patch.object(frappe, "request", req)
-
-    def test_x_forwarded_for_takes_first_ip(self):
-        req = _fake_request(headers={"X-Forwarded-For": "203.0.113.5, 10.0.0.1, 10.0.0.2"})
-        with self._with_request(req):
-            self.assertEqual(get_request_ip(), "203.0.113.5")
-
-    def test_x_real_ip_used_when_no_forwarded(self):
-        req = _fake_request(headers={"X-Real-IP": "198.51.100.9"})
-        with self._with_request(req):
-            self.assertEqual(get_request_ip(), "198.51.100.9")
-
-    def test_remote_addr_fallback(self):
-        req = _fake_request(headers={}, remote_addr="192.0.2.7")
-        with self._with_request(req):
-            self.assertEqual(get_request_ip(), "192.0.2.7")
-
-    def test_forwarded_for_preferred_over_real_ip(self):
-        req = _fake_request(headers={"X-Forwarded-For": "203.0.113.5", "X-Real-IP": "198.51.100.9"})
-        with self._with_request(req):
-            self.assertEqual(get_request_ip(), "203.0.113.5")
 
 
 class TestFetchIPAddressesBranches(FrappeTestCase):
