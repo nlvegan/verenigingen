@@ -39,6 +39,12 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    LINK_GUARDED_FIELDS,
+    SYSTEM_UPDATE_FLAG,
+    alert_executed_on_cancelled_row,
+    refuse_unless_system_update,
+)
 
 
 class PontoPaymentLink(Document):
@@ -55,6 +61,10 @@ class PontoPaymentLink(Document):
     def before_submit(self):
         """Create payment initiation request in Ponto API before submit."""
         self.create_ponto_payment_request()
+
+    def before_update_after_submit(self):
+        """Only system code may change status / debtor / invoice / entry on a submitted row (#1907)."""
+        refuse_unless_system_update(self, LINK_GUARDED_FIELDS)
 
     def on_cancel(self):
         """Handle cancellation."""
@@ -295,9 +305,12 @@ class PontoPaymentLink(Document):
             new_status = (
                 "Executed" if ponto_status == "closed" else map_link_status(ponto_status)
             ) or self.status
+            if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_request_id):
+                return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
+            self.flags[SYSTEM_UPDATE_FLAG] = True
             if new_status != self.status:
                 # Status + Payment Entry are one atomic unit -- #1362 (the
                 # #1288/#1323 class). This cannot rely on the CALLER propagating
@@ -372,6 +385,7 @@ class PontoPaymentLink(Document):
         if self.payment_entry:
             return  # Already processed
 
+        self.flags[SYSTEM_UPDATE_FLAG] = True
         if not self.sales_invoice:
             # Nothing to allocate against. The webhook path records an Error Log for the
             # unmatched case; here the caller is interactive, so a message is enough.
@@ -413,9 +427,13 @@ class PontoPaymentLink(Document):
             stub this method (returning None). Only tests read the return value. A refused move also
             drops ``debtor_info``.
         """
+        if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_request_id):
+            return False  # cancelled row: finance alerted, doc untouched (#1848)
+
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
 
+        self.flags[SYSTEM_UPDATE_FLAG] = True
         # Status + Payment Entry are one atomic unit -- #1362 (#1288/#1323
         # class). See refresh_status()'s identical
         # `with atomic_status_transition(...)` block above for why: this

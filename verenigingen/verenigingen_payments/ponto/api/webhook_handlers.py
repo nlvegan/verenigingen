@@ -548,6 +548,11 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
     from frappe.utils import flt, getdate, today
 
     from verenigingen.services.billing.coverage_calculator import find_invoice_for_payment
+    from verenigingen.verenigingen_payments.ponto.core.submitted_rows import SYSTEM_UPDATE_FLAG
+
+    # The invoice matcher and the Payment Entry back-link below write sales_invoice and
+    # payment_entry on a submitted row; only system code may (#1907).
+    payment_link_doc.flags[SYSTEM_UPDATE_FLAG] = True
 
     result = {
         "payment_entry": None,
@@ -792,6 +797,9 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
 
             # Process the individual payment
             doc.process_payment_received()
+
+            # Debtor details below are written by this system path (#1907).
+            doc.flags["ponto_system_update"] = True
 
             # Update debtor info if provided
             if debtor_info:

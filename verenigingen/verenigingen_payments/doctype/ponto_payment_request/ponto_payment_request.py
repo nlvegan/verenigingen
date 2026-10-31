@@ -31,6 +31,12 @@ from frappe.utils import get_url
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    REQUEST_GUARDED_FIELDS,
+    SYSTEM_UPDATE_FLAG,
+    alert_executed_on_cancelled_row,
+    refuse_unless_system_update,
+)
 
 
 class PontoPaymentRequest(Document):
@@ -54,6 +60,10 @@ class PontoPaymentRequest(Document):
         """
         self._validate_payment_entry_prerequisites()
         self.create_ponto_payment()
+
+    def before_update_after_submit(self):
+        """Only system code may change status / payment_entry on a submitted row (#1907)."""
+        refuse_unless_system_update(self, REQUEST_GUARDED_FIELDS)
 
     def on_cancel(self):
         """Handle cancellation."""
@@ -211,6 +221,8 @@ class PontoPaymentRequest(Document):
             # Map Ponto status to our status. Shared with the webhook (#1835).
             # Unmapped keeps the current status; a backward move is refused.
             new_status = map_request_status(payment.status) or self.status
+            if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
+                return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
@@ -230,6 +242,7 @@ class PontoPaymentRequest(Document):
                 # own "already have self.payment_entry" guard still applies -- so
                 # a retry cannot double-create a Payment Entry for a prior
                 # COMMITTED success.
+                self.flags[SYSTEM_UPDATE_FLAG] = True
                 with atomic_status_transition("ppr_status_pe"):
                     self.status = new_status
                     self.save()
@@ -373,6 +386,7 @@ class PontoPaymentRequest(Document):
         if self.payment_entry:
             return  # Already created
 
+        self.flags[SYSTEM_UPDATE_FLAG] = True
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
 
         from erpnext.accounts.party import get_party_account
@@ -424,9 +438,13 @@ class PontoPaymentRequest(Document):
             refused from ``doc.status`` after the call, because existing tests
             stub this method (returning None). Only tests read the return value.
         """
+        if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
+            return False  # cancelled row: finance alerted, doc untouched (#1848)
+
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
 
+        self.flags[SYSTEM_UPDATE_FLAG] = True
         # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
         # See refresh_status()'s identical `with atomic_status_transition(...)`
         # block above for why.
