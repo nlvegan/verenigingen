@@ -762,7 +762,12 @@ def _approve_membership_application_locked(
     if chapter:
         member.reload()
         member.update_current_chapter_display()
-        member.save()
+        # Persist only the stored Link this refresh computes (current_chapter_display is an
+        # unstored HTML field). A full member.save() here ran as the approver: a non-admin board
+        # member may write a PENDING applicant but not the now-ACTIVE member, so the approval
+        # raised PermissionError after activation. The caller was already authorized for this
+        # member by validate_chapter_permission_or_throw.
+        member.db_set("current_chapter", member.current_chapter, update_modified=False)
 
     # Activate any pre-existing pending Chapter Member rows. The application
     # form creates a Chapter Member row in status "Pending" when the applicant
