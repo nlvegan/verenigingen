@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, SecurityLevel
 
 
@@ -262,7 +263,7 @@ class AuditEmitter:
             "operation": operation,
             "error": error,
             "user": user,
-            "ip": getattr(frappe.local, "request_ip", "unknown"),
+            "ip": (get_client_ip_or_none() or "unknown"),
             "method": frappe.request.method if frappe.request else "unknown",
             **context,
         }

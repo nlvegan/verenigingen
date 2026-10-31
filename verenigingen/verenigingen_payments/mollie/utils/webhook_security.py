@@ -11,7 +11,7 @@ This module provides:
 import frappe
 from frappe.utils import now_datetime
 
-from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.security.client_ip import get_client_ip, get_client_ip_or_none
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
@@ -239,7 +239,7 @@ def log_webhook_security_event(event_type: str, details: dict):
                 "severity": "info",
                 "timestamp": now_datetime(),
                 "user": frappe.session.user,
-                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                "ip_address": get_client_ip_or_none(),
             }
         ).insert(ignore_permissions=True)
     except Exception as e:

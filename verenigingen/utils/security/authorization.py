@@ -27,6 +27,7 @@ from verenigingen.utils.error_handling import PermissionError as VerenigingenPer
 from verenigingen.utils.security.api_security_framework import utility_api
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, log_security_event
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.security.types import OperationType
 
 
@@ -379,7 +380,7 @@ class SEPAAuthorizationManager:
                             "reason": "ip_restriction",
                             "operation": operation.value,
                             "user": user,
-                            "ip": getattr(frappe.local, "request_ip", "unknown"),
+                            "ip": (get_client_ip_or_none() or "unknown"),
                         },
                         severity=AuditSeverity.WARNING,
                     )

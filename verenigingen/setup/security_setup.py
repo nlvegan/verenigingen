@@ -14,6 +14,7 @@ from frappe.rate_limiter import rate_limit
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
 # Import and initialize the security logger configuration
 try:
@@ -611,7 +612,7 @@ def log_security_audit(action, details, user=None):
                 f"<b>User:</b> {user}<br>"
                 f"<b>Details:</b> <pre>{frappe.as_json(details, indent=2)}</pre>",
                 "comment_by": user,
-                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                "ip_address": get_client_ip_or_none(),
             }
         ).insert()
 
@@ -736,7 +737,7 @@ def check_current_security_status():
             {
                 "user": frappe.session.user,
                 "timestamp": frappe.utils.now_datetime(),
-                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                "ip_address": get_client_ip_or_none(),
             },
         )
 
