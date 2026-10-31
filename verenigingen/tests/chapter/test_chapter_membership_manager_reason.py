@@ -167,6 +167,29 @@ class TestChapterMembershipManagerReason(EnhancedTestCase):
         self.assertFalse(result["success"], result)
         self.assertEqual(self._rows(), before)
 
+    def test_transfer_refused_leave_rolls_back_the_disabled_source_row(self):
+        """#1846: remove_member saves the row disabled BEFORE the history write; leave_chapter
+        swallows that write's failure into success False, so the leave itself must be undone."""
+        from unittest.mock import patch
+
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        self.assertTrue(self._assign()["success"])
+        before = self._rows()
+        self.expectErrorLog("ChapterMembershipManager")
+
+        # Mock justified: fault injection after the row was saved disabled.
+        with patch.object(
+            ChapterMembershipHistoryManager,
+            "terminate_chapter_membership",
+            side_effect=frappe.ValidationError("hist"),
+        ):
+            result = self._transfer()
+
+        self.assertFalse(result["success"], result)
+        self.assertIn("Failed to leave", result["error"])
+        self.assertEqual(self._rows(), before)
+
     def test_transfer_lock_timeout_rolls_back_then_propagates(self):
         """#1846: a 1205 keeps the transaction alive, so the leave is undone before it propagates."""
         from unittest.mock import patch
