@@ -44,6 +44,10 @@ class TestEnsureOutgoingMailAccount(unittest.TestCase):
         frappe.db.sql("UPDATE `tabEmail Account` SET enable_outgoing = 0, default_outgoing = 0")
         self._saved_conf = {k: frappe.conf.pop(k, None) for k in ("mail_server", "mute_emails")}
         self.addCleanup(self._restore_conf)
+        # mute_emails is also read from frappe.flags (are_emails_muted); a preset flag
+        # would make Frappe hand back a dummy account and hide the "no account" state.
+        saved_flag = frappe.flags.pop("mute_emails", None)
+        self.addCleanup(lambda: saved_flag is not None and frappe.flags.update(mute_emails=saved_flag))
         self.addCleanup(_forget_cached_account)
         _forget_cached_account()
 
@@ -86,6 +90,9 @@ class TestEnsureOutgoingMailAccount(unittest.TestCase):
 
         ensure_outgoing_mail_account(Probe)
         self.assertEqual(frappe.conf.get("mail_server"), "localhost")
+        # Send once so Frappe caches the config-derived account on frappe.local; the
+        # cleanup must drop it, or a later class inherits an account that is gone.
+        self._sendmail()
         result = unittest.TestResult()
         unittest.TestLoader().loadTestsFromTestCase(Probe).run(result)  # runs class cleanups
         self.assertIsNone(frappe.conf.get("mail_server"))
@@ -97,7 +104,18 @@ class TestEnsureOutgoingMailAccount(unittest.TestCase):
             def test_noop(self):
                 pass
 
-        frappe.db.sql("UPDATE `tabEmail Account` SET enable_outgoing = 1, default_outgoing = 1 LIMIT 1")
+        frappe.get_doc(
+            {
+                "doctype": "Email Account",
+                "email_account_name": f"_Test Guard Outgoing {frappe.generate_hash(length=6)}",
+                "email_id": "guard.outgoing@example.org",
+                "smtp_server": "localhost",
+                "enable_outgoing": 1,
+                "default_outgoing": 1,
+                "password": "unused",
+            }
+        ).insert()  # rolled back by setUp's cleanup; never used to send
+        _forget_cached_account()
         self.assertTrue(EmailAccount.find_default_outgoing())
         ensure_outgoing_mail_account(Probe)
         self.assertIsNone(frappe.conf.get("mail_server"))

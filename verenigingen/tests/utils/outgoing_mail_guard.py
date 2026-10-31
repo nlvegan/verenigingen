@@ -12,6 +12,15 @@ This mirrors CI's mechanism instead of writing an Email Account row: it sets the
 usable default outgoing account already, so it is a no-op wherever one exists. Nothing is
 persisted, and nothing is sent: ``frappe.sendmail`` queues an Email Queue row and no
 SMTP connection is opened unless a test sends with ``now=True``.
+
+Scope, so nobody reads this as more than it is:
+
+* It covers ``frappe.sendmail`` / ``EmailAccount.find_outgoing`` paths only.
+  ``EmailService._has_active_email_account`` reads DB Email Account rows only, so a code
+  path that checks it ("No active email account configured") is NOT fixed by this.
+* It is applied in ``setUpClass`` of ``VereningingenTestCase`` and ``EnhancedTestCase``.
+  Plain ``unittest.TestCase`` / bare ``FrappeTestCase`` classes (about 13 mail-related
+  ones) get no cover.
 """
 
 import frappe
@@ -33,7 +42,7 @@ def ensure_outgoing_mail_account(test_class) -> None:
 
     previous = {key: frappe.conf.get(key) for key in _CI_MAIL_CONFIG}
     for key, value in _CI_MAIL_CONFIG.items():
-        frappe.conf[key] = value  # Mock justified: execution-context config, mirrors CI's site_config
+        frappe.conf[key] = value
     test_class.addClassCleanup(_restore_mail_config, previous)
 
 
@@ -51,7 +60,7 @@ def _restore_mail_config(previous: dict) -> None:
         if value is None:
             frappe.conf.pop(key, None)
         else:
-            frappe.conf[key] = value  # Mock justified: restoring execution-context config
+            frappe.conf[key] = value
     # find_outgoing caches a config-derived account on frappe.local; drop it so a later
     # class that expects "no account" does not inherit this one's.
     frappe.local.outgoing_email_account = {}
