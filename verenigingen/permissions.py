@@ -682,7 +682,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             done.
 
     Returns:
-        (has_permission, permission_query) — a has_permission(doc, user, permission_type)
+        (has_permission, permission_query) — a has_permission(doc, user, ptype)
         callable and a permission_query(user) callable, named after the doctype.
     """
     # doctype + member_field are interpolated into SQL (table name + column). They are

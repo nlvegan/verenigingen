@@ -11,10 +11,11 @@ DocPerm deferral in ``_check_service_account_permission``; the others ignore it,
 so for them the rename is behaviour-neutral and is pinned structurally.
 """
 
+import inspect
+
 import frappe
 from frappe.permissions import has_controller_permissions
 
-from verenigingen.hooks.permissions import has_permission as HAS_PERMISSION_HOOKS
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.constants import Roles
 
@@ -40,15 +41,28 @@ class TestPermissionHookReceivesPtype(EnhancedTestCase):
         ).name
 
     def test_every_registered_hook_receives_the_real_ptype(self):
-        """Census over the REAL hook registry, through frappe.get_newargs (the
-        function frappe.call uses to drop undeclared keywords)."""
-        self.assertGreaterEqual(len(HAS_PERMISSION_HOOKS), 15)
-        for doctype, dotted in HAS_PERMISSION_HOOKS.items():
-            fn = frappe.get_attr(dotted)
-            received = frappe.get_newargs(
-                fn, {"doc": None, "ptype": "write", "user": "x", "debug": False}
-            )
-            self.assertIn("ptype", received, f"{doctype} hook {dotted} never receives the ptype")
+        """Census over the RUNTIME registry (frappe.get_hooks), this app's handlers only,
+        through frappe.get_newargs (what frappe.call uses to drop undeclared keywords)."""
+        hooks = {
+            dt: [p for p in paths if p.startswith("verenigingen.")]
+            for dt, paths in (frappe.get_hooks("has_permission") or {}).items()
+        }
+        hooks = {dt: paths for dt, paths in hooks.items() if paths}
+        self.assertGreaterEqual(len(hooks), 15)
+        for doctype, paths in hooks.items():
+            for dotted in paths:
+                received = frappe.get_newargs(
+                    frappe.get_attr(dotted), {"doc": None, "ptype": "write", "user": "x", "debug": False}
+                )
+                self.assertIn("ptype", received, f"{doctype} hook {dotted} never receives the ptype")
+
+    def test_dues_schedule_hook_default_is_read(self):
+        """The hook's own default (used when no ptype is supplied) stays read."""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule import (
+            membership_dues_schedule as mod,
+        )
+
+        self.assertEqual(inspect.signature(mod.has_permission).parameters["ptype"].default, "read")
 
     def test_service_account_is_denied_a_right_its_docperm_lacks(self):
         user = self._webhook_user()
