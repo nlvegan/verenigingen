@@ -19946,22 +19946,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "get_suspension_list",
-  "operation_name": "get_suspension_list",
-  "operation_type": "reporting",
-  "description": "Retrieve suspension list data",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "External API integration and data exchange",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "get_suspension_preview",
   "operation_name": "get_suspension_preview",
   "operation_type": "reporting",

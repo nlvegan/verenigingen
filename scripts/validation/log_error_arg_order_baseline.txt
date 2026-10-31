@@ -106,7 +106,6 @@ verenigingen/api/schedule_maintenance.py::prevent_orphaned_schedules::1
 verenigingen/api/sepa_phantom_hash_admin.py::retry_phantom_attachment::1
 verenigingen/api/suspension_api.py::bulk_suspend_members::2
 verenigingen/api/suspension_api.py::can_suspend_member::2
-verenigingen/api/suspension_api.py::get_suspension_list::1
 verenigingen/api/suspension_api.py::get_suspension_preview::2
 verenigingen/api/suspension_api.py::get_suspension_status_safe::1
 verenigingen/api/suspension_api.py::suspend_member::7
