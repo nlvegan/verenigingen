@@ -509,6 +509,46 @@ def get_termination_statistics():
         return {"error": str(e)}
 
 
+def get_quit_members_without_executed_termination():
+    """Names of Members with status Quit and no Executed Membership Termination Request.
+
+    The termination service sets Quit and the Executed request together, so this state
+    comes from a hand edit of Member.status or the CSV import ('opgezegd' rows), never
+    from the service (#1777).
+    """
+    return frappe.db.sql_list(
+        """
+        SELECT m.name
+        FROM `tabMember` m
+        WHERE m.status = 'Quit'
+        AND NOT EXISTS (
+            SELECT 1 FROM `tabMembership Termination Request` mtr
+            WHERE mtr.member = m.name AND mtr.status = 'Executed'
+        )
+        ORDER BY m.name
+        """
+    )
+
+
+def _report_quit_members_without_termination(audit_results):
+    """Add the Quit-without-termination finding to the audit and put it in front of an operator.
+
+    The Error Log row is the operator channel; the alert email fires from the caller.
+    """
+    names = get_quit_members_without_executed_termination()
+    audit_results["quit_without_termination"] = len(names)
+    for name in names:
+        audit_results["data_integrity_issues"].append(
+            f"Member {name} has status Quit but no Executed termination request"
+        )
+    if names:
+        frappe.log_error(
+            title="Quit Member Without Executed Termination",
+            message="Members with status Quit and no Executed Membership Termination Request:\n"
+            + "\n".join(names),
+        )
+
+
 def audit_termination_compliance():
     """
     Daily audit of termination compliance and data integrity
@@ -517,6 +557,7 @@ def audit_termination_compliance():
         audit_results = {
             "orphaned_records": 0,
             "stale_requests": 0,
+            "quit_without_termination": 0,
             "compliance_issues": [],
             "data_integrity_issues": [],
         }
@@ -583,6 +624,8 @@ def audit_termination_compliance():
                     f"Member {dup.member} has {dup.count} active termination requests"
                 )
 
+        _report_quit_members_without_termination(audit_results)
+
         # Log significant issues
         total_issues = len(audit_results["compliance_issues"]) + len(audit_results["data_integrity_issues"])
 
@@ -590,7 +633,11 @@ def audit_termination_compliance():
             frappe.logger().warning(f"Termination compliance audit found {total_issues} issues")
 
             # If critical issues, notify administrators
-            if audit_results["orphaned_records"] > 0 or audit_results["stale_requests"] > 5:
+            if (
+                audit_results["orphaned_records"] > 0
+                or audit_results["stale_requests"] > 5
+                or audit_results["quit_without_termination"] > 0
+            ):
                 from frappe.utils import escape_html
 
                 from verenigingen.utils.notification_helpers import notify_administrators
@@ -603,6 +650,7 @@ def audit_termination_compliance():
                 <ul>
                     <li>Orphaned Records: {audit_results['orphaned_records']}</li>
                     <li>Stale Requests: {audit_results['stale_requests']}</li>
+                    <li>Quit Without Executed Termination: {audit_results['quit_without_termination']}</li>
                     <li>Total Issues: {total_issues}</li>
                 </ul>
                 """

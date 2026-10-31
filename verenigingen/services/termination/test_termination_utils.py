@@ -383,3 +383,78 @@ class TestTerminationUtils(EnhancedTestCase):
             ),
             "distinct members sharing a full_name must not be flagged as duplicates",
         )
+
+    # ==================================================================
+    # audit_termination_compliance: Quit member with no Executed request (#1777)
+    # ==================================================================
+    def _execute_termination_through_service(self, member):
+        """Terminate `member` through the real TerminationExecutionService."""
+        from unittest.mock import patch
+
+        from verenigingen.services.termination import TerminationExecutionService
+
+        req = self._make_termination_request(
+            member, status="Approved", approved_by=frappe.session.user, approval_date=frappe.utils.now()
+        )
+        req.submit()
+        # Same transaction patching as test_termination_execution_service: execute() commits.
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            TerminationExecutionService().execute(req)
+        return req
+
+    def _quit_integrity_error_logs(self, member_name):
+        return frappe.get_all(
+            "Error Log",
+            filters={
+                "method": "Quit Member Without Executed Termination",
+                "error": ["like", f"%{member_name}%"],
+            },
+            pluck="name",
+        )
+
+    def test_audit_flags_quit_member_without_executed_termination(self):
+        """A Quit member with no Executed request is reported; one terminated through
+        the real service is not.
+
+        The flagged state is built with a DIRECT status write: no flow that goes through
+        the termination service produces it (execute() sets Quit and the Executed request
+        together). The real producers are outside it: a hand edit of Member.status, and the
+        CSV import, which sets Quit for 'opgezegd' rows with `_skip_status_validation`.
+        """
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        terminated = self._make_member()
+        self._execute_termination_through_service(terminated)
+        self.assertEqual(frappe.db.get_value("Member", terminated.name, "status"), "Quit")
+
+        orphan = self._make_member()
+        frappe.db.set_value("Member", orphan.name, "status", "Quit")  # probe shortcut, see docstring
+
+        result = tu.audit_termination_compliance()
+
+        self.assertEqual(result["quit_without_termination"], len(self._all_quit_without_executed()))
+        self.assertTrue(any(orphan.name in i for i in result["data_integrity_issues"]))
+        self.assertFalse(any(terminated.name in i for i in result["data_integrity_issues"]))
+        self.assertTrue(self._quit_integrity_error_logs(orphan.name), "operator gets an Error Log row")
+        self.assertFalse(self._quit_integrity_error_logs(terminated.name))
+
+    def _all_quit_without_executed(self):
+        return frappe.db.sql(
+            """SELECT m.name FROM `tabMember` m WHERE m.status = 'Quit' AND NOT EXISTS (
+                SELECT 1 FROM `tabMembership Termination Request` t
+                WHERE t.member = m.name AND t.status = 'Executed')"""
+        )
+
+    def test_audit_quit_member_with_only_unexecuted_request_is_flagged(self):
+        """Control: a Quit member whose request is Approved (not Executed) still counts."""
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        member = self._make_member()
+        self._make_termination_request(member, status="Approved")
+        frappe.db.set_value("Member", member.name, "status", "Quit")  # probe shortcut
+        result = tu.audit_termination_compliance()
+        self.assertTrue(any(member.name in i for i in result["data_integrity_issues"]))
+
+    def test_audit_non_quit_member_without_termination_not_flagged(self):
+        """Control: only status Quit is in scope (Active/Inactive members have no request)."""
+        member = self._make_member()
+        result = tu.audit_termination_compliance()
+        self.assertFalse(any(member.name in i for i in result["data_integrity_issues"]))
