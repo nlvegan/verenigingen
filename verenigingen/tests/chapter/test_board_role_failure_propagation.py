@@ -28,10 +28,11 @@ import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.secure_operations import secure_document_operation
 
-ASSIGN_ROLE = (
-    "verenigingen.verenigingen.doctype.chapter_board_member."
-    "chapter_board_member.ChapterBoardMember.assign_board_member_role"
-)
+# The role-profile sync Chapter.on_update drains for every newly seated volunteer. It
+# replaced the direct role grant (#1672) as the board role's writer, and is the same
+# BoardManager._log_or_reraise routing, so it is the injection point for these cases.
+ASSIGN_ROLE = "verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change"
+SYNC_FAILURE_TITLE = "Failed to sync role profile for volunteer"
 
 
 class TestBoardRoleFailurePropagation(VereningingenTestCase):
@@ -58,7 +59,11 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
             email=f"{first.lower()}.{frappe.generate_hash(length=6)}@test.invalid",
             status="Active",
         )
-        volunteer = self.create_test_volunteer(member_name=member.name)
+        # The role-profile sync only runs for a volunteer whose member has a User.
+        user = self.create_test_user(member.email)
+        self.track_doc("User", user.name)
+        member.db_set("user", user.name, update_modified=False)
+        volunteer = self.create_test_volunteer(member=member.name)
         return member, volunteer
 
     def _seat_board_member(self, first):
@@ -96,10 +101,10 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
 
     def test_ordinary_role_failure_is_logged_and_the_board_member_is_still_seated(self):
         """The other half of the contract: per-member problems stay non-fatal."""
-        self.expectErrorLog("Failed to assign board member role")
+        self.expectErrorLog(SYNC_FAILURE_TITLE)
         chapter, volunteer = self._seat_board_member("Ordinary")
 
-        with self.assertErrorLog("Failed to assign board member role"):
+        with self.assertErrorLog(SYNC_FAILURE_TITLE):
             with patch(ASSIGN_ROLE, side_effect=frappe.ValidationError("no user account")):
                 chapter.save()
 
