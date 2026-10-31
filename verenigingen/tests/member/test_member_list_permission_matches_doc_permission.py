@@ -428,7 +428,8 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
 
         chapter_doc = self._fresh_chapter(self.chapter.name)
         added = chapter_doc.member_manager.add_member(member.name, notify=False)
-        self.assertTrue(added.get("success"), f"fixture setup: add_member failed: {added}")
+        # #1582: a disabled new row is reported as not added (action "added_disabled"), but the row exists.
+        self.assertEqual(added.get("action"), "added_disabled", f"fixture setup: unexpected add_member result: {added}")
 
         cm_row = frappe.db.get_value(
             "Chapter Member",

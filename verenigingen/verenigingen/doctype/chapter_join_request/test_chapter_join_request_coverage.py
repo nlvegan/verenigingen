@@ -10,6 +10,7 @@ history helpers, on_submit, and the module-level whitelisted API functions
 test_chapter_join_request.py.
 """
 
+import json
 import unittest
 
 import frappe
@@ -423,6 +424,40 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         self.assertNotIn("Unknown error", message)
         self.assertIn("could not be re-enabled", message)
         self.assertNotIn("Suspended", message)
+        self.assertNotIn(self.test_member2.name, message)
+
+    def test_approve_new_row_for_suspended_member_discloses_no_status_to_unreadable_member(self):
+        """#1582/#1590: approving a request for a Suspended member with NO existing row
+        takes add_member's new-row branch. It must refuse (the row would be disabled),
+        and neither the refusal nor any msgprint may name the status to an approver who
+        cannot read the Member (the msgprint leaked it before, #1590).
+
+        Real writers: the request is submitted while the member is Active, then
+        suspend_member_safe suspends them; no row exists. Probe shortcut:
+        approve_request is called directly as the board user (see the #1590 test above).
+        """
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
+        board = self.create_test_board_member(self.test_chapter.name)
+        req = self._make_request(self.test_member2)
+        suspend_member_safe(self.test_member2.name, "join request test", suspend_user=False)
+        self.assertEqual(frappe.db.get_value("Member", self.test_member2.name, "status"), "Suspended")
+        self.assertFalse(self._chapter_member_exists(self.test_member2))
+        approver_before = frappe.session.user
+        frappe.set_user(board.user)
+        try:
+            # Control: the approver really cannot read this Member (read after the switch: cache-guard).
+            self.assertFalse(frappe.has_permission("Member", "read", doc=self.test_member2.name))
+            log_length = len(frappe.local.message_log)
+            message = self._approval_error(req)
+            raised = json.dumps(list(frappe.local.message_log[log_length:]))
+        finally:
+            frappe.set_user(approver_before)
+
+        self.assertNotIn("Unknown error", message)
+        self.assertIn("disabled", message)
+        self.assertNotIn("Suspended", message)
+        self.assertNotIn("Suspended", raised)
         self.assertNotIn(self.test_member2.name, message)
 
 
