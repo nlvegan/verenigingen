@@ -1,72 +1,62 @@
 """Stand-in for the Member that ``submit_application`` used to create (#1765).
 
-``submit_application`` now stages a Membership Application Submission and creates no Member; the
-Member is created at approval (a later task of #1765). A test whose subject is what happens AFTER a
-Member exists (approval, invoices, chapter rosters, the volunteer record) still needs one, so
-``submit_and_materialise`` runs the real endpoint (validation, eligibility, amount, staging) and then
-builds the Member from the staged payload with the same helpers, in the same order, that the old
-endpoint called. It is a fixture, not a claim about the approval flow; once approval materialises the
-Member those tests should call it instead and this module goes away.
+``submit_application`` now stages a Membership Application Submission and creates no Member; approval
+creates it. A test whose subject is what happens AFTER a Member exists (approval, invoices, chapter
+rosters, the volunteer record) still needs a Pending one, so ``submit_and_materialise`` runs the real
+endpoint, follows the emailed confirm link, and then calls the real ``materialise_member`` -- the step
+approval runs first, without the approval core. It is a fixture, not a claim about the approval flow;
+Task 9 of #1765 deletes it once those tests approve through ``approve_application``.
 """
 
-import json
-
 import frappe
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
-from verenigingen.api.membership_application import (
-    _only_if_selectable_chapter,
-    _save_suggested_chapter,
-    submit_application,
-)
-from verenigingen.utils.application_helpers import (
-    create_address_from_application,
-    create_member_from_application,
-    create_pending_chapter_membership,
-    create_volunteer_record,
-    determine_chapter_from_application,
-    generate_application_id,
-    parse_application_data,
-    update_member_from_reapplication,
-)
+from verenigingen.api.membership_application import submit_application
+from verenigingen.services.member.application.application_materialiser import materialise_member
+from verenigingen.services.member.application.application_record import confirm_application
+from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
+from verenigingen.utils.application_helpers import parse_application_data
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 SUBMISSION = "Membership Application Submission"
 
 
 def submit_and_materialise(*args, **kwargs):
-    """Call the real endpoint; on success also create (or, for a reapplication, update) the Member."""
+    """Call the real endpoint; on success also confirm the application and create (or update) the Member."""
     response = submit_application(*args, **kwargs)
     if not response.get("success"):
         return response
     email = str(parse_application_data(kwargs.get("data", kwargs)).get("email", "")).strip().lower()
-    row = frappe.get_all(
+    name = frappe.db.get_value(
         SUBMISSION,
         {"status": "Unconfirmed", "source": "Full Form", "email": email},
-        ["name", "email", "payload"],
+        "name",
         order_by="creation desc",
-        limit=1,
     )
-    if not row:  # routed to the "already a member" mail: nothing was staged
+    if not name:  # routed to the "already a member" mail: nothing was staged
         return response
-    data = json.loads(row[0].payload)
-    existing = frappe.db.get_value("Member", {"email": row[0].email})
-    application_id = generate_application_id()
-    address = create_address_from_application(data)
-    if existing:
-        member = update_member_from_reapplication(existing, data, application_id, address)
-    else:
-        member = create_member_from_application(data, application_id, address)
-    suggested = _only_if_selectable_chapter(determine_chapter_from_application(data))
-    if suggested:
-        _save_suggested_chapter(member, suggested, application_id)
-    if data.get("interested_in_volunteering"):
-        create_volunteer_record(member)
-    if suggested:
-        create_pending_chapter_membership(member, suggested)
-    frappe.delete_doc(SUBMISSION, row[0].name, force=True, ignore_permissions=True)
+    _follow_confirm_link(name)
+    application = frappe.get_doc(SUBMISSION, name)
+    member = materialise_member(application)
+    frappe.delete_doc(SUBMISSION, name, force=True, ignore_permissions=True)
     response["data"] = {
-        "application_id": application_id,
-        "applicant_id": getattr(member, "application_id", None),
+        "application_id": member.application_id,
+        "applicant_id": member.application_id,
         "member_record": member.name,
         "status": "pending_review",
     }
     return response
+
+
+def _follow_confirm_link(name):
+    """Follow the emailed link: a POST with the token."""
+    token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, name)
+    previous = getattr(frappe.local, "request", None)
+    frappe.local.request = Request(EnvironBuilder(method="POST").get_environ())
+    try:
+        confirmed = confirm_application(name, token)
+    finally:
+        frappe.local.request = previous
+    if not confirmed.get("success"):
+        frappe.throw(f"legacy_submit could not confirm {name}: {confirmed}")

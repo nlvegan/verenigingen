@@ -2,6 +2,9 @@
 API endpoints for reviewing and managing membership applications
 """
 
+import random
+import string
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
@@ -20,6 +23,7 @@ from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
 from verenigingen.utils.security.audit_logging import log_security_event
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
@@ -791,6 +795,93 @@ def _approve_membership_application_locked(
     )
 
     return _build_approval_response(member, invoice, billing_amount, user_creation_result)
+
+
+@frappe.whitelist()
+@high_security_api()  # Application approval: creates the Member (#1765)
+def approve_application(
+    application_name: str,
+    membership_type: str = None,
+    chapter: str = None,
+    notes: str = None,
+    create_invoice: bool = True,
+    activate_as_volunteer: bool = False,
+):
+    """Approve a Membership Application Submission: create (or update) the Member, then run the approval core.
+
+    The permission check comes first and refuses an unknown application exactly like a foreign one
+    (Ruling M: loading the application first would answer DoesNotExist for the unknown name only).
+    """
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+    from verenigingen.utils.db_advisory_lock import advisory_lock
+
+    application_name = str(application_name)
+    sanitized = _sanitize_text_fields(
+        {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, False)}
+    )
+    validate_application_permission_or_throw(application_name, "approve")
+    with advisory_lock(f"approve_application:{application_name}", timeout=30):
+        return _approve_application_locked(
+            application_name,
+            sanitized["membership_type"],
+            sanitized["chapter"],
+            sanitized["notes"],
+            create_invoice,
+            activate_as_volunteer,
+        )
+
+
+def _approve_application_locked(
+    application_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+):
+    from verenigingen.services.member.application.application_materialiser import materialise_member
+
+    application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
+    _refuse_unless_approvable(application, chapter)
+
+    savepoint = "".join(random.sample(string.ascii_lowercase, 10))
+    frappe.db.savepoint(savepoint)
+    try:
+        member = materialise_member(application)
+        response = _approve_membership_application_locked(
+            member.name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+        )
+        application.set_status("Approved")
+        application.db_set(
+            {
+                "member": member.name,
+                "reviewed_by": frappe.session.user,
+                "review_date": now_datetime(),
+                "review_notes": notes,
+            }
+        )
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # the server already discarded the transaction, and the savepoint with it
+    except Exception:  # swallow-ok: re-raised below
+        if not rollback_to_savepoint(savepoint):
+            frappe.db.rollback()  # savepoint already gone (a nested commit): nothing was undone
+        raise
+    response["member"] = member.name
+    response["application"] = application.name
+    return response
+
+
+def _refuse_unless_approvable(application, chapter):
+    from verenigingen.api.membership_application import _handle_existing_member
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    if application.status != "Pending Review":
+        frappe.throw(_("This application cannot be approved in its current state"))
+    # Only an admin may place the member in a chapter other than the one the application names.
+    if chapter and chapter != application.chapter and get_user_manageable_chapters() != "all":
+        frappe.throw(_("You don't have permission to approve this application"), frappe.PermissionError)
+    existing = frappe.db.get_value(
+        "Member", {"email": application.email}, ["name", "status", "application_status"], as_dict=True
+    )
+    if existing:
+        _action, blocked = _handle_existing_member(existing, {})
+        if blocked:  # became Active, or was terminated, since the application was confirmed
+            frappe.throw(_("This application cannot be approved in its current state"))
 
 
 @frappe.whitelist()
