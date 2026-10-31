@@ -75,7 +75,7 @@ COMMIT tests/backend/portal/test_portal_functions.py::1  # order-dependence
 COMMIT tests/backend/security/test_security_comprehensive.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_membership_application_coverage.py::2  # order-dependence
-COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::5  # order-dependence
+COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::3  # order-dependence
 COMMIT tests/backend/unit/api/test_payment_dashboard_api.py::2  # order-dependence
 COMMIT tests/backend/unit/api/test_suspension_api_extended.py::2  # order-dependence
 COMMIT tests/backend/unit/controllers/test_membership_controller.py::1  # order-dependence
@@ -462,7 +462,7 @@ REUSE tests/backend/security/test_security_core.py::2  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_mt940_and_emails.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::2  # order-dependence
+REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_validation_endpoint_wrappers.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::4  # order-dependence
