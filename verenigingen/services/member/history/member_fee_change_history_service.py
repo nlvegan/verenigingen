@@ -222,7 +222,7 @@ class MemberFeeChangeHistoryService(StatelessService):
             - Updates existing entry or adds new one if not found
             - Saves document after update using secure operations
         """
-        from verenigingen.utils.secure_operations import secure_document_operation
+        from verenigingen.utils.secure_operations import can_use_bypass_validations, secure_document_operation
 
         if not hasattr(member_doc, "fee_change_history") or not member_doc.fee_change_history:
             # If no history exists, just add it
@@ -261,7 +261,8 @@ class MemberFeeChangeHistoryService(StatelessService):
                     justification=f"Update fee change in history for member {member_doc.name}",
                     required_permissions=["Member:write"],
                     allow_system_user=True,  # Allow system user for automated financial data tracking
-                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                    # Only when granted: an unconditional request is refused to non-System-Managers (#1669)
+                    bypass_validations=["link_validation"] if can_use_bypass_validations() else None,
                 )
 
                 if not result.success:
