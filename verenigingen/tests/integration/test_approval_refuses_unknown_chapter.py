@@ -148,3 +148,28 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ApprovalFixtures):
             )
 
         self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
+
+    def test_the_review_page_defaults_to_a_chapter_the_approver_manages(self):
+        """#1908 review F1: an applicant with rows in two chapters must not be offered the OTHER
+        chapter as the review page's default (the approver would then be refused on the default).
+
+        Probe shortcut: the second row is written with create_pending_chapter_membership and its
+        join date is set directly, to make the foreign row the most recent one."""
+        from verenigingen.api.membership_application_review import get_pending_applications
+        from verenigingen.utils.application_helpers import create_pending_chapter_membership
+
+        member = self._apply_as_guest(selected_chapter=self.own.name)
+        create_pending_chapter_membership(frappe.get_doc("Member", member), self.foreign.name)
+        frappe.db.set_value(
+            "Chapter Member",
+            {"member": member, "parent": self.own.name},
+            "chapter_join_date",
+            frappe.utils.add_days(frappe.utils.today(), -30),
+        )
+
+        with self.set_user(self.board.user):
+            apps = get_pending_applications()
+        apps = apps.get("data", apps) if isinstance(apps, dict) else apps
+        row = next(a for a in apps if a["name"] == member)
+
+        self.assertEqual(row["current_chapter_display"], self.own.name)

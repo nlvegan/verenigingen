@@ -1126,10 +1126,23 @@ def get_pending_applications(chapter: str | None = None, days_overdue: int | Non
             as_dict=True,
         )
 
-        # Group by member (taking the most recent chapter)
+        # Group by member (taking the most recent chapter). For a chapter-scoped approver, prefer
+        # the most recent chapter they MANAGE: this value is the review dialog's default chapter,
+        # and since #1908 an approval naming a chapter the approver does not manage is refused.
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        manageable = get_user_manageable_chapters()
+        preferred = {}
         for membership in all_memberships:
             if membership.member not in chapter_memberships:
                 chapter_memberships[membership.member] = membership.chapter_name
+            if (
+                manageable != "all"
+                and membership.chapter_name in (manageable or [])
+                and membership.member not in preferred
+            ):
+                preferred[membership.member] = membership.chapter_name
+        chapter_memberships.update(preferred)
 
     # Get all membership types in one query for amount lookup
     membership_types = {app.selected_membership_type for app in applications if app.selected_membership_type}
