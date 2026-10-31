@@ -396,7 +396,10 @@ class MemberHistoryUpdateService(StatelessService):
         """
         try:
             from verenigingen.utils.member_history_integrity import cleanup_member_history
-            from verenigingen.utils.secure_operations import secure_document_operation
+            from verenigingen.utils.secure_operations import (
+                can_use_bypass_validations,
+                secure_document_operation,
+            )
 
             member_doc = frappe.get_doc("Member", member_name, for_update=True)
 
@@ -475,7 +478,7 @@ class MemberHistoryUpdateService(StatelessService):
                 justification=f"Update fee change history for member {member_doc.name}",
                 required_permissions=["Member:write"],
                 allow_system_user=False,
-                bypass_validations=["link_validation"],
+                bypass_validations=["link_validation"] if can_use_bypass_validations() else None,
             )
 
             if not fee_history_result.success:

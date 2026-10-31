@@ -214,7 +214,7 @@ class InvoiceErrorHandlerService(StatelessService):
                 )
 
         # Update retry tracking using secure operations framework
-        from verenigingen.utils.secure_operations import secure_document_operation
+        from verenigingen.utils.secure_operations import can_use_bypass_validations, secure_document_operation
 
         # Clean up error message to avoid repetitive prefixes
         clean_error = self._deduplicate_error_message(error_message)
@@ -237,7 +237,9 @@ class InvoiceErrorHandlerService(StatelessService):
             doc=schedule_doc,
             justification=f"Update invoice retry tracking for {schedule_doc.name}",
             required_permissions=["Membership Dues Schedule:write"],
-            bypass_validations=["link_validation"],  # Avoid validation loops during error recovery
+            # Ask for the bypass only when it will be granted: secure_document_operation raises
+            # PermissionError for anyone but a System Manager, which dropped the failure record (#1669).
+            bypass_validations=["link_validation"] if can_use_bypass_validations() else None,
         )
 
         if not retry_update_result.success:
@@ -268,7 +270,7 @@ class InvoiceErrorHandlerService(StatelessService):
                     doc=schedule_doc,
                     justification=f"Schedule {schedule_doc.name} flagged for manual review after {retry_count} failures",
                     required_permissions=["Membership Dues Schedule:write"],
-                    bypass_validations=["link_validation"],
+                    bypass_validations=["link_validation"] if can_use_bypass_validations() else None,
                 )
                 if not review_flag_result.success:
                     # This write IS the escalation. Without it the schedule is
