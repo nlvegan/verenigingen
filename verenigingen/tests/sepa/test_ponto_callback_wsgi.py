@@ -63,7 +63,6 @@ SCRIPT = textwrap.dedent(
         return {{t: frappe.db.count(t) for t in TABLES}}
 
     out["leak_before"] = table_counts()
-    run_started = frappe.utils.now()
 
     def fresh():
         # a new process-local connection: sees committed data only
@@ -202,11 +201,22 @@ SCRIPT = textwrap.dedent(
         frappe.db.set_single_value(SETTINGS, "webhook_user", previous_webhook_user)
         if user_created:
             frappe.delete_doc("User", EMAIL, force=True, ignore_permissions=True)
-            # delete_doc leaves its own audit trail (Deleted Document + "Deleted" Comments for
-            # the User, its Notification Settings and its Property Setters): remove what THIS
-            # run's delete wrote
-            frappe.db.delete("Comment", {{"comment_type": "Deleted", "creation": [">=", run_started]}})
-            frappe.db.delete("Deleted Document", {{"creation": [">=", run_started]}})
+            # delete_doc leaves its own audit trail for exactly what it deleted: a Deleted
+            # Document row and a "Deleted" Comment (subject "<doctype> <name>", reference_name
+            # NULL) for the User and for its Notification Settings. Remove those and nothing
+            # else: no time-window delete, so audit rows written by anything else survive.
+            for deleted_doctype in ("User", "Notification Settings"):
+                frappe.db.delete(
+                    "Deleted Document", {{"deleted_doctype": deleted_doctype, "deleted_name": EMAIL}}
+                )
+                frappe.db.delete(
+                    "Comment",
+                    {{
+                        "comment_type": "Deleted",
+                        "reference_doctype": deleted_doctype,
+                        "subject": f"{{deleted_doctype}} {{EMAIL}}",
+                    }},
+                )
             frappe.db.delete("Version", {{"ref_doctype": "User", "docname": EMAIL}})
             frappe.db.delete("Comment", {{"reference_doctype": "User", "reference_name": EMAIL}})
         frappe.db.commit()
