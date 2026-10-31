@@ -881,8 +881,10 @@ class DuesPaymentProcessor:
                 record_type = "Bank Transaction"
 
                 if bt_name:
-                    result["status"] = "already_processed" if has_bank_transaction else "success"
-                    if has_bank_transaction:
+                    # A draft BT the creator just resubmitted is work done, not a skip.
+                    already_complete = has_bank_transaction and idempotency_check.get("docstatus") != 0
+                    result["status"] = "already_processed" if already_complete else "success"
+                    if already_complete:
                         result["skipped_reason"] = "Bank Transaction already exists (Bank Transaction mode)"
                     result["bank_transaction"] = bt_name
 

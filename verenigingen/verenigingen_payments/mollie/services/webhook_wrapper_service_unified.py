@@ -710,8 +710,11 @@ class UnifiedWebhookWrapperService:
         (nothing announced) and a re-delivery of an already-booked reversal both end
         with state unchanged.
 
-        Forward first: a failed forward booking is returned as is (Mollie retries, and
-        nothing is reversed that has not been booked). A reversal that cannot be booked
+        Forward first: a failed forward booking is returned as is (Mollie retries) and no
+        reversal work is attempted on top of it. That guard is not separately tested: once
+        the forward Payment Entry exists no real input fails the forward step, and
+        ``process_reversal_webhook`` already refuses a payment that was never booked.
+        A reversal that cannot be booked
         turns the response into an error for the same reason, instead of a 200 that
         would stop Mollie delivering it again.
         """

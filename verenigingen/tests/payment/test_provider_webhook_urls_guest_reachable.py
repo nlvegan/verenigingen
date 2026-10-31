@@ -414,7 +414,6 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         second = self._post_mollie_notification(payment)
 
         self.assertEqual(self._state_of(payment_id), after_first, f"a retry changed state: {second}")
-        self.assertNotIn("partial_processing", second, second)
         self.assertEqual(after_first["bank_transactions"][0]["status"], "Unreconciled")
 
     def test_a_retry_resubmits_a_bank_transaction_left_in_draft_instead_of_booking_a_payment_entry(self):
@@ -506,6 +505,11 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             "createdAt": "2025-04-11T09:00:00+00:00",
         }
 
+    @staticmethod
+    def _http_status():
+        """The status Mollie sees. The body is not read: #1781 reduces it to ok|error."""
+        return int(frappe.local.response.get("http_status_code") or 200)
+
     def _invoice_outstanding(self):
         return float(frappe.db.get_value("Sales Invoice", self.invoice_name, "outstanding_amount"))
 
@@ -526,7 +530,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         client = _FakeMollie(refunds=[refund])
 
         first = self._post_mollie_notification(payment, client)
-        self.assertEqual(first.get("reversals"), ["success"], first)
+        self.assertLess(self._http_status(), 400, first)
 
         key = f"{payment_id}_refund_{refund['id']}"
         jes = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1}, pluck="name")
@@ -536,7 +540,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
 
         again = self._post_mollie_notification(payment, client)
 
-        self.assertEqual(again.get("reversals"), ["success"], again)
+        self.assertLess(self._http_status(), 400, again)
         self.assertEqual(self._state_of(payment_id), before, "a re-delivery of a booked refund moved state")
         self.assertEqual(self._invoice_outstanding(), refunded, "the refund was restored twice")
         self.assertIn(forward, before["payment_entries"])
@@ -558,7 +562,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
 
         result = self._post_mollie_notification(payment, _FakeMollie(chargebacks=[chargeback]))
 
-        self.assertEqual(result.get("reversals"), ["success"], result)
+        self.assertLess(self._http_status(), 400, result)
         key = f"{payment_id}_chargeback_{chargeback['id']}"
         self.assertEqual(
             len(frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1})), 1, result
@@ -582,7 +586,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
 
         result = self._post_mollie_notification(refunded_payment, _FakeMollie(refunds=[refund]))
 
-        self.assertEqual(result.get("status"), "error", result)
+        self.assertEqual(self._http_status(), 500, result)
         self.assertEqual(self._state_of(payment_id), before)
 
     def test_an_unavailable_mollie_defers_refund_discovery_rather_than_dropping_it(self):
@@ -596,5 +600,18 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
 
         result = self._post_mollie_notification(payment, _FakeMollie(fail=True))
 
-        self.assertEqual(result.get("status"), "service_unavailable", result)
-        self.assertEqual(frappe.local.response.get("http_status_code"), 503)
+        self.assertEqual(self._http_status(), 503, result)
+
+    def test_a_payment_reporting_zero_refunded_is_not_listed_at_mollie(self):
+        """Control for the discovery gate: Mollie may send ``amountRefunded`` as 0.00
+        (a truthy dict / string), which is not a refund."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        zero = {"value": "0.00", "currency": self.currency}
+        payment = self._paid_dues_payment(
+            payment_id, float(self.invoice_total), amountRefunded=zero, amountChargedBack=zero
+        )
+
+        self._post_mollie_notification(payment)  # asserts Mollie was not asked
+
+        self.assertLess(self._http_status(), 400)
+        self.assertEqual(len(self._state_of(payment_id)["bank_transactions"]), 1)

@@ -353,6 +353,30 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         self.assertEqual(result["bank_transaction"], bt.name)
         self.assertEqual(result["member"], member.name)
 
+    def test_a_retry_that_resubmits_a_draft_bank_transaction_is_not_reported_as_a_skip(self):
+        customer_id = "cst_dues_draft"
+        self._matched_member(customer_id)
+        ref = f"tr_bt_draft_{frappe.generate_hash(length=8)}"
+        bt = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "reference_number": ref,
+                "deposit": 25.0,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "bank_account": self._ensure_plain_bank_account(),
+            }
+        )
+        bt.insert()  # left in draft
+        self.processor._create_bank_transaction_for_dues = lambda *a, **k: bt.name
+
+        payment = FakeMolliePayment(id=ref, description="contributie", customer_id=customer_id)
+        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+
+        self.assertEqual(result["status"], "success", msg=result)
+        self.assertIsNone(result["payment_entry"])
+
     def test_already_processed_when_both_records_exist(self):
         # When the idempotency check reports both a Payment Entry and a Bank
         # Transaction, the processor short-circuits to "already_processed". The
