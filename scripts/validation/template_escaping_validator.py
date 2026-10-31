@@ -45,11 +45,15 @@ is why this uses jinja2's own tokenizer rather than a regex.
 * Context: ``|e`` is HTML-escaping. Inside a JS string it blocks a ``</script>`` or a quote
   breakout but not a backslash; use ``|tojson`` for a value placed in JS source.
 
+## M4: URL schemes
+
+``|e`` in an ``href``/``src`` does not stop a ``javascript:`` scheme (``member.image``,
+``doc.document_file``). That is a different defect from markup injection and is not checked.
+
 ## chapter_dashboard.html
 
-Branch ``feat/1765-application-record`` already escapes this file completely, so this
-branch leaves it alone to keep that merge trivial. Its findings are exempted through
-``EXCLUDED_FILES`` until #1765 lands; REMOVE that entry then, so the gate covers it.
+Branch ``feat/1765-application-record`` also escapes this file, partly. The gate covers the
+file on develop, so that merge has to take the stricter of the two sides.
 
 Usage: ``python scripts/validation/template_escaping_validator.py [file ...]`` (no
 arguments scans the whole tree). Exit 1 on any finding.
@@ -63,11 +67,6 @@ from jinja2 import Environment, nodes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_ROOT = "verenigingen/templates"
-
-# Remove when #1765 (feat/1765-application-record) is merged: it escapes this file fully.
-EXCLUDED_FILES = {
-    "verenigingen/templates/pages/chapter_dashboard.html": "#1765 escapes it on its own branch",
-}
 
 ESCAPING_FILTERS = {"e", "escape", "forceescape", "tojson"}
 NUMERIC_FILTERS = {"int", "float", "abs", "length", "count"}
@@ -96,6 +95,11 @@ ALLOWED_EXPRESSIONS = {
         'css_content or ""',
     ): "text/css response body (the 'disabled' stub), same as brand_css.html",
     (
+        "verenigingen/templates/pages/membership_adjustment.html",
+        "frappe.utils.formatdate(type_change_effective_date)|e",
+    ): "inside a JS template literal that builds HTML (the lexer sees it as <script>): |e is the right "
+    "escaping for the HTML being built, and the value is a formatted date",
+    (
         "verenigingen/templates/pages/campaign.html",
         "campaign.long_description",
     ): "Text Editor field: staff-authored rich text (frappe sanitises Text Editor values on save); "
@@ -108,43 +112,69 @@ ALLOWED_EXPRESSIONS = {
         "verenigingen/templates/pages/campaign.html",
         "campaign.impact_statement",
     ): "Text Editor field: staff-authored rich text, as long_description",
+    (
+        "verenigingen/templates/pages/team_members.html",
+        "team.description",
+    ): "Team.description is a Text Editor field (team.json): staff-authored rich text; escaping prints the tags",
+    (
+        "verenigingen/templates/pages/my_teams.html",
+        "team.info.description",
+    ): "the same Team.description Text Editor field, read through the team-info dict",
 }
 
 _ENV = Environment()
 _WS = re.compile(r"\s+")
 
 
-def _chain_escaped(node):
-    """True if an escaping filter sits anywhere below this node in a filter chain."""
-    while isinstance(node, nodes.Filter):
-        if node.name in ESCAPING_FILTERS:
-            return True
-        node = node.node
-    return False
+def _static_translation(node):
+    return (
+        isinstance(node, nodes.Call)
+        and isinstance(node.node, nodes.Name)
+        and node.node.name == "_"
+        and node.args
+        and isinstance(node.args[0], nodes.Const)
+        and not (node.kwargs or node.dyn_args or node.dyn_kwargs)
+    )
 
 
-def is_safe_expression(node):
-    """Classify one parsed expression node as safe to print on an autoescape-off page."""
+def is_safe_expression(node, context="html"):
+    """Classify one parsed expression node as safe to print on an autoescape-off page.
+
+    ``context`` is where the output lands: ``html`` (text or a plain attribute), ``script``
+    (inside a ``<script>`` block) or ``handler`` (inside an ``on*=`` attribute). ``|e`` is
+    HTML-escaping, which is the wrong tool in the last two: in a script it mangles the value
+    (``&#39;``) and does not stop a backslash breakout, and an ``on*`` attribute is
+    entity-decoded before it runs. Scripts therefore accept ``|tojson`` and numbers only;
+    handlers accept literals only (put the value in a ``data-*`` attribute instead).
+    """
     if isinstance(node, nodes.Const):
         return True
-    if isinstance(node, nodes.Filter):
-        if node.name in TERMINAL_OK:
-            return True
-        if node.name == "safe":
-            return _chain_escaped(node.node)
+    if context == "handler":
         return False
+    if isinstance(node, nodes.Filter):
+        ok = NUMERIC_FILTERS | {"tojson"} if context == "script" else TERMINAL_OK
+        if node.name in ok:
+            return True
+        # |safe only directly on an escaping filter: anything between the escape and the
+        # |safe (|e|replace(...)|safe) can reintroduce markup.
+        return (
+            node.name == "safe"
+            and isinstance(node.node, nodes.Filter)
+            and node.node.name in (ESCAPING_FILTERS if context == "html" else {"tojson"})
+        )
     if isinstance(node, nodes.CondExpr):
-        return is_safe_expression(node.expr1) and (node.expr2 is None or is_safe_expression(node.expr2))
+        return is_safe_expression(node.expr1, context) and (
+            node.expr2 is None or is_safe_expression(node.expr2, context)
+        )
     if isinstance(node, (nodes.Or, nodes.And)):
-        return is_safe_expression(node.left) and is_safe_expression(node.right)
+        return is_safe_expression(node.left, context) and is_safe_expression(node.right, context)
+    if _static_translation(node):
+        return True
     if isinstance(node, nodes.Call) and isinstance(node.node, nodes.Name):
         if node.node.name == "super":
             return True
-        if node.node.name == "_" and node.args and isinstance(node.args[0], nodes.Const) and not (
-            node.kwargs or node.dyn_args or node.dyn_kwargs
-        ):
-            return True
-        return node.node.name in ALLOWED_CALLS
+        # Zero-argument only: ``chapter_button(user_value)`` must not pass.
+        return node.node.name in ALLOWED_CALLS and not (node.args or node.kwargs)
     return False
 
 
@@ -154,17 +184,39 @@ def expression_nodes(inner):
     return [n for out in tree.body for n in out.nodes if not isinstance(n, nodes.TemplateData)]
 
 
+_SCRIPT_OPEN = re.compile(r"<script\b", re.I)
+_SCRIPT_CLOSE = re.compile(r"</script", re.I)
+_HANDLER_ATTR = re.compile(r"""\son\w+\s*=\s*("[^"]*|'[^']*)$""", re.I)
+
+
+def output_context(prefix):
+    """Classify where the next output lands, from the template text emitted so far."""
+    opens = [m.start() for m in _SCRIPT_OPEN.finditer(prefix)]
+    closes = [m.start() for m in _SCRIPT_CLOSE.finditer(prefix)]
+    if opens and (not closes or opens[-1] > closes[-1]):
+        return "script"
+    lt, gt = prefix.rfind("<"), prefix.rfind(">")
+    if lt > gt and _HANDLER_ATTR.search(prefix[lt:]):
+        return "handler"
+    return "html"
+
+
 def variable_blocks(source):
-    """Yield (lineno, text) for every ``{{ ... }}`` outside comments and raw blocks."""
-    lineno, parts = None, None
+    """Yield (lineno, text, context) for every ``{{ ... }}`` outside comments and raw blocks."""
+    lineno, parts, context = None, None, "html"
+    prefix = []
     for ln, token, value in _ENV.lexer.tokeniter(source, "tpl"):
         if token == "variable_begin":
             lineno, parts = ln, []
+            context = output_context("".join(prefix))
         elif token == "variable_end":
-            yield lineno, "".join(parts)
+            yield lineno, "".join(parts), context
             lineno, parts = None, None
+            prefix.append("\0")
         elif parts is not None:
             parts.append(value)
+        elif token == "data":
+            prefix.append(value)
 
 
 def normalise(inner):
@@ -174,18 +226,18 @@ def normalise(inner):
 def find_unescaped(source, relpath):
     """Return [(lineno, expression)] for each unescaped, non-allowlisted ``{{ }}``."""
     findings = []
-    for lineno, inner in variable_blocks(source):
+    for lineno, inner, context in variable_blocks(source):
         text = normalise(inner)
         try:
             exprs = expression_nodes(text)
         except Exception as exc:  # unparseable output is itself a finding: it cannot be proven safe
             findings.append((lineno, f"{text}  [unparseable: {exc}]"))
             continue
-        if all(is_safe_expression(n) for n in exprs):
+        if all(is_safe_expression(n, context) for n in exprs):
             continue
         if (relpath, text) in ALLOWED_EXPRESSIONS:
             continue
-        findings.append((lineno, text))
+        findings.append((lineno, text if context == "html" else f"{text}  [in {context}]"))
     return findings
 
 
@@ -195,7 +247,7 @@ def template_files():
 
 def check_file(path):
     rel = Path(path).resolve().relative_to(REPO_ROOT).as_posix()
-    if not rel.startswith(TEMPLATE_ROOT + "/") or rel in EXCLUDED_FILES:
+    if not rel.startswith(TEMPLATE_ROOT + "/"):
         return []
     return [(rel, ln, text) for ln, text in find_unescaped(Path(path).read_text(encoding="utf-8"), rel)]
 
@@ -204,7 +256,7 @@ def main(argv):
     paths = [Path(a) for a in argv] if argv else template_files()
     findings = [f for p in paths if p.suffix == ".html" for f in check_file(p)]
     for rel, ln, text in findings:
-        print(f"{rel}:{ln}: unescaped output {{{{ {text} }}}} (autoescape is off; end it in |e)")
+        print(f"{rel}:{ln}: unescaped output {{{{ {text} }}}} (autoescape is off: |e in HTML, |tojson in a <script>, no output in an on*= attribute)")
     if findings:
         print(f"\n{len(findings)} unescaped template output(s). See scripts/validation/template_escaping_validator.py.")
         return 1

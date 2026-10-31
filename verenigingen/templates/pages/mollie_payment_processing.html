@@ -1171,7 +1171,7 @@ function bulkRetrieveAllMemberPayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.bulk_retrieve_all_member_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1674,7 +1674,7 @@ function bulkProcessSelectedPayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.bulk_process_member_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1840,7 +1840,7 @@ function scanIncompletePayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.scan_incomplete_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2089,7 +2089,7 @@ function previewRecovery() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.preview_payment_recovery', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2172,7 +2172,7 @@ function executeRecovery() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.execute_payment_recovery', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })

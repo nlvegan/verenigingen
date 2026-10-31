@@ -92,7 +92,7 @@
 // /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
 
 frappe.ready(function() {
-    const defaultCompany = '{{ default_company|e }}';
+    const defaultCompany = {{ default_company|default('')|tojson }};
     const availableItems = {{ items | tojson }};
     let pendingMappings = {};
 

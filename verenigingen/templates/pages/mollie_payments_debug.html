@@ -1627,7 +1627,7 @@ function debugCustomer() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: `customer_id=${encodeURIComponent(customerId)}`
     })
@@ -1665,7 +1665,7 @@ function debugSubscription() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_subscription', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1701,7 +1701,7 @@ function debugMandate() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_mandate', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1752,7 +1752,7 @@ function executeCancelSubscription(customerId, subscriptionId, reason) {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_subscription', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1813,7 +1813,7 @@ function executeRevokeMandate(customerId, mandateId, reason) {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_revoke_mandate', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1868,7 +1868,7 @@ function createMandate() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_mandate', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -1937,7 +1937,7 @@ function searchCustomers() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.search_customers_by_name', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2000,7 +2000,7 @@ function listCustomers() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: `limit=${encodeURIComponent(limit)}`
     })
@@ -2044,7 +2044,7 @@ function executeSyncMembershipEndDates(dryRun) {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.sync_membership_end_dates_from_mollie', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2190,7 +2190,7 @@ function executeDeleteCustomer(customerId, reason, confirmationText) {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_delete_customer', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2241,7 +2241,7 @@ function debugPayment() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: `payment_id=${encodeURIComponent(paymentId)}`
     })
@@ -2311,7 +2311,7 @@ function createTestPayment() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_test_payment', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2374,7 +2374,7 @@ function listPayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2410,7 +2410,7 @@ function debugRefund() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_refund', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2440,7 +2440,7 @@ function listChargebacks() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_chargebacks', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -2471,7 +2471,7 @@ function testWebhookProcessing() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: `payment_id=${encodeURIComponent(paymentId)}`
     })
@@ -2501,7 +2501,7 @@ function debugWebhookDelivery() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: `payment_id=${encodeURIComponent(paymentId)}`
     })
@@ -3174,7 +3174,7 @@ function executeCancelPayment(paymentId, reason) {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_payment', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -3268,7 +3268,7 @@ function executeCreateSubscription(customerId, mandateId, amount, interval, star
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_subscription', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -3449,7 +3449,7 @@ function listSubscriptions() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_subscriptions', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -4034,7 +4034,7 @@ function bulkRetrieveAllMemberPayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_retrieve_all_member_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })
@@ -4311,7 +4311,7 @@ function bulkProcessSelectedPayments() {
     fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.bulk_process_member_payments', {
         method: 'POST',
         headers: {
-            'X-Frappe-CSRF-Token': '{{ csrf_token|e }}'
+            'X-Frappe-CSRF-Token': {{ csrf_token|default('')|tojson }}
         },
         body: formData
     })

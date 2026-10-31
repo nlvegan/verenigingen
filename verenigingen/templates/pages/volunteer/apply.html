@@ -436,7 +436,7 @@ document.querySelector('input[name="birth_date"]').addEventListener('change', fu
     // 16, so lowering minimum_volunteer_age left the browser CLEARING the birth
     // date of an applicant the server would have accepted (#659). 0/unset means
     // no client-side check -- the server gate is the authority regardless.
-    const minimumAge = {{ (minimum_volunteer_age or 0)|e }};
+    const minimumAge = {{ (minimum_volunteer_age or 0)|int }};
     if (minimumAge && age < minimumAge) {
         alert('{{ _("You must be at least {0} years old to volunteer.") }}'.replace('{0}', minimumAge));
         e.target.value = '';

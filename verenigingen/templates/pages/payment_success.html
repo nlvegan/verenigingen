@@ -316,10 +316,10 @@ function refreshPaymentStatus(isAutoRefresh = false) {
         frappe.call({
             method: 'verenigingen.templates.pages.payment_success.refresh_payment_status',
             args: {
-                doctype: '{{ document_info.doctype|e }}',
-                docname: '{{ document_info.docname|e }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "")|e }}',
-                token: '{{ frappe.form_dict.get("token", "")|e }}'
+                doctype: {{ document_info.doctype|default('')|tojson }},
+                docname: {{ document_info.docname|default('')|tojson }},
+                payment_id: {{ frappe.form_dict.get("payment_id", "")|default('')|tojson }},
+                token: {{ frappe.form_dict.get("token", "")|default('')|tojson }}
             },
             callback(response) {
                 handleRefreshResponse(response.message, isAutoRefresh);
@@ -338,10 +338,10 @@ function refreshPaymentStatus(isAutoRefresh = false) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                doctype: '{{ document_info.doctype|e }}',
-                docname: '{{ document_info.docname|e }}',
-                payment_id: '{{ frappe.form_dict.get("payment_id", "")|e }}',
-                token: '{{ frappe.form_dict.get("token", "")|e }}'
+                doctype: {{ document_info.doctype|default('')|tojson }},
+                docname: {{ document_info.docname|default('')|tojson }},
+                payment_id: {{ frappe.form_dict.get("payment_id", "")|default('')|tojson }},
+                token: {{ frappe.form_dict.get("token", "")|default('')|tojson }}
             })
         })
         .then(response => response.json())

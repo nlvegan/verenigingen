@@ -333,10 +333,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     uploadableOrgs: {{ uploadable_orgs | tojson if uploadable_orgs else '{}' }},
                     totalCount: {{ total_count | int if total_count else 0 }},
                     filters: {
-                        searchTerm: '{{ preselected_category | e }}' || '',
-                        orgType: '{{ preselected_org_type | e }}' || '',
-                        organization: '{{ preselected_org_name | e }}' || '',
-                        category: '{{ preselected_category | e }}' || ''
+                        searchTerm: {{ preselected_category|default('')|tojson }} || '',
+                        orgType: {{ preselected_org_type|default('')|tojson }} || '',
+                        organization: {{ preselected_org_name|default('')|tojson }} || '',
+                        category: {{ preselected_category|default('')|tojson }} || ''
                     },
                     loading: false,
                     deleting: null,

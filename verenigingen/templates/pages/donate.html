@@ -327,7 +327,7 @@
                 <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name|e }}</p>
             </div>
             <div class="action-buttons">
-                <button type="button" class="btn btn-primary mr-3" onclick="retryPayment('{{ donation_result.name|e }}')">{{ _("Try Payment Again") }}</button>
+                <button type="button" class="btn btn-primary mr-3" data-donation-id="{{ donation_result.name|e }}" onclick="retryPayment(this.dataset.donationId)">{{ _("Try Payment Again") }}</button>
                 <a href="/donate" class="btn btn-secondary">{{ _("Start New Donation") }}</a>
             </div>
         </div>

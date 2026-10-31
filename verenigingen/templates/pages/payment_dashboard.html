@@ -962,7 +962,7 @@ if (typeof escapeHtml === 'undefined') {
 // Initialize page
 document.addEventListener('DOMContentLoaded', function() {
     // Get member from context
-    memberParam = '{{ member|e }}';
+    memberParam = {{ member|default('')|tojson }};
     window.memberFullName = {{ member_doc.full_name | tojson if member_doc else '""' }};
 
     // Only load data if we have a member (not in selection mode)

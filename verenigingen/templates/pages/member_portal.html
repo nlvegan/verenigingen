@@ -235,13 +235,13 @@
                                 {% for doc_type, years_dict in chapter.documents.by_type_and_year.items() %}
                                 {% if years_dict %}
                                 <div class="border border-gray-200 rounded-lg overflow-hidden">
-                                    <button onclick="MemberPortal.toggleChapterFolder('chapter-folder-{{ chapter.chapter_name|replace(' ', '-')|lower|e }}-{{ doc_type|replace(' ', '-')|lower|e }}')"
+                                    <button data-folder-id="chapter-folder-{{ chapter.chapter_name|replace(' ', '-')|lower|e }}-{{ doc_type|replace(' ', '-')|lower|e }}" onclick="MemberPortal.toggleChapterFolder(this.dataset.folderId)"
                                             class="w-full px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer border-none text-left text-sm">
                                         <span class="font-medium text-gray-800 flex items-center gap-2">
                                             <i class="fa fa-folder text-warning-600"></i>
                                             <span aria-label="{{ doc_type|e }}">
                                             {% if chapter.documents.category_icons %}
-                                                {{ chapter.documents.category_icons.get(doc_type, '<i class="fa fa-paperclip"></i>')|e }}
+                                                {{ chapter.documents.category_icons.get(doc_type, '📎')|e }}
                                             {% else %}
                                                 {% if doc_type == "Policy" %}<i class="fa fa-clipboard"></i>
                                                 {% elif doc_type == "Meeting Minutes" %}<i class="fa fa-pencil-square-o"></i>

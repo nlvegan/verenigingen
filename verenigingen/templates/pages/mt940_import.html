@@ -466,7 +466,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const apiArgs = {
                 bank_account: bankAccountSelect.value,
                 file_content: fileContent,
-                company: '{{ company|e }}'
+                company: {{ company|default('')|tojson }}
             };
 
             // Call import API
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 from_date: fromDate,
                 to_date: toDate,
                 strategy: strategy,
-                company: '{{ company|e }}',
+                company: {{ company|default('')|tojson }},
                 bank_account: bankAccount
             },
             callback: function(r) {

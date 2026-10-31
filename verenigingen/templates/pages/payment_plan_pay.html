@@ -42,7 +42,7 @@ document.getElementById('pay-form').addEventListener('submit', function (e) {
     var method = document.querySelector('input[name=method]:checked').value;
     frappe.call({
         method: 'verenigingen.api.payment_plan_management.initiate_installment_payment',
-        args: { plan: '{{ plan.name|e }}', installment_number: {{ installment.installment_number|e }}, method: method },
+        args: { plan: {{ plan.name|default('')|tojson }}, installment_number: {{ installment.installment_number|int }}, method: method },
         callback: function (r) {
             var data = (r.message && r.message.data) || r.message || {};
             if (data.redirect_url) {

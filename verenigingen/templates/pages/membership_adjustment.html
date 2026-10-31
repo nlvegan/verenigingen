@@ -354,7 +354,7 @@ $(document).ready(function() {
 
     // Income calculator variables
     const calculatorSettings = {
-        enabled: {{ enable_income_calculator|default(false)|lower|e }},
+        enabled: {{ (true if enable_income_calculator else false)|tojson }},
         percentage: {{ income_percentage_rate|default(0.5)|float }}
     };
     let calculatedAmount = 0;
@@ -395,7 +395,7 @@ $(document).ready(function() {
         if (amount < minFee || amount > maxFee) {
             submitBtn.prop('disabled', true);
             submitBtn.text('{{ _("Contact us for amounts outside this range") }}');
-            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email|e)|e }}');
+            submitBtn.attr('title', {{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email)|tojson }});
         } else {
             submitBtn.prop('disabled', false);
 

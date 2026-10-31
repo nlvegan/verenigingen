@@ -705,7 +705,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Address form (AJAX) ---
     var addressForm = document.getElementById('address-form');
     if (addressForm) {
-        var currentAddr = {{ address_data_json|e }};
+        var currentAddr = {{ address_data|tojson }};
 
         addressForm.addEventListener('submit', function(e) {
             e.preventDefault();

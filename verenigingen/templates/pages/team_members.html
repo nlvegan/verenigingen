@@ -256,7 +256,7 @@
                 </div>
             </div>
             {% if team.description %}
-            <p style="margin-top: 1rem; color: #666;">{{ team.description|e }}</p>
+            <p style="margin-top: 1rem; color: #666;">{{ team.description }}</p>
             {% endif %}
         </a>
         {% endfor %}
@@ -284,7 +284,7 @@
         <h3><span class="icon"><i class="fa fa-clipboard"></i></span>{{ _("Team Information") }}</h3>
 
         {% if team.description %}
-        <p><strong>{{ _("Description") }}:</strong> {{ team.description|e }}</p>
+        <p><strong>{{ _("Description") }}:</strong> {{ team.description }}</p>
         {% endif %}
 
         <div class="team-details" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">

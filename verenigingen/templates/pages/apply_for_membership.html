@@ -755,7 +755,7 @@ frappe.ready(function() {
 
         // Initialize the application with Tailwind-specific configuration
         const app = new MembershipApplication({
-            maxSteps: {{ total_steps|e }},
+            maxSteps: {{ total_steps|int }},
             enableVolunteerStep: {{ 'true' if enable_volunteer_signup else 'false' }},
             enableAutoSave: true,
             enableErrorHandling: true,
@@ -1440,7 +1440,7 @@ function applyCalculatedAmount() {
 
     setTimeout(() => {
         applyButton.textContent = originalText;
-        applyButton.style.backgroundColor = originalBgColor || '{{ primary_color|e }}';
+        applyButton.style.backgroundColor = originalBgColor || {{ primary_color|default('')|tojson }};
     }, 2000);
 
     // Update main app state if available - CRITICAL for step validation

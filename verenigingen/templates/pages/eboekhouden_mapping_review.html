@@ -83,7 +83,7 @@ frappe.ready(function() {
     let analysisData = null;
     let accountTypesData = [];
     let pendingChanges = {};
-    const defaultCompany = '{{ default_company|e }}';
+    const defaultCompany = {{ default_company|default('')|tojson }};
 
     // Load companies on page load
     function loadCompanies() {

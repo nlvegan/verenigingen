@@ -556,8 +556,8 @@
 <script>
 $(document).ready(function() {
     // Current calendar state
-    let currentMonth = {{ calendar_month_num|e }};
-    let currentYear = {{ calendar_year|e }};
+    let currentMonth = {{ calendar_month_num|int }};
+    let currentYear = {{ calendar_year|int }};
 
     // Payment data
     const paymentData = {{ payment_data|tojson }};

@@ -418,7 +418,7 @@
 </div>
 
 <script>
-const csrfToken = '{{ csrf_token|e }}';
+const csrfToken = {{ csrf_token|default('')|tojson }};
 let csvContent = null;
 let validationResults = [];
 let descriptionSuffix = '';

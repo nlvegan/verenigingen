@@ -34,6 +34,34 @@ class TestFlagged(unittest.TestCase):
     def test_unparseable_output_is_a_finding(self):
         self.assertEqual(len(found("{{ a b }}")), 1)
 
+    def test_e_inside_a_script_block_is_flagged(self):
+        """C1 of the #1890 review: |e turns the JSON's quotes into &#34; and breaks the script."""
+        self.assertEqual(len(found("<script>var a = {{ data_json|e }};</script>")), 1)
+        self.assertEqual(len(found("<script>var a = '{{ name|e }}';</script>")), 1)
+
+    def test_script_state_ends_at_the_closing_tag(self):
+        self.assertEqual(found("<script>var a = 1;</script><p>{{ name|e }}</p>"), [])
+
+    def test_script_state_survives_jinja_blocks_inside_the_script(self):
+        src = "<script>{% if x %}var a = {{ name|e }};{% endif %}</script>"
+        self.assertEqual(len(found(src)), 1)
+
+    def test_any_output_in_an_on_handler_is_flagged(self):
+        self.assertEqual(len(found("""<a onclick="go('{{ x|e }}')">""")), 1)
+        self.assertEqual(len(found("""<a onclick="go({{ x|tojson }})">""")), 1)
+        self.assertEqual(len(found("""<a onclick='go("{{ x|e }}")'>""")), 1)
+
+    def test_a_data_attribute_is_ordinary_html(self):
+        self.assertEqual(found("""<a data-x="{{ x|e }}" onclick="go(this.dataset.x)">"""), [])
+
+    def test_unescaping_after_the_escape_is_flagged(self):
+        self.assertEqual(len(found("{{ x|e|replace('&lt;','<')|safe }}")), 1)
+        self.assertEqual(len(found("{{ x|forceescape|replace('a','<script>')|safe }}")), 1)
+
+    def test_macro_call_with_an_argument_is_flagged(self):
+        self.assertEqual(len(found("{{ chapter_button(user_value) }}")), 1)
+        self.assertEqual(found("{{ chapter_button() }}"), [])
+
     def test_unlisted_macro_call_is_flagged(self):
         self.assertEqual(len(found("{{ render_thing(x) }}")), 1)
 
@@ -42,8 +70,12 @@ class TestAccepted(unittest.TestCase):
     def test_escaped_forms(self):
         src = (
             "{{ a|e }} {{ a|escape }} {{ a|urlencode|e }} {{ (a or b)|e }} "
-            "{{ a|default('x')|e }} {{ a|tojson }} {{ a|tojson|safe }} {{ a|e|replace('\\n','<br>')|safe }}"
+            "{{ a|default('x')|e }} {{ a|tojson }} {{ a|tojson|safe }}"
         )
+        self.assertEqual(found(src), [])
+
+    def test_script_accepts_tojson_numbers_and_literals(self):
+        src = "<script>var a = {{ x|default('')|tojson }}, b = {{ n|int }}, c = {{ _('Static') }};</script>"
         self.assertEqual(found(src), [])
 
     def test_numbers_literals_and_static_translations(self):
@@ -68,10 +100,6 @@ class TestTree(unittest.TestCase):
     def test_whole_tree_is_clean(self):
         findings = [f for p in v.template_files() for f in v.check_file(p)]
         self.assertEqual(findings, [])
-
-    def test_excluded_file_is_really_excluded_and_exists(self):
-        for rel in v.EXCLUDED_FILES:
-            self.assertTrue((v.REPO_ROOT / rel).exists(), rel)
 
 
 if __name__ == "__main__":

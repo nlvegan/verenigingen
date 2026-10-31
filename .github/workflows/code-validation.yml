@@ -1604,8 +1604,7 @@ jobs:
   # Frappe renders page AND email templates with Jinja autoescape OFF (measured, #1890),
   # so a bare `{{ x }}` of user-typed text is stored XSS. Same reasoning as the guards
   # above: the pre-commit hook can be skipped and only sees one commit's files. HARD GATE,
-  # no baseline: the tree is swept to zero. chapter_dashboard.html is excluded until
-  # #1765 (which escapes it on its own branch) merges.
+  # no baseline: the tree is swept to zero, chapter_dashboard.html included.
   template-escaping-validator:
     name: 🛡️ Template Output Escaping (hard gate)
     runs-on: ubuntu-latest

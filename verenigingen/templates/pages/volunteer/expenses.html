@@ -98,7 +98,7 @@ input:focus, select:focus, textarea:focus {
             {% endif %}
             {% if stats_debug %}
             <strong>STATS DEBUG:</strong><br>
-            {{ stats_debug|e|replace('\n', '<br>')|safe }}<br>
+            {% for line in stats_debug.split('\n') %}{{ line|e }}<br>{% endfor %}
             {% endif %}
         </div>
 

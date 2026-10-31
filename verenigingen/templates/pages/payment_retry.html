@@ -43,7 +43,7 @@
                             {% for method in payment_methods %}
                             <div class="payment-method-option">
                                 <button class="btn btn-outline-primary btn-block"
-                                        onclick="processPayment('{{ method.name|e }}')">
+                                        data-method="{{ method.name|e }}" onclick="processPayment(this.dataset.method)">
                                     <i class="fa fa-credit-card"></i> {{ _("Pay with") }} {{ method.name|e }}
                                 </button>
                             </div>
@@ -89,7 +89,7 @@ function processPayment(method) {
     frappe.msgprint(__('Processing payment with ' + method + '...'));
 
     // For now, simulate payment processing
-    window.location.href = '/payment/process/{{ member.name|e }}/{{ invoice.name|e }}/' + method;
+    window.location.href = '/payment/process/' + encodeURIComponent({{ member.name|default('')|tojson }}) + '/' + encodeURIComponent({{ invoice.name|default('')|tojson }}) + '/' + encodeURIComponent(method);
 }
 </script>
 {% endblock %}

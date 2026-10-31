@@ -285,14 +285,14 @@
 <script>
 $(document).ready(function() {
     let currentAddressData = {
-        address_line1: "{{ address_data.address_line1|e }}",
-        address_line2: "{{ address_data.address_line2|e }}",
-        city: "{{ address_data.city|e }}",
-        state: "{{ address_data.state|e }}",
-        country: "{{ address_data.country|e }}",
-        pincode: "{{ address_data.pincode|e }}",
-        phone: "{{ address_data.phone|e }}",
-        email_id: "{{ address_data.email_id|e }}"
+        address_line1: {{ address_data.address_line1|default('')|tojson }},
+        address_line2: {{ address_data.address_line2|default('')|tojson }},
+        city: {{ address_data.city|default('')|tojson }},
+        state: {{ address_data.state|default('')|tojson }},
+        country: {{ address_data.country|default('')|tojson }},
+        pincode: {{ address_data.pincode|default('')|tojson }},
+        phone: {{ address_data.phone|default('')|tojson }},
+        email_id: {{ address_data.email_id|default('')|tojson }}
     };
 
     // Handle form submission

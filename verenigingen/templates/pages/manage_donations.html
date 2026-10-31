@@ -114,13 +114,15 @@
                         {% if donation.mollie_subscription_id and donation.subscription_status == "active" %}
                         <div class="mt-4 flex flex-wrap gap-2">
                             <button type="button"
-                                    onclick="showUpdateDonationModal('{{ donation.name|e }}', {{ donation.amount|e }}, '{{ donation.recurring_frequency|e }}', '{{ (donation.fund_designation or '')|e }}')"
+                                    data-donation-id="{{ donation.name|e }}" data-amount="{{ donation.amount|e }}" data-frequency="{{ donation.recurring_frequency|e }}" data-fund="{{ (donation.fund_designation or '')|e }}"
+                                    onclick="showUpdateDonationModal(this.dataset.donationId, Number(this.dataset.amount), this.dataset.frequency, this.dataset.fund)"
                                     class="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors duration-200">
                                 <i class="fa fa-edit mr-1"></i>
                                 {{ _("Update Amount") }}
                             </button>
                             <button type="button"
-                                    onclick="cancelRecurringDonation('{{ donation.name|e }}', {{ donation.amount|e }}, '{{ donation.recurring_frequency|e }}')"
+                                    data-donation-id="{{ donation.name|e }}" data-amount="{{ donation.amount|e }}" data-frequency="{{ donation.recurring_frequency|e }}"
+                                    onclick="cancelRecurringDonation(this.dataset.donationId, Number(this.dataset.amount), this.dataset.frequency)"
                                     class="inline-flex items-center px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors duration-200">
                                 <i class="fa fa-times mr-1"></i>
                                 {{ _("Cancel Recurring") }}
@@ -287,7 +289,7 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token|e }}'
+                'X-Frappe-CSRF-Token': {{ frappe.session.csrf_token|default('')|tojson }}
             },
             body: JSON.stringify({
                 donation_id: donationId,
@@ -335,7 +337,7 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token|e }}'
+                'X-Frappe-CSRF-Token': {{ frappe.session.csrf_token|default('')|tojson }}
             },
             body: JSON.stringify({
                 donation_id: donationId
