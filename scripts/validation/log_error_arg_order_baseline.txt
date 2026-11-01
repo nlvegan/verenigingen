@@ -615,7 +615,6 @@ verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook._get_ponto
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook._get_sepa_config::1
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook.get_payment_status::1
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook.initiate_payment::1
-verenigingen/verenigingen_payments/ing_checkout/utils/webhook_security.py::authenticate_webhook::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_notify_member_of_payment_failure::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_validate_payment_amount::5
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
@@ -647,7 +646,7 @@ verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger.clea
 verenigingen/verenigingen_payments/mollie/utils/logging.py::MollieLogger.error::1
 verenigingen/verenigingen_payments/mollie/utils/security.py::WebhookSecurityManager._load_security_settings::1
 verenigingen/verenigingen_payments/mollie/utils/unified_payment_entry_creator.py::create_unified_payment_entry::1
-verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::authenticate_mollie_webhook::2
+verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::authenticate_mollie_webhook::1
 verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_bulk_payments::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_payment::1

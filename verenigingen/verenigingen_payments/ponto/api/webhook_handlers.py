@@ -40,10 +40,15 @@ def _get_webhook_user() -> str:
 
     Returns:
         str: Username from Verenigingen Payments Settings
-    """
-    from verenigingen.utils.service_user import get_service_user
 
-    return get_service_user(
+    Raises:
+        ServiceUserUnavailable: no enabled webhook user is configured. A job must then
+            fail closed (Error Log row, nothing written); there is no Administrator
+            fallback (#1876).
+    """
+    from verenigingen.utils.service_user import require_service_user
+
+    return require_service_user(
         settings_doctype="Verenigingen Payments Settings",
         user_field="webhook_user",
         service_name="Ponto Webhook",

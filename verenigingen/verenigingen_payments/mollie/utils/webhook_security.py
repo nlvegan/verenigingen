@@ -12,7 +12,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.utils.security.client_ip import get_client_ip, get_client_ip_or_none
-from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.service_user import require_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
@@ -34,7 +34,7 @@ def authenticate_mollie_webhook() -> str:
     Raises:
         WebhookRateLimitExceeded: If rate limit is exceeded
         WebhookAuthenticationError: If signature validation fails
-        frappe.ValidationError: If webhook user is not configured or payload is empty
+        ServiceUserUnavailable: If no enabled webhook user is configured (#1876)
     """
     # STEP 0: Rate limiting (before any expensive operations)
     from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -85,19 +85,15 @@ def authenticate_mollie_webhook() -> str:
 
     # STEP 2: Set webhook user context using shared service user resolution
     # This provides consistent behavior with Ponto and ING Checkout webhooks
-    try:
-        webhook_user = get_service_user(
-            settings_doctype="Verenigingen Payments Settings",
-            user_field="webhook_user",
-            service_name="Mollie Webhook",
-        )
-        frappe.set_user(webhook_user)
-    except ValueError as e:
-        frappe.log_error(
-            f"Mollie webhook user configuration error: {e}",
-            "Mollie Webhook Authentication Error",
-        )
-        frappe.throw(str(e))
+    # No Administrator fallback (#1876): without a usable webhook user this logs an Error
+    # Log row and raises ServiceUserUnavailable (a plain Exception, so nothing reaches the
+    # caller's _server_messages). The endpoints answer it with a 5xx, so Mollie redelivers.
+    webhook_user = require_service_user(
+        settings_doctype="Verenigingen Payments Settings",
+        user_field="webhook_user",
+        service_name="Mollie Webhook",
+    )
+    frappe.set_user(webhook_user)
 
     # Validate permissions (log but don't block - webhook user may have different role structure)
     if not validate_webhook_user_permissions():
