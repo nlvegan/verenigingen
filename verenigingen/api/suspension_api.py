@@ -28,13 +28,20 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 def _can_terminate_without_oracle(member_name):
     """can_terminate_member(), refusing an unknown name exactly like a forbidden one.
 
-    can_terminate_member loads the Member, and a failed load queues a "Member X not found"
-    entry on frappe.message_log before it is caught -- a message that rides along in the
-    response for an unknown name and not for a real-but-forbidden one (#1911). Trim the
-    log back to its length before the call, on every path.
+    Two leaks, both closed here (#1911):
+    - can_terminate_member loads the Member, and a failed load queues a "Member X not found"
+      entry on frappe.message_log before it is caught. The log is trimmed back to its length
+      before the call, on every path.
+    - It does chapter/board lookups only for a REAL member, so for a caller who cannot read
+      the target the unknown name is far cheaper (queries and time) than a forbidden one.
+      Such a caller is refused on Member read first, so both take the same cheap path. A
+      caller WITH blanket Member read can list members anyway, so their slower path reveals
+      nothing.
     """
     from verenigingen.permissions import can_terminate_member
 
+    if not permission_allowed_without_oracle("Member", "read", member_name):
+        return False
     log_len = len(frappe.message_log)
     try:
         return can_terminate_member(member_name)

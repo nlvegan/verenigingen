@@ -44,9 +44,11 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 
         self.treasurer = self.create_test_board_member(self.chapter_b.name).user
+        self.national = self.create_test_board_member(self.chapter_b.name).user
+        assign_role_profile_to_user(self.national, "Verenigingen National Board Member")
         assign_role_profile_to_user(self.treasurer, "Verenigingen Treasurer")
 
-    def _channels(self, call):
+    def _observe_channels_1911(self, call):
         """Run call() and capture every observable channel."""
         log_len = len(frappe.message_log)
         errors_before = frappe.db.count("Error Log")
@@ -62,7 +64,7 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
             "errors": frappe.db.count("Error Log") - errors_before,
         }
 
-    def _normalise(self, channels, name):
+    def _normalise_probe_1911(self, channels, name):
         """The member name is the caller's own input and may echo; timestamps/exc ids vary per call."""
         import re
 
@@ -95,13 +97,13 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
     def test_preview_unknown_and_forbidden_are_indistinguishable(self):
         self.expectErrorLog("Suspension API Error")
         with self.set_user(self.other_board.user):
-            forbidden = self._channels(
+            forbidden = self._observe_channels_1911(
                 lambda: suspension_api.get_suspension_preview(member_name=self.member.name)
             )
-            unknown = self._channels(lambda: suspension_api.get_suspension_preview(member_name=UNKNOWN))
+            unknown = self._observe_channels_1911(lambda: suspension_api.get_suspension_preview(member_name=UNKNOWN))
         self.assertFalse(forbidden["outcome"]["success"], msg=forbidden)
         self.assertEqual(
-            self._normalise(forbidden, self.member.name), self._normalise(unknown, UNKNOWN)
+            self._normalise_probe_1911(forbidden, self.member.name), self._normalise_probe_1911(unknown, UNKNOWN)
         )
 
     # --- suspend / unsuspend / can_suspend / bulk -------------------------
@@ -110,14 +112,14 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
         self.expectErrorLog("Suspension API Permission Error")
         self.expectErrorLog("Suspension API Validation Error")
         with self.set_user(self.treasurer):
-            forbidden = self._channels(
+            forbidden = self._observe_channels_1911(
                 lambda: suspension_api.suspend_member(self.member.name, "scope test")
             )
-            unknown = self._channels(lambda: suspension_api.suspend_member(UNKNOWN, "scope test"))
+            unknown = self._observe_channels_1911(lambda: suspension_api.suspend_member(UNKNOWN, "scope test"))
         self.assertFalse(forbidden["outcome"]["success"], msg=forbidden)
         self.assertEqual(forbidden["outcome"]["error"]["code"], "PERMISSION_DENIED")
         self.assertEqual(
-            self._normalise(forbidden, self.member.name), self._normalise(unknown, UNKNOWN)
+            self._normalise_probe_1911(forbidden, self.member.name), self._normalise_probe_1911(unknown, UNKNOWN)
         )
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
 
@@ -125,40 +127,137 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
         self.expectErrorLog("Suspension API Permission Error")
         self.expectErrorLog("Suspension API Validation Error")
         with self.set_user(self.treasurer):
-            forbidden = self._channels(
+            forbidden = self._observe_channels_1911(
                 lambda: suspension_api.unsuspend_member(self.member.name, "scope test")
             )
-            unknown = self._channels(lambda: suspension_api.unsuspend_member(UNKNOWN, "scope test"))
+            unknown = self._observe_channels_1911(lambda: suspension_api.unsuspend_member(UNKNOWN, "scope test"))
         self.assertFalse(forbidden["outcome"]["success"], msg=forbidden)
         self.assertEqual(forbidden["outcome"]["error"]["code"], "PERMISSION_DENIED")
         self.assertEqual(
-            self._normalise(forbidden, self.member.name), self._normalise(unknown, UNKNOWN)
+            self._normalise_probe_1911(forbidden, self.member.name), self._normalise_probe_1911(unknown, UNKNOWN)
         )
 
     def test_can_suspend_unknown_and_forbidden_are_indistinguishable(self):
         with self.set_user(self.other_board.user):
-            forbidden = self._channels(lambda: suspension_api.can_suspend_member(self.member.name))
-            unknown = self._channels(lambda: suspension_api.can_suspend_member(UNKNOWN))
+            forbidden = self._observe_channels_1911(lambda: suspension_api.can_suspend_member(self.member.name))
+            unknown = self._observe_channels_1911(lambda: suspension_api.can_suspend_member(UNKNOWN))
         self.assertFalse(forbidden["outcome"]["data"]["can_suspend"], msg=forbidden)
         self.assertEqual(
-            self._normalise(forbidden, self.member.name), self._normalise(unknown, UNKNOWN)
+            self._normalise_probe_1911(forbidden, self.member.name), self._normalise_probe_1911(unknown, UNKNOWN)
         )
 
     def test_bulk_unknown_and_forbidden_are_indistinguishable(self):
         with self.set_user(self.treasurer):
-            forbidden = self._channels(
+            forbidden = self._observe_channels_1911(
                 lambda: suspension_api.bulk_suspend_members([self.member.name], "scope test")
             )
-            unknown = self._channels(
+            unknown = self._observe_channels_1911(
                 lambda: suspension_api.bulk_suspend_members([UNKNOWN], "scope test")
             )
         self.assertEqual(
-            self._normalise(forbidden, self.member.name), self._normalise(unknown, UNKNOWN)
+            self._normalise_probe_1911(forbidden, self.member.name), self._normalise_probe_1911(unknown, UNKNOWN)
         )
         self.assertIn("No permission to suspend", str(forbidden["outcome"]))
 
-    def test_admin_still_gets_does_not_exist_for_unknown(self):
-        self.expectErrorLog("Suspension API Validation Error")
+    def test_admin_unknown_name_is_refused_not_a_crash(self):
+        """System Manager / Verenigingen Administrator cannot load an unknown Member through
+        has_permission either, so an unknown name is refused like a forbidden one."""
+        self.expectErrorLog("Suspension API Permission Error")
         with self.set_user(self.admin):
             result = suspension_api.suspend_member(UNKNOWN, "scope test")
-        self.assertEqual(result["error"]["code"], "DOES_NOT_EXIST")
+        self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
+
+    # --- query-count channel ------------------------------------------------
+
+    def _queries_1911(self, call):
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        call()  # warm caches so only the code path differs
+        with count_queries() as counter:
+            call()
+        return len(counter.queries)
+
+    def _assert_same_query_count_1911(self, user, forbidden_call, unknown_call):
+        """The endpoint's OWN work must not differ between a forbidden and an unknown name.
+
+        frappe.has_permission itself costs more for a real document (it loads it and runs
+        the Member permission hook) than for an unknown one (the load fails at once). That
+        cost sits inside Frappe and is shared by every caller of
+        permission_allowed_without_oracle, so it is measured separately and subtracted;
+        what must match is everything the endpoint adds (the chapter/board lookups of
+        can_terminate_member, the member/user/team reads of the preview).
+        """
+        from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
+
+        with self.set_user(user):
+            self.assertFalse(
+                frappe.has_permission("Member", "read", self.member.name),
+                "caller must lack Member read for the cheap-path equality to be the fix under test",
+            )
+            self.expectErrorLog("Suspension API Permission Error")
+            self.expectErrorLog("Suspension API Validation Error")
+            self.expectErrorLog("Suspension API Error")
+            extra = {}
+            for label, call, name in (
+                ("forbidden", forbidden_call, self.member.name),
+                ("unknown", unknown_call, UNKNOWN),
+            ):
+                total = self._queries_1911(call)
+                bare = self._queries_1911(lambda: permission_allowed_without_oracle("Member", "read", name))  # noqa: B023
+                extra[label] = total - bare
+        self.assertEqual(extra["forbidden"], extra["unknown"], f"endpoint-added queries: {extra}")
+
+    def test_query_count_preview_same_for_unknown_and_forbidden(self):
+        self._assert_same_query_count_1911(
+            self.other_board.user,
+            lambda: suspension_api.get_suspension_preview(member_name=self.member.name),
+            lambda: suspension_api.get_suspension_preview(member_name=UNKNOWN),
+        )
+
+    def test_query_count_can_suspend_same_for_unknown_and_forbidden(self):
+        self._assert_same_query_count_1911(
+            self.other_board.user,
+            lambda: suspension_api.can_suspend_member(self.member.name),
+            lambda: suspension_api.can_suspend_member(UNKNOWN),
+        )
+
+    def test_every_critical_tier_caller_can_read_members(self):
+        """Why suspend/unsuspend/bulk have no query-count test: the only profiles that clear
+        CRITICAL besides the admin pair are Treasurer and National Board Member, and both
+        hold blanket Member read (measured here), so no no-read caller reaches those bodies
+        and a caller who can list members learns nothing from a slower path."""
+        for user in (self.treasurer, self.national):
+            with self.set_user(user):
+                self.assertTrue(frappe.has_permission("Member", "read", self.member.name), user)
+
+    # --- opposite harm: legitimate callers still succeed ----------------------
+
+    def test_own_chapter_treasurer_still_allowed(self):
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        treasurer = self.create_test_board_member(self.chapter_a.name).user
+        assign_role_profile_to_user(treasurer, "Verenigingen Treasurer")
+        with self.set_user(treasurer):
+            self.assertTrue(suspension_api.can_suspend_member(self.member.name)["data"]["can_suspend"])
+            self.assertTrue(suspension_api.get_suspension_preview(member_name=self.member.name)["success"])
+
+    def test_own_chapter_board_member_can_suspend_check(self):
+        with self.set_user(self.own_board.user):
+            self.assertTrue(suspension_api.can_suspend_member(self.member.name)["data"]["can_suspend"])
+
+    def test_admin_roles_can_suspend_and_unsuspend(self):
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        for role in ("Verenigingen Administrator", "System Manager"):
+            with self.subTest(role=role):
+                member = self.create_test_member(first_name="Adm", last_name=f"T{role[:3]}", status="Active")
+                user = self._staff_user(f"Roles1911{role[:3]}", role=role)
+                assign_role_profile_to_user(
+                    user,
+                    "Verenigingen System Administrator" if role == "System Manager" else "Verenigingen Administrator",
+                )
+                with self.set_user(user):
+                    done = suspension_api.suspend_member(member.name, "scope", False, False)
+                    self.assertTrue(done["success"], msg=done)
+                    back = suspension_api.unsuspend_member(member.name, "scope back")
+                    self.assertTrue(back["success"], msg=back)
