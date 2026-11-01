@@ -17,6 +17,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen_payments.utils.webhook_rate_limiter import reset_rate_limiter
 
 
 def _dotted_method(url: str) -> str:
@@ -103,6 +104,17 @@ class TestProviderWebhookUrlsGuestReachable(EnhancedTestCase):
 
 class _GuestDispatchMixin:
     """Posts a Mollie-shaped form body through Frappe's real dispatch gate as Guest."""
+
+    def setUp(self):
+        super().setUp()
+        # The webhook limiter is a per-PROCESS singleton keyed on client IP, and this
+        # EnvironBuilder request carries no REMOTE_ADDR, so every post lands in the one
+        # "unknown" bucket (20/min, with a progressive penalty). One class's posts then
+        # throttle the next class in the same shard: the guest webhook answers 429
+        # ``rate_limited`` and books nothing. Start every test on a fresh limiter and
+        # leave a fresh one behind for whichever module runs next.
+        reset_rate_limiter()
+        self.addCleanup(reset_rate_limiter)
 
     def _post_as_guest(self, dotted: str, payment_id: str):
         from frappe.handler import execute_cmd
