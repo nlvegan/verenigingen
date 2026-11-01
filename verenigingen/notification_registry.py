@@ -433,6 +433,14 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "ponto_executed_on_cancelled_row": {
+        "label": "Ponto Payment Executed On Cancelled Row (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request or Link that was "
+        "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS
     # =========================================================================

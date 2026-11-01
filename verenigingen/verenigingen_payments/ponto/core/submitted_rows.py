@@ -10,18 +10,25 @@ Three things live here because both doctypes need the same ones:
    it cannot say WHO may change it. Without this guard anyone holding write permission
    (Accounts Manager) could set ``status = Executed``, repoint ``payment_entry`` or change
    ``sales_invoice``/``debtor_iban`` through ``frappe.client.set_value``. A change to the
-   guarded fields is refused unless the writer set ``doc.flags.ponto_system_update``.
-   Only system code (webhook, refresh/poll, Payment Entry creation, invoice matcher, the
-   callbacks' proved cancel) sets it; a caller cannot, because the flag lives on the
-   in-memory document and an API request builds a fresh one.
+   guarded fields is refused unless the writer set ``doc.flags.ponto_system_update``,
+   which only system code does, through ``system_update(doc)``. A caller cannot set it:
+   the flag lives on the in-memory document and an API request builds a fresh one.
+
+   CONTRACT for any new system writer (the token-proved callback cancel on #1896 is one):
+   ``with system_update(doc): doc.status = ...; doc.save(ignore_permissions=True)``. Both
+   halves are needed. The flag satisfies this guard; ``ignore_permissions`` is for the
+   webhook user, who holds no ``submit`` right, which a docstatus 1 -> 1 save checks (#1920).
 
 2. ``alert_executed_on_cancelled_row`` -- a locally cancelled (docstatus 2) row can still
-   be paid at Ponto. The cancelled document is left unchanged; finance is told, once.
+   be paid at Ponto. The cancelled document is left unchanged; staff are told, once.
 """
+
+import functools
+from contextlib import contextmanager
 
 import frappe
 from frappe import _
-from frappe.utils import cstr, flt
+from frappe.utils import cstr, escape_html, flt
 
 SYSTEM_UPDATE_FLAG = "ponto_system_update"
 
@@ -36,7 +43,10 @@ LINK_GUARDED_FIELDS = (
 )
 
 ALERT_TITLE = "Ponto payment reported executed for a CANCELLED row"
-# Marker the ToDo dedupe keys on; also the first line of the ToDo text.
+# Registered in notification_registry.py; recipients are set in Verenigingen Email Configuration.
+# The call below repeats the literal because "Sync Registry" discovers keys by grepping for it.
+ALERT_KEY = "ponto_executed_on_cancelled_row"
+# Starts every alert's Notification Log subject and Error Log message; the dedupe keys on it.
 ALERT_MARKER = "PONTO-EXECUTED-ON-CANCELLED-ROW"
 
 
@@ -61,51 +71,91 @@ def refuse_unless_system_update(doc, guarded_fields):
         )
 
 
+@contextmanager
+def system_update(doc):
+    """Mark ``doc`` as being written by system code for the length of the block, then restore it.
+
+    Restores the PREVIOUS value rather than clearing, so a nested writer (the webhook method
+    calling create_payment_entry) does not drop the outer writer's flag. Afterwards the
+    in-memory document no longer carries the flag, so a later hand edit through the same
+    object is refused.
+    """
+    previous = doc.flags.get(SYSTEM_UPDATE_FLAG)
+    doc.flags[SYSTEM_UPDATE_FLAG] = True
+    try:
+        yield doc
+    finally:
+        if previous is None:
+            doc.flags.pop(SYSTEM_UPDATE_FLAG, None)
+        else:
+            doc.flags[SYSTEM_UPDATE_FLAG] = previous
+
+
+def as_system_update(writer):
+    """Run a writer (a method, or a function whose first argument is the document) under ``system_update``."""
+
+    @functools.wraps(writer)
+    def wrapper(doc, *args, **kwargs):
+        with system_update(doc):
+            return writer(doc, *args, **kwargs)
+
+    return wrapper
+
+
 def alert_executed_on_cancelled_row(doc, ponto_id):
-    """Tell finance that Ponto reports a cancelled row as executed. Returns True if ``doc`` is cancelled.
+    """Tell staff that Ponto reports a cancelled row as executed. Returns True if ``doc`` is cancelled.
 
     The caller must then leave the document alone: a docstatus-2 row cannot be saved, and
     booking money against it is a human decision (#1848).
 
-    Mechanism: a ToDo on the row (the same "manual review task" shape as
-    ``sepa_reconciliation.handle_partial_sepa_batch``) plus an Error Log row with a
-    distinctive title. Once per row: an existing ToDo with the marker, open or closed, stops
-    a repeat from the next poll tick or webhook redelivery.
+    A cancelled row whose ``payment_entry`` is still live (docstatus 1) was booked before it
+    was cancelled. That is already handled, and an alert would send someone to book it again.
+
+    Delivery: ``notify_administrators`` with the registered key ``ponto_executed_on_cancelled_row``,
+    so recipients are configurable in Verenigingen Email Configuration and fall back to the
+    admin roles. An Error Log row with a distinctive title is the audit trail.
+
+    Once per row, and safe against two deliveries at once: the row is locked first, and the
+    two markers (a Notification Log for the document, an Error Log row for it) are read with
+    locking reads, so a second delivery sees what the first committed.
     """
     if doc.docstatus != 2:
         return False
 
-    if frappe.db.exists(
-        "ToDo",
-        {
-            "reference_type": doc.doctype,
-            "reference_name": doc.name,
-            "description": ["like", f"{ALERT_MARKER}%"],
-        },
-    ):
+    if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
         return True
 
-    text = (
-        f"{ALERT_MARKER}\n"
-        f"Ponto reports {doc.doctype} {doc.name} as EXECUTED, but it was cancelled here. "
-        f"The cancelled document has NOT been changed and no Payment Entry was made.\n"
-        f"Amount: EUR {flt(doc.amount):,.2f}\n"
-        f"Ponto id: {ponto_id}\n"
+    frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
+    subject = f"{ALERT_MARKER}: {doc.doctype} {doc.name} was paid at Ponto but is cancelled here"
+    notified = frappe.db.get_value(
+        "Notification Log",
+        {"document_type": doc.doctype, "document_name": doc.name, "subject": ["like", f"{ALERT_MARKER}%"]},
+        "name",
+        for_update=True,
+    )
+    logged = frappe.db.exists(
+        "Error Log", {"method": ALERT_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]}
+    )
+    if notified and logged:
+        return True
+
+    details = (
+        f"{ALERT_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto, but it was cancelled here. "
+        f"The cancelled document has NOT been changed and no Payment Entry was made. "
+        f"Amount: EUR {flt(doc.amount):,.2f}. Ponto id: {ponto_id}. "
         f"Action required: check the bank, and book the payment by hand if the money moved."
     )
-    todo = frappe.get_doc(
-        {
-            "doctype": "ToDo",
-            "description": text,
-            "priority": "High",
-            "status": "Open",
-            "reference_type": doc.doctype,
-            "reference_name": doc.name,
-            "allocated_to": "Administrator",
-        }
-    )
-    # Security: system alert raised from a verified webhook / refresh; the acting user
-    # (webhook user or Guest) has no ToDo permission, and the alert must not be lost.
-    todo.insert(ignore_permissions=True)
-    frappe.log_error(title=ALERT_TITLE, message=text)
+    delivery = {"skipped": "already notified"}
+    if not notified:
+        from verenigingen.utils.notification_helpers import notify_administrators
+
+        delivery = notify_administrators(
+            subject=subject,
+            message=f"<p>{escape_html(details)}</p>",
+            notification_key="ponto_executed_on_cancelled_row",  # literal: key discovery greps for it
+            document_type=doc.doctype,
+            document_name=doc.name,
+        )
+    if not logged:
+        frappe.log_error(title=ALERT_TITLE, message=f"{details}\nNotification: {delivery}")
     return True

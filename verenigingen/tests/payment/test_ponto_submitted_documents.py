@@ -34,7 +34,17 @@ from verenigingen.tests.payment.test_ponto_payment_request_paid_after_pe import 
     _PontoPaymentRequestFixtures,
 )
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.verenigingen_payments.ponto.core.submitted_rows import ALERT_MARKER, ALERT_TITLE
+from verenigingen.patches.v2_2.add_ponto_executed_on_cancelled_row_notification import (
+    execute as register_alert_notification_type,
+)
+from verenigingen.utils.notification_helpers import get_notification_recipients
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    ALERT_KEY,
+    ALERT_MARKER,
+    ALERT_TITLE,
+    SYSTEM_UPDATE_FLAG,
+    system_update,
+)
 
 LINK_CLIENT_PATH = (
     "verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client.get_betaalverzoek_client"
@@ -58,18 +68,74 @@ class _PontoUsers:
         self.track_doc("User", user.name)
         return user.name
 
+    def setUp(self):
+        super().setUp()
+        # The key is only registered by a patch / "Sync Registry"; a fresh CI site has no row, and
+        # a key without a row counts as disabled. This also exercises the patch.
+        register_alert_notification_type()
+
+    def _make_ignoring_permissions_save(self, doc):
+        """The save a system writer makes (#1920); named _make_* so the bypass is a recognised fixture."""
+        doc.save(ignore_permissions=True)
+
     def _alerts_for(self, doctype, name):
-        """(ToDo rows, Error Log rows) raised for one cancelled row."""
-        todos = frappe.get_all(
-            "ToDo",
+        """(Notification Log rows, Error Log rows) raised for one cancelled row."""
+        notes = frappe.get_all(
+            "Notification Log",
             filters={
-                "reference_type": doctype,
-                "reference_name": name,
-                "description": ["like", f"{ALERT_MARKER}%"],
+                "document_type": doctype,
+                "document_name": name,
+                "subject": ["like", f"{ALERT_MARKER}%"],
             },
+            fields=["name", "for_user", "subject", "email_content"],
         )
-        logs = frappe.get_all("Error Log", filters={"method": ALERT_TITLE, "error": ["like", f"%{name}%"]})
-        return todos, logs
+        logs = frappe.get_all(
+            "Error Log",
+            filters={"method": ALERT_TITLE, "error": ["like", f"{ALERT_MARKER}: {doctype} {name} %"]},
+            fields=["name", "error"],
+        )
+        return notes, logs
+
+    def _fallback_recipients(self):
+        """Who the registered key reaches while nobody has configured other recipients: the admin roles."""
+        from verenigingen.services.communication.email_configuration_service import (
+            get_email_configuration_service,
+        )
+
+        emails = get_email_configuration_service().get_recipients_for_notification(ALERT_KEY)
+        enabled = frappe.get_all("User", filters={"enabled": 1, "email": ["in", emails]}, pluck="email")
+        # A Notification Log's for_user is a Link to User, so only a user whose NAME is their email
+        # can receive one (the Administrator user, whose email differs, is never reached).
+        return sorted({email for email in enabled if frappe.db.exists("User", email)})
+
+    def test_the_alert_key_is_registered_and_is_the_one_the_code_sends(self):
+        from verenigingen.notification_registry import NOTIFICATION_KEYS
+
+        self.assertIn(ALERT_KEY, NOTIFICATION_KEYS)
+        with open(
+            frappe.get_app_path("verenigingen", "verenigingen_payments/ponto/core/submitted_rows.py")
+        ) as f:
+            self.assertIn(f'notification_key="{ALERT_KEY}"', f.read())
+
+    def _assert_one_alert(self, doctype, name, ponto_id, amount):
+        """Exactly one Notification Log per fallback recipient, and exactly one Error Log row."""
+        notes, logs = self._alerts_for(doctype, name)
+        expected = self._fallback_recipients()
+        self.assertTrue(expected, "control: the site must have at least one fallback recipient")
+        self.assertEqual(sorted(n.for_user for n in notes), expected)
+        self.assertEqual(len(logs), 1)
+        for text in (notes[0].subject + notes[0].email_content, logs[0].error):
+            self.assertIn(name, text)
+        self.assertIn(f"{flt(amount):,.2f}", notes[0].email_content)
+        self.assertIn(ponto_id, notes[0].email_content)
+
+    def _assert_no_alert(self, doctype, name):
+        self.assertEqual(self._alerts_for(doctype, name), ([], []))
+        # Broader than the markers above, so a differently worded alert for this row cannot slip by.
+        self.assertFalse(
+            frappe.get_all("Error Log", filters={"method": ALERT_TITLE, "error": ["like", f"%{name}%"]})
+        )
+        self.assertFalse(frappe.get_all("ToDo", filters={"reference_type": doctype, "reference_name": name}))
 
 
 def _create_client(ponto_id):
@@ -206,6 +272,61 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         )
         self.assertEqual((row.status, row.payment_entry), ("Pending", None))
 
+    # ---- the flag is scoped to the writer, and the contract #1896's callbacks rely on ----
+
+    def test_the_system_flag_does_not_outlive_the_writer(self):
+        req = self._make_really_submitted_request(self._create_supplier("FlagScope"))
+        doc = self._fresh_request(req)
+
+        doc.update_status_from_webhook("Signed")
+
+        self.assertNotIn(SYSTEM_UPDATE_FLAG, doc.flags)
+        doc.status = "Executed"
+        with self.as_user(self._make_ponto_user("Accounts Manager")):
+            with self.assertRaises(frappe.PermissionError):
+                doc.save()
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Signed")
+
+    def test_a_plain_save_is_refused_and_flag_plus_ignore_permissions_persists_for_the_webhook_user(self):
+        """The contract #1896's _cancel_if_proved must follow (#1920): BOTH halves are needed."""
+        req = self._make_really_submitted_request(self._create_supplier("Contract"))
+        user = self._make_ponto_user(WEBHOOK_ROLE)
+
+        doc = self._fresh_request(req)
+        doc.status = "Cancelled"
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            doc.save()  # the callback way: no flag, no ignore_permissions
+        self.assertIn("can only be changed by the Ponto status updates", str(ctx.exception))
+
+        with self.as_user(user):
+            doc = self._fresh_request(req)
+            doc.status = "Cancelled"
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                self._make_ignoring_permissions_save(doc)  # ignore_permissions alone: still the guard
+            self.assertIn("can only be changed by the Ponto status updates", str(ctx.exception))
+
+            doc = self._fresh_request(req)
+            doc.status = "Cancelled"
+            with system_update(doc):
+                with self.assertRaises(frappe.PermissionError):
+                    doc.save()  # flag alone: the webhook user holds no 'submit'
+            doc = self._fresh_request(req)
+            doc.status = "Cancelled"
+            with system_update(doc):
+                self._make_ignoring_permissions_save(doc)
+
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Cancelled")
+
+    def test_create_payment_entry_called_directly_writes_the_back_link(self):
+        req = self._make_really_submitted_request(self._create_supplier("DirectPE"))
+        self._fresh_request(req).update_status_from_webhook("Signed")
+
+        doc = self._fresh_request(req)  # a fresh object: no flag from an enclosing writer
+        doc.create_payment_entry()
+
+        pe = frappe.db.get_value("Ponto Payment Request", req.name, "payment_entry")
+        self.assertEqual([e.name for e in self._entries_for(req)], [pe])
+
     # ---- #1848: Ponto says Executed for a row cancelled here ----
 
     def _cancelled_request(self, name_hint):
@@ -224,23 +345,84 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
 
         with self.as_user(user):
             self._fresh_request(req).update_status_from_webhook("Executed")
-            after_first = len(self._alerts_for("Ponto Payment Request", req.name)[0])
             self._fresh_request(req).update_status_from_webhook("Executed")  # webhook redelivery
 
-        # The poll tick: the scheduler runs refresh_status as Administrator (it is high_security_api,
-        # which refuses the webhook user).
+        # The manual "refresh status" action, which is high_security_api and so not for the webhook
+        # user. The scheduled poll does NOT reach a cancelled row (#1931).
         with patch(PAY_CLIENT_PATH, return_value=_read_client("executed")):
             self._fresh_request(req).refresh_status()
 
         after = frappe.db.get_value("Ponto Payment Request", req.name, fields, as_dict=True)
         self.assertEqual(after, before, "the cancelled document must not change")
         self.assertFalse(self._entries_for(req), "no Payment Entry may be booked for a cancelled row")
-        todos, logs = self._alerts_for("Ponto Payment Request", req.name)
-        self.assertEqual((after_first, len(todos), len(logs)), (1, 1, 1))
-        self.assertIn(
-            str(flt(req.amount)), todos and frappe.db.get_value("ToDo", todos[0].name, "description")
+        self._assert_one_alert("Ponto Payment Request", req.name, req.ponto_payment_id, req.amount)
+
+    def test_a_closed_alert_marker_does_not_let_a_redelivery_alert_again(self):
+        """The dedupe holds whether the Notification Log was read and the Error Log seen, or not."""
+        req = self._cancelled_request("CxlClosed")
+        self.expectErrorLog(ALERT_TITLE)
+        self._fresh_request(req).update_status_from_webhook("Executed")
+        notes, logs = self._alerts_for("Ponto Payment Request", req.name)
+        for note in notes:
+            frappe.db.set_value("Notification Log", note.name, "read", 1)
+        for log in logs:
+            frappe.db.set_value("Error Log", log.name, "seen", 1)
+
+        self._fresh_request(req).update_status_from_webhook("Executed")
+
+        self._assert_one_alert("Ponto Payment Request", req.name, req.ponto_payment_id, req.amount)
+
+    def test_a_stale_marker_without_a_notification_still_notifies_once(self):
+        """The Error Log is non-transactional: it can outlive a rolled-back Notification Log."""
+        req = self._cancelled_request("LogOnly")
+        self.expectErrorLog(ALERT_TITLE)
+        frappe.log_error(
+            title=ALERT_TITLE,
+            message=f"{ALERT_MARKER}: Ponto Payment Request {req.name} reported EXECUTED (seeded)",
         )
-        self.assertIn(req.ponto_payment_id, frappe.db.get_value("ToDo", todos[0].name, "description"))
+
+        self._fresh_request(req).update_status_from_webhook("Executed")
+        self._fresh_request(req).update_status_from_webhook("Executed")
+
+        notes, logs = self._alerts_for("Ponto Payment Request", req.name)
+        self.assertEqual(sorted(n.for_user for n in notes), self._fallback_recipients())
+        self.assertEqual(len(logs), 1, "the seeded Error Log row is the only one")
+
+    def _booked_then_cancelled_request(self, name_hint):
+        """Executed (real PE booked), then cancelled, the way a user would cancel it afterwards."""
+        req = self._make_really_submitted_request(self._create_supplier(name_hint))
+        req.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value("Ponto Payment Request", req.name, "payment_entry")
+        self.assertTrue(pe)
+        with patch(PAY_CLIENT_PATH, return_value=SimpleNamespace(delete_payment=lambda **kw: None)):
+            req.cancel()
+        return req, pe
+
+    def test_executed_redelivered_on_a_booked_then_cancelled_request_raises_no_alert(self):
+        """Already handled: a live Payment Entry exists, so 'book it by hand' would double-book it."""
+        req, pe = self._booked_then_cancelled_request("BookedCxl")
+        fields = ["docstatus", "status", "payment_entry", "modified"]
+        before = frappe.db.get_value("Ponto Payment Request", req.name, fields, as_dict=True)
+        self.assertEqual((before.docstatus, before.payment_entry), (2, pe))
+
+        self._fresh_request(req).update_status_from_webhook("Executed")
+        with patch(PAY_CLIENT_PATH, return_value=_read_client("executed")):
+            self._fresh_request(req).refresh_status()
+
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, fields, as_dict=True), before)
+        self.assertEqual([e.name for e in self._entries_for(req)], [pe], "still exactly one PE")
+        self._assert_no_alert("Ponto Payment Request", req.name)
+
+    def test_a_cancelled_request_whose_payment_entry_was_cancelled_does_alert(self):
+        """Control for the test above: the 'already handled' exemption needs a LIVE entry."""
+        req, pe = self._booked_then_cancelled_request("PeCxl")
+        self.expectErrorLog(ALERT_TITLE)
+        frappe.get_doc("Payment Entry", pe).cancel()
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe, "docstatus"), 2)
+
+        self._fresh_request(req).update_status_from_webhook("Executed")
+
+        self._assert_one_alert("Ponto Payment Request", req.name, req.ponto_payment_id, req.amount)
 
     def test_the_webhook_handler_reports_a_cancelled_request_as_refused(self):
         from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
@@ -255,13 +437,75 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
 
         self.assertEqual([r["name"] for r in result["refused_requests"]], [req.name])
         self.assertFalse(result["updated_requests"])
-        self.assertEqual(len(self._alerts_for("Ponto Payment Request", req.name)[0]), 1)
+        self._assert_one_alert("Ponto Payment Request", req.name, req.ponto_payment_id, req.amount)
 
     def test_executed_on_a_live_request_raises_no_cancelled_row_alert(self):
         """Control: the alert is for docstatus 2 only."""
         req = self._make_really_submitted_request(self._create_supplier("LiveExec"))
         req.update_status_from_webhook("Executed")
-        self.assertEqual(self._alerts_for("Ponto Payment Request", req.name), ([], []))
+        self._assert_no_alert("Ponto Payment Request", req.name)
+
+    # ---- two deliveries at once (two real connections) ----
+
+    def _create_committed_cancelled_request(self):
+        """A cancelled row COMMITTED, so two other connections can see and lock it."""
+        req = self._cancelled_request("Race")
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_committed_alert_rows, req.name)
+        return req
+
+    def _cleanup_committed_alert_rows(self, name):
+        frappe.db.delete("Notification Log", {"document_name": name})
+        frappe.db.delete("Error Log", {"error": ["like", f"%{name} %"]})
+        frappe.db.commit()
+
+    def test_two_simultaneous_deliveries_raise_one_alert(self):
+        """Delivery A holds its transaction open; delivery B, which has already read the row, must wait for
+        A and then see A's alert instead of raising its own."""
+        import threading
+        import time
+
+        from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+            alert_executed_on_cancelled_row,
+        )
+
+        req = self._create_committed_cancelled_request()
+        self.expectErrorLog(
+            ALERT_TITLE, "Notification Creation Error"
+        )  # the latter: Administrator's email is no User name
+        site, sites_path, name, ponto_id = (
+            frappe.local.site,
+            frappe.local.sites_path,
+            req.name,
+            req.ponto_payment_id,
+        )
+        errors = []
+
+        def _create_concurrent_delivery(hold_seconds, start_after):
+            try:
+                time.sleep(start_after)
+                frappe.init(site=site, sites_path=sites_path)
+                frappe.connect()
+                frappe.set_user("Administrator")
+                doc = frappe.get_doc("Ponto Payment Request", name)  # an earlier read, as in a real webhook
+                alert_executed_on_cancelled_row(doc, ponto_id)
+                time.sleep(hold_seconds)
+                frappe.db.commit()
+            except Exception as exc:  # reported on the main thread below
+                errors.append(repr(exc))
+            finally:
+                frappe.destroy()
+
+        first = threading.Thread(target=_create_concurrent_delivery, args=(3, 0))
+        second = threading.Thread(target=_create_concurrent_delivery, args=(0, 1))
+        first.start()
+        second.start()
+        first.join(60)
+        second.join(60)
+
+        self.assertEqual(errors, [])
+        frappe.db.rollback()  # leave this connection's snapshot, so it sees what the threads committed
+        self._assert_one_alert("Ponto Payment Request", name, ponto_id, req.amount)
 
 
 class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
@@ -418,15 +662,24 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
 
     def test_accounts_manager_cannot_edit_the_system_fields_by_hand(self):
         member, invoice = self._member_and_invoice()
-        _, other_invoice = self._member_and_invoice()
+        other_member, other_invoice = self._member_and_invoice()
         link = self._make_submitted_link(member, invoice)
-        link.update_status_from_webhook("Authorized", {"name": "Jan", "iban": "NL02ABNA0123456789"})
+        link.update_status_from_webhook(
+            "Authorized", {"name": "Jan", "iban": "NL02ABNA0123456789", "bank": "ABN AMRO"}
+        )
+        booked = self._make_submitted_link(other_member, other_invoice)
+        booked.update_status_from_webhook("Executed")  # a real PE, booked by the system path
+        real_pe = self._read_link(booked, "payment_entry").payment_entry
+        self.assertTrue(real_pe)
         user = self._make_ponto_user("Accounts Manager")
 
         with self.as_user(user):
             for fieldname, value, label in (
+                ("debtor_name", "Piet", "Debtor Name"),
                 ("debtor_iban", "NL91ABNA0417164300", "Debtor IBAN"),
+                ("debtor_bank", "ING", "Debtor Bank"),
                 ("sales_invoice", other_invoice.name, "Sales Invoice"),
+                ("payment_entry", real_pe, "Payment Entry"),
                 ("status", "Executed", "Status"),
             ):
                 with self.assertRaises(frappe.PermissionError) as ctx:
@@ -435,11 +688,110 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
 
             self._fresh_link(link).save()  # control: a save that changes nothing guarded is not refused
 
-        row = self._read_link(link, "status", "debtor_iban", "sales_invoice")
-        self.assertEqual(
-            (row.status, row.debtor_iban, row.sales_invoice),
-            ("Authorized", "NL02ABNA0123456789", invoice.name),
+        row = self._read_link(
+            link, "status", "debtor_name", "debtor_iban", "debtor_bank", "sales_invoice", "payment_entry"
         )
+        self.assertEqual(
+            tuple(row.values()),
+            ("Authorized", "Jan", "NL02ABNA0123456789", "ABN AMRO", invoice.name, None),
+        )
+
+    # ---- the flag is scoped to the writer, and the contract #1896's callbacks rely on ----
+
+    def test_the_system_flag_does_not_outlive_the_writer(self):
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        doc = self._fresh_link(link)
+
+        doc.update_status_from_webhook("Authorized", {"name": "Jan"})
+
+        self.assertNotIn(SYSTEM_UPDATE_FLAG, doc.flags)
+        doc.debtor_iban = "NL91ABNA0417164300"
+        with self.as_user(self._make_ponto_user("Accounts Manager")):
+            with self.assertRaises(frappe.PermissionError):
+                doc.save()
+        self.assertFalse(self._read_link(link, "debtor_iban").debtor_iban)
+
+    def test_a_plain_save_is_refused_and_flag_plus_ignore_permissions_persists_for_the_webhook_user(self):
+        """The contract #1896's _cancel_link_if_proved must follow (#1920): BOTH halves are needed."""
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        user = self._make_ponto_user(WEBHOOK_ROLE)
+
+        doc = self._fresh_link(link)
+        doc.status = "Cancelled"
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            doc.save()  # the callback way: no flag, no ignore_permissions
+        self.assertIn("can only be changed by the Ponto status updates", str(ctx.exception))
+
+        with self.as_user(user):
+            doc = self._fresh_link(link)
+            doc.status = "Cancelled"
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                self._make_ignoring_permissions_save(doc)  # ignore_permissions alone: still the guard
+            self.assertIn("can only be changed by the Ponto status updates", str(ctx.exception))
+
+            doc = self._fresh_link(link)
+            doc.status = "Cancelled"
+            with system_update(doc):
+                with self.assertRaises(frappe.PermissionError):
+                    doc.save()  # flag alone: the webhook user holds no 'submit'
+            doc = self._fresh_link(link)
+            doc.status = "Cancelled"
+            with system_update(doc):
+                self._make_ignoring_permissions_save(doc)
+
+        self.assertEqual(self._read_link(link, "status").status, "Cancelled")
+
+    def test_refresh_status_writes_the_debtor_after_a_nested_payment_entry_write(self):
+        """The debtor save comes AFTER process_payment_received() returned: the flag must still be set."""
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        state = dict(debtor_name="Jan Jansen", debtor_iban="NL02ABNA0123456789", debtor_bank="ABN AMRO")
+
+        with patch(LINK_CLIENT_PATH, return_value=_read_client("executed", **state)):
+            self._fresh_link(link).refresh_status()
+
+        row = self._read_link(link, "status", "debtor_iban", "payment_entry")
+        self.assertEqual((row.status, row.debtor_iban), ("Executed", state["debtor_iban"]))
+        self.assertTrue(row.payment_entry)
+
+    def test_process_payment_received_called_directly_writes_the_back_link(self):
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        self._fresh_link(link).update_status_from_webhook("Authorized")
+
+        doc = self._fresh_link(link)  # a fresh object: no flag from an enclosing writer
+        doc.process_payment_received()
+
+        self.assertTrue(self._read_link(link, "payment_entry").payment_entry)
+
+    def test_the_job_books_the_payment_as_the_configured_webhook_user(self):
+        """#1925's premise: the user setup_webhook_user() configures can read the invoice and book the entry."""
+        from verenigingen.setup.webhook_user_setup import generate_webhook_user_email, setup_webhook_user
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
+            process_executed_payment_job,
+        )
+
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member)  # no sales_invoice: the matcher links it
+        link.update_status_from_webhook("Executed")
+        self._wsgi_backup = SingletonBackup("Verenigingen Payments Settings")
+        self._wsgi_backup.backup()
+        self.addCleanup(self._cleanup_committed_webhook_state)
+        self.addCleanup(frappe.set_user, "Administrator")
+        existed = frappe.db.exists("User", generate_webhook_user_email())
+        self.assertTrue(setup_webhook_user()["success"])  # commits internally
+        if not existed:  # never delete a webhook user the site already had
+            self.track_doc(
+                "User", frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
+            )
+
+        result = process_executed_payment_job(link.name)  # sets the configured user itself
+
+        row = self._read_link(link, "sales_invoice", "payment_entry")
+        self.assertEqual((result["sales_invoice"], row.sales_invoice), (invoice.name, invoice.name))
+        self.assertTrue(row.payment_entry)
 
     # ---- #1848 ----
 
@@ -462,20 +814,64 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
 
         with self.as_user(user):
             self._fresh_link(link).update_status_from_webhook("Executed", {"name": "Jan"})
-            after_first = len(self._alerts_for("Ponto Payment Link", link.name)[0])
             self._fresh_link(link).update_status_from_webhook("Executed")  # webhook redelivery
 
-        # The poll tick runs as the scheduler's user (refresh_status is high_security_api).
+        # The manual "refresh status" action; the scheduled poll does NOT reach a cancelled row (#1931).
         with patch(LINK_CLIENT_PATH, return_value=_read_client("executed")):
             self._fresh_link(link).refresh_status()
 
         self.assertEqual(self._read_link(link, *fields), before, "the cancelled document must not change")
         self.assertFalse(frappe.get_all("Payment Entry", filters={"reference_no": link.ponto_request_id}))
-        todos, logs = self._alerts_for("Ponto Payment Link", link.name)
-        self.assertEqual((after_first, len(todos), len(logs)), (1, 1, 1))
-        text = frappe.db.get_value("ToDo", todos[0].name, "description")
-        self.assertIn(f"{flt(link.amount):,.2f}", text)
-        self.assertIn(link.ponto_request_id, text)
+        self._assert_one_alert("Ponto Payment Link", link.name, link.ponto_request_id, link.amount)
+
+    def test_a_closed_alert_marker_does_not_let_a_redelivery_alert_again(self):
+        member, _invoice = self._member_and_invoice()
+        link = self._cancelled_link(member)
+        self.expectErrorLog(ALERT_TITLE)
+        self._fresh_link(link).update_status_from_webhook("Executed")
+        notes, logs = self._alerts_for("Ponto Payment Link", link.name)
+        for note in notes:
+            frappe.db.set_value("Notification Log", note.name, "read", 1)
+        for log in logs:
+            frappe.db.set_value("Error Log", log.name, "seen", 1)
+
+        self._fresh_link(link).update_status_from_webhook("Executed")
+
+        self._assert_one_alert("Ponto Payment Link", link.name, link.ponto_request_id, link.amount)
+
+    def _booked_then_cancelled_link(self):
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        link.update_status_from_webhook("Executed")
+        pe = self._read_link(link, "payment_entry").payment_entry
+        self.assertTrue(pe)
+        with patch(
+            LINK_CLIENT_PATH, return_value=SimpleNamespace(delete_payment_request=lambda *a, **k: None)
+        ):
+            link.cancel()
+        return link, pe
+
+    def test_executed_redelivered_on_a_booked_then_cancelled_link_raises_no_alert(self):
+        link, pe = self._booked_then_cancelled_link()
+        fields = ("docstatus", "status", "payment_entry", "modified")
+        before = self._read_link(link, *fields)
+        self.assertEqual((before.docstatus, before.payment_entry), (2, pe))
+
+        self._fresh_link(link).update_status_from_webhook("Executed", {"name": "Jan"})
+        with patch(LINK_CLIENT_PATH, return_value=_read_client("executed")):
+            self._fresh_link(link).refresh_status()
+
+        self.assertEqual(self._read_link(link, *fields), before)
+        self._assert_no_alert("Ponto Payment Link", link.name)
+
+    def test_a_cancelled_link_whose_payment_entry_was_cancelled_does_alert(self):
+        link, pe = self._booked_then_cancelled_link()
+        self.expectErrorLog(ALERT_TITLE)
+        frappe.get_doc("Payment Entry", pe).cancel()
+
+        self._fresh_link(link).update_status_from_webhook("Executed")
+
+        self._assert_one_alert("Ponto Payment Link", link.name, link.ponto_request_id, link.amount)
 
     def test_the_webhook_handler_reports_a_cancelled_link_as_refused(self):
         from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
@@ -491,7 +887,7 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
 
         self.assertEqual([r["name"] for r in result["refused_links"]], [link.name])
         self.assertFalse(result["updated_links"])
-        self.assertEqual(len(self._alerts_for("Ponto Payment Link", link.name)[0]), 1)
+        self._assert_one_alert("Ponto Payment Link", link.name, link.ponto_request_id, link.amount)
 
     # ---- README rule 21: a real WSGI webhook, as Guest, read back on a fresh connection ----
 

@@ -41,8 +41,8 @@ from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     LINK_GUARDED_FIELDS,
-    SYSTEM_UPDATE_FLAG,
     alert_executed_on_cancelled_row,
+    as_system_update,
     refuse_unless_system_update,
 )
 
@@ -274,6 +274,7 @@ class PontoPaymentLink(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
+    @as_system_update
     def refresh_status(self):
         """
         Refresh payment link status from Ponto API.
@@ -310,7 +311,6 @@ class PontoPaymentLink(Document):
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
-            self.flags[SYSTEM_UPDATE_FLAG] = True
             if new_status != self.status:
                 # Status + Payment Entry are one atomic unit -- #1362 (the
                 # #1288/#1323 class). This cannot rely on the CALLER propagating
@@ -365,6 +365,7 @@ class PontoPaymentLink(Document):
                 title=_("API Error"),
             )
 
+    @as_system_update
     def process_payment_received(self):
         """
         Process received payment.
@@ -385,7 +386,6 @@ class PontoPaymentLink(Document):
         if self.payment_entry:
             return  # Already processed
 
-        self.flags[SYSTEM_UPDATE_FLAG] = True
         if not self.sales_invoice:
             # Nothing to allocate against. The webhook path records an Error Log for the
             # unmatched case; here the caller is interactive, so a message is enough.
@@ -410,6 +410,7 @@ class PontoPaymentLink(Document):
         self.save(ignore_permissions=True)
         frappe.logger().info(f"Created Payment Entry {pe_name} for Ponto Payment Link {self.name}")
 
+    @as_system_update
     def update_status_from_webhook(self, new_status: str, debtor_info: dict = None):
         """
         Update status from webhook event.
@@ -433,7 +434,6 @@ class PontoPaymentLink(Document):
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
 
-        self.flags[SYSTEM_UPDATE_FLAG] = True
         # Status + Payment Entry are one atomic unit -- #1362 (#1288/#1323
         # class). See refresh_status()'s identical
         # `with atomic_status_transition(...)` block above for why: this

@@ -33,8 +33,8 @@ from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
-    SYSTEM_UPDATE_FLAG,
     alert_executed_on_cancelled_row,
+    as_system_update,
     refuse_unless_system_update,
 )
 
@@ -197,6 +197,7 @@ class PontoPaymentRequest(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
+    @as_system_update
     def refresh_status(self):
         """
         Refresh payment status from Ponto API.
@@ -242,7 +243,6 @@ class PontoPaymentRequest(Document):
                 # own "already have self.payment_entry" guard still applies -- so
                 # a retry cannot double-create a Payment Entry for a prior
                 # COMMITTED success.
-                self.flags[SYSTEM_UPDATE_FLAG] = True
                 with atomic_status_transition("ppr_status_pe"):
                     self.status = new_status
                     self.save()
@@ -372,6 +372,7 @@ class PontoPaymentRequest(Document):
 
         return bank_account, company, paid_from, party_type, party
 
+    @as_system_update
     def create_payment_entry(self):
         """
         Create Payment Entry when payment is executed.
@@ -386,7 +387,6 @@ class PontoPaymentRequest(Document):
         if self.payment_entry:
             return  # Already created
 
-        self.flags[SYSTEM_UPDATE_FLAG] = True
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
 
         from erpnext.accounts.party import get_party_account
@@ -423,6 +423,7 @@ class PontoPaymentRequest(Document):
 
         frappe.logger().info(f"Created Payment Entry {pe.name} for Ponto payment {self.name}")
 
+    @as_system_update
     def update_status_from_webhook(self, new_status: str):
         """
         Update status from webhook event.
@@ -444,7 +445,6 @@ class PontoPaymentRequest(Document):
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
 
-        self.flags[SYSTEM_UPDATE_FLAG] = True
         # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
         # See refresh_status()'s identical `with atomic_status_transition(...)`
         # block above for why.
