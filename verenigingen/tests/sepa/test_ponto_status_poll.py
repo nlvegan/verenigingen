@@ -1359,13 +1359,14 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
 
         return seen, patch.object(status_poll_service, "alert_executed_on_cancelled_row", spy)
 
-    def _owed_rows_out_of_window(self, count):
+    def _owed_rows_out_of_window(self, count, push_out=True):
         rows = [self._cancel(self._poll_submitted_request()) for _ in range(count)]
         self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
         self._unseed_alert_key()
         self._poll({r.ponto_payment_id: "executed" for r in rows})
         for r in rows:
-            self._push_out_of_window(r)
+            if push_out:
+                self._push_out_of_window(r)
         return rows
 
     def test_a_row_whose_retry_keeps_raising_does_not_starve_the_others(self):
@@ -1406,11 +1407,11 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertIn(req.ponto_payment_id, self.requested, "control: the row was read again")
         self.assertEqual(self._notification_logs(req), [], "delivered means done: nothing re-sent")
 
-    def _owed_row_with_a_live_payment_entry(self):
+    def _owed_row_with_a_live_payment_entry(self, push_out=True):
         """Shortcut, stated: a real Payment Entry (booked on a second request through the webhook
         method) is linked to the owed cancelled row with a raw write, because a cancelled row cannot
         be saved. Returns (row, payment entry name)."""
-        row = self._owed_rows_out_of_window(1)[0]
+        row = self._owed_rows_out_of_window(1, push_out=push_out)[0]
         booked = self._poll_submitted_request()
         booked.update_status_from_webhook("Executed")
         pe = frappe.db.get_value(booked.doctype, booked.name, "payment_entry")
@@ -1460,3 +1461,59 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             with self.assertRaises(JobTimeoutException):
                 self._poll({})
         self.assertEqual(self._states(row), (True, False))
+
+    # --- review round 4: pin the live-Payment-Entry rules from every side ------------------
+
+    def test_an_in_window_booked_row_is_not_closed_by_the_cancelled_pass(self):
+        """The row stays INSIDE the window, so the cancelled pass itself calls the alert function on the
+        live-Payment-Entry branch. That branch must write no closing marker: cancelling the entry later
+        must bring the alert back (money paid, unbooked again)."""
+        row, pe = self._owed_row_with_a_live_payment_entry(push_out=False)
+        self._poll({row.ponto_payment_id: "executed"})
+        self.assertIn(row.ponto_payment_id, self.requested, "control: the cancelled pass read the row")
+        self.assertEqual(self._states(row), (True, False), "no closing marker on the live-PE branch")
+        pe_doc = frappe.get_doc("Payment Entry", pe)
+        pe_doc.flags.ignore_links = True  # the booked request, our fixture, still links to it
+        pe_doc.cancel()
+        register_alert_notification_type()
+        self._poll({row.ponto_payment_id: "executed"})
+        self._assert_one_alert(row.doctype, row.name, row.ponto_payment_id, row.amount)
+
+    def test_a_draft_payment_entry_does_not_count_as_booked(self):
+        """Only a SUBMITTED entry (docstatus 1) means booked. A real draft copy is linked to the row."""
+        row, pe = self._owed_row_with_a_live_payment_entry()
+        draft = frappe.copy_doc(frappe.get_doc("Payment Entry", pe))
+        draft.docstatus = 0  # copy_doc keeps the source's docstatus
+        draft.insert()
+        self.assertEqual(frappe.db.get_value("Payment Entry", draft.name, "docstatus"), 0, "control: draft")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", draft.name, update_modified=False)
+        seen, spy = self._retried()
+        with spy:
+            self._poll({})
+        self.assertIn(row.name, seen, "a draft entry must not hide the owed alert")
+
+    def test_a_live_payment_entry_hides_only_its_own_request(self):
+        booked, other = self._owed_rows_out_of_window(2)
+        live = self._poll_submitted_request()
+        live.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(live.doctype, live.name, "payment_entry")
+        frappe.db.set_value(booked.doctype, booked.name, "payment_entry", pe, update_modified=False)
+        swept = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertNotIn((booked.doctype, booked.name), swept)
+        self.assertIn((other.doctype, other.name), swept, "an unrelated owed Request must stay owed")
+
+    def test_a_live_payment_entry_hides_only_its_own_link(self):
+        links = [self._cancel(self._poll_submitted_link()) for _ in range(2)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({lk.ponto_request_id: "executed" for lk in links})
+        booked, other = links
+        for lk in links:
+            self.assertEqual(self._states(lk), (True, False), "control: both owed")
+        live = self._poll_submitted_request()
+        live.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(live.doctype, live.name, "payment_entry")
+        frappe.db.set_value(booked.doctype, booked.name, "payment_entry", pe, update_modified=False)
+        swept = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertNotIn((booked.doctype, booked.name), swept)
+        self.assertIn((other.doctype, other.name), swept, "an unrelated owed Link must stay owed")
