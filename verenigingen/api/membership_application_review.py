@@ -732,11 +732,11 @@ def _lock_pending_review_application(application_name, refusal):
 
 def _refuse_unless_approvable(application, chapter):
     from verenigingen.api.membership_application import _handle_existing_member
-    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
 
-    # Only an admin may place the member in a chapter other than the one the application names.
-    if chapter and chapter != application.chapter and get_user_manageable_chapters() != "all":
-        frappe.throw(_("You don't have permission to approve this application"), frappe.PermissionError)
+    # After the application permission check (Ruling M) and before any write. One rule with the
+    # member-keyed path (#1860, #1908, Ruling AR): a scoped approver may assign any chapter it manages,
+    # the application's own or another, never an unknown or unmanaged one.
+    _refuse_unknown_chapter(chapter)
     existing = frappe.db.get_value(
         "Member", {"email": application.email}, ["name", "status", "application_status"], as_dict=True
     )

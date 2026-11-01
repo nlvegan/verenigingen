@@ -832,10 +832,12 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
 
-    def test_board_member_cannot_place_member_in_another_chapter(self):
+    def test_board_member_cannot_place_member_in_a_chapter_they_do_not_manage(self):
+        """Ruling AR / #1908: refused for an unmanaged chapter, with the shared helper's message (it used
+        to be a PermissionError from the branch's own "another chapter" guard)."""
         name = self._stage_and_confirm()
 
-        with self.assertRaises(frappe.PermissionError):
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
             self._approve_as(name, user=self.board.user, chapter=self.other_chapter.name)
 
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
