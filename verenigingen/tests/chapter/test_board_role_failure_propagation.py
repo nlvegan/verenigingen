@@ -28,10 +28,12 @@ import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.secure_operations import secure_document_operation
 
-ASSIGN_ROLE = (
-    "verenigingen.verenigingen.doctype.chapter_board_member."
-    "chapter_board_member.ChapterBoardMember.assign_board_member_role"
-)
+# Injected AT DEPTH, inside the User save the role-profile sync performs, not on the sync's own
+# entry point: sync_user_role_profile and auto_sync_on_role_change both swallow what they are
+# handed, so only a fault below them shows what a real lock error does. The sync replaced the
+# direct role grant (#1672), which ran in validate() and so aborted the save on a 1213/1205.
+ASSIGN_ROLE = "frappe.core.doctype.user.user.User.validate"
+SYNC_FAILURE_TITLE = "Role Profile Sync Failed"
 
 
 class TestBoardRoleFailurePropagation(VereningingenTestCase):
@@ -58,7 +60,11 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
             email=f"{first.lower()}.{frappe.generate_hash(length=6)}@test.invalid",
             status="Active",
         )
-        volunteer = self.create_test_volunteer(member_name=member.name)
+        # The role-profile sync only runs for a volunteer whose member has a User.
+        user = self.create_test_user(member.email)
+        self.track_doc("User", user.name)
+        member.db_set("user", user.name, update_modified=False)
+        volunteer = self.create_test_volunteer(member=member.name)
         return member, volunteer
 
     def _seat_board_member(self, first):
@@ -96,10 +102,10 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
 
     def test_ordinary_role_failure_is_logged_and_the_board_member_is_still_seated(self):
         """The other half of the contract: per-member problems stay non-fatal."""
-        self.expectErrorLog("Failed to assign board member role")
+        self.expectErrorLog(SYNC_FAILURE_TITLE)
         chapter, volunteer = self._seat_board_member("Ordinary")
 
-        with self.assertErrorLog("Failed to assign board member role"):
+        with self.assertErrorLog(SYNC_FAILURE_TITLE):
             with patch(ASSIGN_ROLE, side_effect=frappe.ValidationError("no user account")):
                 chapter.save()
 
