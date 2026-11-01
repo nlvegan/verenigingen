@@ -107,7 +107,8 @@ def safe_savepoint_name(prefix: str, identifier=None) -> str:
     hyphenated doc name (``ICT-1261``, ``PONTO-PAY-6206``, Pay.nl ``EX-1234-5678``) is a
     MariaDB 1064. Every non-alphanumeric character becomes an underscore (#1898).
     """
-    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{identifier or 'unknown'}")
+    ident = "unknown" if identifier is None else str(identifier)
+    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{ident}")
 
 
 def rollback_to_savepoint(save_point):
