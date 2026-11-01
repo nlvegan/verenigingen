@@ -3,11 +3,13 @@
 
 The report read every claim with ``frappe.get_all`` and filtered by
 ``get_user_accessible_chapters()`` with its DEFAULT admin roles, which include Verenigingen
-Staff -> ``None`` -> "all chapters". So Staff who also holds the Chapter Board Member role
-(the only way a Staff user may open the report) saw every chapter's claims.
+Staff -> ``None`` -> "all chapters". So a Staff user with a seat on one chapter's board (Staff
+who also held the Chapter Board Member role was the reported shape) saw every chapter's claims.
 
-Real users from the shipped Role Profiles, real Expense Claims, real board seats, the report's
-real ``execute()``. The oracle is ``frappe.get_list`` as that user.
+Fixtures: Staff registered through an association-wide Team (the production way) with a default
+seat on chapter A, board-only users given their roles by the seat's profile, real Expense
+Claims and the report's real ``execute()``. Staff plus a mapped/financial seat is not pinned
+here (open question #1969). The oracle is ``frappe.get_list`` as that user.
 
 Probe shortcut, stated: the claims' ``custom_organization_type`` is set to "Chapter" directly
 on insert (the report only reads it); approval is not driven.

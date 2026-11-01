@@ -57,9 +57,11 @@ class StaffExpenseBase(EnhancedTestCase):
 
         self.staff = self._registered_staff_user("staff")
         self.staff_emp = self._staffexp_employee(self.staff)
-        self.staff_boards(self.chapter_a)  # plain Staff sits on the board of chapter A
+        # plain Staff sits on the board of chapter A (a default seat; after #1969 is decided a seated
+        # staffer may also get the board role, which these fixtures do not assume either way)
+        self.staff_boards(self.chapter_a)
 
-        self.other_staff = self._staffexp_user("Verenigingen Staff", "staff2")
+        self.other_staff = self._registered_staff_user("staff2")
         self.other_staff_emp = self._staffexp_employee(self.other_staff)
 
         self.volunteer_user = self._staffexp_user("Verenigingen Volunteer", "vol")
@@ -77,7 +79,7 @@ class StaffExpenseBase(EnhancedTestCase):
         self.admin_emp = self._staffexp_employee(self.admin)
 
         # Staff who also holds HR Manager is not "plain" Staff
-        self.hr_staff = self._staffexp_user("Verenigingen Staff", "hr", extra_roles=("HR Manager",))
+        self.hr_staff = self._registered_staff_user("hr", extra_roles=("HR Manager",))
         self.hr_staff_emp = self._staffexp_employee(self.hr_staff)
 
     # ---------------------------------------------------------------- fixtures
@@ -124,10 +126,14 @@ class StaffExpenseBase(EnhancedTestCase):
         self._track_test_document("Employee", emp.name, priority=2)
         return emp
 
-    def _registered_staff_user(self, tag):
+    def _registered_staff_user(self, tag, extra_roles=()):
         """A Staff user registered the production way: the person's volunteer is a member of an
         association-wide Team whose default profile is Verenigingen Staff, and the Team save
-        syncs the profile. The user starts with only the Member role; Staff comes from the sync."""
+        syncs the profile. The user starts with only the Member role; Staff comes from the sync.
+
+        ``extra_roles`` (HR Manager is in no shipped staff profile) go through a Role Profile an
+        administrator attaches by hand next to the synced one; the sync removes only profiles it
+        granted itself, so the manual one stays."""
         user = self.create_test_user(email=f"x1606-{tag}-{self.token}@test.com", roles=["Verenigingen Member"])
         member = self.create_test_member(first_name="Stf", last_name=tag, email=user.name, user=user.name)
         volunteer = self.create_test_volunteer(member.name)
@@ -141,8 +147,27 @@ class StaffExpenseBase(EnhancedTestCase):
         self.assertLessEqual(
             set(_roles_shipped_for_profile("Verenigingen Staff")), have, "control: the team made the user Staff"
         )
+        if extra_roles:
+            self._attach_manual_profile_1922(user, tag, extra_roles)
         user.volunteer_1922 = volunteer
         return user
+
+    def _attach_manual_profile_1922(self, user, tag, roles):
+        profile = frappe.get_doc(
+            {
+                "doctype": "Role Profile",
+                "role_profile": f"X1606 {tag} {self.token}",
+                "roles": [{"role": r} for r in roles],
+            }
+        ).insert()
+        self._track_test_document("Role Profile", profile.name, priority=1)
+        user_doc = frappe.get_doc("User", user.name)
+        user_doc.append("role_profiles", {"role_profile": profile.name})
+        user_doc.save()
+        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
+        self.assertLessEqual(
+            {*roles, *_roles_shipped_for_profile("Verenigingen Staff")}, have, "control: both profiles' roles"
+        )
 
     def _association_staff_team_1922(self):
         if not getattr(self, "_staff_team_doc", None):
@@ -312,7 +337,7 @@ class TestStaffSeesOnlyScopedClaims(StaffExpenseBase):
 
     def test_plain_staff_without_board_seat_or_designation_sees_only_own(self):
         # control: a Staff user who sits on no board and is nobody's designated approver
-        lonely = self._staffexp_user("Verenigingen Staff", "lonely")
+        lonely = self._registered_staff_user("lonely")
         lonely_emp = self._staffexp_employee(lonely)
         own = self.claim(lonely_emp)
         stranger = self.claim(self.volunteer_emp, chapter=self.chapter_a)
