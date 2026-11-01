@@ -22,6 +22,14 @@ status of cancelled rows that still carry an open status and, ONLY when Ponto sa
 ``executed``, raises the #1848 alert. It never calls ``refresh_status`` on such a row and
 never writes to it: no save, no ``db_set``, no status. See ``_check_cancelled_one``.
 
+Limits of the cancelled pass, by design: it depends on #1918 (``on_cancel`` sets "Cancelled" in
+memory only, so a cancelled row keeps its open status in the table; if that is ever fixed the
+selection finds nothing, and the ``_cancel`` fixture assertion in
+``TestPollOnReallySubmittedAndCancelledRows`` trips). It runs AFTER the open rows and shares
+their wall-clock budget, so it has no progress guarantee if open rows use the whole
+RUN_BUDGET_SECONDS every run. A row that was already alerted, or that Ponto answers 404 for, is
+read again every hour until it leaves the window: a poll cannot write to the row to mark it done.
+
 Transactions: nothing here commits. Frappe's scheduler commits after the job, as
 for every other entry in ``hooks/scheduler.py``. Each row runs in its own
 savepoint so one failure rolls back only that row.
@@ -402,7 +410,9 @@ def _refresh_one(doctype, name, cancelled=False):
         rollback_to_savepoint(savepoint)
         if cancelled and _is_not_found(e):
             # Expected, not a fault: cancelling a Pending row deletes the payment at Ponto, so
-            # Ponto no longer knows it. Nothing to alert about (a payment that is gone cannot
+            # Ponto no longer knows it. A 404 on a cancelled SIGNED row (not deleted at Ponto,
+            # so it should still exist) is abnormal but silenced the same way, by design: the
+            # poll cannot tell the two apart from the row alone. Nothing to alert about (a payment that is gone cannot
             # have executed), and no Error Log row every hour until the row ages out of the window.
             return GONE
         frappe.log_error(

@@ -40,6 +40,10 @@ from rq.timeouts import JobTimeoutException
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.payment.test_ponto_payment_entry_creation import _ensure_ponto_clearing_account
+from verenigingen.patches.v2_2.add_ponto_executed_on_cancelled_row_notification import (
+    execute as register_alert_notification_type,
+)
+from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 from verenigingen.tests.payment.test_ponto_submitted_documents import (
     _create_client,
     _PontoUsers,
@@ -54,7 +58,12 @@ from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_paym
 )
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
-from verenigingen.verenigingen_payments.ponto.core.submitted_rows import ALERT_TITLE
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    ALERT_KEY,
+    ALERT_MARKER,
+    ALERT_TITLE,
+    UNDELIVERED_TITLE,
+)
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
 PAY_CLIENT = "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client"
@@ -953,6 +962,24 @@ class TestCancelledRowSelection(_PollBase):
             self.assertEqual(seen_cancelled, {d.ponto_payment_id for d in cancelled})
             self.assertEqual(runs, 3, "5 rows at 2 per run, rotating: 3 runs reach all of them")
 
+    def test_the_cancelled_pass_does_not_move_the_open_rows_cursor(self):
+        """Review F2. More open rows than BATCH_LIMIT AND cancelled rows present: the open rotation
+        must still reach every open row. The cancelled rows are the NEWEST rows, so a cursor shared
+        with them would sit past every open row and the open pass would wrap to its head forever."""
+        self.expectErrorLog("Ponto status poll batch truncated")
+        open_rows = [self._make_poll_request("Pending", age_days=20 - i) for i in range(4)]
+        for i in range(3):
+            self._cancelled_docstatus(self._make_poll_request("Pending", age_days=5 - i))
+        wanted = {d.ponto_payment_id for d in open_rows}
+        seen = set()
+        with patch.object(status_poll_service, "BATCH_LIMIT", 2), patch.object(
+            status_poll_service, "CANCELLED_BATCH_LIMIT", 2
+        ):
+            for _run in range(2):
+                pay, _link = self._run_job()
+                seen |= set(self._ids(pay, "request")) & wanted
+        self.assertEqual(seen, wanted, "an open row was starved by the cancelled pass's cursor")
+
     def test_the_cancelled_pass_runs_after_the_open_rows_and_is_cut_off_by_the_shared_budget(self):
         """The shared wall-clock budget: open rows are always attempted first. With the budget already
         spent after the first row, the cancelled row is the one left for a later run."""
@@ -1027,6 +1054,8 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         row = self._state(doc)
         self.assertEqual(row.docstatus, 2)
         # #1918, measured here: the DB keeps the OPEN status, which is what makes the row selectable.
+        # The cancelled pass depends on it: if #1918 is fixed this assertion trips, and the pass's
+        # selection (status_poll_service._open_where, cancelled=True) must change with it.
         self.assertIn(row.status, ("Pending", "Pending Authorization"))
         return doc
 
@@ -1158,3 +1187,45 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
                     self.assertEqual(got, expected)
                     logged = frappe.db.count("Error Log", {"method": ["like", f"{ERROR_TITLE_PREFIX}%"]}) - before
                     self.assertEqual(logged, 0 if expected == status_poll_service.GONE else 1)
+
+    # --- #1931 review F1: an undeliverable alert must not repeat every hour ---------------
+
+    def _unseed_alert_key(self):
+        """Fresh installs run no patches: the key has no row and counts as disabled."""
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
+        config = frappe.get_single("Verenigingen Email Configuration")
+        config.notification_types = [n for n in config.notification_types if n.notification_key != ALERT_KEY]
+        config.save()
+
+    def _undelivered_rows(self, doc):
+        return frappe.db.count(
+            "Error Log",
+            {"method": UNDELIVERED_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]},
+        )
+
+    def test_an_undeliverable_alert_is_loud_once_not_once_per_poll(self):
+        req = self._cancel(self._poll_submitted_request())
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertEqual(self._undelivered_rows(req), 1, "the FIRST undeliverable alert must be loud")
+        for _ in range(3):  # the hourly poll, three more hours
+            self._poll({req.ponto_payment_id: "executed"})
+        self.assertEqual(self._undelivered_rows(req), 1, "one NOT DELIVERED row per row, not one per run")
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ALERT_TITLE, "error": ["like", f"%{req.name} %"]}), 1
+        )
+
+    def test_a_later_deliverable_alert_is_still_delivered_after_an_undelivered_one(self):
+        """The cap is on the loud Error Log row only: once the key is seeded the next poll delivers."""
+        req = self._cancel(self._poll_submitted_request())
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertEqual(self._alerts_for(req.doctype, req.name)[0], [])
+        register_alert_notification_type()
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertTrue(self._alerts_for(req.doctype, req.name)[0], "a Notification Log must now exist")
+        self.assertEqual(self._undelivered_rows(req), 1)

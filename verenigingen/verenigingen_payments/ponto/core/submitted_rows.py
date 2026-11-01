@@ -181,11 +181,20 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
             exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
         )
         # No notification created: key unseeded or disabled (skipped), no recipient left, or failed.
-        if not delivery.get("notifications_created"):
+        # Delivery is retried on every call (the key may be seeded later), but the loud row is
+        # written ONCE per document: the poll calls this hourly for a cancelled row (#1931).
+        if not delivery.get("notifications_created") and not _undelivered_logged(doc):
             _log_undelivered(details, delivery)
     if not logged:
         frappe.log_error(title=ALERT_TITLE, message=f"{details}\nNotification: {delivery}")
     return True
+
+
+def _undelivered_logged(doc):
+    return frappe.db.exists(
+        "Error Log",
+        {"method": UNDELIVERED_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]},
+    )
 
 
 def _log_undelivered(details, delivery):
