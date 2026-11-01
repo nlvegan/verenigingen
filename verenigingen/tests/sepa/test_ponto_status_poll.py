@@ -16,7 +16,8 @@ Fixture shortcuts, stated: most rows are ``insert()``-ed directly at the startin
 status (docstatus 0) rather than submitted, because submit calls Ponto;
 ``TestPollOnReallySubmittedAndCancelledRows`` is the exception and drives REAL submitted
 (``.submit()``) and cancelled (``.cancel()``) rows with only the HTTP layer stubbed (#1907,
-#1931). ``creation`` is back-dated with ``db.set_value`` to make a row "too old";
+#1931). ``creation`` (open rows) and ``modified`` (a cancelled row's cancel time, #1931) are
+back-dated with ``db.set_value`` to make a row "too old";
 ``test_cancelled_rows_are_selected_..`` marks docstatus-2 with ``db.set_value`` (selection
 logic only, stated there); Ponto Settings credentials are set on the Single so the job's
 "is Ponto configured" gate passes.
@@ -87,11 +88,13 @@ class _PollBase(EnhancedTestCase):
 
     def _age_out_preexisting_open_rows(self):
         """Rows other suites left open on this site would be polled too, so push
-        them out of the window. Rolled back with the test class (no commit here)."""
+        them out of the window: ``creation`` for open rows, ``modified`` (the cancel time) for
+        cancelled ones (#1931). Rolled back with the test class (no commit here)."""
         long_ago = add_to_date(now_datetime(), days=-400)
         for doctype, statuses, _id_field in status_poll_service._POLLED:
             frappe.db.set_value(
-                doctype, {"status": ["in", statuses]}, "creation", long_ago, update_modified=False
+                doctype, {"status": ["in", statuses]}, {"creation": long_ago, "modified": long_ago},
+                update_modified=False,
             )
 
     def _configure_ponto(self, configured, mtls=True, mapping=True):
@@ -147,6 +150,15 @@ class _PollBase(EnhancedTestCase):
                 doc.doctype, doc.name, "creation",
                 add_to_date(now_datetime(), days=-age_days), update_modified=False,
             )
+        return doc
+
+    def _cancelled_at(self, doc, days_ago):
+        """Fixture shortcut: move a docstatus-2 row's cancel time (``modified``, which is what
+        ``.cancel()`` sets) with a raw write that leaves ``creation`` alone."""
+        frappe.db.set_value(
+            doc.doctype, doc.name, "modified",
+            add_to_date(now_datetime(), days=-days_ago), update_modified=False,
+        )
         return doc
 
     def _poll_row_status(self, doc):
@@ -242,6 +254,18 @@ class TestPontoStatusPoll(_PollBase):
         # it, which writes an Error Log row. (Cancelled rows are a separate pass, #1931: see
         # TestCancelledRowPass.)
         self.assertEqual(self._poll_errors(), errors_before)
+
+    def test_an_open_rows_window_still_counts_from_creation_not_from_modified(self):
+        """#1931 control: only the CANCELLED pass uses the cancel time. An open row created inside
+        the window but last modified long ago is still polled; one created outside it is not, however
+        recently it was modified."""
+        window = status_poll_service.STALENESS_WINDOW_DAYS
+        inside = self._cancelled_at(self._make_poll_request("Pending"), window + 5)
+        outside = self._make_poll_request("Pending", age_days=window + 5)  # modified = now
+        pay, _ = self._run_job()
+        polled = {c.kwargs["payment_id"] for c in pay.get_payment.call_args_list}
+        self.assertEqual(polled, {inside.ponto_payment_id})
+        self.assertNotIn(outside.ponto_payment_id, polled)
 
     def test_staleness_boundary_row_just_inside_is_polled(self):
         inside = self._make_poll_request("Pending", age_days=status_poll_service.STALENESS_WINDOW_DAYS - 1)
@@ -917,17 +941,25 @@ class TestCancelledRowSelection(_PollBase):
         wanted = [
             self._cancelled_docstatus(self._make_poll_request("Pending")),
             self._cancelled_docstatus(self._make_poll_request("Signed")),
+            # #1931: CREATED outside the window, CANCELLED inside it (modified = now): still checked.
+            self._cancelled_docstatus(self._make_poll_request("Pending", age_days=window + 5)),
         ]
         controls = [
             self._cancelled_docstatus(self._make_poll_request("Executed")),  # not open
             self._cancelled_docstatus(self._make_poll_request("Cancelled")),  # not open
-            self._cancelled_docstatus(self._make_poll_request("Pending", age_days=window + 5)),
+            # Created recently but CANCELLED outside the window (#1931: the window is the cancel time).
+            self._cancelled_at(self._cancelled_docstatus(self._make_poll_request("Pending")), window + 5),
             self._cancelled_docstatus(self._make_poll_request("Pending", ponto_id=False)),
         ]
-        link_wanted = [self._cancelled_docstatus(self._make_poll_link("Authorized"))]
+        link_wanted = [
+            self._cancelled_docstatus(self._make_poll_link("Authorized")),
+            self._cancelled_docstatus(self._make_poll_link("Pending Authorization", age_days=window + 5)),
+        ]
         link_controls = [
             self._cancelled_docstatus(self._make_poll_link("Executed")),
-            self._cancelled_docstatus(self._make_poll_link("Pending Authorization", age_days=window + 5)),
+            self._cancelled_at(
+                self._cancelled_docstatus(self._make_poll_link("Pending Authorization")), window + 5
+            ),
             self._cancelled_docstatus(self._make_poll_link("Pending Authorization", ponto_id=False)),
         ]
         # Control for "docstatus != 2 only": an ordinary open row is still read in the SAME run.
@@ -1204,6 +1236,34 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             "Error Log",
             {"method": UNDELIVERED_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]},
         )
+
+    def test_a_row_created_outside_the_window_but_cancelled_inside_it_is_checked(self):
+        """#1931 (maintainer ruling): the window counts from the CANCEL. Real submit and cancel (so
+        ``modified`` is the real cancel time); only ``creation`` is back-dated afterwards, with a
+        raw write, to make the row old."""
+        window = status_poll_service.STALENESS_WINDOW_DAYS
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        for doc in (req, link):
+            self._age(doc, window + 10)
+        self.expectErrorLog(ALERT_TITLE)
+        self._poll({req.ponto_payment_id: "executed", link.ponto_request_id: "executed"})
+        self._assert_one_alert(req.doctype, req.name, req.ponto_payment_id, req.amount)
+        self._assert_one_alert(link.doctype, link.name, link.ponto_request_id, link.amount)
+
+    def test_a_row_created_inside_the_window_but_cancelled_outside_it_is_not_checked(self):
+        """The converse control. The rows are REAL cancelled rows that Ponto reports Executed, so a
+        selection that wrongly includes them would alert (and be seen in ``requested``)."""
+        window = status_poll_service.STALENESS_WINDOW_DAYS
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        for doc in (req, link):
+            self._cancelled_at(doc, window + 10)  # creation stays recent
+        self._poll({req.ponto_payment_id: "executed", link.ponto_request_id: "executed"})
+        self.assertNotIn(req.ponto_payment_id, self.requested)
+        self.assertNotIn(link.ponto_request_id, self.requested)
+        self.assertEqual(self._alerts_for(req.doctype, req.name), ([], []))
+        self.assertEqual(self._alerts_for(link.doctype, link.name), ([], []))
 
     def test_an_undeliverable_alert_is_loud_once_not_once_per_poll(self):
         req = self._cancel(self._poll_submitted_request())
