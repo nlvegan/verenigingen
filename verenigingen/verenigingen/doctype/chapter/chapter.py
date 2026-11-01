@@ -120,6 +120,13 @@ class Chapter(Document):
     # CORE DOCUMENT LIFECYCLE
     # ========================================================================
 
+    def onload(self) -> None:
+        """Hand the form the server's own answer to "may this user bulk-apply board role
+        profiles", so chapter.js shows the button only to those the endpoint accepts (#1831)."""
+        from verenigingen.services.member.account.role_profile_mapping_guard import is_profile_admin
+
+        self.set_onload("can_bulk_apply_board_role_profiles", is_profile_admin())
+
     def validate(self) -> None:
         """Main validation - streamlined workflow with centralized error handling"""
         # Basic validations
