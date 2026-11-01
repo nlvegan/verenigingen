@@ -1218,6 +1218,16 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             frappe.db.count("Error Log", {"method": ALERT_TITLE, "error": ["like", f"%{req.name} %"]}), 1
         )
 
+    def test_each_documents_undelivered_row_is_its_own(self):
+        """Review N1: the cap is scoped to the document. One row's NOT DELIVERED row must not
+        suppress another row's, whether of the other doctype or not."""
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({req.ponto_payment_id: "executed", link.ponto_request_id: "executed"})
+        self.assertEqual((self._undelivered_rows(req), self._undelivered_rows(link)), (1, 1))
+
     def test_a_later_deliverable_alert_is_still_delivered_after_an_undelivered_one(self):
         """The cap is on the loud Error Log row only: once the key is seeded the next poll delivers."""
         req = self._cancel(self._poll_submitted_request())

@@ -191,6 +191,8 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
 
 
 def _undelivered_logged(doc):
+    # Frappe's scheduled Error Log clearing can prune this row; the next call then writes a new loud
+    # one, exactly as for the ALERT_TITLE ``logged`` check above.
     return frappe.db.exists(
         "Error Log",
         {"method": UNDELIVERED_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]},
