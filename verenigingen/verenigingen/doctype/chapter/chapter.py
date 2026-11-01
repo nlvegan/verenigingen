@@ -158,12 +158,13 @@ class Chapter(Document):
         self._populate_board_document_fields()
 
         # NOTE: board member change/addition handling is performed exactly once,
-        # in validate() via _handle_document_changes(). It must NOT be repeated
-        # here: handle_board_member_additions() reloads the volunteer's User and
-        # rewrites its roles child table, so a second invocation in the same save
-        # reloads a stale User (missing the role the first pass just appended) and
-        # clobbers it — silently dropping the "Verenigingen Chapter Board Member"
-        # role assignment. See get_member_permission_query() which depends on it.
+        # in validate() via _handle_document_changes(). Do not repeat it here.
+        # The original reason was that handle_board_member_additions() reloaded the
+        # volunteer's User and rewrote its roles, so a second run clobbered it. That
+        # direct grant was removed in #1672: the role now comes from the deferred
+        # role-profile sync flushed in on_update (its queue de-duplicates). Whether a
+        # second run is still harmful in other ways was not re-checked, so keep the
+        # once-per-save rule. See get_member_permission_query(), which depends on the role.
 
     def after_insert(self):
         """After insert hook"""
@@ -224,6 +225,12 @@ class Chapter(Document):
     def on_update(self):
         """On update hook with event emission for background processing"""
         self._clear_manager_caches()
+
+        # Board rows saved through this parent never run Chapter Board Member's own hooks
+        # (Frappe skips child controllers), so drop the seat memo here (#1873).
+        from verenigingen.permissions import invalidate_board_seat_memo
+
+        invalidate_board_seat_memo()
 
         # NOTE: the dead after_save() also carried a cost-center rename guarded by
         # has_value_changed("name"). That guard is unreachable on a real update —
@@ -1299,7 +1306,9 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     from verenigingen.services.chapter.chapter_role_profile_manager import (
         bulk_assign_chapter_board_role_profiles,
     )
+    from verenigingen.services.member.account.role_profile_mapping_guard import require_profile_admin
 
+    require_profile_admin()  # before the existence check: unknown and forbidden answer alike (#1686)
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "error": "Chapter not found"}
 

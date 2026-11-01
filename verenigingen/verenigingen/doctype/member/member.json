@@ -118,6 +118,8 @@
   "reviewed_by",
   "review_date",
   "review_notes",
+  "import_source_type",
+  "import_source",
   "interested_in_volunteering",
   "application_custom_fee",
   "erpnext_integration_section",
@@ -421,6 +423,24 @@
    "fieldname": "review_notes",
    "fieldtype": "Small Text",
    "label": "Review Notes"
+  },
+  {
+   "description": "The import (CSV, Procurios, VIP, ...) that last created or updated this member",
+   "fieldname": "import_source_type",
+   "fieldtype": "Link",
+   "label": "Imported via",
+   "no_copy": 1,
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.import_source_type",
+   "fieldname": "import_source",
+   "fieldtype": "Dynamic Link",
+   "label": "Import record",
+   "no_copy": 1,
+   "options": "import_source_type",
+   "read_only": 1
   },
   {
    "default": "0",

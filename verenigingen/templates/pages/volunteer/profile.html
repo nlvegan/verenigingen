@@ -9,7 +9,7 @@
         <div class="col-12">
             <div class="alert alert-warning">
                 <strong>{{ _("Access Denied") }}</strong><br>
-                {{ error_message }}
+                {{ error_message|e }}
             </div>
         </div>
     </div>
@@ -22,33 +22,33 @@
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-8">
-                            <h4 class="mb-1">{{ volunteer_profile.volunteer_name }}</h4>
+                            <h4 class="mb-1">{{ volunteer_profile.volunteer_name|e }}</h4>
                             <p class="text-muted mb-2">{{ _("Volunteer Profile") }}</p>
 
                             <div class="row">
                                 <div class="col-md-6">
                                     <p><strong>{{ _("Status") }}:</strong>
                                         <span class="badge badge-{% if volunteer_profile.status == 'Active' %}success{% else %}secondary{% endif %}">
-                                            {{ _(volunteer_profile.status) }}
+                                            {{ _(volunteer_profile.status)|e }}
                                         </span>
                                     </p>
                                     {% if volunteer_profile.email %}
-                                    <p><strong>{{ _("Email") }}:</strong> {{ volunteer_profile.email }}</p>
+                                    <p><strong>{{ _("Email") }}:</strong> {{ volunteer_profile.email|e }}</p>
                                     {% endif %}
                                     {% if volunteer_profile.phone %}
-                                    <p><strong>{{ _("Phone") }}:</strong> {{ volunteer_profile.phone }}</p>
+                                    <p><strong>{{ _("Phone") }}:</strong> {{ volunteer_profile.phone|e }}</p>
                                     {% endif %}
                                 </div>
                                 <div class="col-md-6">
                                     {% if volunteer_profile.joined_date %}
-                                    <p><strong>{{ _("Volunteer Since") }}:</strong> {{ frappe.utils.format_date(volunteer_profile.joined_date) }}</p>
+                                    <p><strong>{{ _("Volunteer Since") }}:</strong> {{ frappe.utils.format_date(volunteer_profile.joined_date)|e }}</p>
                                     {% endif %}
 
                                     {% if volunteer_profile.member_info %}
-                                    <p><strong>{{ _("Member ID") }}:</strong> {{ volunteer_profile.member_info.member_id }}</p>
+                                    <p><strong>{{ _("Member ID") }}:</strong> {{ volunteer_profile.member_info.member_id|e }}</p>
                                     <p><strong>{{ _("Membership Status") }}:</strong>
                                         <span class="badge badge-{% if volunteer_profile.member_info.membership_status == 'Active' %}success{% else %}secondary{% endif %}">
-                                            {{ _(volunteer_profile.member_info.membership_status) }}
+                                            {{ _(volunteer_profile.member_info.membership_status)|e }}
                                         </span>
                                     </p>
                                     {% endif %}
@@ -82,9 +82,9 @@
                     <ul class="list-unstyled">
                         {% for chapter in organizations.chapters %}
                         <li class="mb-2">
-                            <strong>{{ chapter.chapter_name }}</strong>
+                            <strong>{{ chapter.chapter_name|e }}</strong>
                             {% if chapter.join_date %}
-                            <small class="text-muted d-block">{{ _("Joined") }}: {{ frappe.utils.format_date(chapter.join_date) }}</small>
+                            <small class="text-muted d-block">{{ _("Joined") }}: {{ frappe.utils.format_date(chapter.join_date)|e }}</small>
                             {% endif %}
                         </li>
                         {% endfor %}
@@ -96,12 +96,12 @@
                     <ul class="list-unstyled">
                         {% for team in organizations.teams %}
                         <li class="mb-2">
-                            <strong>{{ team.team_name }}</strong>
+                            <strong>{{ team.team_name|e }}</strong>
                             {% if team.role %}
-                            <span class="badge badge-secondary ml-2">{{ _(team.role) }}</span>
+                            <span class="badge badge-secondary ml-2">{{ _(team.role)|e }}</span>
                             {% endif %}
                             {% if team.joined_date %}
-                            <small class="text-muted d-block">{{ _("Since") }}: {{ frappe.utils.format_date(team.joined_date) }}</small>
+                            <small class="text-muted d-block">{{ _("Since") }}: {{ frappe.utils.format_date(team.joined_date)|e }}</small>
                             {% endif %}
                         </li>
                         {% endfor %}
@@ -130,14 +130,14 @@
                             {% if current_category %}
                             </ul>
                             {% endif %}
-                            <strong>{{ _(skill.skill_category) }}</strong>
+                            <strong>{{ _(skill.skill_category)|e }}</strong>
                             <ul class="list-unstyled ml-3">
                             {% set current_category = skill.skill_category %}
                         {% endif %}
                         <li>
-                            {{ skill.volunteer_skill }}
+                            {{ skill.volunteer_skill|e }}
                             {% if skill.proficiency_level %}
-                            <span class="badge badge-info ml-2">{{ _(skill.proficiency_level) }}</span>
+                            <span class="badge badge-info ml-2">{{ _(skill.proficiency_level)|e }}</span>
                             {% endif %}
                         </li>
                     {% endfor %}
@@ -150,7 +150,7 @@
                     <h6 class="mt-3">{{ _("Interest Areas") }}</h6>
                     <div>
                         {% for interest in volunteer_profile.interests %}
-                        <span class="badge badge-light mr-2 mb-2">{{ _(interest.interest_area) }}</span>
+                        <span class="badge badge-light mr-2 mb-2">{{ _(interest.interest_area)|e }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}

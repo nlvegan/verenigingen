@@ -28,7 +28,7 @@ def handle_mollie_payment_webhook():
     except Exception as e:
         frappe.log_error(f"Webhook endpoint error: {e}", "Mollie Webhook API")
         frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal server error processing webhook", "error": str(e)}
+        return {"status": "error"}
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST", "GET"])
@@ -54,18 +54,18 @@ def handle_unified_webhook():
         result = handle_payment_webhook()
         return result
 
-    except MollieSecurityError as e:
+    except MollieSecurityError:
         frappe.response.http_status_code = 403
-        return {"status": "error", "message": "Security validation failed", "error": str(e)}
+        return {"status": "error"}
 
-    except MollieWebhookError as e:
+    except MollieWebhookError:
         frappe.response.http_status_code = 400
-        return {"status": "error", "message": "Webhook processing failed", "error": str(e)}
+        return {"status": "error"}
 
     except Exception as e:
         frappe.log_error(f"Unexpected error in unified webhook: {e}", "Mollie Webhook Error")
         frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal server error"}
+        return {"status": "error"}
 
 
 @frappe.whitelist(methods=["GET"])

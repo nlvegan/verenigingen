@@ -494,9 +494,21 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
         # Continue with approval - emails can be sent manually
 
 
-def _build_approval_response(member, invoice, billing_amount, user_creation_result):
-    """Build approval response dict with 5-way user account status branching."""
-    message = _("Application approved. Invoice sent to applicant.")
+def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
+    """Build approval response dict with 5-way user account status branching.
+
+    invoice_requested: the caller asked for an invoice. With no invoice then, the response
+    says so instead of claiming one was sent (#1774); the Error Log row is written where
+    the failure happens (MembershipCreationService._create_membership_invoice).
+    """
+    invoice_failed = bool(invoice_requested and not invoice)
+    if invoice_failed:
+        message = _(
+            "Application approved, but the membership invoice could NOT be created, so no invoice "
+            "was sent to the applicant. See the Error Log, then create the invoice manually."
+        )
+    else:
+        message = _("Application approved. Invoice sent to applicant.")
     user_account_status = "pending"
     user_account_error_code = None
     account_meta = _account_meta(user_creation_result)
@@ -547,6 +559,7 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
+        "invoice_failed": invoice_failed,
         "amount": billing_amount,
         "user_account": user_creation_result,
         "user_account_status": user_account_status,
@@ -829,7 +842,9 @@ def _approve_membership_application_locked(
         severity="info",
     )
 
-    return _build_approval_response(member, invoice, billing_amount, user_creation_result)
+    return _build_approval_response(
+        member, invoice, billing_amount, user_creation_result, invoice_requested=create_invoice
+    )
 
 
 @frappe.whitelist()

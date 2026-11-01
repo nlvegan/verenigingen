@@ -42,6 +42,7 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 
 
@@ -479,7 +480,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
                     self._cancel_if_submitted(doc_info["doctype"], doc_info["name"])
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                    if doc_info["doctype"] == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(doc_info["name"])
+                    else:
+                        frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()
                     doc_info["cleanup_status"] = "success"
@@ -970,7 +975,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             doc.cancel()
                         except Exception as cancel_error:
                             print(f"Could not cancel {doctype} {name} before delete: {cancel_error}")
-                    frappe.delete_doc(doctype, name, force=True)
+                    if doctype == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(name)
+                    else:
+                        frappe.delete_doc(doctype, name, force=True)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 

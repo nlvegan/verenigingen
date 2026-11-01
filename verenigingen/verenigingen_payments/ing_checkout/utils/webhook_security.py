@@ -75,7 +75,11 @@ def get_webhook_secret() -> Optional[str]:
     """
     try:
         settings = get_payments_settings()
-        return settings.get_password("ing_checkout_webhook_secret")
+        # raise_exception=False: the default frappe.throws "Password not found ...
+        # ing_checkout_webhook_secret", which lands in message_log and so in the
+        # anonymous caller's _server_messages, telling them whether a secret is set
+        # (#1772). Returns None when unset.
+        return settings.get_password("ing_checkout_webhook_secret", raise_exception=False)
     except Exception:
         return None
 

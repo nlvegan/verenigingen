@@ -354,7 +354,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         frappe.db.set_value("Team Member", row, "status", "Active")
         derived = set(calculate_user_role_profile_set(victim))
         self.assertIn(self.AUDITOR, derived, "control: the sync derives the team profile for an Active member")
-        actor = self._make_user_holding_profile(TREASURER)
+        actor = self._make_user_holding_profile(ADMIN_PROFILE)
 
         result = self._call_as(actor, bulk_assign_team_role_profiles, team)
 
@@ -410,7 +410,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         self._add_team_member_row(team, "Active")
         self._add_team_member_row(team, "Inactive")
         frappe.db.set_value("Team Member", row, "status", "Active")
-        actor = self._make_user_holding_profile(TREASURER)
+        actor = self._make_user_holding_profile(ADMIN_PROFILE)
 
         result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
 
@@ -452,7 +452,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
                 frappe.throw("injected save failure for #1687")
             return real_save(doc, *args, **kwargs)
 
-        actor = self._make_user_holding_profile(TREASURER)
+        actor = self._make_user_holding_profile(ADMIN_PROFILE)
         with patch.object(Document, "save", save):  # Mock justified: see docstring
             return self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
 
@@ -501,7 +501,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         )
         doc.save()
         frappe.db.set_value("Team Member", row, "status", "Active")  # the save reset it (probe shortcut)
-        actor = self._make_user_holding_profile(TREASURER)
+        actor = self._make_user_holding_profile(ADMIN_PROFILE)
 
         result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team)
 
@@ -512,7 +512,7 @@ class TestNationalProfileAssignmentGuard(VereningingenTestCase):
         """A refused call (no profile configuration) carries members_updated: 0."""
         team = self.factory.create_test_team()
         self.track_doc("Team", team.name)
-        actor = self._make_user_holding_profile(TREASURER)
+        actor = self._make_user_holding_profile(ADMIN_PROFILE)
 
         result = self._call_as(actor, bulk_assign_team_role_profiles_endpoint(), team.name)
 

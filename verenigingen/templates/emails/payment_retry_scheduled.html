@@ -18,11 +18,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|e }}</h2>
         </div>
 
         <div class="content">
-            <h3>Dear {{ member_name }},</h3>
+            <h3>Dear {{ member_name|e }},</h3>
 
             <p>We were unable to process your recent payment. We will automatically retry the payment on the date shown below.</p>
 
@@ -31,19 +31,19 @@
                 <table style="width: 100%;">
                     <tr>
                         <td><strong>Invoice Number:</strong></td>
-                        <td>{{ invoice_number }}</td>
+                        <td>{{ invoice_number|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Amount:</strong></td>
-                        <td>{{ amount }}</td>
+                        <td>{{ amount|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Next Retry Date:</strong></td>
-                        <td style="color: #0066cc; font-weight: bold;">{{ retry_date }}</td>
+                        <td style="color: #0066cc; font-weight: bold;">{{ retry_date|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Retry Attempt:</strong></td>
-                        <td>{{ retry_count }} of 3</td>
+                        <td>{{ retry_count|e }} of 3</td>
                     </tr>
                 </table>
             </div>
@@ -51,31 +51,31 @@
             <div class="info-box">
                 <strong>What you need to do:</strong>
                 <ul style="margin: 10px 0; padding-left: 20px;">
-                    <li>Ensure sufficient funds are available in your account by {{ retry_date }}</li>
+                    <li>Ensure sufficient funds are available in your account by {{ retry_date|e }}</li>
                     <li>Verify your bank details are up to date</li>
                     <li>Contact your bank if there are any blocks on direct debits</li>
                 </ul>
             </div>
 
-            <p><strong>Reason for failure:</strong> {{ failure_reason }}</p>
+            <p><strong>Reason for failure:</strong> {{ failure_reason|e }}</p>
 
             <p>If you prefer to make a manual payment or update your payment method, please visit your payment dashboard.</p>
 
             <center>
-                <a href="{{ payment_link }}" class="button">View Payment Dashboard</a>
+                <a href="{{ payment_link|e }}" class="button">View Payment Dashboard</a>
             </center>
 
             <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
 
             <p>Best regards,<br>
-            {{ company_name }} Membership Team</p>
+            {{ company_name|e }} Membership Team</p>
         </div>
 
         <div class="footer">
-            <p>This is an automated message from {{ company_name }}.<br>
+            <p>This is an automated message from {{ company_name|e }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
-            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
-            <a href="{{ unsubscribe_link|default('#') }}" style="color: #6c757d;">Manage email preferences</a></p>
+            © {{ current_year|e }} {{ company_name|e }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link|default('#')|e }}" style="color: #6c757d;">Manage email preferences</a></p>
         </div>
     </div>
 </body>
