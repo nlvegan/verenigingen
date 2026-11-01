@@ -118,8 +118,10 @@ class TestCoverageReportUsesScheduleFrequency(VereningingenTestCase):
         return membership
 
     def _insert_schedule(self, member, membership, frequency, status):
-        """Insert a schedule the way the amendment service does (no real flow
-        creates a second one here: submitting a Membership reuses the member's)."""
+        """Insert a schedule with the fields create_dues_schedule_for_amendment sets
+        that are real fields here (from_amendment flag, Fixed mode, auto_generate=1,
+        test_mode=0); its effective_date and notes are not set. No real flow creates
+        a second schedule in these tests: submitting a Membership reuses the member's."""
         schedule = frappe.get_doc(
             {
                 "doctype": "Membership Dues Schedule",
@@ -131,7 +133,8 @@ class TestCoverageReportUsesScheduleFrequency(VereningingenTestCase):
                 "dues_rate": 20,
                 "billing_frequency": frequency,
                 "status": status,
-                "auto_generate": 0,
+                "auto_generate": 1,
+                "test_mode": 0,
                 "next_invoice_date": today(),
             }
         )
@@ -239,3 +242,43 @@ class TestCoverageReportUsesScheduleFrequency(VereningingenTestCase):
         self.assertEqual(paused, ("Paused", "Annual"))
         self.assertEqual(frappe.db.get_value("Membership Type", mtype, "billing_period"), "Monthly")
         self.assertEqual(self._frequency_over(member, -60, -1), "Annual")
+
+    # ------------------------------ report path with a past to_date (#1938)
+
+    def test_current_membership_stays_current_when_the_report_clamps_to_a_past_to_date(self):
+        """Report path: get_membership_periods clamps the period end to to_date, so
+        with to_date in the past the NEW Membership's period ends before today. It is
+        still the current Membership, so the live Monthly schedule (linked to the old
+        one, #1938) must still apply rather than the new Type's Annual."""
+        member = self._covfreq_member()
+        old = self._covfreq_submit_membership(member, "Monthly", -300)
+        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
+        self._covfreq_submit_membership(member, "Annual", -100)
+
+        for to_offset in (0, -1, -10):
+            with self.subTest(to_date_offset=to_offset):
+                periods = report.get_membership_periods(member.name, None, add_days(today(), to_offset))
+                start, end = periods[-1]  # ordered by start: the new Membership
+                self.assertEqual(start, getdate(add_days(today(), -100)))
+                self.assertEqual(report.get_expected_billing_frequency(member.name, start, end), "Monthly")
+
+    # ------------------------------------------- template filter (defensive)
+
+    def test_a_template_cannot_carry_a_member_so_the_is_template_filter_is_defensive(self):
+        member = self._covfreq_member()
+        mtype = self.create_test_membership_type(billing_period="Monthly")
+        template = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "schedule_name": f"CovFreq tpl {frappe.generate_hash(length=6)}",
+                "is_template": 1,
+                "member": member.name,
+                "membership_type": mtype.name,
+                "billing_frequency": "Daily",
+                "dues_rate": 5,
+                "contribution_mode": "Fixed",
+                "status": "Active",
+            }
+        )
+        with self.assertRaisesRegex(frappe.ValidationError, "Templates cannot have a specific member"):
+            template.insert()

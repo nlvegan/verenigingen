@@ -625,7 +625,7 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
         # Get membership for this period
         membership = frappe.db.sql(
             """
-            SELECT mb.name, mb.membership_type
+            SELECT mb.name, mb.membership_type, mb.start_date, mb.cancellation_date
             FROM `tabMembership` mb
             WHERE mb.member = %s
               AND mb.docstatus = 1
@@ -641,7 +641,7 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
         if not membership:
             return None
 
-        schedule_frequency = _get_schedule_frequency(member_name, membership[0]["name"], period_end)
+        schedule_frequency = _get_schedule_frequency(member_name, membership[0])
         if schedule_frequency:
             return schedule_frequency
 
@@ -655,17 +655,23 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
         return None
 
 
-def _get_schedule_frequency(member_name, membership_name, period_end):
+def _get_schedule_frequency(member_name, membership):
     """billing_frequency of the member's live (non-template) schedule when it bills this period.
 
-    (a) the schedule is linked to this period's Membership, or
-    (b) the period is the current one (ends today or later): whatever live schedule
-        the member has is what bills them now, even when it is still linked to an
-        older Membership (#1938: a new Membership does not replace it).
-    Otherwise None, and the caller falls back to the period's Membership Type.
+    `membership` is the Membership row covering the period. Whether the period is
+    CURRENT is read from that Membership's own dates, not from the period handed to
+    the report: get_membership_periods clamps the period end to the report's to_date,
+    so a past to_date would make the current period look old.
+
+    (a) the schedule is linked to this Membership, or
+    (b) the Membership is current (started, and open-ended or ending today or later):
+        whatever live schedule the member has is what bills them now, even when it is
+        still linked to an older Membership (#1938: a new Membership does not replace it).
+    Otherwise None, and the caller falls back to the Membership's Type.
     """
     schedule = frappe.db.get_value(
         "Membership Dues Schedule",
+        # is_template is defensive: a template carries no member.
         {"member": member_name, "status": ["in", LIVE_SCHEDULE_STATUSES], "is_template": 0},
         ["membership", "billing_frequency"],
         as_dict=True,
@@ -674,8 +680,11 @@ def _get_schedule_frequency(member_name, membership_name, period_end):
     )
     if not schedule:
         return None
-    is_current_period = getdate(period_end) >= getdate(today())
-    if schedule.membership == membership_name or is_current_period:
+    end = membership["cancellation_date"]
+    is_current = getdate(membership["start_date"]) <= getdate(today()) and (
+        not end or getdate(end) >= getdate(today())
+    )
+    if schedule.membership == membership["name"] or is_current:
         return schedule.billing_frequency
     return None
 
