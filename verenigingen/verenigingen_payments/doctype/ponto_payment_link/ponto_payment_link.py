@@ -43,6 +43,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     LINK_GUARDED_FIELDS,
     alert_executed_on_cancelled_row,
     as_system_update,
+    as_system_update_from_db,
     refuse_unless_system_update,
 )
 
@@ -274,7 +275,7 @@ class PontoPaymentLink(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    @as_system_update
+    @as_system_update_from_db  # whitelisted: never trust the client-built document (#1907)
     def refresh_status(self):
         """
         Refresh payment link status from Ponto API.

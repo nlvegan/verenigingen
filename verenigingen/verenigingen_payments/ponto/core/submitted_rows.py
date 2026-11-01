@@ -13,6 +13,9 @@ Three things live here because both doctypes need the same ones:
    guarded fields is refused unless the writer set ``doc.flags.ponto_system_update``,
    which only system code does, through ``system_update(doc)``. A caller cannot set it:
    the flag lives on the in-memory document and an API request builds a fresh one.
+   A WHITELISTED writer is the exception: ``run_doc_method`` builds the document from the
+   client's dict, so such a writer must use ``as_system_update_from_db``, which re-reads the
+   row before the flag is taken (``refresh_status`` on both doctypes).
 
    CONTRACT for any new system writer (the token-proved callback cancel on #1896 is one):
    ``with system_update(doc): doc.status = ...; doc.save(ignore_permissions=True)``. Both
@@ -43,6 +46,7 @@ LINK_GUARDED_FIELDS = (
 )
 
 ALERT_TITLE = "Ponto payment reported executed for a CANCELLED row"
+UNDELIVERED_TITLE = "Ponto executed-on-cancelled-row alert was NOT DELIVERED to anyone"
 # Registered in notification_registry.py; recipients are set in Verenigingen Email Configuration.
 # The call below repeats the literal because "Sync Registry" discovers keys by grepping for it.
 ALERT_KEY = "ponto_executed_on_cancelled_row"
@@ -102,6 +106,25 @@ def as_system_update(writer):
     return wrapper
 
 
+def as_system_update_from_db(writer):
+    """Like ``as_system_update``, for a WHITELISTED writer: re-read the document from the database first.
+
+    ``frappe.handler.run_doc_method`` builds the document from the CLIENT's dict, so a client can put
+    any value in a guarded field. Taking the flag over that object would persist those values. Reloading
+    before the flag is taken drops every client-supplied value; nothing unsaved survives, which is right
+    for an action that reads its truth from Ponto.
+    """
+
+    @functools.wraps(writer)
+    def wrapper(doc, *args, **kwargs):
+        if not doc.is_new():
+            doc.reload()
+        with system_update(doc):
+            return writer(doc, *args, **kwargs)
+
+    return wrapper
+
+
 def alert_executed_on_cancelled_row(doc, ponto_id):
     """Tell staff that Ponto reports a cancelled row as executed. Returns True if ``doc`` is cancelled.
 
@@ -155,7 +178,24 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
             notification_key="ponto_executed_on_cancelled_row",  # literal: key discovery greps for it
             document_type=doc.doctype,
             document_name=doc.name,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
         )
+        # No notification created: key unseeded or disabled (skipped), no recipient left, or failed.
+        if not delivery.get("notifications_created"):
+            _log_undelivered(details, delivery)
     if not logged:
         frappe.log_error(title=ALERT_TITLE, message=f"{details}\nNotification: {delivery}")
     return True
+
+
+def _log_undelivered(details, delivery):
+    """Say loudly that the alert reached nobody (key not seeded, disabled, no recipient, delivery failed).
+
+    Fresh installs do not run patches, so the key can have no row and then counts as disabled; the
+    Error Log row above would be the only trace and nobody reads it for this. #1848 asks for a loud alert.
+    """
+    frappe.log_error(
+        title=UNDELIVERED_TITLE,
+        message=f"{details}\nNOBODY WAS NOTIFIED ({delivery}). Check Verenigingen Email Configuration "
+        f"for the notification type '{ALERT_KEY}': it must exist, be enabled and have recipients.",
+    )

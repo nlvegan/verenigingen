@@ -43,6 +43,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     ALERT_MARKER,
     ALERT_TITLE,
     SYSTEM_UPDATE_FLAG,
+    UNDELIVERED_TITLE,
     system_update,
 )
 
@@ -73,6 +74,28 @@ class _PontoUsers:
         # The key is only registered by a patch / "Sync Registry"; a fresh CI site has no row, and
         # a key without a row counts as disabled. This also exercises the patch.
         register_alert_notification_type()
+
+    def _run_doc_method_refresh(self, doc, client_path, client, tamper):
+        """Drive the REAL dispatch a browser uses: handler.run_doc_method builds the document from the
+        CLIENT's dict (``docs``), so a client can put any value in any field. Only the Ponto HTTP client is
+        stubbed. A request object is faked (Mock justified: Infrastructure) because the security-tier
+        decorator inspects it; the caller is Administrator so that decorator lets the call through and the
+        check under test is the only thing left."""
+        from frappe.handler import run_doc_method
+
+        payload = frappe.get_doc(doc.doctype, doc.name).as_dict()
+        payload.update(tamper)
+        request = SimpleNamespace(
+            method="POST", path="/api/method/run_doc_method", headers={}, remote_addr="127.0.0.1",
+            environ={}, args={}, form={}, get_data=lambda *a, **k: b"{}", content_length=2,
+        )
+        previous = getattr(frappe.local, "request", None)
+        frappe.local.request = request  # Mock justified: Infrastructure
+        try:
+            with patch(client_path, return_value=client):
+                run_doc_method(method="refresh_status", docs=json.dumps(payload, default=str))
+        finally:
+            frappe.local.request = previous
 
     def _make_ignoring_permissions_save(self, doc):
         """The save a system writer makes (#1920); named _make_* so the bypass is a recognised fixture."""
@@ -225,6 +248,28 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         with patch(PAY_CLIENT_PATH, return_value=SimpleNamespace(delete_payment=lambda **kw: None)):
             req.cancel()
         self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "docstatus"), 2)
+
+    # ---- F1: a whitelisted system writer must not persist client-supplied guarded values ----
+
+    def test_refresh_status_through_run_doc_method_ignores_a_tampered_payment_entry(self):
+        """``refresh_status`` is whitelisted, so a client can POST its own copy of the document to
+        run_doc_method. The system flag must never cover values the client supplied."""
+        victim = self._make_really_submitted_request(self._create_supplier("TamperVictim"))
+        other = self._make_really_submitted_request(self._create_supplier("TamperOther"))
+        other.update_status_from_webhook("Executed")
+        live_pe = frappe.db.get_value("Ponto Payment Request", other.name, "payment_entry")
+        self.assertTrue(live_pe, "control: another row's live Payment Entry exists to be stolen")
+        frappe.is_whitelisted(type(victim).refresh_status)  # raises PermissionError if not dispatchable
+
+        self._run_doc_method_refresh(
+            victim, PAY_CLIENT_PATH, _read_client("signed"), {"payment_entry": live_pe}
+        )
+
+        row = frappe.db.get_value(
+            "Ponto Payment Request", victim.name, ["status", "payment_entry"], as_dict=True
+        )
+        self.assertEqual(row.status, "Signed", "control: the legitimate part of the refresh still happened")
+        self.assertFalse(row.payment_entry, "the client-supplied payment_entry was persisted")
 
     # ---- #1920: the system writers must work as the webhook user, not only as Administrator ----
 
@@ -460,8 +505,10 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         frappe.db.commit()
 
     def test_two_simultaneous_deliveries_raise_one_alert(self):
-        """Delivery A holds its transaction open; delivery B, which has already read the row, must wait for
-        A and then see A's alert instead of raising its own."""
+        """Both deliveries read the row BEFORE either alerts (a Barrier after the early get_doc, as in a
+        real double webhook); delivery A then holds its transaction open while B runs. Only the row lock
+        in alert_executed_on_cancelled_row makes B wait and see A's alert; without it both insert and the
+        two transactions deadlock (1213) or double-alert."""
         import threading
         import time
 
@@ -470,9 +517,7 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         )
 
         req = self._create_committed_cancelled_request()
-        self.expectErrorLog(
-            ALERT_TITLE, "Notification Creation Error"
-        )  # the latter: Administrator's email is no User name
+        self.expectErrorLog(ALERT_TITLE)
         site, sites_path, name, ponto_id = (
             frappe.local.site,
             frappe.local.sites_path,
@@ -480,14 +525,15 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
             req.ponto_payment_id,
         )
         errors = []
+        both_have_read = threading.Barrier(2, timeout=30)
 
-        def _create_concurrent_delivery(hold_seconds, start_after):
+        def _create_concurrent_delivery(hold_seconds):
             try:
-                time.sleep(start_after)
                 frappe.init(site=site, sites_path=sites_path)
                 frappe.connect()
                 frappe.set_user("Administrator")
                 doc = frappe.get_doc("Ponto Payment Request", name)  # an earlier read, as in a real webhook
+                both_have_read.wait()
                 alert_executed_on_cancelled_row(doc, ponto_id)
                 time.sleep(hold_seconds)
                 frappe.db.commit()
@@ -496,16 +542,113 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
             finally:
                 frappe.destroy()
 
-        first = threading.Thread(target=_create_concurrent_delivery, args=(3, 0))
-        second = threading.Thread(target=_create_concurrent_delivery, args=(0, 1))
+        first = threading.Thread(target=_create_concurrent_delivery, args=(3,))
+        second = threading.Thread(target=_create_concurrent_delivery, args=(0,))
         first.start()
         second.start()
-        first.join(60)
-        second.join(60)
+        first.join(90)
+        second.join(90)
 
         self.assertEqual(errors, [])
         frappe.db.rollback()  # leave this connection's snapshot, so it sees what the threads committed
         self._assert_one_alert("Ponto Payment Request", name, ponto_id, req.amount)
+
+    # ---- F2: staff alerts never go to the Administrator user ----
+
+    def _recipients_the_alert_is_sent_to(self, req):
+        """Run the real alert path and capture who ``create_system_notification`` was asked to notify."""
+        from verenigingen.utils import notification_helpers
+
+        self.expectErrorLog(ALERT_TITLE)
+        real = notification_helpers.create_system_notification
+        with patch.object(notification_helpers, "create_system_notification", wraps=real) as spy:
+            self._fresh_request(req).update_status_from_webhook("Executed")
+        self.assertEqual(spy.call_count, 1, "control: the alert path ran and tried to deliver")
+        return spy.call_args.kwargs["recipients"]
+
+    def test_the_alert_is_never_addressed_to_the_administrator_user(self):
+        administrator_email = frappe.db.get_value("User", "Administrator", "email")
+        self.assertTrue(administrator_email, "control: Administrator has an email to be matched")
+        # Control: the roles the alert is configured with DO match Administrator, so without an
+        # explicit exclusion it is a recipient.
+        from verenigingen.services.communication.email_configuration_service import (
+            get_email_configuration_service,
+        )
+
+        self.assertIn(
+            administrator_email, get_email_configuration_service().get_recipients_for_notification(ALERT_KEY)
+        )
+        req = self._cancelled_request("NoAdmin")
+
+        recipients = self._recipients_the_alert_is_sent_to(req)
+
+        self.assertNotIn(administrator_email, recipients)
+        self.assertNotIn("Administrator", recipients)
+        self.assertEqual(sorted(recipients), self._fallback_recipients(), "control: real staff are kept")
+
+    # ---- F4: an alert that reached nobody must be loud ----
+
+    UNDELIVERED_TITLE = UNDELIVERED_TITLE
+
+    def _undelivered_logs(self, name):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": self.UNDELIVERED_TITLE, "error": ["like", f"%{name}%"]},
+            fields=["error"],
+        )
+
+    def test_a_delivered_alert_writes_no_undelivered_row(self):
+        """Control: the loud row is for a failed delivery only."""
+        req = self._cancelled_request("Delivered")
+        self.expectErrorLog(ALERT_TITLE)
+        self._fresh_request(req).update_status_from_webhook("Executed")
+        self.assertEqual(self._undelivered_logs(req.name), [])
+        self._assert_one_alert("Ponto Payment Request", req.name, req.ponto_payment_id, req.amount)
+
+    def test_an_unseeded_notification_key_still_raises_a_loud_error_log_row(self):
+        """Fresh installs (CI) do not run patches: no row for the key means 'disabled' and the delivery
+        is skipped. That must not be silent."""
+        req = self._cancelled_request("Unseeded")
+        self.expectErrorLog(ALERT_TITLE, self.UNDELIVERED_TITLE)
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
+        config = frappe.get_single("Verenigingen Email Configuration")
+        config.notification_types = [n for n in config.notification_types if n.notification_key != ALERT_KEY]
+        self._make_ignoring_permissions_save(config)
+        self.assertFalse(
+            frappe.get_single("Verenigingen Email Configuration").is_notification_enabled(ALERT_KEY),
+            "control: with no row the key counts as disabled",
+        )
+
+        with self.assertErrorLog(self.UNDELIVERED_TITLE):
+            self._fresh_request(req).update_status_from_webhook("Executed")
+
+        logs = self._undelivered_logs(req.name)
+        self.assertEqual(len(logs), 1)
+        self.assertIn(req.name, logs[0].error)
+        self.assertIn(f"{flt(req.amount):,.2f}", logs[0].error)
+        self.assertEqual(frappe.get_all("Notification Log", filters={"document_name": req.name}), [])
+
+    def test_an_alert_with_no_recipient_left_raises_a_loud_error_log_row(self):
+        """Fixed recipients that are only the Administrator user leave nobody once it is excluded."""
+        req = self._cancelled_request("NoOne")
+        self.expectErrorLog(ALERT_TITLE, self.UNDELIVERED_TITLE)
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
+        config = frappe.get_single("Verenigingen Email Configuration")
+        for row in config.notification_types:
+            if row.notification_key == ALERT_KEY:
+                row.recipient_policy = "Fixed"
+                row.fixed_recipients = frappe.db.get_value("User", "Administrator", "email")
+        self._make_ignoring_permissions_save(config)
+
+        with self.assertErrorLog(self.UNDELIVERED_TITLE):
+            self._fresh_request(req).update_status_from_webhook("Executed")
+
+        self.assertEqual(len(self._undelivered_logs(req.name)), 1)
+        self.assertEqual(frappe.get_all("Notification Log", filters={"document_name": req.name}), [])
 
 
 class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
@@ -742,6 +885,38 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
                 self._make_ignoring_permissions_save(doc)
 
         self.assertEqual(self._read_link(link, "status").status, "Cancelled")
+
+    # ---- F1: a whitelisted system writer must not persist client-supplied guarded values ----
+
+    def test_refresh_status_through_run_doc_method_ignores_tampered_guarded_fields(self):
+        victim_member, victim_invoice = self._member_and_invoice()
+        victim = self._make_submitted_link(victim_member, victim_invoice)
+        other_member, other_invoice = self._member_and_invoice()
+        other = self._make_submitted_link(other_member, other_invoice)
+        other.update_status_from_webhook("Executed")
+        stolen = self._read_link(other, "payment_entry")
+        self.assertTrue(stolen.payment_entry, "control: another row's live Payment Entry exists to be stolen")
+        self.assertNotEqual(other_invoice.name, victim_invoice.name)
+        frappe.is_whitelisted(type(victim).refresh_status)  # raises PermissionError if not dispatchable
+        tamper = {
+            "payment_entry": stolen.payment_entry,
+            "sales_invoice": other_invoice.name,
+            "debtor_name": "Mallory",
+            "debtor_iban": "NL02ABNA0123456789",
+            "debtor_bank": "Evil Bank",
+        }
+
+        self._run_doc_method_refresh(victim, LINK_CLIENT_PATH, _read_client("signed"), tamper)
+
+        row = self._read_link(
+            victim, "status", "payment_entry", "sales_invoice", "debtor_name", "debtor_iban", "debtor_bank"
+        )
+        self.assertEqual(
+            row.status, "Authorized", "control: the legitimate part of the refresh still happened"
+        )
+        self.assertEqual(row.sales_invoice, victim_invoice.name)
+        self.assertFalse(row.payment_entry)
+        self.assertFalse(row.debtor_name or row.debtor_iban or row.debtor_bank)
 
     def test_refresh_status_writes_the_debtor_after_a_nested_payment_entry_write(self):
         """The debtor save comes AFTER process_payment_received() returned: the flag must still be set."""
