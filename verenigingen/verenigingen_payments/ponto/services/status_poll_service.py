@@ -59,7 +59,8 @@ from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoRateLimitError,
 )
 
-# Rows created longer ago than this stop being polled (no local status change).
+# Open rows created longer ago than this stop being polled (no local status change); cancelled
+# rows stop being checked this long after they were cancelled (see _open_where).
 STALENESS_WINDOW_DAYS = 30
 
 # Per doctype, per run. Ponto's rate limits are unverified, so the batch stays small.
@@ -149,11 +150,22 @@ def _open_where(doctype, statuses, id_field, cancelled=False):
     """(FROM/WHERE sql, params) for the open rows, or with ``cancelled`` for the docstatus-2 rows
     that still carry an open status (``on_cancel`` sets "Cancelled" in memory only, #1918).
     ``doctype`` and ``id_field`` come from the module's own ``_POLLED`` constants, never from a
-    caller; every VALUE is a bound parameter."""
+    caller; every VALUE is a bound parameter.
+
+    The staleness window counts from ``creation`` for open rows, but for a cancelled row from
+    when it was CANCELLED (maintainer ruling 2026-11-01, #1931): otherwise an old row cancelled
+    late would never be checked. A docstatus-2 row's ``modified`` IS its cancel time, measured:
+    ``.cancel()`` sets it, and the poll, the #1848 alert (row lock, Notification Log, Error Log),
+    comments, assignments, likes and views leave it untouched (they write with
+    ``update_modified=False`` or to other tables). Only a deliberate ``set_value``/``db_set`` with
+    the default ``update_modified`` moves it, and then only LATER (a longer window, never a
+    shorter one); nothing in the app does that to these two doctypes.
+    """
     docstatus = "= 2" if cancelled else "!= 2"
+    window_column = "modified" if cancelled else "creation"
     sql = (
         f"FROM `tab{doctype}` WHERE docstatus {docstatus} AND status IN %(statuses)s "
-        f"AND `{id_field}` IS NOT NULL AND `{id_field}` != '' AND creation >= %(since)s"
+        f"AND `{id_field}` IS NOT NULL AND `{id_field}` != '' AND {window_column} >= %(since)s"
     )
     params = {
         "statuses": tuple(statuses),
