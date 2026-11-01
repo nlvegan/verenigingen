@@ -614,11 +614,11 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
 
     The member is billed by their own Membership Dues Schedule, whose template may
     differ from the Membership Type's billing_period (#1909), so the schedule wins
-    when it belongs to the Membership that covers this period. A Membership Dues
-    Schedule has no start/end window of its own, so the Membership link is the only
-    way to tell which period a schedule belongs to; a period covered by another
-    (older) Membership, or a member without a live schedule, falls back to that
-    Membership's Type (as members_without_dues_schedule does).
+    when it bills this period (see _get_schedule_frequency). A Membership Dues
+    Schedule has no start/end window of its own, so its Membership link plus
+    "is this the current period" is all that places it in time. Any other period,
+    or a member without a live schedule, falls back to that period's Membership
+    Type (as members_without_dues_schedule does).
     """
 
     try:
@@ -656,21 +656,28 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
 
 
 def _get_schedule_frequency(member_name, membership_name, period_end):
-    """billing_frequency of the member's live (non-template) schedule if it bills this Membership."""
+    """billing_frequency of the member's live (non-template) schedule when it bills this period.
+
+    (a) the schedule is linked to this period's Membership, or
+    (b) the period is the current one (ends today or later): whatever live schedule
+        the member has is what bills them now, even when it is still linked to an
+        older Membership (#1938: a new Membership does not replace it).
+    Otherwise None, and the caller falls back to the period's Membership Type.
+    """
     schedule = frappe.db.get_value(
         "Membership Dues Schedule",
         {"member": member_name, "status": ["in", LIVE_SCHEDULE_STATUSES], "is_template": 0},
         ["membership", "billing_frequency"],
         as_dict=True,
+        # A member should have ONE live schedule; if data ever has two, the newest wins.
         order_by="creation desc",
     )
     if not schedule:
         return None
-    # A schedule with no Membership link can only be placed in time by today.
-    belongs = schedule.membership == membership_name or (
-        not schedule.membership and getdate(period_end) >= getdate(today())
-    )
-    return schedule.billing_frequency if belongs else None
+    is_current_period = getdate(period_end) >= getdate(today())
+    if schedule.membership == membership_name or is_current_period:
+        return schedule.billing_frequency
+    return None
 
 
 def classify_gap_with_billing_context(gap_days, expected_billing_frequency, base_classification):
