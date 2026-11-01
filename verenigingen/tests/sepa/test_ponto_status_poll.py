@@ -1344,3 +1344,80 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             self.assertEqual(sum(bool(self._notification_logs(r)) for r in rows), 2)
             self._poll({})
         self.assertTrue(all(self._notification_logs(r) for r in rows), "the third row must not be starved")
+
+    # --- review round 2 on the owed-alert retry --------------------------------------------
+
+    def _retried(self, raising=()):
+        """Record which rows the owed-alert sweep retries; rows named in ``raising`` blow up."""
+        seen, real = [], status_poll_service.alert_executed_on_cancelled_row
+
+        def spy(doc, ponto_id):
+            seen.append(doc.name)
+            if doc.name in raising:
+                raise RuntimeError("delivery blew up")
+            return real(doc, ponto_id)
+
+        return seen, patch.object(status_poll_service, "alert_executed_on_cancelled_row", spy)
+
+    def _owed_rows_out_of_window(self, count):
+        rows = [self._cancel(self._poll_submitted_request()) for _ in range(count)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({r.ponto_payment_id: "executed" for r in rows})
+        for r in rows:
+            self._push_out_of_window(r)
+        return rows
+
+    def test_a_row_whose_retry_keeps_raising_does_not_starve_the_others(self):
+        self.expectErrorLog("Ponto owed alert retry failed")
+        first, second = self._owed_rows_out_of_window(2)
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 1):
+            seen, spy = self._retried(raising={first.name})
+            with spy:
+                for _ in range(3):
+                    self._poll({})
+        self.assertIn(second.name, seen, "the healthy owed row was starved by the raising one")
+
+    def test_permanently_undeliverable_rows_are_all_retried_in_turn(self):
+        """Limit 1, three rows that never deliver: every row must get a turn (kills 'no rotation' and
+        'newest first')."""
+        rows = self._owed_rows_out_of_window(3)
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 1):
+            seen, spy = self._retried()
+            with spy:
+                for _ in range(3):
+                    self._poll({})
+        self.assertEqual(set(seen), {r.name for r in rows}, "each row retried once, in turn")
+        self.assertEqual(len(seen), 3)
+
+    def test_delivered_means_done_even_if_the_user_deleted_their_notification(self):
+        """The row stays INSIDE the window, so the cancelled pass keeps reading it. Ponto still says
+        executed, the user deleted their Notification Log: nothing may be sent again."""
+        req = self._cancel(self._poll_submitted_request())
+        self.expectErrorLog(ALERT_TITLE)
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertEqual(self._states(req), (True, True), "control: delivered")
+        frappe.db.delete(
+            "Notification Log",
+            {"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{ALERT_MARKER}%"]},
+        )
+        self.assertEqual(self._notification_logs(req), [], "control: the log is gone")
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertIn(req.ponto_payment_id, self.requested, "control: the row was read again")
+        self.assertEqual(self._notification_logs(req), [], "delivered means done: nothing re-sent")
+
+    def test_an_owed_alert_is_closed_when_the_row_was_booked_by_hand(self):
+        """#1848: a cancelled row whose payment_entry is live needs no alert. If an alert was owed, that
+        marker must close or the row is swept forever. Shortcut, stated: the live Payment Entry (really
+        booked on a second request) is linked to the cancelled row with a raw write."""
+        row = self._owed_rows_out_of_window(1)[0]
+        booked = self._poll_submitted_request()
+        booked.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(booked.doctype, booked.name, "payment_entry")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe, "docstatus"), 1, "control: live PE")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", pe, update_modified=False)
+        self.assertEqual(self._states(row), (True, False), "control: still owed")
+        self._poll({})
+        self.assertEqual(self._states(row), (True, True))
+        self.assertNotIn(row.name, [o.name for o in owed_alerts(1000)])
+        self.assertEqual(self._notification_logs(row), [], "closed without sending anything")

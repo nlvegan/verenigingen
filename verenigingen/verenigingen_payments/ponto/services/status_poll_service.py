@@ -395,7 +395,6 @@ def _retry_owed_alerts():
         try:
             doc = frappe.get_doc(owed.doctype, owed.name)
             alert_executed_on_cancelled_row(doc, doc.get(id_fields[owed.doctype]))
-            mark_retried(owed.comment)
         except NON_RESUMABLE_DB_ERRORS:
             raise
         except Exception as e:
@@ -406,6 +405,9 @@ def _retry_owed_alerts():
             )
         else:
             release_savepoint_if_present(savepoint)
+        # AFTER the rollback above and on BOTH paths: a row whose retry keeps raising must still
+        # move to the back of the queue, or it would be picked first every hour and starve the rest.
+        mark_retried(owed.comment)
 
 
 def _check_cancelled_one(doctype, name):

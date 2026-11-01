@@ -152,6 +152,13 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
         return False
 
     if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
+        # Booked by hand after the alert was raised: nothing is owed any more. Close an existing OWED
+        # marker with the same DELIVERED mark (one closed state, so ``owed_alerts`` needs no second
+        # one); the text says why. No marker is written for a row that was never alerted.
+        if _alert_state_exists(doc, OWED_MARK):
+            _note_alert_state(
+                doc, DELIVERED_MARK, f"closed without an alert: Payment Entry {doc.payment_entry} is live"
+            )
         return True
 
     frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
@@ -207,6 +214,9 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
 
 
 def _alert_state_exists(doc, mark):
+    # A plain (non-locking) read: two concurrent callers can both write the same marker. That is
+    # harmless: the Notification Log read above is still the locking one, and ``owed_alerts``
+    # treats any number of OWED / DELIVERED comments as one state.
     return frappe.db.exists(
         "Comment",
         {
