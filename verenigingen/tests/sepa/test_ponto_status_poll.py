@@ -1406,10 +1406,10 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertIn(req.ponto_payment_id, self.requested, "control: the row was read again")
         self.assertEqual(self._notification_logs(req), [], "delivered means done: nothing re-sent")
 
-    def test_an_owed_alert_is_closed_when_the_row_was_booked_by_hand(self):
-        """#1848: a cancelled row whose payment_entry is live needs no alert. If an alert was owed, that
-        marker must close or the row is swept forever. Shortcut, stated: the live Payment Entry (really
-        booked on a second request) is linked to the cancelled row with a raw write."""
+    def _owed_row_with_a_live_payment_entry(self):
+        """Shortcut, stated: a real Payment Entry (booked on a second request through the webhook
+        method) is linked to the owed cancelled row with a raw write, because a cancelled row cannot
+        be saved. Returns (row, payment entry name)."""
         row = self._owed_rows_out_of_window(1)[0]
         booked = self._poll_submitted_request()
         booked.update_status_from_webhook("Executed")
@@ -1417,7 +1417,46 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertEqual(frappe.db.get_value("Payment Entry", pe, "docstatus"), 1, "control: live PE")
         frappe.db.set_value(row.doctype, row.name, "payment_entry", pe, update_modified=False)
         self.assertEqual(self._states(row), (True, False), "control: still owed")
+        return row, pe
+
+    def test_an_owed_alert_is_skipped_while_the_row_is_booked_and_returns_if_that_entry_is_cancelled(self):
+        """Review round 3: booked by hand means nothing is owed, but only for as long as the Payment
+        Entry is live. Cancel it and the money is paid and unbooked again: the alert must come back."""
+        row, pe = self._owed_row_with_a_live_payment_entry()
+        seen, spy = self._retried()
+        with spy:
+            self._poll({})
+        self.assertNotIn(row.name, seen, "not swept while the Payment Entry is live")
+        self.assertNotIn(row.name, [o.name for o in owed_alerts(1000)])
+        self.assertEqual(self._states(row), (True, False), "no closing marker is written")
+        self.assertEqual(self._notification_logs(row), [], "nothing sent while it is booked")
+        pe_doc = frappe.get_doc("Payment Entry", pe)
+        pe_doc.flags.ignore_links = True  # the booked request, our fixture, still links to it
+        pe_doc.cancel()
+        register_alert_notification_type()
         self._poll({})
         self.assertEqual(self._states(row), (True, True))
-        self.assertNotIn(row.name, [o.name for o in owed_alerts(1000)])
-        self.assertEqual(self._notification_logs(row), [], "closed without sending anything")
+        self._assert_one_alert(row.doctype, row.name, row.ponto_payment_id, row.amount)
+
+    def test_a_never_alerted_row_with_a_live_payment_entry_gets_no_marker(self):
+        row = self._cancel(self._poll_submitted_request())
+        booked = self._poll_submitted_request()
+        booked.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(booked.doctype, booked.name, "payment_entry")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", pe, update_modified=False)
+        self._poll({row.ponto_payment_id: "executed"})
+        self.assertIn(row.ponto_payment_id, self.requested, "control: the row was read")
+        self.assertEqual(self._states(row), (False, False))
+        self.assertEqual(self._alerts_for(row.doctype, row.name), ([], []))
+
+    def test_a_job_timeout_in_the_owed_sweep_is_never_swallowed_as_a_row_failure(self):
+        self.expectErrorLog("Ponto owed alert retry failed")
+        row = self._owed_rows_out_of_window(1)[0]
+
+        def timing_out(doc, ponto_id):
+            raise JobTimeoutException("300s")
+
+        with patch.object(status_poll_service, "alert_executed_on_cancelled_row", timing_out):
+            with self.assertRaises(JobTimeoutException):
+                self._poll({})
+        self.assertEqual(self._states(row), (True, False))

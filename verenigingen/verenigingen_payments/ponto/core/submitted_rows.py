@@ -152,13 +152,8 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
         return False
 
     if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
-        # Booked by hand after the alert was raised: nothing is owed any more. Close an existing OWED
-        # marker with the same DELIVERED mark (one closed state, so ``owed_alerts`` needs no second
-        # one); the text says why. No marker is written for a row that was never alerted.
-        if _alert_state_exists(doc, OWED_MARK):
-            _note_alert_state(
-                doc, DELIVERED_MARK, f"closed without an alert: Payment Entry {doc.payment_entry} is live"
-            )
+        # Nothing is written here: an owed alert is skipped by ``owed_alerts`` while the Payment Entry
+        # is live and comes back if that entry is later cancelled (money paid, unbooked again).
         return True
 
     frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
@@ -249,6 +244,18 @@ def owed_alerts(limit):
                 SELECT 1 FROM `tabComment` d
                 WHERE d.comment_type = 'Info' AND d.content LIKE %(delivered)s
                     AND d.reference_doctype = o.reference_doctype AND d.reference_name = o.reference_name
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM `tabPonto Payment Request` r
+                JOIN `tabPayment Entry` pe ON pe.name = r.payment_entry
+                WHERE o.reference_doctype = 'Ponto Payment Request' AND r.name = o.reference_name
+                    AND pe.docstatus = 1
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM `tabPonto Payment Link` l
+                JOIN `tabPayment Entry` pe ON pe.name = l.payment_entry
+                WHERE o.reference_doctype = 'Ponto Payment Link' AND l.name = o.reference_name
+                    AND pe.docstatus = 1
             )
         ORDER BY o.modified ASC LIMIT %(limit)s
         """,

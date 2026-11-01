@@ -398,6 +398,9 @@ def _retry_owed_alerts():
         except NON_RESUMABLE_DB_ERRORS:
             raise
         except Exception as e:
+            fatal = _fatal_in_chain(e)
+            if fatal is not None:
+                raise fatal  # a job timeout or lock error is not a row problem: abandon the run
             rollback_to_savepoint(savepoint)
             frappe.log_error(
                 title=f"Ponto owed alert retry failed: {owed.doctype} {owed.name}",
