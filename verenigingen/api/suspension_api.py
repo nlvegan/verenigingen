@@ -22,7 +22,27 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+
+def _admin_sees_missing_member(member_name):
+    """True when the caller is in the admin pair and the Member does not exist.
+
+    The admin pair (the same set can_terminate_member short-circuits on) may read every
+    Member, so telling them a name does not exist leaks nothing and a mistyped name keeps
+    its DOES_NOT_EXIST answer (#1911). Every other caller falls through to the identical
+    refusal for unknown and forbidden names.
+    """
+    from verenigingen.permissions import _has_admin_access
+
+    return _has_admin_access(frappe.get_roles(), Roles.ADMIN_PAIR) and not frappe.db.exists(
+        "Member", member_name
+    )
+
+
+def _does_not_exist(member_name):
+    return OperationResult.fail(
+        _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
+    )
 
 
 def _can_terminate_without_oracle(member_name):
@@ -73,6 +93,14 @@ def suspend_member(
             )
             return OperationResult.fail(_("Suspension reason is required"), error_code="INVALID_INPUT")
 
+        # Admin pair may read every Member: a mistyped name stays DOES_NOT_EXIST for them.
+        if _admin_sees_missing_member(member_name):
+            frappe.log_error(
+                f"suspend_member called with non-existent member {member_name} by {frappe.session.user}",
+                "Suspension API Validation Error",
+            )
+            return _does_not_exist(member_name)
+
         # Permission BEFORE existence (#1911): an unknown name must be refused exactly like
         # a forbidden one, or this endpoint tells a non-admin which member ids exist.
         # can_terminate_member is False for an unknown name unless the caller holds an
@@ -84,16 +112,6 @@ def suspend_member(
             )
             return OperationResult.fail(
                 _("You don't have permission to suspend this member"), error_code="PERMISSION_DENIED"
-            )
-
-        # Validate member exists (reached only by callers permitted on every member)
-        if not DocumentExistenceValidator.check_document_exists("Member", member_name):
-            frappe.log_error(
-                f"suspend_member called with non-existent member {member_name} by {frappe.session.user}",
-                "Suspension API Validation Error",
-            )
-            return OperationResult.fail(
-                _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
             )
 
         # Convert string booleans to actual booleans
@@ -173,6 +191,14 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
             )
             return OperationResult.fail(_("Unsuspension reason is required"), error_code="INVALID_INPUT")
 
+        # Admin pair may read every Member: a mistyped name stays DOES_NOT_EXIST for them.
+        if _admin_sees_missing_member(member_name):
+            frappe.log_error(
+                f"unsuspend_member called with non-existent member {member_name} by {frappe.session.user}",
+                "Suspension API Validation Error",
+            )
+            return _does_not_exist(member_name)
+
         # Permission BEFORE existence (#1911): an unknown name must be refused exactly like
         # a forbidden one, or this endpoint tells a non-admin which member ids exist.
         # can_terminate_member is False for an unknown name unless the caller holds an
@@ -184,16 +210,6 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
             )
             return OperationResult.fail(
                 _("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
-            )
-
-        # Validate member exists (reached only by callers permitted on every member)
-        if not DocumentExistenceValidator.check_document_exists("Member", member_name):
-            frappe.log_error(
-                f"unsuspend_member called with non-existent member {member_name} by {frappe.session.user}",
-                "Suspension API Validation Error",
-            )
-            return OperationResult.fail(
-                _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
             )
 
         from verenigingen.utils.termination_integration import unsuspend_member_safe
@@ -270,6 +286,8 @@ def can_suspend_member(member_name: str = None) -> OperationResult[Dict[str, Any
             # Use frappe.get_attr to import the function
             # For suspension, we use the same permission logic as termination
             # since suspension is essentially a temporary termination
+            if _admin_sees_missing_member(member_name):
+                return _does_not_exist(member_name)
             has_permission = _can_terminate_without_oracle(member_name)
             return OperationResult.ok(
                 {"can_suspend": has_permission, "member_name": member_name},
@@ -349,6 +367,8 @@ def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
 
         # #1911: the HIGH tier is cleared by any chapter board member, so require read
         # on THIS member. An unknown name and a forbidden one are refused identically.
+        if _admin_sees_missing_member(member_name):
+            return _does_not_exist(member_name)
         if not permission_allowed_without_oracle("Member", "read", member_name):
             return OperationResult.fail(
                 _("You don't have permission to view this member"), error_code="PERMISSION_DENIED"
@@ -461,6 +481,12 @@ def bulk_suspend_members(
         def process_member_suspension(member_name):
             """Suspend a single member, returning a per-member result dict."""
             try:
+                if _admin_sees_missing_member(member_name):
+                    return {
+                        "member": member_name,
+                        "success": False,
+                        "error": _("Member {0} does not exist").format(member_name),
+                    }
                 if not _can_terminate_without_oracle(member_name):
                     return {
                         "member": member_name,

@@ -159,13 +159,53 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
         )
         self.assertIn("No permission to suspend", str(forbidden["outcome"]))
 
-    def test_admin_unknown_name_is_refused_not_a_crash(self):
-        """System Manager / Verenigingen Administrator cannot load an unknown Member through
-        has_permission either, so an unknown name is refused like a forbidden one."""
-        self.expectErrorLog("Suspension API Permission Error")
+    def test_admin_unknown_name_is_does_not_exist_on_every_endpoint(self):
+        """The admin pair may read every Member, so a mistyped name keeps DOES_NOT_EXIST."""
+        self.expectErrorLog("Suspension API Validation Error")
         with self.set_user(self.admin):
-            result = suspension_api.suspend_member(UNKNOWN, "scope test")
-        self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
+            for label, result in (
+                ("preview", suspension_api.get_suspension_preview(member_name=UNKNOWN)),
+                ("can_suspend", suspension_api.can_suspend_member(UNKNOWN)),
+                ("suspend", suspension_api.suspend_member(UNKNOWN, "scope test")),
+                ("unsuspend", suspension_api.unsuspend_member(UNKNOWN, "scope test")),
+            ):
+                with self.subTest(endpoint=label):
+                    self.assertFalse(result["success"], msg=result)
+                    self.assertEqual(result["error"]["code"], "DOES_NOT_EXIST", msg=result)
+            bulk = suspension_api.bulk_suspend_members([UNKNOWN], "scope test")
+        detail = bulk["meta"]["data"]["details"][0]
+        self.assertIn("does not exist", detail["error"])
+
+    def test_bare_system_manager_without_role_profile(self):
+        """A bare System Manager (no Verenigingen role profile) clears neither HIGH nor
+        CRITICAL, so preview/suspend/unsuspend/bulk refuse it at the tier gate before any
+        body runs; only the LOW-tier can_suspend_member is reachable, and there the admin
+        pair still gets DOES_NOT_EXIST for a mistyped name and True for a real one."""
+        email = f"bare-sm-{frappe.generate_hash(length=8)}0@example.com"
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "BareSM",
+                "send_welcome_email": 0,
+                "roles": [{"role": "System Manager"}],
+            }
+        ).insert()
+        self.factory.track_document("User", user.name, priority=2)
+        with self.set_user(email):
+            self.assertFalse(frappe.get_doc("User", email).role_profile_name)
+            for fn, args in (
+                (suspension_api.get_suspension_preview, (self.member.name,)),
+                (suspension_api.suspend_member, (self.member.name, "scope test")),
+                (suspension_api.unsuspend_member, (self.member.name, "scope test")),
+                (suspension_api.bulk_suspend_members, ([self.member.name], "scope test")),
+            ):
+                with self.subTest(endpoint=fn.__name__), self.assertRaises(frappe.PermissionError):
+                    fn(*args)
+            self.assertEqual(
+                suspension_api.can_suspend_member(UNKNOWN)["error"]["code"], "DOES_NOT_EXIST"
+            )
+            self.assertTrue(suspension_api.can_suspend_member(self.member.name)["data"]["can_suspend"])
 
     # --- query-count channel ------------------------------------------------
 
