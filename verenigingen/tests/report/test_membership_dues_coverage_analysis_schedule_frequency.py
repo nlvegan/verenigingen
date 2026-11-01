@@ -282,3 +282,24 @@ class TestCoverageReportUsesScheduleFrequency(VereningingenTestCase):
         )
         with self.assertRaisesRegex(frappe.ValidationError, "Templates cannot have a specific member"):
             template.insert()
+
+    def test_future_dated_membership_does_not_take_the_old_live_schedule(self):
+        """Pins the `start_date <= today` guard in _get_schedule_frequency. On the
+        #1938 real flow the live schedule is Monthly (linked to the old Membership).
+        An Annual Membership that starts in the future and ends later is not
+        billed yet, so its period must use its own Type, not rule (b)."""
+        member = self._covfreq_member()
+        old = self._covfreq_submit_membership(member, "Monthly", -300)
+        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
+        # (a second ACTIVE Membership is refused, so the future one follows the cancelled old one)
+        future = self._covfreq_submit_membership(member, "Annual", 10)
+        # End of Period keeps it Active while giving it a future end date.
+        cancel_membership(future.name, add_days(today(), 300), "test", "End of Period")
+
+        schedule = self._live_schedule(member)
+        self.assertEqual((schedule.membership, schedule.billing_frequency), (old.name, "Monthly"))
+        fut = frappe.db.get_value("Membership", future.name, ["start_date", "cancellation_date"], as_dict=True)
+        self.assertEqual(getdate(fut.start_date), getdate(add_days(today(), 10)))
+        self.assertEqual(getdate(fut.cancellation_date), getdate(add_days(today(), 300)))
+
+        self.assertEqual(self._frequency_over(member, 10, 50), "Annual")
