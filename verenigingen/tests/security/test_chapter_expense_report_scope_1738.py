@@ -31,30 +31,22 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
         self.a_claims = [self._chapter_claim(emp, self.chapter_a) for _ in range(2)]
         self.b_claims = [self._chapter_claim(emp, self.chapter_b) for _ in range(2)]
 
-        # Staff + Chapter Board Member role, seated on chapter A only (the issue's attacker)
-        self.staff_board = self.create_test_user(
-            email=f"x1738-sb-{self.token}@test.com",
-            roles=_roles_shipped_for_profile("Verenigingen Staff") + ["Verenigingen Chapter Board Member"],
-        )
+        # Staff (registered through the association-wide Team) with a default seat on A only
+        self.staff_board = self._registered_staff_user("sb1738")
         self._staffexp_employee(self.staff_board)
-        self._seat_financial_1738(self.staff_board, self.chapter_a, "sb")
-        self.keep_fixture_roles(
-            self.staff_board, _roles_shipped_for_profile("Verenigingen Staff") + ["Verenigingen Chapter Board Member"]
-        )
+        self._seat_financial_1738(self.staff_board, self.chapter_a, "sb", self.staff_board.volunteer_1922)
 
-        # A board member with no wide role at all
-        self.plain_board = self.create_test_user(
-            email=f"x1738-pb-{self.token}@test.com",
-            roles=_roles_shipped_for_profile("Verenigingen Chapter Board Member"),
-        )
+        # A board member with no wide role at all: only the Member role up front, the board
+        # roles come from seating
+        self.plain_board = self.create_test_user(email=f"x1738-pb-{self.token}@test.com", roles=["Verenigingen Member"])
         self._staffexp_employee(self.plain_board)
         self._seat_financial_1738(self.plain_board, self.chapter_a, "pb")
-        self.keep_fixture_roles(self.plain_board, _roles_shipped_for_profile("Verenigingen Chapter Board Member"))
 
-    def _seat_financial_1738(self, user, chapter, tag):
+    def _seat_financial_1738(self, user, chapter, tag, volunteer=None):
         """A Financial seat on ``chapter`` (own Chapter Role: staff_boards() reuses one name)."""
-        member = self.create_test_member(first_name="Brd", last_name=tag, email=user.name, user=user.name)
-        volunteer = self.create_test_volunteer(member.name)
+        if volunteer is None:
+            member = self.create_test_member(first_name="Brd", last_name=tag, email=user.name, user=user.name)
+            volunteer = self.create_test_volunteer(member.name)
         role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
@@ -88,7 +80,7 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
 
         return self.act_as(user, run)
 
-    def test_staff_with_board_role_sees_only_their_chapter_in_the_report(self):
+    def test_staff_with_a_default_seat_sees_only_their_chapter_in_the_report(self):
         ids = self._report_ids(self.staff_board)
         for c in self.b_claims:
             self.assertNotIn(c.name, ids)
@@ -119,8 +111,8 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
     def test_seat_holder_without_expense_claim_read_gets_an_empty_report_not_an_error(self):
         """A Financial seat on A but roles that carry no Expense Claim read right: get_list would
         refuse, so the report lists nothing (and does not raise). A get_all read would list A."""
-        user = self.create_test_user(email=f"x1738-nr-{self.token}@test.com", roles=["Verenigingen Member"])
-        self._seat_financial_1738(user, self.chapter_a, "nr")
-        self.keep_fixture_roles(user, ["Verenigingen Member"])  # the seat's flush gave the board roles
+        user, chapter = self.seat_holder_without_claim_read("nr1738")
+        claim = self._chapter_claim(self.volunteer_emp, chapter)  # a claim a get_all read WOULD list
         self.assertFalse(self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read")))
+        self.assertNotIn(claim.name, self._report_ids(user))
         self.assertEqual(self._report_ids(user), set())

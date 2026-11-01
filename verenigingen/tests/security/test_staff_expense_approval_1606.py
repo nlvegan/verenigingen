@@ -55,7 +55,7 @@ class StaffExpenseBase(EnhancedTestCase):
         self.chapter_a = self.create_chapter(chapter_name=f"Exp A {self.token}", region=region)
         self.chapter_b = self.create_chapter(chapter_name=f"Exp B {self.token}", region=region)
 
-        self.staff = self._staffexp_user("Verenigingen Staff", "staff")
+        self.staff = self._registered_staff_user("staff")
         self.staff_emp = self._staffexp_employee(self.staff)
         self.staff_boards(self.chapter_a)  # plain Staff sits on the board of chapter A
 
@@ -99,6 +99,13 @@ class StaffExpenseBase(EnhancedTestCase):
         )
 
     def _staffexp_employee(self, user):
+        # Creating a user's volunteer (registered Staff, seated board members) already makes an
+        # Employee stub for them via the role-profile sync: use it rather than a duplicate.
+        existing = frappe.db.get_value("Employee", {"user_id": user.name}, "name")
+        if existing:
+            frappe.db.set_value("Employee", existing, "company", self.company)
+            self._track_test_document("Employee", existing, priority=2)
+            return frappe.get_doc("Employee", existing)
         emp = frappe.get_doc(
             {
                 "doctype": "Employee",
@@ -117,15 +124,82 @@ class StaffExpenseBase(EnhancedTestCase):
         self._track_test_document("Employee", emp.name, priority=2)
         return emp
 
-    def staff_boards(self, chapter):
-        member = self.create_test_member(
-            first_name="Stf", last_name="Board", email=self.staff.name, user=self.staff.name
-        )
+    def _registered_staff_user(self, tag):
+        """A Staff user registered the production way: the person's volunteer is a member of an
+        association-wide Team whose default profile is Verenigingen Staff, and the Team save
+        syncs the profile. The user starts with only the Member role; Staff comes from the sync."""
+        user = self.create_test_user(email=f"x1606-{tag}-{self.token}@test.com", roles=["Verenigingen Member"])
+        member = self.create_test_member(first_name="Stf", last_name=tag, email=user.name, user=user.name)
         volunteer = self.create_test_volunteer(member.name)
+        team = self._association_staff_team_1922()
+        team.append(
+            "team_members",
+            {"volunteer": volunteer.name, "team_role": "Team Member", "from_date": today(), "status": "Active"},
+        )
+        team.save()
+        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
+        self.assertLessEqual(
+            set(_roles_shipped_for_profile("Verenigingen Staff")), have, "control: the team made the user Staff"
+        )
+        user.volunteer_1922 = volunteer
+        return user
+
+    def _association_staff_team_1922(self):
+        if not getattr(self, "_staff_team_doc", None):
+            self._staff_team_doc = frappe.get_doc(
+                {
+                    "doctype": "Team",
+                    "team_name": f"Staff {self.token}",
+                    "status": "Active",
+                    "team_type": "Project Team",
+                    "start_date": today(),
+                    "is_association_wide": 1,
+                    "default_role_profile": "Verenigingen Staff",
+                }
+            ).insert()
+            self._track_test_document("Team", self._staff_team_doc.name, priority=3)
+        return self._staff_team_doc
+
+    def staff_boards(self, chapter):
+        """Seat the registered Staff user on a DEFAULT board seat (no role-specific profile)."""
         role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
                 "role_name": f"Exp Fin {self.token}",
+                "permissions_level": "Financial",
+                "is_active": 1,
+            }
+        ).insert()
+        frappe.get_doc(
+            {
+                "doctype": "Chapter Board Member",
+                "parent": chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "board_members",
+                "volunteer": self.staff.volunteer_1922.name,
+                "chapter_role": role.name,
+                "from_date": today(),
+                "is_active": 1,
+            }
+        ).insert()
+
+    def seat_holder_without_claim_read(self, tag):
+        """(user, chapter): a seat holder who truly lacks the Expense Claim read right, by a real path.
+
+        The chapter's default board profile is mapped to ``Verenigingen Member``, which grants no
+        Expense Claim read; seating the user then gives them exactly that profile's roles (the
+        flush a Chapter save also runs). Returns the chapter because the seat only counts there.
+        """
+        chapter = self.create_chapter(chapter_name=f"Exp N {tag} {self.token}", region=ensure_test_region())
+        chapter.default_board_role_profile = "Verenigingen Member"
+        chapter.save()
+        user = self.create_test_user(email=f"x1606-{tag}-{self.token}@test.com", roles=["Verenigingen Member"])
+        member = self.create_test_member(first_name="Brd", last_name=tag, email=user.name, user=user.name)
+        volunteer = self.create_test_volunteer(member.name)
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"Exp N {tag} {self.token}",
                 "permissions_level": "Financial",
                 "is_active": 1,
             }
@@ -142,7 +216,11 @@ class StaffExpenseBase(EnhancedTestCase):
                 "is_active": 1,
             }
         ).insert()
-        self.keep_fixture_roles(self.staff, _roles_shipped_for_profile("Verenigingen Staff"))
+        self.assertFalse(
+            self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read")),
+            "control: the mapped profile really carries no claim read right",
+        )
+        return user, chapter
 
     def claim(self, employee, chapter=None, expense_approver=None, submit=False, approval_status="Draft"):
         data = {
@@ -177,24 +255,6 @@ class StaffExpenseBase(EnhancedTestCase):
             doc.approval_status = "Approved"
             doc.submit()
         return doc
-
-    def keep_fixture_roles(self, user, roles):
-        """Put a fixture user's DIRECT roles back after seating them (#1922).
-
-        A seat inserted outside a Chapter save now runs the real board-profile flush, and the
-        profile sync REPLACES the user's roles with the board profile's (the same thing a Chapter
-        save does in production). These fixtures model a user by the roles a shipped profile
-        grants, assigned directly, so seating would silently turn Staff into a plain board
-        member. This restores exactly the roles the fixture built, and drops the profile the
-        sync attached so a later User save does not reset them again. Probe shortcut, stated.
-        """
-        doc = frappe.get_doc("User", user.name)
-        doc.set("role_profiles", [])
-        doc.set("roles", [{"role": r} for r in dict.fromkeys(roles)])
-        doc.save(ignore_permissions=True)
-        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
-        self.assertEqual(have - {"All", "Guest"}, set(roles), f"fixture roles did not stick for {user.name}")
-        return user
 
     def act_as(self, user, fn):
         original = frappe.session.user
