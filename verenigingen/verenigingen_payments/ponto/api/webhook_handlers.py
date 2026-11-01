@@ -10,12 +10,15 @@ Each handler processes a specific event type and returns a result dict.
 Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
-import re
 from typing import Any, Dict
 
 import frappe
 
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+    safe_savepoint_name as _safe_savepoint_name,
+)
 from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
@@ -67,20 +70,6 @@ def import_transactions_job(account_id: str) -> Dict[str, Any]:
 
     frappe.set_user(_get_webhook_user())
     return import_new_transactions(account_id=account_id)
-
-
-def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
-    """
-    Build a MariaDB-safe savepoint identifier.
-
-    Frappe's ``frappe.db.savepoint()`` interpolates the name straight into
-    ``SAVEPOINT <name>`` SQL without quoting. Document names contain hyphens
-    (e.g. ``PONTO-PAY-6206``, ``PL-2026-00001``), which are illegal in an
-    unquoted MariaDB savepoint identifier and raise a 1064 syntax error.
-    Replace any non-alphanumeric character with an underscore so the savepoint
-    can be created and rolled back to safely.
-    """
-    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{doc_name}")
 
 
 # =============================================================================

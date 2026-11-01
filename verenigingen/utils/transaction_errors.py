@@ -42,6 +42,7 @@ A third condition belongs in this same "must propagate" family but cannot join t
   whether to retry or abort. #1352.
 """
 
+import re
 from contextlib import contextmanager
 
 import frappe
@@ -97,6 +98,16 @@ def release_savepoint_if_present(save_point):
             "the work it covered is already persisted."
         )
         return False
+
+
+def safe_savepoint_name(prefix: str, identifier=None) -> str:
+    """Build a MariaDB-safe savepoint identifier from a prefix and a document/gateway id.
+
+    ``frappe.db.savepoint()`` interpolates the name unquoted into ``SAVEPOINT <name>``, so a
+    hyphenated doc name (``ICT-1261``, ``PONTO-PAY-6206``, Pay.nl ``EX-1234-5678``) is a
+    MariaDB 1064. Every non-alphanumeric character becomes an underscore (#1898).
+    """
+    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{identifier or 'unknown'}")
 
 
 def rollback_to_savepoint(save_point):
