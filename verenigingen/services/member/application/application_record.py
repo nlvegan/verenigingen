@@ -243,12 +243,20 @@ def _remove_unused_disk_files(files):
         if file.file_url and frappe.db.exists("File", {"file_url": file.file_url}):
             continue  # another File row shares the content
         try:
-            delete_file(file.file_url)
-            delete_file(file.thumbnail_url)
+            for url in (file.file_url, file.thumbnail_url):
+                if _is_local_file_url(url):
+                    delete_file(url)
         except (
             Exception
         ):  # swallow-ok: the row is already gone; a leftover file is logged, not a failed purge
             frappe.log_error(title="Application purge: file not removed", message=frappe.get_traceback())
+
+
+def _is_local_file_url(url) -> bool:
+    """Only a url under /files/ or /private/files/ names a file of this site. Frappe's delete_file keeps just
+    the BASENAME and maps every other path to private/files/<basename>, so an external `https://.../report.pdf`
+    would delete an unrelated private file of the same name."""
+    return bool(url) and url.startswith(("/files/", "/private/files/"))
 
 
 def _delete_communications(communications):

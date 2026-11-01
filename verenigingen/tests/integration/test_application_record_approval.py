@@ -1431,6 +1431,35 @@ class TestRequestMoreInfo(ApprovalCase):
         self.assertTrue(frappe.db.exists("File", twin.name))
         self.assertTrue(os.path.exists(path))
 
+    def test_purging_never_deletes_a_private_file_through_an_external_url_basename(self):
+        """Frappe's delete_file keeps only the BASENAME of a url and maps anything not under /files/ to
+        private/files/<basename>. A File attached to the application with an external url must therefore never
+        reach it: it would remove an unrelated private file of the same name. Control: a local attachment of the
+        same application is still removed from disk. Probe shortcuts, stated: the Files are attached by hand
+        (no real flow attaches an external url today) and frappe.db.after_commit.run() stands in for the commit."""
+        name, _communication = self._rejected_application_with_a_request()
+        basename = f"report_{frappe.generate_hash(length=8)}.txt"  # .pdf would make File parse the content as a PDF
+        unrelated = frappe.get_doc(
+            {"doctype": "File", "file_name": basename, "content": "unrelated", "is_private": 1}
+        ).insert()
+        unrelated_path = frappe.get_site_path(unrelated.file_url.lstrip("/"))
+        self.assertTrue(unrelated_path.endswith(f"private/files/{basename}"), unrelated_path)
+        external = frappe.get_doc(
+            {"doctype": "File", "file_url": f"https://files.example.org/docs/{basename}",
+             "thumbnail_url": f"https://files.example.org/thumbs/{basename}",
+             "attached_to_doctype": SUBMISSION, "attached_to_name": name}
+        ).insert()
+        local_name, local_path = self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        self.assertTrue(os.path.exists(unrelated_path) and os.path.exists(local_path))
+
+        self._age_past_the_purge(name)
+        frappe.db.after_commit.run()
+
+        self.assertFalse(frappe.db.exists("File", external.name), "the purge removed the external-url row")
+        self.assertFalse(frappe.db.exists("File", local_name))
+        self.assertFalse(os.path.exists(local_path), "control: a local attachment is removed from disk")
+        self.assertTrue(os.path.exists(unrelated_path), "an unrelated private file was deleted by basename")
+
     def test_purging_keeps_a_global_unsubscribe_and_error_log_that_name_the_application(self):
         name, _communication = self._rejected_application_with_a_request()
         email = f"optout.{frappe.generate_hash(length=6)}@example.org"
