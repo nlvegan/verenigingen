@@ -65,7 +65,8 @@ _PLAIN_FIELDS = (
     "selected_membership_type",
     "interested_in_volunteering",
 )
-# Answers a reapplication REPLACES (blank included), as the short form's confirm did.
+# Answers the short form asks. A reapplication overwrites an existing Member's answer with a supplied one;
+# a blank or absent one keeps the existing value (maintainer rule 4, #1765, Ruling AQ).
 _ANSWER_FIELDS = (
     "magazine_delivery",
     "starter_guide_delivery",
@@ -133,7 +134,7 @@ def _writable_values(application, member) -> dict:
     `additional_notes` is never written to the Member (Ruling R): it stays on the application, which is
     kept and linked by `member`.
 
-    The address is a separate doctype; the replace-on-reapply answers and the dues choice are applied
+    The address is a separate doctype; the answers and the dues choice are applied
     beside this by _apply_application, which is what both the write and the preview consume.
     """
     data = application_data(application)
@@ -173,12 +174,12 @@ def _update_member(application, data, member_name, address, application_id):
 
 def _apply_application(member, application, data, preview=False):
     """Set, in memory, every Member field an application writes onto an existing Member: the plain fields,
-    the replace-on-reapply answers and the dues choice. The one source for both the write
+    the answers and the dues choice. The one source for both the write
     (_update_member) and the reviewers' preview (application_changes), so they cannot drift."""
     for field, value in _writable_values(application, member).items():
         member.set(field, value)
     _set_dues_choice(member, data, quiet=preview)
-    _set_answers(member, application)
+    _set_answers(member, application, keep_blank=True)
 
 
 # The fee override's approver and date are stamped by whoever approves (the session user, today), so a
@@ -295,14 +296,20 @@ def _save_answers(member, application):
         member.save()
 
 
-def _set_answers(member, application):
-    """Overwrite the answers the short form asks, as its confirm did (a reapplication replaces them)."""
+def _set_answers(member, application, keep_blank=True):
+    """Write the answers the short form asks onto the Member. `keep_blank` is the reapplication of an existing
+    Member: a blank or absent answer keeps what the Member has, a supplied one overwrites it, and an empty
+    `join_reasons` keeps the existing set. A new Member has nothing to keep, so it takes the payload as is."""
     if application.source != "Short Form":
         return
     payload = json.loads(application.payload)
     for field in _ANSWER_FIELDS:
-        member.set(field, payload.get(field) or None)
-    member.set("join_reasons", [{"join_reason": reason} for reason in payload.get("join_reasons") or []])
+        value = payload.get(field) or None
+        if value is not None or not keep_blank:
+            member.set(field, value)
+    reasons = payload.get("join_reasons") or []
+    if reasons or not keep_blank:
+        member.set("join_reasons", [{"join_reason": reason} for reason in reasons])
     member.application_dues_schedule = payload.get("selected_dues_schedule") or None
     if not payload.get("amount"):  # Housemate: approval falls back to the type's template
         for field in (*_OVERRIDE_FIELDS, "application_custom_fee"):

@@ -263,6 +263,82 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(member.contact_number, "+31699999999")
         self.assertEqual(str(member.birth_date), str(birth_date))
 
+    def _quit_member_with_answers(self):
+        """PROBE SHORTCUT, stated: the answers are written straight onto the Member (and the join reasons
+        through a plain save) to stand in for an earlier short-form application; the Member's termination,
+        the reapplication and the approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        self.reasons = [self._join_reason(), self._join_reason()]
+        member.reload()
+        member.set("join_reasons", [{"join_reason": self.reasons[0]}])
+        member.save()
+        member.db_set(
+            {
+                "birth_year": 1980,
+                "housemate_of_name": "Old Housemate",
+                "referral_source_other": "Old Referral",
+                "join_reason_other": "Old Reason",
+            }
+        )
+        return member
+
+    def _join_reason(self):
+        reason = f"Reason {frappe.generate_hash(length=6)}"
+        doc = frappe.get_doc({"doctype": "Membership Join Reason", "reason": reason, "enabled": 1}).insert()
+        self.track_doc("Membership Join Reason", doc.name)
+        return doc.name
+
+    def _preview_fields(self, name):
+        from verenigingen.api.membership_application_review import get_application_changes
+
+        with self.as_user(self.admin_user.email):
+            return {row["field"] for row in get_application_changes(name)}
+
+    def test_blank_answers_keep_the_existing_members_answers(self):
+        """Maintainer rule 4 (#1765): an absent or blank field never clears an existing value, answers
+        included (Ruling AQ). The preview must agree with what approval writes."""
+        member = self._quit_member_with_answers()
+        name = self._stage_short_and_confirm(
+            housemate_of_name="", referral_source_other="", join_reason_other="", birth_year=""
+        )
+
+        listed = self._preview_fields(name)
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.birth_year, 1980)
+        self.assertEqual(member.housemate_of_name, "Old Housemate")
+        self.assertEqual(member.referral_source_other, "Old Referral")
+        self.assertEqual(member.join_reason_other, "Old Reason")
+        self.assertEqual([row.join_reason for row in member.join_reasons], [self.reasons[0]])
+        # magazine_delivery is not here: the short form always supplies one (it defaults to "Geen"), so it is
+        # never blank, and a supplied delivery choice overwrites.
+        for field in ("birth_year", "housemate_of_name", "referral_source_other", "join_reason_other",
+                      "join_reasons"):
+            self.assertNotIn(field, listed, f"{field}: a blank answer is not a change")
+
+    def test_a_supplied_answer_overwrites_and_is_listed(self):
+        """Control for the test above: the same flow with non-blank answers does replace them, and the
+        preview lists exactly those."""
+        member = self._quit_member_with_answers()
+        name = self._stage_short_and_confirm(
+            birth_year="1990", join_reasons=[self.reasons[1]], join_reason_other="New Reason",
+            magazine_delivery="Digitaal",
+        )
+
+        listed = self._preview_fields(name)
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.birth_year, 1990)
+        self.assertEqual(member.join_reason_other, "New Reason")
+        self.assertEqual(member.magazine_delivery, "Digitaal")
+        self.assertEqual([row.join_reason for row in member.join_reasons], [self.reasons[1]])
+        self.assertEqual(member.referral_source_other, "Old Referral", "a blank one beside it is kept")
+        self.assertEqual(member.housemate_of_name, "Old Housemate", "an absent one beside it is kept")
+        self.assertLessEqual({"birth_year", "join_reason_other", "magazine_delivery", "join_reasons"}, listed)
+        self.assertNotIn("referral_source_other", listed)
+
     def test_protected_fields_not_written(self):
         """Every protected key is IN the stored payload (fixture: the payload is edited after staging, as a
         tampered guest request would carry them), and every assertion is on a value the write could change."""
