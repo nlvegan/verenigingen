@@ -382,6 +382,55 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
 
+    def _quit_member_with_pending_application_status(self):
+        """PROBE SHORTCUT, stated: the factory's Pending Member (application_status Pending) stands in for a
+        MijnRood-synced Pending Member (#1855); the termination itself is the real service."""
+        member = self.create_test_member(email=self.email)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        return member
+
+    def test_involuntarily_quit_member_with_pending_status_refused_at_approval(self):
+        """Ruling V: a Quit member whose application_status still reads Pending is refused when the termination
+        was not voluntary. Confirmed while still Pending (allowed), terminated afterwards."""
+        member = self._quit_member_with_pending_application_status()
+        name = self._stage_and_confirm()
+        execute_real_termination(self, member.name, today(), termination_type="Disciplinary Action")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_involuntarily_quit_member_with_pending_status_refused_at_submit(self):
+        member = self._quit_member_with_pending_application_status()
+        execute_real_termination(self, member.name, today(), termination_type="Disciplinary Action")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+        rows = frappe.db.count(SUBMISSION, {"email": self.email})
+        self._request_from_fresh_ip()
+        previous = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            response = submit_application(**self._full_form_data())
+        finally:
+            frappe.set_user(previous)
+
+        self.assertTrue(response["success"], response)  # the same answer a Guest gets for any email
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), rows, "nothing staged")
+
+    def test_voluntarily_quit_member_with_pending_status_still_approves(self):
+        """Control: the same Pending application_status after a VOLUNTARY quit is a rejoiner, not a refusal."""
+        member = self._quit_member_with_pending_application_status()
+        name = self._stage_and_confirm()
+        execute_real_termination(self, member.name, today(), termination_type="Voluntary")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+
+        result = self._approve_as(name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Active")
+
     def test_banned_member_with_rejected_application_refused_at_submit(self):
         member = self.create_test_member(email=self.email)
         frappe.db.set_value("Member", member.name, {"status": "Banned", "application_status": "Rejected"})

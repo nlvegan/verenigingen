@@ -533,17 +533,9 @@ def _handle_existing_member(existing_member, data):
     if status in NON_REAPPLICABLE_STATUSES:
         return None, _record_exists_failure()
 
-    # Scenario 1: Rejected application - allow reapplication
-    if app_status == "Rejected":
-        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
-        return "update", None
-
-    # Scenario 2: Pending application - update existing pending application
-    if app_status == "Pending":
-        frappe.logger().info(f"Update to pending application {member_name}")
-        return "update", None
-
-    # Scenario 3: Terminated member - check termination type
+    # Scenario 3: Terminated member - check termination type. Ahead of the application_status branches: a
+    # Quit member's application_status can still read Rejected/Pending (e.g. a Pending Member synced from
+    # MijnRood, #1855), and an involuntarily terminated member must be refused whatever it says (Ruling V).
     if status == "Quit":
         termination_result = get_latest_executed_termination_type(member_name)
 
@@ -575,6 +567,16 @@ def _handle_existing_member(existing_member, data):
                 "operation": "submit_application",
             },
         )
+
+    # Scenario 1: Rejected application - allow reapplication
+    if app_status == "Rejected":
+        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
+        return "update", None
+
+    # Scenario 2: Pending application - update existing pending application
+    if app_status == "Pending":
+        frappe.logger().info(f"Update to pending application {member_name}")
+        return "update", None
 
     # Scenario 4: Active member - cannot reapply
     if status == "Active":
