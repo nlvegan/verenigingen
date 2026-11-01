@@ -53,19 +53,20 @@ class TestSyncRoleProfileForVolunteer(EnhancedTestCase):
     @patch(
         "verenigingen.verenigingen.doctype.chapter.managers.board_manager.frappe"
     )
-    def test_calls_auto_sync_when_user_found(self, mock_frappe):
-        """Calls auto_sync_on_role_change when volunteer->member->user resolves."""
+    def test_syncs_role_profile_when_user_found(self, mock_frappe):
+        """Syncs the user's role profile when volunteer->member->user resolves, asking the sync to
+        re-raise lock errors (#1672: the board flush must abort the Chapter save on a 1213/1205)."""
         mock_frappe.db.get_value.side_effect = lambda dt, name, field: (
             "MEM-001" if dt == "Volunteer" else "user@example.com"
         )
 
         with patch(
-            "verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change"
+            "verenigingen.services.member.account.user_role_profile_calculator.sync_user_role_profile"
         ) as mock_sync:
             mgr = self._make_board_manager()
             mgr._sync_role_profile_for_volunteer("VOL-001")
 
-            mock_sync.assert_called_once_with("user@example.com")
+            mock_sync.assert_called_once_with("user@example.com", reraise_non_resumable=True)
 
     @patch(
         "verenigingen.verenigingen.doctype.chapter.managers.board_manager.frappe"
