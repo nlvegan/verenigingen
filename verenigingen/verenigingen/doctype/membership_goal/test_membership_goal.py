@@ -30,16 +30,18 @@ _terminate_member_from_chapter() below), not a hand-set status, per the
 review's explicit requirement.
 
 A second follow-up (#1533) found that the #1530/#1531 fix's "status !=
-Pending" filter double-counts a chapter TRANSFER: the staff move
-(assign_member_to_chapter_with_cleanup) disables the source row (enabled=0) WITHOUT flipping status to
+Pending" filter double-counts a member moved between chapters by staff
+(remove from A + add to B, assign_member_to_chapter_with_cleanup): the removal
+disables the source row (enabled=0) WITHOUT flipping status to
 "Inactive" the way termination does -- so the source row stays
 status="Active", enabled=0, and "status != Pending" still matched it,
 counting the member as a new member of BOTH chapters and never as a loss
 for the source. Maintainer ruling on #1533: a chapter attributes each
-member to ONE chapter -- a transfer counts only for the destination; the
+member to ONE chapter -- a move counts only for the destination; the
 source drops the member (neither new nor lost there). These tests use the
 REAL staff move (chapter.assign_member_to_chapter_with_cleanup) and
-ChapterMembershipManager.leave_chapter, not a hand-set enabled/status combination.
+ChapterMembershipManager.leave_chapter, not a hand-set enabled/status
+combination.
 """
 
 from unittest.mock import patch
