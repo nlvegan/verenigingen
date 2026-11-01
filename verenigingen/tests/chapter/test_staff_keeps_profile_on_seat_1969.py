@@ -55,7 +55,7 @@ class TestStaffKeepsProfileOnSeat1969(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member.name)
         return frappe._dict(user=user.name, volunteer=volunteer.name, email=email)
 
-    def _staff_team_1969(self):
+    def _staff_team_1969(self, profile=STAFF, association_wide=1):
         from verenigingen.setup import create_default_team_roles
 
         create_default_team_roles()
@@ -66,8 +66,8 @@ class TestStaffKeepsProfileOnSeat1969(VereningingenTestCase):
                 "status": "Active",
                 "team_type": "Project Team",
                 "start_date": frappe.utils.today(),
-                "default_role_profile": STAFF,
-                "is_association_wide": 1,
+                "default_role_profile": profile,
+                "is_association_wide": association_wide,
             }
         )
         team.insert()
@@ -93,8 +93,17 @@ class TestStaffKeepsProfileOnSeat1969(VereningingenTestCase):
             frappe.get_doc("Chapter", (chapter or self.chapter).name), person.volunteer, role, email=person.email
         )
 
-    def _map_1969(self, role, profile):
-        chapter = frappe.get_doc("Chapter", self.chapter.name)
+    def _join_team_1969(self, person, team_name):
+        team = frappe.get_doc("Team", team_name)
+        team.append(
+            "team_members",
+            {"volunteer": person.volunteer, "team_role": "Team Member", "from_date": frappe.utils.today(), "status": "Active"},
+        )
+        team.save()
+        sync_user_role_profile(person.user)
+
+    def _map_1969(self, role, profile, chapter_name=None):
+        chapter = frappe.get_doc("Chapter", chapter_name or self.chapter.name)
         chapter.enable_board_role_specific_profiles = 1
         chapter.append("board_role_specific_profiles", {"chapter_role": role, "role_profile": profile})
         chapter.save()
@@ -193,3 +202,45 @@ class TestStaffKeepsProfileOnSeat1969(VereningingenTestCase):
         sync_user_role_profile(staffer.user)
         self.assertIn(MAPPED_PROFILE, get_user_role_profiles(holder.user), "control: seat grants it")
         self.assertEqual(get_user_role_profiles(staffer.user), [STAFF])
+
+    # ------------------------------------------------ discriminating cases (review N1, N2)
+
+    def test_a_staffer_with_two_seats_gets_staff_and_only_the_highest_seat_profile(self):
+        staffer = self._staffer_1969()
+        other = self.create_test_chapter(
+            chapter_name=f"Staff1969b {frappe.generate_hash(length=6)}", postal_codes="5000-5999", published=1
+        )
+        mapped_role = self._chapter_role_1969("Secretary")
+        self._map_1969(mapped_role, MAPPED_PROFILE)
+        self._seat_1969(staffer, mapped_role)  # priority 80 on chapter 1
+        self._seat_1969(staffer, self._chapter_role_1969("Chair"), chapter=other)  # default 70 on chapter 2
+        self.assertEqual(set(get_user_role_profiles(staffer.user)), {STAFF, MAPPED_PROFILE})
+
+    def test_a_member_of_a_non_association_wide_team_with_a_default_seat_holds_only_the_board_profile(self):
+        person = self._person_1969("Lead")
+        sync_user_role_profile(person.user)
+        self._join_team_1969(person, self._staff_team_1969("Verenigingen Team Leader", association_wide=0))
+        self._seat_1969(person, self._chapter_role_1969("Secretary"))
+        self.assertEqual(get_user_role_profiles(person.user), [PROFILE_BOARD_MEMBER])
+
+    def test_a_member_of_a_non_association_wide_team_with_a_mapped_seat_holds_only_the_mapped_profile(self):
+        person = self._person_1969("Lead")
+        sync_user_role_profile(person.user)
+        self._join_team_1969(person, self._staff_team_1969("Verenigingen Team Leader", association_wide=0))
+        role = self._chapter_role_1969("Secretary")
+        self._map_1969(role, MAPPED_PROFILE)
+        self._seat_1969(person, role)
+        self.assertEqual(get_user_role_profiles(person.user), [MAPPED_PROFILE])
+
+    def test_two_staff_teams_stack_only_the_one_staff_profile_the_seatless_path_picks(self):
+        person = self._person_1969("Twice")
+        sync_user_role_profile(person.user)
+        self._join_team_1969(person, self._staff_team_1969(STAFF))
+        self._join_team_1969(person, self._staff_team_1969("Verenigingen Administrator"))
+        seatless = get_user_role_profiles(person.user)
+        self.assertEqual(len(seatless), 1, "fixture: the seatless path picks ONE profile")
+        self.assertIn(seatless[0], (STAFF, "Verenigingen Administrator"))
+
+        self._seat_1969(person, self._chapter_role_1969("Secretary"))
+
+        self.assertEqual(set(get_user_role_profiles(person.user)), {seatless[0], PROFILE_BOARD_MEMBER})

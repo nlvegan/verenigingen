@@ -328,7 +328,10 @@ def _staff_and_seat_profiles(user: str, member: str) -> list:
     Maintainer ruling on #1969 (2026-11-01), extending #1615: a staffer registered through an
     association-wide Team who holds ANY chapter board seat keeps Staff AND gets the seat's
     profile. Only the highest seat profile is added (as for any board member), and only
-    team-derived Staff (PRIORITY_STAFF) is stacked; a non-staff member is unchanged.
+    the ONE staff profile the seatless path would pick (the first PRIORITY_STAFF candidate,
+    same winner rule) is stacked. "Staff" here means a profile from a Team flagged
+    ``is_association_wide`` (priority 75), NOT the profile literally named "Verenigingen
+    Staff"; a member on any other team, or on none, is unchanged.
     """
     staff = [name for prio, name in get_team_profiles(user, member) if prio == PRIORITY_STAFF]
     seats = sorted(
@@ -338,7 +341,7 @@ def _staff_and_seat_profiles(user: str, member: str) -> list:
     )
     if not staff or not seats:
         return []
-    return [seats[0][1], *staff]
+    return [seats[0][1], staff[0]]
 
 
 SYNC_GRANTED_FIELD = "custom_sync_granted_profiles"
