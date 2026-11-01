@@ -26,6 +26,27 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollb
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
+def _sanitize_application_name(application_name, operation_label):
+    """Sanitize the raw application_name before anything uses it (the permission check, the advisory lock
+    name, the lookup): HTML-escaped, and refused as invalid input past 255 characters rather than reaching
+    the database. Applied first, so it cannot tell an unknown name from a foreign one.
+
+    Raises:
+        frappe.ValidationError: On sanitization failure.
+    """
+    try:
+        return APIValidator.sanitize_text(str(application_name), max_length=255)
+    except frappe.ValidationError:
+        raise
+    except Exception as e:
+        log_security_event(
+            "validation_failed",
+            {"message": f"Input validation failed for {operation_label}: {str(e)}"},
+            severity="warning",
+        )
+        frappe.throw(_("Invalid input data provided"))
+
+
 def _sanitize_text_fields(text_fields):
     """Sanitize text input fields for API endpoints.
 
@@ -439,11 +460,12 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
 def _approve_membership_application_locked(
     member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
 ):
-    """Core approval logic, executed while holding the per-member advisory lock.
+    """Core approval logic, run by approve_application while it holds the per-application advisory lock.
 
-    Split out of approve_application so the whole critical section
-    (idempotency re-check through membership creation) runs under the lock. See
-    the caller for why the lock + snapshot refresh are required.
+    Split out of approve_application so the whole critical section (idempotency re-check through
+    membership creation) runs under the lock. See approve_application for why a GET_LOCK advisory
+    lock and a locking read are required. The core is keyed on the Member materialise_member created
+    (or updated); its idempotency guard is what makes a retry after a partial failure safe.
     """
     # Idempotency check - if already approved, return success
     idempotent_result = _handle_idempotent_approval(member_name)
@@ -564,11 +586,20 @@ def approve_application(
 
     The permission check comes first and refuses an unknown application exactly like a foreign one
     (Ruling M: loading the application first would answer DoesNotExist for the unknown name only).
+
+    Concurrency: the whole approval runs under a MySQL advisory lock per application (GET_LOCK), and the
+    application is re-read with FOR UPDATE inside it. A row lock alone is not enough: the membership
+    creation service and the account-creation pattern issue intermediate commits, which release any
+    FOR UPDATE lock mid-operation, whereas an advisory lock is NOT released by a commit. The locking read
+    matters because under REPEATABLE READ a plain read returns this transaction's snapshot, taken before a
+    racing winner committed; a locking "current read" sees the latest committed status, so the loser is
+    refused instead of approving the same application twice. (One Pending Review application per email can
+    exist: a newer one supersedes the older, so the per-application lock also serialises the email.)
     """
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.utils.db_advisory_lock import advisory_lock
 
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "approval")
     sanitized = _sanitize_text_fields(
         {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, False)}
     )
@@ -628,7 +659,17 @@ def _approve_application_locked(
 
 def _lock_pending_review_application(application_name, refusal):
     """Row-lock the application (fresh read) and refuse unless it is Pending Review; shared by approve and reject."""
-    application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
+    try:
+        application = frappe.get_doc("Membership Application Submission", application_name, for_update=True)
+    except frappe.DoesNotExistError:
+        # Only a caller whose chapter access is "all" reaches here for an unknown name (the permission check
+        # refuses everyone else identically to a foreign one), so the distinguishable error tells them nothing new.
+        log_security_event(
+            "unauthorized_access_attempt",
+            {"message": f"Attempted review of non-existent application: {application_name}"},
+            severity="error",
+        )
+        raise
     if application.status != "Pending Review":
         frappe.throw(refusal)
     return application
@@ -687,7 +728,7 @@ def reject_application(
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.utils.db_advisory_lock import advisory_lock
 
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "rejection")
     sanitized = _sanitize_text_fields(
         {
             "reason": (reason, 1000, False),
@@ -737,7 +778,7 @@ def request_more_info(application_name: str, info_needed: str):
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.utils.db_advisory_lock import advisory_lock
 
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "information request")
     # allow_html: the text is kept raw and escaped once, where it is rendered (mail body, timeline note)
     info_needed = _sanitize_text_fields({"info_needed": (info_needed, 2000, True)})["info_needed"]
     validate_application_permission_or_throw(application_name, "manage")
@@ -936,8 +977,9 @@ def send_approval_notification(member, invoice, membership_type):
     )
 
     if not result.success:
-        frappe.logger("membership_review").warning(
-            f"Failed to send approval notification to {member.email}: {'; '.join(result.errors or [])}"
+        frappe.log_error(
+            title="Approval Notification Failed",
+            message=f"Failed to send approval notification to {member.email}: {'; '.join(result.errors or [])}",
         )
 
     return result

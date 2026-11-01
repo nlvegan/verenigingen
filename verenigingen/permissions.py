@@ -317,12 +317,15 @@ def _is_member_in_chapters(member_name, chapter_names, include_pending=False):
         chapter_names: List of chapter names to check against
         include_pending: Also match a Chapter Member row with status='Pending',
             but ONLY when `member_name` is ITSELF an unapproved application
-            (Member.application_status == 'Pending'). #1518: a membership
-            application's Chapter Member row is written with status="Pending"
-            (application_helpers.create_pending_chapter_membership) and only
-            flips to "Active" on approval, so an Active-only check here
-            refused a board member's write (e.g. member.save() during
-            approve/reject) on their own chapter's still-pending applicant.
+            (Member.application_status == 'Pending'). #1518, still needed after #1765:
+            approve_application's materialise_member writes the applicant's Chapter Member
+            row with status="Pending" (application_helpers.create_pending_chapter_membership)
+            and approval flips it to "Active" at its end, so while the approval core runs
+            as the reviewer, an Active-only check here refuses the reviewer's own
+            member.save() on their own chapter's applicant. Measured (#1765, task 9): with
+            include_pending ignored, TestApproveApplicationBoard.
+            test_board_member_approves_own_chapter_application goes from OK to a
+            PermissionError. Rejecting touches no Member and no Chapter Member row.
 
             The extra application_status condition closes an escalation found
             in review of #1518's first fix round: a Chapter Member row can ALSO

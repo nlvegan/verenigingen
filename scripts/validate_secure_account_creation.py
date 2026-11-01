@@ -125,14 +125,14 @@ def validate_account_creation_integration():
         
         # Check if membership_application_review module exists
         try:
-            import verenigingen.api.membership_application_review
+            import verenigingen.api.membership_application_review  # noqa: F401
             print("✅ membership_application_review module accessible")
         except ImportError as e:
             raise Exception(f"Integration module missing: {e}")
             
         # Check if the integration function exists
         try:
-            from verenigingen.api.membership_application_review import approve_application
+            from verenigingen.api.membership_application_review import approve_application  # noqa: F401
             print("✅ approve_application function accessible")
         except ImportError as e:
             raise Exception(f"Integration function missing: {e}")

@@ -245,14 +245,14 @@ class TestLogSecurityEventTypesAreValidSelectOptions(unittest.TestCase):
         # membership_application_review.py, background_approval_api.py,
         # member_duplicate_detection_service.py, security_setup.py,
         # personal_details.py, authorization.py and audit_logging.py itself.
-        # #1765 deleted 9 of them with the member-keyed approval code (the review module's
-        # _sanitize_member_name_for_review / _check_member_exists_for_review, all of
-        # background_approval_api.py and check_duplicate_for_approval); 11 remain, so the
-        # floor follows the real count. It still fails if the scan stops matching calls (0).
+        # #1765 deleted 9 of them with the member-keyed approval code (11 remain), then
+        # restored two on the application-keyed path (the identifier sanitiser and an unknown
+        # application; the refusal event goes through get_audit_logger directly): 13. As before, the floor is the exact count,
+        # so losing one through a scanner blind spot fails here.
         self.assertGreaterEqual(
             total_calls,
-            10,
-            f"expected to find at least 10 real log_security_event() call sites, found "
+            13,
+            f"expected to find at least 13 real log_security_event() call sites, found "
             f"{total_calls} (unresolved: {unresolved}); the scan may no longer be matching "
             "real call sites",
         )

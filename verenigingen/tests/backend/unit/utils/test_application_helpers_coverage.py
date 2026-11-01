@@ -239,9 +239,9 @@ class TestCheckApplicationStatus(VereningingenTestCase):
 
 
 class TestPendingChapterMembershipLifecycle(VereningingenTestCase):
-    """create_pending → remove_pending / remove_all_pending lifecycle.
+    """create_pending guards and the create path.
 
-    Guard inputs (no member / no chapter) and the full create+remove path on a
+    Guard inputs (no member / no chapter) and the create path on a
     real Chapter.
     """
 
@@ -257,15 +257,7 @@ class TestPendingChapterMembershipLifecycle(VereningingenTestCase):
             ah.create_pending_chapter_membership(member, "Nonexistent Chapter XYZ")
         )
 
-    def test_remove_all_pending_no_pending_returns_empty(self):
-        """A member with no pending chapter rows yields an empty removal list."""
-        member = self.create_test_member()
-        self.assertEqual(ah.remove_all_pending_chapter_memberships(member), [])
-
-    def test_remove_pending_none_member_returns_false(self):
-        self.assertFalse(ah.remove_pending_chapter_membership(None))
-
-    def test_create_then_remove_pending_on_real_chapter(self):
+    def test_create_pending_on_real_chapter(self):
         chapters = frappe.get_all("Chapter", limit=1)
         if not chapters:
             self.skipTest("No Chapter exists in this environment")
@@ -278,16 +270,6 @@ class TestPendingChapterMembershipLifecycle(VereningingenTestCase):
 
         # A pending row should now exist for this member in the chapter.
         self.assertTrue(
-            frappe.db.exists(
-                "Chapter Member",
-                {"parent": chapter_name, "member": member.name, "status": "Pending"},
-            )
-        )
-
-        # remove_all should find and remove it.
-        removed = ah.remove_all_pending_chapter_memberships(member)
-        self.assertIn(chapter_name, removed)
-        self.assertFalse(
             frappe.db.exists(
                 "Chapter Member",
                 {"parent": chapter_name, "member": member.name, "status": "Pending"},

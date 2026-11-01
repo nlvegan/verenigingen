@@ -207,6 +207,27 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
             error_message = str(e)
             self.assertIn("does not exist", error_message)
             
+    def test_a_failed_approval_mail_is_recorded_in_the_error_log(self):
+        """A mail failure must not vanish into frappe.logger() (dropped in CI and at the default level)."""
+        from unittest.mock import patch
+
+        from verenigingen.api.membership_application_review import send_approval_notification
+
+        real_invoice = self._create_real_test_invoice(customer=self.test_member.customer, amount=25.0)
+        failed = frappe._dict(success=False, errors=["smtp refused the connection"])
+        self.expectErrorLog("Approval Notification Failed")
+        # Mock justified: External Service - the mail boundary returns a failure result
+        with patch("verenigingen.services.communication.compatibility.send_member_notification", return_value=failed):
+            with self.assertErrorLog("Approval Notification Failed"):
+                send_approval_notification(self.test_member, real_invoice, self.membership_type)
+
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Approval Notification Failed", "error": ["like", "%smtp refused the connection%"]},
+            pluck="name",
+        )
+        self.assertTrue(rows)
+
     def test_email_template_fallback(self):
         """Test that email sending falls back gracefully when templates don't exist - REAL business logic (NO MOCKS)"""
         from verenigingen.api.membership_application_review import send_approval_notification

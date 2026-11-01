@@ -379,7 +379,7 @@ class TestCreateMemberFromApplication(EnhancedTestCase):
 
 
 class TestChapterMembershipLifecycle(EnhancedTestCase):
-    """create_pending / activate / remove chapter membership helpers."""
+    """create_pending / activate chapter membership helpers."""
 
     def setUp(self):
         super().setUp()
@@ -407,22 +407,6 @@ class TestChapterMembershipLifecycle(EnhancedTestCase):
         """Activating with no pending record falls back to creating an active one."""
         helpers.activate_pending_chapter_membership(self.member, self.chapter.name)
         self.assertEqual(self._pending_status(), "Active")
-
-    def test_remove_pending_membership(self):
-        """Rejection path removes the pending chapter membership."""
-        helpers.create_pending_chapter_membership(self.member, self.chapter.name)
-        self.assertEqual(self._pending_status(), "Pending")
-
-        result = helpers.remove_pending_chapter_membership(self.member, self.chapter.name)
-        self.assertTrue(result)
-        self.assertIsNone(self._pending_status())
-
-    def test_remove_all_pending(self):
-        """remove_all_pending_chapter_memberships returns removed chapter names."""
-        helpers.create_pending_chapter_membership(self.member, self.chapter.name)
-        removed = helpers.remove_all_pending_chapter_memberships(self.member)
-        self.assertIn(self.chapter.name, removed)
-        self.assertIsNone(self._pending_status())
 
     def test_create_pending_nonexistent_chapter_returns_none(self):
         result = helpers.create_pending_chapter_membership(self.member, "No-Such-Chapter-XYZ")

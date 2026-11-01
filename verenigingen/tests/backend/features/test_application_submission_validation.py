@@ -105,24 +105,22 @@ class TestApplicationSubmissionValidation(ApprovalCase):
             result.get("success"), f"Application with volunteer interest should succeed: {result}"
         )
 
-        if result.get("success"):
-            member_record = result["member"]
-            self.add_cleanup_record("Member", member_record)
+        member_record = result["member"]
+        self.add_cleanup_record("Member", member_record)
 
-            # Check volunteer was created with correct status
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": member_record}, fields=["name", "status", "volunteer_name"]
-            )
+        # A Volunteer must exist for an interested applicant: no Volunteer is a failure, not a pass
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"member": member_record}, fields=["name", "status", "volunteer_name"]
+        )
+        self.assertEqual(len(volunteers), 1, "Exactly one Volunteer should be created for a volunteering applicant")
+        volunteer = volunteers[0]
+        self.add_cleanup_record("Volunteer", volunteer["name"])
+        self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
 
-            if volunteers:
-                volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
-                self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
-
-            # Check member record
-            member = frappe.get_doc("Member", member_record)
-            if member.primary_address:
-                self.add_cleanup_record("Address", member.primary_address)
+        # Check member record
+        member = frappe.get_doc("Member", member_record)
+        if member.primary_address:
+            self.add_cleanup_record("Address", member.primary_address)
 
     def test_volunteer_status_options_are_valid(self):
         """Test that all volunteer status options are properly defined"""
@@ -385,34 +383,32 @@ class TestApplicationSubmissionValidation(ApprovalCase):
         result = self._approve_as(self._stage_and_confirm(**test_data))
         self.assertTrue(result.get("success"), "Application with special characters should succeed")
 
-        if result.get("success"):
-            member_record = result["member"]
-            self.add_cleanup_record("Member", member_record)
+        member_record = result["member"]
+        self.add_cleanup_record("Member", member_record)
 
-            # Check volunteer was created correctly
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": member_record}, fields=["name", "volunteer_name", "status"]
-            )
+        # Check volunteer was created correctly: no Volunteer is a failure, not a pass
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"member": member_record}, fields=["name", "volunteer_name", "status"]
+        )
+        self.assertEqual(len(volunteers), 1, "Exactly one Volunteer should be created for a volunteering applicant")
+        volunteer = volunteers[0]
+        self.add_cleanup_record("Volunteer", volunteer["name"])
 
-            if volunteers:
-                volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
+        # Verify volunteer was created with correct status and name handling
+        self.assertEqual(volunteer["status"], "New")
+        self.assertIn("José María", volunteer["volunteer_name"])
+        self.assertIn("García-López", volunteer["volunteer_name"])
 
-                # Verify volunteer was created with correct status and name handling
-                self.assertEqual(volunteer["status"], "New")
-                self.assertIn("José María", volunteer["volunteer_name"])
-                self.assertIn("García-López", volunteer["volunteer_name"])
+        # Get the full volunteer doc to verify member linkage. The
+        # `email` field is the organization email (assigned later, not
+        # at creation), so it is intentionally empty here — do not
+        # assert it equals the applicant's personal email.
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer["name"])
+        self.assertEqual(volunteer_doc.member, member_record)
 
-                # Get the full volunteer doc to verify member linkage. The
-                # `email` field is the organization email (assigned later, not
-                # at creation), so it is intentionally empty here — do not
-                # assert it equals the applicant's personal email.
-                volunteer_doc = frappe.get_doc("Volunteer", volunteer["name"])
-                self.assertEqual(volunteer_doc.member, member_record)
-
-            member = frappe.get_doc("Member", member_record)
-            if member.primary_address:
-                self.add_cleanup_record("Address", member.primary_address)
+        member = frappe.get_doc("Member", member_record)
+        if member.primary_address:
+            self.add_cleanup_record("Address", member.primary_address)
 
 
 def run_application_validation_tests():

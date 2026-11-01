@@ -19,7 +19,6 @@ from verenigingen.api.membership_application_review import (
     _build_approval_response,
     _create_user_account_safe,
 )
-from verenigingen.events.subscribers.approval_subscribers import handle_user_account_creation
 from verenigingen.services.member.account.member_user_account_service import (
     create_secure_user_account_for_member,
 )
@@ -78,14 +77,6 @@ class TestAcrQueueRefusalRecorded(VereningingenTestCase):
         logs = self._refusal_logs()
         self.assertEqual(len(logs), 1)
         self.assertIn(self.member.name, logs[0])
-
-    def test_subscriber_records_the_refusal(self):
-        self.expectErrorLog(REFUSED_TITLE)
-        with self.assertErrorLog(REFUSED_TITLE):
-            result = handle_user_account_creation("member_approval_initiated", {"member": self.member.name})
-
-        self.assertFalse(result.get("success"))
-        self.assertEqual(len(self._refusal_logs()), 1)
 
     def test_review_endpoint_helpers_surface_reason_without_rolling_back(self):
         self.expectErrorLog(REFUSED_TITLE)

@@ -31,7 +31,6 @@ import time
 
 from verenigingen.api.membership_application_review import _approve_membership_application_locked
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.error_handling import PermissionError as VPermissionError
 import unittest
 
 

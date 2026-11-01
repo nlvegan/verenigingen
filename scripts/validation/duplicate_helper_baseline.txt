@@ -377,7 +377,7 @@ _make_lowpriv_user::2
 _make_manager::2
 _make_mandate::4
 _make_mapping::3
-_make_member::49  # clone family, 6 near-identical pair(s)
+_make_member::48  # clone family, 6 near-identical pair(s)
 _make_member_user::5  # clone family, 1 near-identical pair(s)
 _make_member_with_customer::13
 _make_member_with_id::2  # clone family, 1 near-identical pair(s)
@@ -405,7 +405,6 @@ _make_plain_user::4
 _make_ponto_link::3
 _make_processor::2
 _make_raw::2  # clone family, 1 near-identical pair(s)
-_make_refund_pe::2
 _make_request::8  # clone family, 1 near-identical pair(s)
 _make_role::9  # clone family, 10 near-identical pair(s)
 _make_role_profile::6  # clone family, 12 near-identical pair(s)

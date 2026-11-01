@@ -163,7 +163,6 @@ verenigingen/services/member/approval/application_helpers.py::create_active_chap
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_volunteer_record::1
 verenigingen/services/member/approval/application_helpers.py::get_form_data::1
-verenigingen/services/member/approval/application_helpers.py::remove_pending_chapter_membership::1
 verenigingen/services/member/approval/application_payments.py::create_contact_for_customer::1
 verenigingen/services/member/approval/membership_creation_service.py::MembershipCreationService._create_membership_invoice::1
 verenigingen/services/member/core/member_address_service.py::MemberAddressService._enrich_member_data::1
