@@ -90,12 +90,17 @@ class _PontoUsers:
             environ={}, args={}, form={}, get_data=lambda *a, **k: b"{}", content_length=2,
         )
         previous = getattr(frappe.local, "request", None)
+        # run_doc_method appends to frappe.response.docs. Own the response for the call instead of
+        # inheriting whatever an earlier test left (many set a bare frappe._dict() without "docs").
+        previous_response = frappe.local.response
         frappe.local.request = request  # Mock justified: Infrastructure
+        frappe.local.response = frappe._dict(docs=[])
         try:
             with patch(client_path, return_value=client):
                 run_doc_method(method="refresh_status", docs=json.dumps(payload, default=str))
         finally:
             frappe.local.request = previous
+            frappe.local.response = previous_response
 
     def _make_ignoring_permissions_save(self, doc):
         """The save a system writer makes (#1920); named _make_* so the bypass is a recognised fixture."""
@@ -270,6 +275,17 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         )
         self.assertEqual(row.status, "Signed", "control: the legitimate part of the refresh still happened")
         self.assertFalse(row.payment_entry, "the client-supplied payment_entry was persisted")
+
+    def test_the_run_doc_method_helper_survives_a_response_left_bare_by_an_earlier_test(self):
+        """Many webhook tests set ``frappe.local.response = frappe._dict()`` (no ``docs``), and not all
+        restore it. ``run_doc_method`` appends to ``frappe.response.docs``, so after such a test this
+        module's dispatch tests raised ``AttributeError: 'NoneType' object has no attribute 'append'``
+        (CI shard 2 of #1980). Reproduce that leftover state, then run the real tamper test."""
+        previous = frappe.local.response
+        self.addCleanup(setattr, frappe.local, "response", previous)
+        frappe.local.response = frappe._dict()
+
+        self.test_refresh_status_through_run_doc_method_ignores_a_tampered_payment_entry()
 
     # ---- #1920: the system writers must work as the webhook user, not only as Administrator ----
 

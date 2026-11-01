@@ -48,7 +48,11 @@ from verenigingen.utils.transaction_errors import (
     rollback_to_savepoint,
 )
 from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
-from verenigingen.verenigingen_payments.ponto.core.submitted_rows import alert_executed_on_cancelled_row
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    alert_executed_on_cancelled_row,
+    mark_retried,
+    owed_alerts,
+)
 from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoAPIError,
     PontoAuthenticationError,
@@ -136,6 +140,7 @@ def poll_open_ponto_payment_statuses():
     plan = [(dt, False, rows) for dt, rows in _rotated(batches).items()]
     plan += [(dt, True, rows) for dt, rows in cancelled_batches.items()]
     _refresh_batches(plan)
+    _retry_owed_alerts()
 
 
 # Raw SQL rather than frappe.qb on purpose: the cursor (a stored row name) must reach the
@@ -384,6 +389,40 @@ def _ponto_status_of(doc):
 
     request = get_betaalverzoek_client().get_payment_request(doc.ponto_request_id)
     return map_link_status((request.status or "").lower()), doc.ponto_request_id
+
+
+# Per run. No Ponto call is made, so there is no wall-clock concern; the cap only bounds the work.
+OWED_ALERT_RETRY_LIMIT = 50
+
+
+def _retry_owed_alerts():
+    """#1931 (ruling 2026-11-01): an executed-on-cancelled-row alert keeps being sent until it is
+    delivered, however old the row. The cancelled pass above stops checking a row when it leaves
+    its window; this does not depend on the window. Ponto is NOT asked again: "executed" is
+    already known and recorded as an OWED marker on the row (``submitted_rows.owed_alerts``)."""
+    id_fields = {doctype: id_field for doctype, _statuses, id_field in _POLLED}
+    for owed in owed_alerts(OWED_ALERT_RETRY_LIMIT):
+        savepoint = f"ponto_owed_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc = frappe.get_doc(owed.doctype, owed.name)
+            alert_executed_on_cancelled_row(doc, doc.get(id_fields[owed.doctype]))
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            fatal = _fatal_in_chain(e)
+            if fatal is not None:
+                raise fatal  # a job timeout or lock error is not a row problem: abandon the run
+            rollback_to_savepoint(savepoint)
+            frappe.log_error(
+                title=f"Ponto owed alert retry failed: {owed.doctype} {owed.name}",
+                message=f"{type(e).__name__}: {e}",
+            )
+        else:
+            release_savepoint_if_present(savepoint)
+        # AFTER the rollback above and on BOTH paths: a row whose retry keeps raising must still
+        # move to the back of the queue, or it would be picked first every hour and starve the rest.
+        mark_retried(owed.comment)
 
 
 def _check_cancelled_one(doctype, name):

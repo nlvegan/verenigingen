@@ -60,10 +60,13 @@ from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_paym
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    DELIVERED_MARK,
+    OWED_MARK,
     ALERT_KEY,
     ALERT_MARKER,
     ALERT_TITLE,
     UNDELIVERED_TITLE,
+    owed_alerts,
 )
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
@@ -1299,3 +1302,278 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self._poll({req.ponto_payment_id: "executed"})
         self.assertTrue(self._alerts_for(req.doctype, req.name)[0], "a Notification Log must now exist")
         self.assertEqual(self._undelivered_rows(req), 1)
+
+    # --- #1931 (ruling 2026-11-01): keep sending an undelivered alert until it is delivered ---
+
+    def _push_out_of_window(self, doc):
+        """Fixture shortcut: raw writes that age BOTH ``creation`` and ``modified`` past the window, so
+        the cancelled pass no longer selects the row whichever column the window counts from."""
+        long_ago = add_to_date(now_datetime(), days=-(status_poll_service.STALENESS_WINDOW_DAYS + 10))
+        frappe.db.set_value(
+            doc.doctype, doc.name, {"creation": long_ago, "modified": long_ago}, update_modified=False
+        )
+
+    def _states(self, doc):
+        """(OWED, DELIVERED) markers on the document."""
+        return tuple(
+            bool(frappe.db.exists("Comment", {"reference_doctype": doc.doctype, "reference_name": doc.name,
+                                              "comment_type": "Info", "content": ["like", f"%{mark}%"]}))
+            for mark in (OWED_MARK, DELIVERED_MARK)
+        )
+
+    def _notification_logs(self, doc):
+        return self._alerts_for(doc.doctype, doc.name)[0]
+
+    def _undeliverable_cancelled_rows(self):
+        """A cancelled Request and Link, both Executed at Ponto, alerted while the key is unseeded."""
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({req.ponto_payment_id: "executed", link.ponto_request_id: "executed"})
+        for doc in (req, link):
+            self.assertEqual(self._states(doc), (True, False), "first alert: OWED recorded, not delivered")
+            self.assertEqual(self._notification_logs(doc), [])
+        return req, link
+
+    def test_an_undelivered_alert_is_retried_after_the_row_left_the_window_without_asking_ponto(self):
+        req, link = self._undeliverable_cancelled_rows()
+        for doc in (req, link):
+            self._push_out_of_window(doc)
+        self._poll({})  # still unseeded: retried, still undeliverable, nothing asked of Ponto
+        self.assertEqual(self.requested, [], "the retry must not call Ponto")
+        register_alert_notification_type()  # the key is seeded later
+        self._poll({})
+        self.assertEqual(self.requested, [], "the retry must not call Ponto")
+        for doc in (req, link):
+            self.assertTrue(self._notification_logs(doc), "the alert must be delivered once the key exists")
+            self.assertEqual(self._states(doc), (True, True))
+            self.assertEqual(self._state(doc).docstatus, 2)
+
+    def test_once_delivered_nothing_is_retried_or_written_again(self):
+        req, link = self._undeliverable_cancelled_rows()
+        for doc in (req, link):
+            self._push_out_of_window(doc)
+        register_alert_notification_type()
+        self._poll({})
+        before = {d.name: (self._notification_logs(d), self._state(d)) for d in (req, link)}
+        errors = frappe.db.count("Error Log")
+        comments = frappe.db.count("Comment", {"comment_type": "Info", "content": ["like", "%PONTO-ALERT-%"]})
+        for _ in range(2):
+            self._poll({})
+        self.assertEqual({d.name: (self._notification_logs(d), self._state(d)) for d in (req, link)}, before)
+        self.assertEqual(frappe.db.count("Error Log"), errors)
+        self.assertEqual(
+            frappe.db.count("Comment", {"comment_type": "Info", "content": ["like", "%PONTO-ALERT-%"]}), comments
+        )
+        self.assertEqual(self.requested, [])
+        owed_now = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertFalse(owed_now & {(req.doctype, req.name), (link.doctype, link.name)}, "delivered = not owed")
+
+    def test_the_owed_marker_survives_an_error_log_clear(self):
+        """Error Log is pruned (14 days by default); the retry must not depend on it."""
+        req, _link = self._undeliverable_cancelled_rows()
+        self._push_out_of_window(req)
+        frappe.db.delete("Error Log", {"error": ["like", f"%{req.name}%"]})
+        self.assertEqual(
+            frappe.db.count("Error Log", {"error": ["like", f"%{req.name}%"]}), 0, "control: log cleared"
+        )
+        register_alert_notification_type()
+        self._poll({})
+        self.assertTrue(self._notification_logs(req))
+        self.assertEqual(self._states(req), (True, True))
+
+    def test_an_in_window_undelivered_alert_is_still_retried_by_the_cancelled_pass(self):
+        """Unchanged behaviour: a row still inside the window keeps being read and alerted."""
+        req, _link = self._undeliverable_cancelled_rows()
+        register_alert_notification_type()
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertIn(req.ponto_payment_id, self.requested)
+        self.assertTrue(self._notification_logs(req))
+
+    def test_the_owed_retry_is_bounded_and_rotates(self):
+        rows = [self._cancel(self._poll_submitted_request()) for _ in range(3)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({r.ponto_payment_id: "executed" for r in rows})
+        for r in rows:
+            self._push_out_of_window(r)
+        register_alert_notification_type()
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 2):
+            self._poll({})
+            self.assertEqual(sum(bool(self._notification_logs(r)) for r in rows), 2)
+            self._poll({})
+        self.assertTrue(all(self._notification_logs(r) for r in rows), "the third row must not be starved")
+
+    # --- review round 2 on the owed-alert retry --------------------------------------------
+
+    def _retried(self, raising=()):
+        """Record which rows the owed-alert sweep retries; rows named in ``raising`` blow up."""
+        seen, real = [], status_poll_service.alert_executed_on_cancelled_row
+
+        def spy(doc, ponto_id):
+            seen.append(doc.name)
+            if doc.name in raising:
+                raise RuntimeError("delivery blew up")
+            return real(doc, ponto_id)
+
+        return seen, patch.object(status_poll_service, "alert_executed_on_cancelled_row", spy)
+
+    def _owed_rows_out_of_window(self, count, push_out=True):
+        rows = [self._cancel(self._poll_submitted_request()) for _ in range(count)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({r.ponto_payment_id: "executed" for r in rows})
+        for r in rows:
+            if push_out:
+                self._push_out_of_window(r)
+        return rows
+
+    def test_a_row_whose_retry_keeps_raising_does_not_starve_the_others(self):
+        self.expectErrorLog("Ponto owed alert retry failed")
+        first, second = self._owed_rows_out_of_window(2)
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 1):
+            seen, spy = self._retried(raising={first.name})
+            with spy:
+                for _ in range(3):
+                    self._poll({})
+        self.assertIn(second.name, seen, "the healthy owed row was starved by the raising one")
+
+    def test_permanently_undeliverable_rows_are_all_retried_in_turn(self):
+        """Limit 1, three rows that never deliver: every row must get a turn (kills 'no rotation' and
+        'newest first')."""
+        rows = self._owed_rows_out_of_window(3)
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 1):
+            seen, spy = self._retried()
+            with spy:
+                for _ in range(3):
+                    self._poll({})
+        self.assertEqual(set(seen), {r.name for r in rows}, "each row retried once, in turn")
+        self.assertEqual(len(seen), 3)
+
+    def test_delivered_means_done_even_if_the_user_deleted_their_notification(self):
+        """The row stays INSIDE the window, so the cancelled pass keeps reading it. Ponto still says
+        executed, the user deleted their Notification Log: nothing may be sent again."""
+        req = self._cancel(self._poll_submitted_request())
+        self.expectErrorLog(ALERT_TITLE)
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertEqual(self._states(req), (True, True), "control: delivered")
+        frappe.db.delete(
+            "Notification Log",
+            {"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{ALERT_MARKER}%"]},
+        )
+        self.assertEqual(self._notification_logs(req), [], "control: the log is gone")
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertIn(req.ponto_payment_id, self.requested, "control: the row was read again")
+        self.assertEqual(self._notification_logs(req), [], "delivered means done: nothing re-sent")
+
+    def _owed_row_with_a_live_payment_entry(self, push_out=True):
+        """Shortcut, stated: a real Payment Entry (booked on a second request through the webhook
+        method) is linked to the owed cancelled row with a raw write, because a cancelled row cannot
+        be saved. Returns (row, payment entry name)."""
+        row = self._owed_rows_out_of_window(1, push_out=push_out)[0]
+        booked = self._poll_submitted_request()
+        booked.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(booked.doctype, booked.name, "payment_entry")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe, "docstatus"), 1, "control: live PE")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", pe, update_modified=False)
+        self.assertEqual(self._states(row), (True, False), "control: still owed")
+        return row, pe
+
+    def test_an_owed_alert_is_skipped_while_the_row_is_booked_and_returns_if_that_entry_is_cancelled(self):
+        """Review round 3: booked by hand means nothing is owed, but only for as long as the Payment
+        Entry is live. Cancel it and the money is paid and unbooked again: the alert must come back."""
+        row, pe = self._owed_row_with_a_live_payment_entry()
+        seen, spy = self._retried()
+        with spy:
+            self._poll({})
+        self.assertNotIn(row.name, seen, "not swept while the Payment Entry is live")
+        self.assertNotIn(row.name, [o.name for o in owed_alerts(1000)])
+        self.assertEqual(self._states(row), (True, False), "no closing marker is written")
+        self.assertEqual(self._notification_logs(row), [], "nothing sent while it is booked")
+        pe_doc = frappe.get_doc("Payment Entry", pe)
+        pe_doc.flags.ignore_links = True  # the booked request, our fixture, still links to it
+        pe_doc.cancel()
+        register_alert_notification_type()
+        self._poll({})
+        self.assertEqual(self._states(row), (True, True))
+        self._assert_one_alert(row.doctype, row.name, row.ponto_payment_id, row.amount)
+
+    def test_a_never_alerted_row_with_a_live_payment_entry_gets_no_marker(self):
+        row = self._cancel(self._poll_submitted_request())
+        booked = self._poll_submitted_request()
+        booked.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(booked.doctype, booked.name, "payment_entry")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", pe, update_modified=False)
+        self._poll({row.ponto_payment_id: "executed"})
+        self.assertIn(row.ponto_payment_id, self.requested, "control: the row was read")
+        self.assertEqual(self._states(row), (False, False))
+        self.assertEqual(self._alerts_for(row.doctype, row.name), ([], []))
+
+    def test_a_job_timeout_in_the_owed_sweep_is_never_swallowed_as_a_row_failure(self):
+        self.expectErrorLog("Ponto owed alert retry failed")
+        row = self._owed_rows_out_of_window(1)[0]
+
+        def timing_out(doc, ponto_id):
+            raise JobTimeoutException("300s")
+
+        with patch.object(status_poll_service, "alert_executed_on_cancelled_row", timing_out):
+            with self.assertRaises(JobTimeoutException):
+                self._poll({})
+        self.assertEqual(self._states(row), (True, False))
+
+    # --- review round 4: pin the live-Payment-Entry rules from every side ------------------
+
+    def test_an_in_window_booked_row_is_not_closed_by_the_cancelled_pass(self):
+        """The row stays INSIDE the window, so the cancelled pass itself calls the alert function on the
+        live-Payment-Entry branch. That branch must write no closing marker: cancelling the entry later
+        must bring the alert back (money paid, unbooked again)."""
+        row, pe = self._owed_row_with_a_live_payment_entry(push_out=False)
+        self._poll({row.ponto_payment_id: "executed"})
+        self.assertIn(row.ponto_payment_id, self.requested, "control: the cancelled pass read the row")
+        self.assertEqual(self._states(row), (True, False), "no closing marker on the live-PE branch")
+        pe_doc = frappe.get_doc("Payment Entry", pe)
+        pe_doc.flags.ignore_links = True  # the booked request, our fixture, still links to it
+        pe_doc.cancel()
+        register_alert_notification_type()
+        self._poll({row.ponto_payment_id: "executed"})
+        self._assert_one_alert(row.doctype, row.name, row.ponto_payment_id, row.amount)
+
+    def test_a_draft_payment_entry_does_not_count_as_booked(self):
+        """Only a SUBMITTED entry (docstatus 1) means booked. A real draft copy is linked to the row."""
+        row, pe = self._owed_row_with_a_live_payment_entry()
+        draft = frappe.copy_doc(frappe.get_doc("Payment Entry", pe))
+        draft.docstatus = 0  # copy_doc keeps the source's docstatus
+        draft.insert()
+        self.assertEqual(frappe.db.get_value("Payment Entry", draft.name, "docstatus"), 0, "control: draft")
+        frappe.db.set_value(row.doctype, row.name, "payment_entry", draft.name, update_modified=False)
+        seen, spy = self._retried()
+        with spy:
+            self._poll({})
+        self.assertIn(row.name, seen, "a draft entry must not hide the owed alert")
+
+    def test_a_live_payment_entry_hides_only_its_own_request(self):
+        booked, other = self._owed_rows_out_of_window(2)
+        live = self._poll_submitted_request()
+        live.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(live.doctype, live.name, "payment_entry")
+        frappe.db.set_value(booked.doctype, booked.name, "payment_entry", pe, update_modified=False)
+        swept = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertNotIn((booked.doctype, booked.name), swept)
+        self.assertIn((other.doctype, other.name), swept, "an unrelated owed Request must stay owed")
+
+    def test_a_live_payment_entry_hides_only_its_own_link(self):
+        links = [self._cancel(self._poll_submitted_link()) for _ in range(2)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({lk.ponto_request_id: "executed" for lk in links})
+        booked, other = links
+        for lk in links:
+            self.assertEqual(self._states(lk), (True, False), "control: both owed")
+        live = self._poll_submitted_request()
+        live.update_status_from_webhook("Executed")
+        pe = frappe.db.get_value(live.doctype, live.name, "payment_entry")
+        frappe.db.set_value(booked.doctype, booked.name, "payment_entry", pe, update_modified=False)
+        swept = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertNotIn((booked.doctype, booked.name), swept)
+        self.assertIn((other.doctype, other.name), swept, "an unrelated owed Link must stay owed")
