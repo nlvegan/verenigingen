@@ -25,6 +25,7 @@ from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
 
 class MollieSecurityManager:
@@ -323,9 +324,7 @@ class MollieSecurityManager:
                     "details": json.dumps(details) if details else None,
                     "user": frappe.session.user,
                     "timestamp": frappe.utils.now(),
-                    "ip_address": (
-                        frappe.local.request.environ.get("REMOTE_ADDR") if frappe.local.request else None
-                    ),
+                    "ip_address": get_client_ip_or_none(),
                 }
             )
 

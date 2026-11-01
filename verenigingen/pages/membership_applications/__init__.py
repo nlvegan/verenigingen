@@ -251,17 +251,18 @@ def bulk_approve_applications(member_names: str, membership_type: str, create_in
 
         member_names = json.loads(member_names)
 
-    results = {"success": [], "failed": []}
+    # "invoice_failed": approved, but no invoice exists (#1774); not a clean success.
+    results = {"success": [], "invoice_failed": [], "failed": []}
 
     for member_name in member_names:
         try:
             # Use the existing approval function
             from verenigingen.api.membership_application_review import approve_membership_application
 
-            approve_membership_application(
+            result = approve_membership_application(
                 member_name, create_invoice=create_invoices, membership_type=membership_type
             )
-            results["success"].append(member_name)
+            results["invoice_failed" if result.get("invoice_failed") else "success"].append(member_name)
         except Exception as e:
             results["failed"].append({"member": member_name, "error": str(e)})
 

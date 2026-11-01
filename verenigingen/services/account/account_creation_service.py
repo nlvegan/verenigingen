@@ -286,6 +286,10 @@ class AccountCreationService(StatelessService):
         try:
             frappe.db.set_value("Member", member.name, "user", user_name, update_modified=False)
             frappe.db.commit()
+            # set_value skips Member hooks, so drop the volunteer-lookup memo by hand (#1902)
+            from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+            invalidate_volunteer_lookup_memo()
 
             self.logger.info(f"Linked existing user {user_name} ({user_data.email}) to member {member.name}")
             return True, None

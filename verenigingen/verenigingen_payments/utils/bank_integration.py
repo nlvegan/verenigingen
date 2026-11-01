@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
@@ -413,18 +414,19 @@ class BankAPIClient:
                 }
 
             # Prepare OAuth2 headers for PSD2 compliance.
-            # frappe.local.request is absent when fetch_statements runs outside an
-            # HTTP request (scheduled job / console), so guard it before reading
-            # the caller IP rather than dereferencing .environ on None.
-            _request = getattr(frappe.local, "request", None)
-            psu_ip = _request.environ.get("REMOTE_ADDR", "127.0.0.1") if _request else "127.0.0.1"
             headers = {
                 "Authorization": f"Bearer {bank_settings.get('access_token', '')}",
                 "X-Request-ID": frappe.generate_hash(length=16),
-                "PSU-IP-Address": psu_ip,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
+            # PSD2: PSU-IP-Address identifies a PSU who is present in the request.
+            # A scheduled job / console run has no PSU, so the header is omitted
+            # rather than filled with a made-up address. In a request, send the
+            # trusted client IP (not REMOTE_ADDR, which is the proxy behind nginx).
+            psu_ip = get_client_ip_or_none()
+            if psu_ip:
+                headers["PSU-IP-Address"] = psu_ip
 
             # Build API request for account statements
             api_url = f"{bank_settings.api_endpoint}/accounts/{bank_settings.account_id}/transactions"

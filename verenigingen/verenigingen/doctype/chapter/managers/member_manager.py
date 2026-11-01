@@ -73,11 +73,11 @@ class MemberManager(BaseManager):
                     # placeholder (real submission always writes it enabled=1 --
                     # see create_pending_chapter_membership -- so reaching HERE
                     # with enabled=0 means an application in progress is being
-                    # re-touched, e.g. via assign_member_to_chapter during
-                    # approve_membership_application, which runs BEFORE the
-                    # applicant's Member.status is flipped to Active, or via
-                    # remove_member(permanent=False) disabling a Pending row that
-                    # is then re-added). Deriving from member_doc.status there
+                    # re-touched, e.g. via remove_member(permanent=False) disabling
+                    # a Pending row that is then re-added. (Approval no longer
+                    # reaches this with a Pending member: since #1797 it assigns the
+                    # chapter after the status flip. The guard is still live; do not
+                    # delete it as dead.) Deriving from member_doc.status there
                     # reads the PRE-approval status and stamps 'Inactive' over
                     # 'Pending', stranding the row before
                     # _activate_pending_chapter_memberships ever runs to flip it to

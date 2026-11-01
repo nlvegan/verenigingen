@@ -23,6 +23,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
@@ -745,12 +746,10 @@ class SEPARollbackManager:
         try:
             entry_id = f"AUDIT_{operation_id}_{uuid.uuid4().hex[:8].upper()}"
 
-            # frappe.local.request RAISES AttributeError (it is not merely falsy)
-            # when there is no active HTTP request -- e.g. background jobs,
-            # scheduled tasks, tests. Resolve it safely so the audit INSERT below
-            # is never swallowed in non-request contexts.
-            request = getattr(frappe.local, "request", None)
-            ip_address = request.environ.get("REMOTE_ADDR") if request else None
+            # get_client_ip_or_none is safe outside an HTTP request (background
+            # jobs, scheduled tasks, tests), so the audit INSERT below is never
+            # swallowed there, and it resolves the real client behind the proxy.
+            ip_address = get_client_ip_or_none()
 
             timestamp = now()
             insert_audit_row(
