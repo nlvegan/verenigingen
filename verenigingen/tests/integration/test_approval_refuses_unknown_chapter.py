@@ -26,18 +26,7 @@ from verenigingen.tests.integration.test_application_record_approval import (
 class _ChapterRefusalCase(ApprovalCase):
     """Shared helpers; holds no tests of its own, so subclasses do not re-run each other's."""
 
-    def _stage_without_chapter(self):
-        """An applicant who names no chapter. A city and postal code no chapter can match, so none is
-        SUGGESTED either (suggest_chapter_for_member also matches on the CITY; #1862)."""
-        application = self._stage_and_confirm(
-            selected_chapter="",
-            city=f"Nergenshuizen-{frappe.generate_hash(length=6)}",
-            postal_code="9999ZZ",
-        )
-        self.assertFalse(frappe.db.get_value(SUBMISSION, application, "chapter"))
-        return application
-
-    def _approve(self, application, chapter, user=None):
+    def _approve_into(self, application, chapter, user=None):
         return self._approve_as(
             application, user=user, membership_type=self.membership_type.name, chapter=chapter
         )
@@ -54,7 +43,7 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         rows_before = frappe.db.count("Chapter Member")
 
         with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
-            self._approve(application, ghost)
+            self._approve_into(application, ghost)
 
         self._assert_nothing_written(application)
         self.assertEqual(frappe.db.count("Chapter Member"), rows_before)
@@ -64,7 +53,7 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         chapter = self.create_test_chapter(published=1)
         application = self._stage_and_confirm()
 
-        result = self._approve(application, chapter.name)
+        result = self._approve_into(application, chapter.name)
 
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
@@ -78,7 +67,7 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         chapter = self.create_test_chapter(published=0)
         application = self._stage_and_confirm()
 
-        result = self._approve(application, chapter.name)
+        result = self._approve_into(application, chapter.name)
 
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
 
@@ -86,7 +75,7 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         """Control: an approval naming no chapter is not refused."""
         application = self._stage_without_chapter()
 
-        result = self._approve(application, None)
+        result = self._approve_into(application, None)
 
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
 
@@ -96,7 +85,7 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         default = frappe.db.get_value(SUBMISSION, application, "chapter")
         self.assertEqual(default, self.chapter.name)
 
-        result = self._approve(application, default)
+        result = self._approve_into(application, default)
 
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
 
@@ -114,7 +103,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ChapterRefusalCase):
         frappe.clear_messages()
         before = len(frappe.local.message_log)
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._approve(application, chapter, user=self.board.user)
+            self._approve_into(application, chapter, user=self.board.user)
         log = [
             {k: str(v).replace(chapter, "<C>") for k, v in entry.items()}
             for entry in _message_log_without_exc_id(list(frappe.local.message_log)[before:])
@@ -145,7 +134,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ChapterRefusalCase):
         """Control: the scoped approver can approve into the chapter they manage."""
         application = self._stage_and_confirm()
 
-        result = self._approve(application, self.own.name, user=self.board.user)
+        result = self._approve_into(application, self.own.name, user=self.board.user)
 
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
 
@@ -167,7 +156,7 @@ class TestScopedApproverMayOnlyAssignManagedChapters(_ChapterRefusalCase):
         other_doc.save()  # as Administrator
         application = self._stage_and_confirm()
 
-        result = self._approve(application, other.name, user=self.board.user)
+        result = self._approve_into(application, other.name, user=self.board.user)
 
         self.assertEqual(frappe.db.get_value("Member", result["member"], "status"), "Active")
         self.assertTrue(frappe.db.exists("Chapter Member", {"parent": other.name, "member": result["member"]}))

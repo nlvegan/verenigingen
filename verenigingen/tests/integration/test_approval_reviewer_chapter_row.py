@@ -25,19 +25,6 @@ MANAGER_ASSIGN = (
 
 
 class TestReviewerChosenChapterRowAtApproval(ApprovalCase):
-    def _stage_without_chapter(self):
-        """An applicant who names no chapter. A city and postal code no chapter can match, so none is
-        SUGGESTED either: suggest_chapter_for_member also matches on the CITY, and CI shards carry shared
-        chapters such as "Test Amsterdam Chapter" (the old test used "Amsterdam" and went red in CI)."""
-        application = self._stage_and_confirm(
-            selected_chapter="",
-            city=f"Nergenshuizen-{frappe.generate_hash(length=6)}",
-            postal_code="9999ZZ",
-        )
-        # Check the precondition rather than trusting it.
-        self.assertFalse(frappe.db.get_value(SUBMISSION, application, "chapter"))
-        return application
-
     def _rows(self, member):
         return {
             r.parent: (r.enabled, r.status)
