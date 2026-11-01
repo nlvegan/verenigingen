@@ -120,6 +120,23 @@ class Chapter(Document):
     # CORE DOCUMENT LIFECYCLE
     # ========================================================================
 
+    def onload(self) -> None:
+        """Hand the form the server's own answer to "may this user bulk-apply board role
+        profiles", so chapter.js shows the button only to those the endpoint accepts (#1831).
+
+        The endpoint has two gates: the ADMIN security tier (a vetted role profile) and
+        require_profile_admin. The flag mirrors both, against the function the button calls."""
+        from verenigingen.services.chapter.chapter_role_profile_manager import (
+            bulk_assign_chapter_board_role_profiles,
+        )
+        from verenigingen.services.member.account.role_profile_mapping_guard import is_profile_admin
+        from verenigingen.utils.security.api_security_framework import can_clear_security_level
+
+        self.set_onload(
+            "can_bulk_apply_board_role_profiles",
+            bool(is_profile_admin() and can_clear_security_level(bulk_assign_chapter_board_role_profiles)),
+        )
+
     def validate(self) -> None:
         """Main validation - streamlined workflow with centralized error handling"""
         # Basic validations

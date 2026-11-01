@@ -664,13 +664,16 @@ function setup_chapter_buttons(frm) {
 			__('Board')
 		);
 
-		frm.add_custom_button(
-			__('Apply Role Profiles to Board'),
-			() => {
-				apply_role_profiles_to_board_members(frm);
-			},
-			__('Board')
-		);
+		// The bulk endpoint is admin-only (#1686); the server says whether this user may (#1831)
+		if (frm.doc.__onload && frm.doc.__onload.can_bulk_apply_board_role_profiles) {
+			frm.add_custom_button(
+				__('Apply Role Profiles to Board'),
+				() => {
+					apply_role_profiles_to_board_members(frm);
+				},
+				__('Board')
+			);
+		}
 	}
 }
 
