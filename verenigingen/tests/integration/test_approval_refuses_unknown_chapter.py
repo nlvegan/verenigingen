@@ -14,6 +14,8 @@ is a Chapter Board Member row appended to the chapter, exactly as create_test_bo
 first one.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.integration.test_application_record_approval import (
@@ -42,8 +44,15 @@ class TestApprovalRefusesUnknownChapter(_ChapterRefusalCase):
         application = self._stage_and_confirm()
         rows_before = frappe.db.count("Chapter Member")
 
-        with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
-            self._approve_into(application, ghost)
+        # The savepoint rollback would hide a Member written before the refusal, so the end state alone
+        # cannot tell "refused first" from "refused after materialising"; the sentinel can.
+        # Mock justified: sentinel only, it asserts the write path is never entered (no logic replaced)
+        with patch(
+            "verenigingen.services.member.application.application_materialiser.materialise_member",
+            side_effect=AssertionError("the Member was materialised before the chapter refusal"),
+        ):
+            with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
+                self._approve_into(application, ghost)
 
         self._assert_nothing_written(application)
         self.assertEqual(frappe.db.count("Chapter Member"), rows_before)
