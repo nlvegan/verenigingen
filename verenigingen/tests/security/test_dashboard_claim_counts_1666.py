@@ -34,10 +34,8 @@ class TestDashboardClaimCounts(StaffExpenseBase):
 
     def _board_only_user(self):
         """A chapter board member who is NOT Staff: holds a seat in chapter A only."""
-        user = self.create_test_user(
-            email=f"x1666-board-{self.token}@test.com",
-            roles=_roles_shipped_for_profile("Verenigingen Chapter Board Member"),
-        )
+        # Only the Member role up front: the board roles come from seating (the flush's profile).
+        user = self.create_test_user(email=f"x1666-board-{self.token}@test.com", roles=["Verenigingen Member"])
         member = self.create_test_member(
             first_name="Brd", last_name="Only", email=user.name, user=user.name
         )

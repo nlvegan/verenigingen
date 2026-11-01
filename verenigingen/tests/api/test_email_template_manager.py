@@ -29,6 +29,7 @@ from verenigingen.api.email_template_manager import (
     test_email_template,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 from verenigingen.utils.operation_result import OperationResult
 
 # The exact set of Email Templates create_comprehensive_email_templates() manages.
@@ -47,6 +48,12 @@ MANAGED_TEMPLATES = {
 
 class TestEmailTemplateManager(VereningingenTestCase):
     """Behaviour-level tests for the email template manager API."""
+
+    @classmethod
+    def tearDownClass(cls):
+        # #1982: the deletes below remove fixture-shipped templates; restore them.
+        _cleanup_stock_email_templates(MANAGED_TEMPLATES)
+        super().tearDownClass()
 
     def tearDown(self):
         # Force-delete every managed template (whether this test created it or not)

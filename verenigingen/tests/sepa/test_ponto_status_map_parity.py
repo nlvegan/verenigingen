@@ -359,15 +359,16 @@ class TestPathsAgree(_Base):
         self.assertEqual(self._webhook_request(self._request("Signed"), "someNewStatus"), "Signed")
         self.assertEqual(self._webhook_link(self._link("Authorized"), "someNewStatus"), "Authorized")
 
-    def test_link_client_closed_marker_pins_suspect_behaviour_1840(self):
-        """PINS SUSPECT BEHAVIOUR, issue #1840: do not read this as endorsed.
-
-        betaalverzoek_client sets status "closed" whenever closedAt is set, which its
-        own comment says can mean executed, rejected or expired; the poll maps all of
-        it to Executed. Kept as is here; #1840 decides. No sales_invoice on the row,
-        so process_payment_received() is a no-op and no Payment Entry is involved.
+    def test_link_client_closed_marker_leaves_status_unchanged_1840(self):
+        """Maintainer ruling 2026-10-31 (#1840): the betaalverzoek client's own ``closed``
+        marker (closedAt without a status; it also covers rejected/expired) is never
+        Executed. The status stays as it was. This replaces the test that pinned the old
+        ``closed`` -> Executed behaviour; the Payment Entry side, with a real invoice and
+        real Payment Entry rows, is in test_ponto_status_poll.TestLinkPaymentEntryViaPoll.
         """
-        self.assertEqual(self._poll_link(self._link("Pending Authorization"), "closed"), "Executed")
+        for start in ("Pending Authorization", "Authorized"):
+            with self.subTest(start=start):
+                self.assertEqual(self._poll_link(self._link(start), "closed"), start)
 
 
 class TestWebhookReportsRefusedMovesHonestly(_Base):

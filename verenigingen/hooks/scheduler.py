@@ -106,6 +106,8 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
         # SEPA pain.002 ingestion - scans inbox for bank status reports, updates batch status
         "verenigingen.services.payment.pain002_ingestion_service.run_pain002_ingestion",
+        # Ponto status poll (#1885): safety net for a missed webhook delivery
+        "verenigingen.verenigingen_payments.ponto.services.status_poll_service.poll_open_ponto_payment_statuses",
     ],
     # =========================================================================
     # WEEKLY TASKS

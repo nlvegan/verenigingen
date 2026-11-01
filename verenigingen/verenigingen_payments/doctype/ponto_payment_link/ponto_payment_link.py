@@ -300,13 +300,12 @@ class PontoPaymentLink(Document):
             # Ponto API doesn't return a 'status' field here - betaalverzoek_client.
             # from_api_response() infers "pending"/"signed"/"closed" from
             # signedAt/closedAt. "closed" is that client's own marker, not a Ponto
-            # status, so it is handled here and is not in the shared map (the webhook
-            # never sees it). Unmapped keeps the current status; a backward move is
-            # refused.
-            ponto_status = (request.status or "").lower()
-            new_status = (
-                "Executed" if ponto_status == "closed" else map_link_status(ponto_status)
-            ) or self.status
+            # status, and closedAt also covers rejected/expired requests, so it is
+            # deliberately NOT in the shared map: it maps to None and the status stays
+            # as is until the webhook or a later poll reports the real outcome. It must
+            # never mean Executed, which books a Payment Entry (#1840, maintainer ruling
+            # 2026-10-31). Unmapped keeps the current status; a backward move is refused.
+            new_status = map_link_status((request.status or "").lower()) or self.status
             if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_request_id):
                 return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
             if is_refused_move(self.status, new_status):

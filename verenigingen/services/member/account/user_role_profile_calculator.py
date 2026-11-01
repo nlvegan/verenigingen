@@ -318,7 +318,30 @@ def calculate_user_role_profile_set(user: str) -> list:
         key=lambda name: name != NATIONAL_TREASURER_PROFILE,
     )
     own = [name for _prio, name in candidates if name not in NATIONAL_PROFILES]
-    return [own[0], *national] if own else national
+    stacked = _staff_and_seat_profiles(user, member) if own else []
+    return [*dict.fromkeys([*own[:1], *stacked]), *national]
+
+
+def _staff_and_seat_profiles(user: str, member: str) -> list:
+    """Staff and the best board-seat profile stack, whichever won the priority contest (#1969).
+
+    Maintainer ruling on #1969 (2026-11-01), extending #1615: a staffer registered through an
+    association-wide Team who holds ANY chapter board seat keeps Staff AND gets the seat's
+    profile. Only the highest seat profile is added (as for any board member), and only
+    the ONE staff profile the seatless path would pick (the first PRIORITY_STAFF candidate,
+    same winner rule) is stacked. "Staff" here means a profile from a Team flagged
+    ``is_association_wide`` (priority 75), NOT the profile literally named "Verenigingen
+    Staff"; a member on any other team, or on none, is unchanged.
+    """
+    staff = [name for prio, name in get_team_profiles(user, member) if prio == PRIORITY_STAFF]
+    seats = sorted(
+        (item for item in get_board_member_profiles(user, member) if item[1] not in NATIONAL_PROFILES),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    if not staff or not seats:
+        return []
+    return [seats[0][1], staff[0]]
 
 
 SYNC_GRANTED_FIELD = "custom_sync_granted_profiles"
