@@ -393,7 +393,7 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
             self._fresh_request(req).update_status_from_webhook("Executed")  # webhook redelivery
 
         # The manual "refresh status" action, which is high_security_api and so not for the webhook
-        # user. The scheduled poll does NOT reach a cancelled row (#1931).
+        # user. The scheduled poll reads a cancelled row too (#1931); that is driven in test_ponto_status_poll.
         with patch(PAY_CLIENT_PATH, return_value=_read_client("executed")):
             self._fresh_request(req).refresh_status()
 
@@ -991,7 +991,7 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
             self._fresh_link(link).update_status_from_webhook("Executed", {"name": "Jan"})
             self._fresh_link(link).update_status_from_webhook("Executed")  # webhook redelivery
 
-        # The manual "refresh status" action; the scheduled poll does NOT reach a cancelled row (#1931).
+        # The manual "refresh status" action; the scheduled poll reads a cancelled row too (#1931), see test_ponto_status_poll.
         with patch(LINK_CLIENT_PATH, return_value=_read_client("executed")):
             self._fresh_link(link).refresh_status()
 
