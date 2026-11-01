@@ -299,7 +299,8 @@ def _save_answers(member, application):
 def _set_answers(member, application, keep_blank=True):
     """Write the answers the short form asks onto the Member. `keep_blank` is the reapplication of an existing
     Member: a blank or absent answer keeps what the Member has, a supplied one overwrites it, and an empty
-    `join_reasons` keeps the existing set. A new Member has nothing to keep, so it takes the payload as is."""
+    `join_reasons` keeps the existing set. Both callers keep blanks: a new Member's answer fields start empty
+    and no other writer sets them, so keeping a blank and writing it give the same Member."""
     if application.source != "Short Form":
         return
     payload = json.loads(application.payload)
