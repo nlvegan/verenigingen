@@ -74,6 +74,7 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "default": "Draft",
       "fieldname": "status",
       "fieldtype": "Select",
@@ -175,6 +176,7 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "description": "Payment Entry created when payment is executed",
       "fieldname": "payment_entry",
       "fieldtype": "Link",
@@ -195,7 +197,7 @@
   "index_web_pages_for_search": 1,
   "is_submittable": 1,
   "links": [],
-  "modified": "2026-10-31 13:00:00",
+  "modified": "2026-10-31 18:00:00",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "Ponto Payment Request",

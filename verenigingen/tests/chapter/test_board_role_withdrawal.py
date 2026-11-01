@@ -1,9 +1,9 @@
 """Vacating a chapter board seat must withdraw the access that seat conferred.
 
 Two things follow from a board seat: the Frappe role
-``Verenigingen Chapter Board Member`` (granted by
-``ChapterBoardMember.assign_board_member_role``) and the board-derived Role Profile
-(applied by ``sync_user_role_profile`` via the profile calculator). Deleting the
+``Verenigingen Chapter Board Member`` (carried by the board Role Profile) and the
+board-derived Role Profile (applied by ``sync_user_role_profile`` via the profile
+calculator). Deleting the
 ``Chapter Board Member`` row is only bookkeeping; the access is what matters, so
 every test here asserts both, and asserts them *before* the removal as well so a
 vacuous pass is impossible.

@@ -86,7 +86,7 @@ class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
         """
         # Test status API access
         response = self._post_or_skip(
-            "verenigingen.api.suspension_api.get_suspension_status",
+            "verenigingen.api.suspension_api.get_suspension_status_safe",
             {"member_name": self.test_member.name},
         )
         

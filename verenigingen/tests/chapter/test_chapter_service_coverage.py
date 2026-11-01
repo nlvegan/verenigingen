@@ -161,6 +161,144 @@ class TestChapterAssignmentService(EnhancedTestCase):
         self.assertFalse(result["success"], result)
         self.assertNotIn("successfully assigned", result.get("message", ""))
 
+    # --- assign_with_cleanup: a refused add must not strand the member (#1793) ---
+    def _chapter_state(self, member_name, volunteer_name):
+        """Everything the cleanup touches: every Chapter Member row and every board seat."""
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name},
+            fields=["parent", "enabled", "leave_reason"],
+            order_by="parent asc, name asc",
+        )
+        seats = frappe.get_all(
+            "Chapter Board Member",
+            filters={"volunteer": volunteer_name},
+            fields=["parent", "is_active", "to_date", "notes"],
+            order_by="parent asc, name asc",
+        )
+        return [dict(r) for r in rows], [dict(r) for r in seats]
+
+    def _board_member_in_chapter(self):
+        """A member with an enabled row AND an active board seat in self.chapter (real writers)."""
+        board = self.create_test_board_member(self.chapter.name)
+        rows, seats = self._chapter_state(board.member, board.volunteer)
+        # Control: the starting state really has what the cleanup would destroy.
+        self.assertTrue(any(r["enabled"] and r["parent"] == self.chapter.name for r in rows), rows)
+        self.assertTrue(any(s["is_active"] and s["parent"] == self.chapter.name for s in seats), seats)
+        return board
+
+    def _suspend_for_assign_cleanup(self, member_name):
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
+        suspend_member_safe(member_name, "assign_with_cleanup test", suspend_user=False)
+        self.assertEqual(frappe.db.get_value("Member", member_name, "status"), "Suspended")
+
+    def test_assign_with_cleanup_refused_add_leaves_rows_and_board_seat_untouched(self):
+        """#1793: a Suspended member's add into the target is refused; the old chapter and seat must survive."""
+        target = self.ensure_test_chapter("Test Assign Cleanup Target")
+        board = self._board_member_in_chapter()
+        self._suspend_for_assign_cleanup(board.member)
+        before = self._chapter_state(board.member, board.volunteer)
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name, note="strand-1793")
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_add_that_raises_leaves_rows_and_board_seat_untouched(self):
+        """#1793: the fail-closed path: add_member raising must not leave the cleanup committed."""
+        from unittest.mock import patch
+
+        target = self.ensure_test_chapter("Test Assign Cleanup Raises")
+        board = self._board_member_in_chapter()
+        before = self._chapter_state(board.member, board.volunteer)
+
+        # Mock justified: forces the add to raise, which no real input reliably does.
+        with patch.object(
+            type(self._get_service()), "assign_member", side_effect=frappe.ValidationError("boom-1793")
+        ):
+            result = self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_lock_timeout_rolls_back_then_propagates(self):
+        """#1793: a 1205 keeps the transaction alive, so the cleanup must be undone before it propagates."""
+        from unittest.mock import patch
+
+        target = self.ensure_test_chapter("Test Assign Cleanup Timeout")
+        board = self._board_member_in_chapter()
+        before = self._chapter_state(board.member, board.volunteer)
+
+        # Mock justified: infrastructure fault injection at the add, below the layers that swallow.
+        with patch.object(
+            type(self._get_service()), "assign_member", side_effect=frappe.QueryTimeoutError("lock-1793")
+        ):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_fallback_path_refused_add_rolls_back(self):
+        """#1793: when Chapter.remove_member fails the direct-disable fallback runs; a refused add must undo it too."""
+        from unittest.mock import patch
+
+        target = self.ensure_test_chapter("Test Assign Cleanup Fallback")
+        board = self._board_member_in_chapter()
+        self._suspend_for_assign_cleanup(board.member)
+        before = self._chapter_state(board.member, board.volunteer)
+
+        # Mock justified: forces the primary removal to fail so the fallback runs.
+        with patch(
+            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_member",
+            side_effect=frappe.ValidationError("no-1793"),
+        ):
+            result = self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_not_reenabled_refusal_rolls_back(self):
+        """#1793/#1564: a disabled row in the target that add_member will not re-enable."""
+        target = self.ensure_test_chapter("Test Assign Cleanup NotReenabled")
+        board = self._board_member_in_chapter()
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+
+        ChapterMembershipManager.assign_member_to_chapter(
+            member_id=board.member, chapter_name=target.name, notify=False
+        )
+        target_doc = frappe.get_doc("Chapter", target.name)
+        target_doc.member_manager.remove_member(board.member, permanent=False)
+        self._suspend_for_assign_cleanup(board.member)
+        # Control: the target holds a DISABLED row (so this is the not_reenabled shape) and the
+        # original chapter is still enabled.
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": target.name, "member": board.member}, "enabled"
+        )
+        self.assertEqual(row, 0)
+        before = self._chapter_state(board.member, board.volunteer)
+        self.assertTrue(any(r["enabled"] and r["parent"] == self.chapter.name for r in before[0]))
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertFalse(result["success"], result)
+        # Pins the not_reenabled refusal, so the added_disabled path cannot satisfy this test.
+        self.assertIn("not re-enabled", result["message"])
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_successful_move_still_cleans_up(self):
+        """Control: an Active member's move still leaves the old chapter and ends the seat."""
+        target = self.ensure_test_chapter("Test Assign Cleanup Move")
+        board = self._board_member_in_chapter()
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name, note="move-1793")
+
+        self.assertTrue(result["success"], result)
+        rows, seats = self._chapter_state(board.member, board.volunteer)
+        enabled = {r["parent"] for r in rows if r["enabled"]}
+        self.assertEqual(enabled, {target.name})
+        self.assertFalse(any(s["is_active"] for s in seats), seats)
+
     # --- assign_with_cleanup ---
     def test_assign_with_cleanup_fresh_member(self):
         """assign_with_cleanup works for a member not in any chapter."""

@@ -704,6 +704,38 @@ def queue_bulk_account_creation_for_members(
         )
 
 
+_OPEN_ACR_STATUSES = ["Requested", "Queued", "Processing"]
+
+
+def _count_batch_requests(request_names, statuses):
+    """Count the given Account Creation Requests that are in one of ``statuses``, as COMMITTED.
+
+    Reads on a connection of its own, deliberately (#1788). The batch job's main connection runs
+    REPEATABLE READ with autocommit off, so its first read pins a snapshot for the rest of the
+    job, and the workers commit on THEIR connections: polling on the main one never sees a
+    worker finish and the wait loop always ran its full timeout. Committing or rolling back
+    the main connection per poll would end the snapshot, but a rollback would also discard the
+    uncommitted tracker write made just before the wait, and a commit would add a transaction
+    boundary to code that otherwise leaves it to the framework. A read-only side connection
+    touches neither. It is closed straight away so a poll never holds a snapshot.
+    """
+    if not request_names:
+        return 0
+    name_placeholders = ", ".join(["%s"] * len(request_names))
+    status_placeholders = ", ".join(["%s"] * len(statuses))
+    connection = frappe.db.create_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT COUNT(*) FROM `tabAccount Creation Request` "
+            f"WHERE name IN ({name_placeholders}) AND status IN ({status_placeholders})",
+            [*request_names, *statuses],
+        )
+        return cursor.fetchone()[0]
+    finally:
+        connection.close()
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def process_bulk_account_creation_batch(
@@ -970,24 +1002,12 @@ def process_bulk_account_creation_batch(
 
             while waited < max_wait_seconds:
                 # Check how many ACRs from this batch are still processing
-                still_processing = frappe.db.count(
-                    "Account Creation Request",
-                    {
-                        "name": ["in", request_names],
-                        "status": ["in", ["Requested", "Queued", "Processing"]],
-                    },
-                )
+                still_processing = _count_batch_requests(request_names, _OPEN_ACR_STATUSES)
 
                 if still_processing == 0:
                     # All ACRs from this batch are done (Completed or Failed)
-                    completed = frappe.db.count(
-                        "Account Creation Request",
-                        {"name": ["in", request_names], "status": "Completed"},
-                    )
-                    failed = frappe.db.count(
-                        "Account Creation Request",
-                        {"name": ["in", request_names], "status": "Failed"},
-                    )
+                    completed = _count_batch_requests(request_names, ["Completed"])
+                    failed = _count_batch_requests(request_names, ["Failed"])
 
                     frappe.logger().info(
                         f"Batch fully processed: {completed} completed, {failed} failed. "
@@ -1007,13 +1027,7 @@ def process_bulk_account_creation_batch(
 
             if waited >= max_wait_seconds:
                 # Batch didn't complete in time - queue next batch anyway to avoid stalling
-                still_processing = frappe.db.count(
-                    "Account Creation Request",
-                    {
-                        "name": ["in", request_names],
-                        "status": ["in", ["Requested", "Queued", "Processing"]],
-                    },
-                )
+                still_processing = _count_batch_requests(request_names, _OPEN_ACR_STATUSES)
 
                 frappe.logger().warning(
                     f"Batch still has {still_processing} ACRs processing after {max_wait_seconds}s wait. "

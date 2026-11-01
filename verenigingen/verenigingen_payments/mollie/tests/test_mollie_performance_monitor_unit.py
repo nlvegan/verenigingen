@@ -149,6 +149,7 @@ class TestMetricsSurvivesRealReaderPaths(EnhancedTestCase):
             return_value=EnvironmentLevel.DEVELOPMENT,
         )
         self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
 
         # performance_monitor.metrics is the process-global singleton shared
         # across the whole suite (see test_mollie_monitoring_api_unit.py's

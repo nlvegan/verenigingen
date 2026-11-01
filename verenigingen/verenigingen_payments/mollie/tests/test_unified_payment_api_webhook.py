@@ -68,15 +68,22 @@ class TestHandlePaymentWebhook(EnhancedTestCase):
         self.assertEqual(frappe.local.response.http_status_code, 500)
 
     def test_success_returns_service_result_without_error_status(self):
-        """A successful service result is returned unchanged; no 500 is set."""
+        """A successful service result is acknowledged, not echoed; no 500 is set.
+
+        #1781: the old assertion (``out["status"] == "success"``) pinned the service result
+        being handed back to the anonymous caller. The property kept is "success is not a
+        failure": 2xx and an ``ok`` body. The control that a failure is NOT ``ok`` is
+        test_service_error_result_sets_http_500.
+        """
         payload = make_webhook_payload("tr_ok_123", status="paid")
         result_obj = {"status": "success", "message": "processed", "payment_id": "tr_ok_123"}
         with install_fake_request(payload):
             with patch(AUTH_PATH):
                 with patch(SERVICE_PATH, return_value=_fake_service(return_value=result_obj)):
                     out = unified_payment_api.handle_payment_webhook(payment_id="tr_ok_123")
-        self.assertEqual(out["status"], "success")
-        self.assertNotEqual(getattr(frappe.local.response, "http_status_code", None), 500)
+        self.assertEqual(out, {"status": "ok"})
+        self.assertNotIn("tr_ok_123", str(out), "the service result must not be echoed")
+        self.assertLess(getattr(frappe.local.response, "http_status_code", None) or 200, 400)
 
     def test_service_error_result_sets_http_500(self):
         """A service result with status=='error' triggers a 500 (Mollie retry)."""
@@ -113,7 +120,11 @@ class TestHandlePaymentWebhook(EnhancedTestCase):
 
     def test_unexpected_exception_returns_500_and_generic_message(self):
         """An unexpected exception is caught, logged, mapped to 500, and the
-        message is the generic one (no internal detail leaked to caller)."""
+        body is the bare ack (no internal detail leaked to caller).
+
+        #1781: the old assertion read ``out["message"] == "Internal processing error"``;
+        the property (nothing internal reaches the caller) is kept and made stricter.
+        """
         payload = make_webhook_payload("tr_500_123")
         with install_fake_request(payload):
             with patch(AUTH_PATH):
@@ -124,8 +135,8 @@ class TestHandlePaymentWebhook(EnhancedTestCase):
                     out = unified_payment_api.handle_payment_webhook(payment_id="tr_500_123")
         self.assertEqual(out["status"], "error")
         self.assertEqual(frappe.local.response.http_status_code, 500)
-        self.assertEqual(out["message"], "Internal processing error")
-        self.assertNotIn("secret internal detail", out["message"])
+        self.assertEqual(out, {"status": "error"})
+        self.assertNotIn("secret internal detail", str(out))
 
     def test_payment_id_falls_back_to_form_dict(self):
         """When no explicit arg is given, the id is taken from form_dict['id']."""
@@ -227,7 +238,11 @@ class TestHandleRefundWebhook(EnhancedTestCase):
                 with patch(SVC, return_value=fake):
                     out = unified_payment_api.handle_refund_webhook()
 
-        self.assertEqual(out, service_result, "the service result must be returned verbatim")
+        # #1781: this used to assert the service result came back verbatim, which is the
+        # leak. What matters (and is still asserted below) is WHAT the service was called
+        # with; the caller only gets the ack.
+        self.assertEqual(out, {"status": "ok"})
+        self.assertNotIn("refund recorded", str(out))
         self.assertEqual(captured.get("payment_id"), "tr_deleg_1")
         self.assertEqual(
             captured.get("reversal_id"),
@@ -287,8 +302,10 @@ class TestHandleRefundWebhook(EnhancedTestCase):
                 with patch(SVC, return_value=fake):
                     out = unified_payment_api.handle_refund_webhook()
 
-        self.assertEqual(out["status"], "ignored")
-        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
+        # #1781: the body no longer carries ``ignored``; "stays 2xx" is the property, so the
+        # HTTP status is what is asserted (< 400, not just != 500).
+        self.assertLess(frappe.local.response.get("http_status_code") or 200, 400)
+        self.assertEqual(out, {"status": "ok"})
 
 
 class TestHandleChargebackWebhook(EnhancedTestCase):
@@ -343,7 +360,9 @@ class TestHandleChargebackWebhook(EnhancedTestCase):
             with patch(AUTH_PATH):
                 with patch(SVC, return_value=fake):
                     out = unified_payment_api.handle_chargeback_webhook()
-        self.assertEqual(out, service_result)
+        # #1781: the service result is no longer echoed; the ack is.
+        self.assertEqual(out, {"status": "ok"})
+        self.assertNotIn("chargeback recorded", str(out))
         # The payment id must be extracted from the body and passed positionally,
         # alongside the full parsed chargeback dict.
         self.assertEqual(captured["payment_id"], "tr_cb_2")
@@ -405,5 +424,68 @@ class TestHandleChargebackWebhook(EnhancedTestCase):
                 with patch(SVC, return_value=fake):
                     out = unified_payment_api.handle_chargeback_webhook()
 
-        self.assertEqual(out["status"], "ignored")
-        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
+        # #1781: HTTP status is the property ("stays 2xx"), not the leaked ``ignored`` body.
+        self.assertLess(frappe.local.response.get("http_status_code") or 200, 400)
+        self.assertEqual(out, {"status": "ok"})
+
+
+class TestKnownErrorsAreRefusedWith400AndAnAckOnly(EnhancedTestCase):
+    """MollieWebhookError / MolliePaymentError map to HTTP 400 and a bare error ack on ALL
+    three handlers (#1781). Both halves are asserted: the 400 is what a ``>= 500`` threshold in
+    ``_webhook_ack`` would silently turn into ``ok``."""
+
+    SVC = (
+        "verenigingen.verenigingen_payments.mollie.services."
+        "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
+        frappe.local.response = frappe._dict()
+
+    def test_payment_refund_and_chargeback_handlers(self):
+        from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
+
+        refund_payload = '{"resource":"refund","id":"re_k_1","payment_id":"tr_k_1","amount":{"value":"1.00"}}'
+        cases = {
+            "payment": (
+                lambda exc: patch(
+                    SERVICE_PATH,
+                    return_value=types.SimpleNamespace(
+                        process_payment_webhook=lambda pid, data: (_ for _ in ()).throw(exc)
+                    ),
+                ),
+                lambda: unified_payment_api.handle_payment_webhook(payment_id="tr_k_1"),
+                make_webhook_payload("tr_k_1"),
+            ),
+            "refund": (
+                lambda exc: patch(
+                    self.SVC,
+                    return_value=types.SimpleNamespace(
+                        process_reversal_webhook=lambda **kw: (_ for _ in ()).throw(exc)
+                    ),
+                ),
+                unified_payment_api.handle_refund_webhook,
+                refund_payload,
+            ),
+            "chargeback": (
+                lambda exc: patch(
+                    self.SVC,
+                    return_value=types.SimpleNamespace(
+                        process_chargeback_webhook=lambda *a, **kw: (_ for _ in ()).throw(exc)
+                    ),
+                ),
+                unified_payment_api.handle_chargeback_webhook,
+                '{"id":"tr_k_1","status":"charged_back"}',
+            ),
+        }
+        self.expectErrorLog("Mollie", "Webhook")
+        for name, (stub, call, payload) in cases.items():
+            for exc in (MollieWebhookError("secret-detail"), MolliePaymentError("secret-detail")):
+                with self.subTest(handler=name, exc=type(exc).__name__):
+                    frappe.local.response = frappe._dict()
+                    with install_fake_request(payload), patch(AUTH_PATH), stub(exc):
+                        out = call()
+                    self.assertEqual(frappe.local.response.http_status_code, 400)
+                    self.assertEqual(out, {"status": "error"})

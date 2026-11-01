@@ -726,7 +726,7 @@ class TestRetryPaymentRateLimitScope(EnhancedTestCase):
         frappe.cache().delete_value("critical_operation_rules")
         for ip in ("203.0.113.10", "203.0.113.20"):
             frappe.cache().delete(
-                f"cor_rate_limit:{frappe.local.site}:interactive:retry_payment:{ip}"
+                f"cor_rate_limit:{frappe.local.site}:interactive:{self.OPERATION_KEY}:{ip}"
             )
 
     def test_retry_payment_has_a_dedicated_per_ip_cor_record(self):
@@ -824,7 +824,7 @@ class TestInitiatePaymentRateLimitScope(EnhancedTestCase):
         frappe.cache().delete_value("critical_operation_rules")
         for ip in ("203.0.113.30", "203.0.113.40"):
             frappe.cache().delete(
-                f"cor_rate_limit:{frappe.local.site}:interactive:initiate_payment:{ip}"
+                f"cor_rate_limit:{frappe.local.site}:interactive:{self.OPERATION_KEY}:{ip}"
             )
 
     def test_initiate_payment_has_a_dedicated_per_ip_cor_record(self):

@@ -785,9 +785,19 @@ class DuesPaymentProcessor:
                 result["skipped_reason"] = "Payment Entry already exists (legacy mode)"
                 return result
 
-            # Partial processing: Bank Transaction exists but no Payment Entry
-            # Continue processing to create Payment Entry, but skip Bank Transaction creation
-            partial_processing = has_bank_transaction and not has_payment_entry
+            # Partial processing: Bank Transaction exists but no Payment Entry, AND the
+            # caller asked for the allocation (invoice_name). Continue to create that
+            # Payment Entry, skipping Bank Transaction creation.
+            #
+            # Without an invoice, "Bank Transaction only" is the COMPLETE outcome of
+            # Bank Transaction mode, so a repeat delivery of the same payment id (a
+            # Mollie retry, or the re-post that announces a refund) must leave state
+            # alone. Completing it used to post an UNALLOCATED Payment Entry and
+            # reconcile the BT to it: cash became a customer advance and the BT left the
+            # reconciliation queue (#1780). That caller falls through to the Bank
+            # Transaction branch below, whose create() returns the existing row (and
+            # resubmits it if it was left in draft).
+            partial_processing = has_bank_transaction and not has_payment_entry and bool(invoice_name)
 
             # Identify payment type
             payment_type = self.identify_payment_type(payment)
@@ -871,7 +881,11 @@ class DuesPaymentProcessor:
                 record_type = "Bank Transaction"
 
                 if bt_name:
-                    result["status"] = "success"
+                    # A draft BT the creator just resubmitted is work done, not a skip.
+                    already_complete = has_bank_transaction and idempotency_check.get("docstatus") != 0
+                    result["status"] = "already_processed" if already_complete else "success"
+                    if already_complete:
+                        result["skipped_reason"] = "Bank Transaction already exists (Bank Transaction mode)"
                     result["bank_transaction"] = bt_name
 
                     # If invoice_name provided, also create PE and reconcile

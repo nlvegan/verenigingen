@@ -98,7 +98,10 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 				);
 			}
 
-			if (frm.doc.status === 'Draft') {
+			// With a workflow, activation is the 'Verify and Activate' action (its condition is
+			// the verification check); this button's plain save would skip it (#1811), and the
+			// server refuses that save. frm.state_fieldname is set only when a workflow is active.
+			if (frm.doc.status === 'Draft' && !frm.state_fieldname) {
 				frm.add_custom_button(
 					__('Activate Agreement'),
 					() => {

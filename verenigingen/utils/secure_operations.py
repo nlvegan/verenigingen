@@ -397,6 +397,28 @@ class SecureOperationResult:
         )
 
 
+def _snapshot_link_values(doc) -> list:
+    """(row, fieldname, value) for every non-empty Link/Dynamic Link value on doc and its child rows.
+
+    Frappe's get_invalid_links() does setattr(row, fieldname, None) for a link it cannot find
+    BEFORE reporting it, so after a failed save the in-memory dead reference is already gone (#1789).
+    """
+    snapshot = []
+    for row in [doc, *doc.get_all_children()]:
+        for df in row.meta.get_link_fields() + row.meta.get("fields", {"fieldtype": ("=", "Dynamic Link")}):
+            if row.get(df.fieldname):
+                snapshot.append((row, df.fieldname, row.get(df.fieldname)))
+    return snapshot
+
+
+def _restore_blanked_links(snapshot: list) -> None:
+    """Put back the link values Frappe blanked while reporting them, so an ignore_links retry saves
+    the legacy reference as it was instead of an empty (Mandatory-failing, or silently NULLed) field."""
+    for row, fieldname, value in snapshot:
+        if not row.get(fieldname):
+            row.set(fieldname, value)
+
+
 def _execute_document_operation(
     doc,
     operation: str,
@@ -502,6 +524,7 @@ def _execute_document_operation(
 
         # SECURITY: Instead of blanket ignore_links, we'll catch and handle
         # specific link validation errors for known problematic fields
+        link_values = _snapshot_link_values(doc)
         try:
             doc.save()
         except (frappe.LinkValidationError, frappe.ValidationError) as e:
@@ -517,6 +540,7 @@ def _execute_document_operation(
                     # Temporarily bypass links for this specific case with monitoring
                     try:
                         doc.flags.ignore_links = True
+                        _restore_blanked_links(link_values)
 
                         # CRITICAL: Reload the current modified timestamp from DB
                         # The first save attempt updated the DB timestamp, so we need to reload it

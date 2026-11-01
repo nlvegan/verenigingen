@@ -30,15 +30,6 @@ class TestChapterMembershipManagerReason(EnhancedTestCase):
         chapter = frappe.get_doc("Chapter", self.chapter.name)
         chapter.members = []
         chapter.save()
-        self.other_chapter = self.factory.ensure_test_chapter(
-            "Reason Chapter Two",
-            {
-                "status": "Active",
-                "published": 1,
-                "introduction": "Second chapter for #1631",
-                "contact_email": self.factory.generate_test_email("reason_chapter2"),
-            },
-        )
 
     def _assign(self, chapter=None):
         return ChapterMembershipManager.assign_member_to_chapter(
@@ -70,25 +61,6 @@ class TestChapterMembershipManagerReason(EnhancedTestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("not in this chapter", result.get("error") or "")
-
-    def test_transfer_reports_leave_reason(self):
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            self.member.name, self.chapter.name, self.other_chapter.name
-        )
-        self.assertFalse(result["success"])
-        self.assertNotIn("None", result["error"])
-        self.assertIn("not in this chapter", result["error"])
-
-    def test_transfer_reports_join_reason(self):
-        """Leave succeeds, join is refused as already_exists (member already in the target)."""
-        self.assertTrue(self._assign()["success"])
-        self.assertTrue(self._assign(self.other_chapter)["success"])
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            self.member.name, self.chapter.name, self.other_chapter.name
-        )
-        self.assertFalse(result["success"])
-        self.assertNotIn("None", result["error"])
-        self.assertIn("already in this chapter", result["error"])
 
     def test_roster_helper_logs_the_reason(self):
         from verenigingen.api.member_management import add_member_to_chapter_roster

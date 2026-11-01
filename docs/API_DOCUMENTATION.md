@@ -184,11 +184,9 @@ Admin-only endpoints for reviewing and processing membership applications.
 |---|---|---|---|
 | `suspend_member(member_name, suspension_reason, ...)` | Login | -- | Suspends a member. Optional params: `suspension_end_date`, `notify_member`, `internal_notes` |
 | `unsuspend_member(member_name, unsuspension_reason)` | Login | -- | Lifts a member's suspension |
-| `get_suspension_status(member_name)` | Login | `@standard_api(MEMBER_DATA)` | Returns current suspension status for a member |
 | `can_suspend_member(member_name)` | Login | -- | Checks whether current user can suspend the given member |
 | `get_suspension_preview(member_name)` | Login | `@high_security_api(MEMBER_DATA)` | Returns preview of suspension impact |
 | `bulk_suspend_members(members, suspension_reason, ...)` | Login | -- | Suspends multiple members at once |
-| `get_suspension_list(limit, offset, status, chapter)` | Login | `@standard_api(MEMBER_DATA)` | Lists suspended members with filters |
 | `get_suspension_status_safe(member_name)` | Guest | `@standard_api(MEMBER_DATA)` | Safe public suspension status check |
 | `test_bank_details_debug()` | Login | -- | Debug endpoint for bank details |
 

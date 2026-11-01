@@ -439,7 +439,7 @@ _make_user::19  # clone family, 7 near-identical pair(s)
 _make_user_with_role_profile::3
 _make_user_with_roles::3
 _make_user_without_member::4  # clone family, 3 near-identical pair(s)
-_make_volunteer::26  # clone family, 22 near-identical pair(s)
+_make_volunteer::26  # clone family, 21 near-identical pair(s)
 _make_volunteer_claim::2  # clone family, 1 near-identical pair(s)
 _make_volunteer_member_employee::3  # clone family, 1 near-identical pair(s)
 _mandate::4
@@ -551,7 +551,6 @@ _run_case::2
 _run_import::2
 _run_webhook::2
 _safe_log_error::2
-_safe_savepoint_name::2
 _sanitize_error_message::5  # clone family, 2 near-identical pair(s)
 _sanitize_filename::2
 _sched_stub::3

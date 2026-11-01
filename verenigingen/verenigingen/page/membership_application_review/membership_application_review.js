@@ -808,7 +808,16 @@ class MembershipApplicationReview {
 						}
 					});
 
-					if (response.message?.success) {
+					if (response.message?.success && response.message.invoice_failed) {
+						// Approved, but no invoice was created (#1774): warn, do not toast success.
+						frappe.msgprint({
+							title: __('Approved without invoice'),
+							message: frappe.utils.escape_html(response.message.message),
+							indicator: 'orange'
+						});
+						this.load_applications();
+						this.load_statistics();
+					} else if (response.message?.success) {
 						frappe.show_alert({
 							message: `Application approved for ${app.full_name}`,
 							indicator: 'green'

@@ -9,8 +9,14 @@ from verenigingen.utils.secure_operations import secure_document_operation
 
 class ChapterBoardMember(Document):
     def after_insert(self):
-        """Assign Chapter Board Member role when someone joins a board"""
-        self.assign_board_member_role()
+        """Notify when someone joins a board.
+
+        The Chapter Board Member role is not granted here (#1672): it comes from the board
+        role profile, which the role-profile sync applies (``Chapter.on_update`` for a
+        Chapter save, the account-creation pipeline's Phase 3 for a new account). A direct
+        grant by the acting user was refused for anyone without User write and was
+        replaced by the profile's roles on the next User save anyway.
+        """
         # Clear permission cache when board membership changes
         clear_permission_cache()
         # Send notification to the new board member
@@ -29,62 +35,9 @@ class ChapterBoardMember(Document):
         # If marked inactive or past end date, check if role should be removed
         if not self.is_active or (self.to_date and frappe.utils.getdate(self.to_date) < frappe.utils.today()):
             self.remove_board_member_role()
-        else:
-            # If reactivated, ensure they have the role
-            self.assign_board_member_role()
 
         # Clear permission cache when board member status changes
         clear_permission_cache()
-
-    def assign_board_member_role(self):
-        """Assign the Chapter Board Member role to the volunteer's user"""
-        if not self.volunteer:
-            return
-
-        # Get the member and user associated with this volunteer
-        volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-        if not volunteer_doc.member:
-            return
-
-        user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-        if not user:
-            return
-
-        # Check if user already has the role
-        existing_role = frappe.db.exists(
-            "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
-        )
-
-        if not existing_role:
-            # Create the role assignment via parent document
-            user_doc = frappe.get_doc("User", user)
-            user_doc.append(
-                "roles",
-                {
-                    "role": "Verenigingen Chapter Board Member",
-                },
-            )
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            save_result = secure_document_operation(
-                operation="save",
-                doc=user_doc,
-                justification=f"Assign Chapter Board Member role to user {user} for board position",
-                required_permissions=["User:write"],
-            )
-
-            if save_result.success:
-                frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
-            else:
-                # Report what actually failed. This branch used to hardcode "Permission
-                # denied", which was wrong for every non-permission failure that
-                # secure_document_operation turns into success=False -- and it is the only
-                # record of the failure, since the exception itself is not re-raised.
-                # (Transaction-fatal DB errors no longer reach here at all; those
-                # propagate out of secure_document_operation.)
-                frappe.log_error(
-                    f"Could not assign board member role to user {user}: "
-                    f"{'; '.join(save_result.errors) or 'no reason reported'}"
-                )
 
     def remove_board_member_role(self):
         """Remove Chapter Board Member role if user is no longer on any board.
@@ -212,7 +165,7 @@ def withdraw_board_member_role_if_unseated(volunteer: str, exclude_row: str = No
     # Has Role is a child table with no permissions defined — direct
     # delete fails for every user (including System Manager and the
     # background service user). Remove the role row from the parent
-    # User document and save it instead, mirroring assign_board_member_role.
+    # User document and save it instead.
     if not frappe.db.exists("Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}):
         return
 

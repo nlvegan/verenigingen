@@ -10,13 +10,17 @@ Each handler processes a specific event type and returns a result dict.
 Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
-import re
 from typing import Any, Dict
 
 import frappe
 
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+    safe_savepoint_name as _safe_savepoint_name,
+)
 from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import as_system_update, system_update
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
@@ -36,10 +40,15 @@ def _get_webhook_user() -> str:
 
     Returns:
         str: Username from Verenigingen Payments Settings
-    """
-    from verenigingen.utils.service_user import get_service_user
 
-    return get_service_user(
+    Raises:
+        ServiceUserUnavailable: no enabled webhook user is configured. A job must then
+            fail closed (Error Log row, nothing written); there is no Administrator
+            fallback (#1876).
+    """
+    from verenigingen.utils.service_user import require_service_user
+
+    return require_service_user(
         settings_doctype="Verenigingen Payments Settings",
         user_field="webhook_user",
         service_name="Ponto Webhook",
@@ -67,20 +76,6 @@ def import_transactions_job(account_id: str) -> Dict[str, Any]:
 
     frappe.set_user(_get_webhook_user())
     return import_new_transactions(account_id=account_id)
-
-
-def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
-    """
-    Build a MariaDB-safe savepoint identifier.
-
-    Frappe's ``frappe.db.savepoint()`` interpolates the name straight into
-    ``SAVEPOINT <name>`` SQL without quoting. Document names contain hyphens
-    (e.g. ``PONTO-PAY-6206``, ``PL-2026-00001``), which are illegal in an
-    unquoted MariaDB savepoint identifier and raise a 1064 syntax error.
-    Replace any non-alphanumeric character with an underscore so the savepoint
-    can be created and rolled back to safely.
-    """
-    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{doc_name}")
 
 
 # =============================================================================
@@ -521,6 +516,9 @@ def process_executed_payment_job(payment_link_name: str) -> Dict[str, Any]:
     return _process_executed_payment(doc)
 
 
+# The invoice matcher and the Payment Entry back-link write sales_invoice and payment_entry
+# on a submitted row; only system code may (#1907).
+@as_system_update
 def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
     """
     Process an executed Ponto payment - find matching invoice and create Payment Entry.
@@ -793,15 +791,16 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
             # Process the individual payment
             doc.process_payment_received()
 
-            # Update debtor info if provided
+            # Update debtor info if provided (a system write on a submitted row, #1907)
             if debtor_info:
-                if debtor_info.get("name"):
-                    doc.debtor_name = debtor_info["name"]
-                if debtor_info.get("iban"):
-                    doc.debtor_iban = debtor_info["iban"]
-                if debtor_info.get("bank"):
-                    doc.debtor_bank = debtor_info["bank"]
-                doc.save()
+                with system_update(doc):
+                    if debtor_info.get("name"):
+                        doc.debtor_name = debtor_info["name"]
+                    if debtor_info.get("iban"):
+                        doc.debtor_iban = debtor_info["iban"]
+                    if debtor_info.get("bank"):
+                        doc.debtor_bank = debtor_info["bank"]
+                    doc.save()
 
             frappe.logger().info(
                 f"Processed periodic payment execution for {pl.name}, "

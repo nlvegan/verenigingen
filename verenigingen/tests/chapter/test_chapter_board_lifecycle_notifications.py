@@ -32,7 +32,6 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
         # Configuration; ensure the board-lifecycle notification types are enabled.
         self._enable_chapter_notification_types()
         # Clear any stale flags from other tests
-        frappe.flags.chapter_transfer = None
         frappe.flags.is_bulk_import = False
         frappe.flags.suppress_chapter_notifications = False
         # EnhancedTestCase._setup_email_mocking() patches frappe.sendmail so emails
@@ -41,7 +40,6 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
         self.captured_emails = []
 
     def tearDown(self):
-        frappe.flags.chapter_transfer = None
         # Restore the Single this class mutated so neighbours see the original value.
         frappe.db.set_single_value(
             "Verenigingen Settings",
@@ -49,50 +47,6 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
             self._orig_send_chapter_setting,
         )
         super().tearDown()
-
-    def test_transfer_sets_and_clears_flag(self):
-        """transfer_member_between_chapters sets chapter_transfer flag and clears it after."""
-        member = self.factory.create_member()
-        chapter_a = self.factory.create_chapter()
-        chapter_b = self.factory.create_chapter()
-        # Pre-assign to chapter A (bypass notifications during setup)
-        frappe.flags.suppress_chapter_notifications = True
-        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter_a.name)
-        frappe.flags.suppress_chapter_notifications = False
-
-        captured = {}
-        original = ChapterMembershipManager.assign_member_to_chapter
-
-        def wrapped(member_id, chapter_name, **kw):
-            captured["flag_during"] = dict(frappe.flags.get("chapter_transfer") or {})
-            return original(member_id, chapter_name, **kw)
-
-        ChapterMembershipManager.assign_member_to_chapter = staticmethod(wrapped)
-        try:
-            ChapterMembershipManager.transfer_member_between_chapters(
-                member.name, chapter_a.name, chapter_b.name
-            )
-        finally:
-            ChapterMembershipManager.assign_member_to_chapter = staticmethod(original)
-
-        self.assertEqual(captured["flag_during"].get("member"), member.name)
-        self.assertEqual(captured["flag_during"].get("from"), chapter_a.name)
-        self.assertEqual(captured["flag_during"].get("to"), chapter_b.name)
-        # Flag cleared afterwards
-        self.assertIsNone(frappe.flags.get("chapter_transfer"))
-
-    def test_transfer_clears_flag_on_failure(self):
-        """Flag is cleared even when transfer goes through an error path."""
-        member = self.factory.create_member()
-        chapter_a = self.factory.create_chapter()
-
-        frappe.flags.chapter_transfer = None
-        # A nonexistent destination triggers the error path; the wrapper's finally
-        # must still clear the flag.
-        ChapterMembershipManager.transfer_member_between_chapters(
-            member.name, chapter_a.name, "Nonexistent-Chapter-" + frappe.generate_hash(length=6)
-        )
-        self.assertIsNone(frappe.flags.get("chapter_transfer"))
 
     # ------------------------------------------------------------------
     # Helpers for board-notification tests
@@ -255,6 +209,74 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
             f"Expected 'left' email to {v_email} in {subjects}",
         )
 
+    def _staff_move_and_collect(self, caller=None):
+        """Move an Active member from chapter A to B via the Assign Chapter endpoint
+        (as `caller`, or as Administrator), return the result and each board's subjects."""
+        from verenigingen.verenigingen.doctype.chapter.chapter import (
+            assign_member_to_chapter_with_cleanup,
+        )
+
+        # Unique recipients per call: EmailService's per-(notification_key, recipient)
+        # cooldown would otherwise silence a second move that reuses an address.
+        run = frappe.generate_hash(length=8)
+        chapter_a, volunteers_a = self._make_chapter_with_board([f"move-a-{run}@example.com"])
+        chapter_b, volunteers_b = self._make_chapter_with_board([f"move-b-{run}@example.com"])
+        member = self.factory.create_member(status="Active")
+        frappe.flags.suppress_chapter_notifications = True
+        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter_a.name)
+        frappe.flags.suppress_chapter_notifications = False
+        self.captured_emails = []
+
+        if caller:
+            with self.as_user(caller):
+                result = assign_member_to_chapter_with_cleanup(member.name, chapter_b.name)
+        else:
+            result = assign_member_to_chapter_with_cleanup(member.name, chapter_b.name)
+
+        return (
+            result,
+            chapter_a,
+            chapter_b,
+            self._emails_sent_to(volunteers_a[0].email),
+            self._emails_sent_to(volunteers_b[0].email),
+        )
+
+    def _assert_both_boards_told(self, result, chapter_a, chapter_b, subjects_a, subjects_b):
+        self.assertTrue(result.get("success"), result)
+        self.assertTrue(any(f"Member left {chapter_a.name}" in s for s in subjects_a), subjects_a)
+        self.assertFalse(any("New member in" in s for s in subjects_a), subjects_a)
+        self.assertTrue(any(f"New member in {chapter_b.name}" in s for s in subjects_b), subjects_b)
+        self.assertFalse(any("Member left" in s for s in subjects_b), subjects_b)
+
+    def test_staff_move_tells_both_boards(self):
+        """#1894: the staff move (Member form "Assign Chapter" ->
+        assign_member_to_chapter_with_cleanup) removes the member from A and adds
+        them to B through the normal leave/join writers, so the source board is told
+        the member left and the destination board is told the member joined. This is
+        why no separate "transfer" notification exists.
+
+        Control: each board receives ONLY its own side's mail.
+        """
+        self._assert_both_boards_told(*self._staff_move_and_collect())
+
+    def test_staff_move_as_treasurer_tells_both_boards(self):
+        """#1894: same move as the least-privileged real caller of the Assign Chapter
+        button (a Treasurer role-profile user; Verenigingen Staff is refused at the
+        critical tier), not only Administrator."""
+        treasurer = f"mv1894-{frappe.generate_hash(length=8)}@example.com"
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": treasurer,
+                "first_name": "Move",
+                "send_welcome_email": 0,
+                "role_profiles": [{"role_profile": "Verenigingen Treasurer"}],
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("User", user.name)
+
+        self._assert_both_boards_told(*self._staff_move_and_collect(caller=treasurer))
+
     def test_setting_disabled_blocks_notification(self):
         """send_chapter_assignment_notifications=0 blocks emails even when notify=True."""
         frappe.db.set_single_value("Verenigingen Settings", "send_chapter_assignment_notifications", 0)
@@ -320,3 +342,37 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
 
         self.assertTrue(self._emails_sent_to(active_vol.email))
         self.assertFalse(self._emails_sent_to(inactive_vol.email))
+
+    # ------------------------------------------------------------------
+    # #1798: a disabled row is not a join
+    # ------------------------------------------------------------------
+
+    def test_non_active_member_add_does_not_notify_board(self):
+        """#1798: add_member derives enabled=0 for a non-Active member, so the roster
+        hides them; the board must not be told "member joined" about them.
+
+        Real flow (assign_member_to_chapter -> MemberManager.add_member) with the real
+        setting on. The control is test_active_member_add_still_notifies_board.
+        """
+        chapter, volunteers = self._make_chapter_with_board(["notjoined@example.com"])
+        member = self.factory.create_member(status="Suspended")
+
+        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter.name, notify=True)
+
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": member.name}, ["enabled"], as_dict=True
+        )
+        self.assertIsNotNone(row, "fixture setup: the disabled row must exist")
+        self.assertEqual(row.enabled, 0, "fixture setup: a Suspended member's row must be disabled")
+        self.assertEqual(self._emails_sent_to(volunteers[0].email), [])
+
+    def test_active_member_add_still_notifies_board(self):
+        """#1798 control: the same flow for an Active member still notifies the board."""
+        chapter, volunteers = self._make_chapter_with_board(["joined@example.com"])
+        member = self.factory.create_member(status="Active")
+
+        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter.name, notify=True)
+
+        self.assertTrue(
+            any(f"New member in {chapter.name}" in s for s in self._emails_sent_to(volunteers[0].email))
+        )

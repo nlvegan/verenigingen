@@ -39,6 +39,13 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    LINK_GUARDED_FIELDS,
+    alert_executed_on_cancelled_row,
+    as_system_update,
+    as_system_update_from_db,
+    refuse_unless_system_update,
+)
 
 
 class PontoPaymentLink(Document):
@@ -55,6 +62,10 @@ class PontoPaymentLink(Document):
     def before_submit(self):
         """Create payment initiation request in Ponto API before submit."""
         self.create_ponto_payment_request()
+
+    def before_update_after_submit(self):
+        """Only system code may change status / debtor / invoice / entry on a submitted row (#1907)."""
+        refuse_unless_system_update(self, LINK_GUARDED_FIELDS)
 
     def on_cancel(self):
         """Handle cancellation."""
@@ -264,6 +275,7 @@ class PontoPaymentLink(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
+    @as_system_update_from_db  # whitelisted: never trust the client-built document (#1907)
     def refresh_status(self):
         """
         Refresh payment link status from Ponto API.
@@ -294,6 +306,8 @@ class PontoPaymentLink(Document):
             # never mean Executed, which books a Payment Entry (#1840, maintainer ruling
             # 2026-10-31). Unmapped keeps the current status; a backward move is refused.
             new_status = map_link_status((request.status or "").lower()) or self.status
+            if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_request_id):
+                return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
@@ -351,6 +365,7 @@ class PontoPaymentLink(Document):
                 title=_("API Error"),
             )
 
+    @as_system_update
     def process_payment_received(self):
         """
         Process received payment.
@@ -395,6 +410,7 @@ class PontoPaymentLink(Document):
         self.save(ignore_permissions=True)
         frappe.logger().info(f"Created Payment Entry {pe_name} for Ponto Payment Link {self.name}")
 
+    @as_system_update
     def update_status_from_webhook(self, new_status: str, debtor_info: dict = None):
         """
         Update status from webhook event.
@@ -412,6 +428,9 @@ class PontoPaymentLink(Document):
             stub this method (returning None). Only tests read the return value. A refused move also
             drops ``debtor_info``.
         """
+        if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_request_id):
+            return False  # cancelled row: finance alerted, doc untouched (#1848)
+
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
 

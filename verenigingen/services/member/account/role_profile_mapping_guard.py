@@ -141,15 +141,41 @@ def require_may_remove_profile_for(doctype: str, entity: str, user: str) -> None
     permission on that Team/Chapter AND the target must have (or have had) a row there.
     An unknown entity, a forbidden one and an unrelated target are refused identically.
     """
-    if frappe.session.user == "Administrator" or {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(
-        frappe.get_roles()
-    ):
+    _require_may_manage_profiles_for(doctype, entity, lambda: _target_has_a_row(doctype, entity, user))
+
+
+def require_may_bulk_assign_profiles_for(doctype: str, entity: str) -> None:
+    """Gate the whitelisted team bulk assign endpoint (#1686): same authority as the remove
+    endpoints (administrator, or write permission on that Team/Chapter, which for a Team means
+    the Team Lead role AND team scope; a plain member has no Team write), without a target.
+    The chapter board bulk endpoints are admin-only instead: see require_profile_admin."""
+    _require_may_manage_profiles_for(doctype, entity, lambda: True)
+
+
+def require_profile_admin() -> None:
+    """Admin-only gate (#1686 ruling, 2026-10-31) for the chapter board bulk endpoints: System
+    Manager / Verenigingen Administrator only, Treasurer, National Board Member and Staff
+    refused. Same message as the other guards, so an unknown and a forbidden chapter answer alike."""
+    if not is_profile_admin():
+        frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
+
+
+def is_profile_admin() -> bool:
+    """The one definition of "may use the chapter board bulk endpoints". The Chapter form reads
+    it through onload to decide whether to show the button, so the two cannot drift (#1831)."""
+    return frappe.session.user == "Administrator" or bool(
+        {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(frappe.get_roles())
+    )
+
+
+def _require_may_manage_profiles_for(doctype, entity, target_ok) -> None:
+    if is_profile_admin():
         return
     if not (
         isinstance(entity, str)
         and frappe.db.exists(doctype, entity)
         and frappe.has_permission(doctype, "write", doc=entity)
-        and _target_has_a_row(doctype, entity, user)
+        and target_ok()
     ):
         frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
 

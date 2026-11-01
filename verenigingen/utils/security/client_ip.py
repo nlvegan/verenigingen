@@ -251,6 +251,19 @@ def get_client_ip() -> str:
     return remote_addr
 
 
+def get_client_ip_or_none() -> Optional[str]:
+    """
+    The trusted client IP, or None when it cannot be determined.
+
+    ``get_client_ip`` returns the strings "unknown" / "test_environment" for a
+    missing request or address. That is fine for a rate-limit key but must not be
+    stored as an address in an audit record or sent to a third party, so callers
+    that record or transmit the IP use this instead.
+    """
+    ip = get_client_ip()
+    return None if ip in ("unknown", "test_environment", "") else ip
+
+
 def get_client_ip_with_info() -> dict:
     """
     Get client IP with additional debug information.

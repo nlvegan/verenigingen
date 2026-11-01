@@ -20,6 +20,7 @@ from verenigingen.utils.constants import Roles
 # from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.api_security_framework import high_security_api
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
 
 
@@ -206,7 +207,7 @@ class SEPAAuditLogger:
         if not user:
             user = getattr(frappe.session, "user", "System")
         if not ip_address:
-            ip_address = getattr(frappe.local, "request_ip", "unknown")
+            ip_address = get_client_ip_or_none() or "unknown"
 
         # Generate unique event ID
         event_id = f"audit_{int(time.time() * 1000)}_{hash(f'{user}{event_type}{time.time()}') % 100000:05d}"
@@ -930,7 +931,7 @@ def log_sensitive_operation(
             "operation": operation,
             "resource": resource,
             "operation_timestamp": frappe.utils.now(),
-            "user_ip": getattr(frappe.local, "request_ip", "unknown"),
+            "user_ip": (get_client_ip_or_none() or "unknown"),
             **(details or {}),
         },
         sensitive_data=True,
