@@ -11,11 +11,16 @@ each OPEN row through the doctype's own ``refresh_status()``, which already owns
 the shared status map, the refused-move guard (#1835: Executed is final, closed
 rows never revert) and the atomic status + Payment Entry unit (#1323/#1362).
 
-KNOWN LIMITATION (#1907, fixed in a separate prerequisite PR): the fields a poll
-writes are not ``allow_on_submit`` on the two doctypes, so a real SUBMITTED Ponto
-document cannot change status through ``refresh_status`` yet. The tests here use
-docstatus-0 rows; a submitted-document test follows once this branch is rebased
-onto the #1907 fix.
+Submitted rows (#1907): Ponto rows are SUBMITTED documents. ``refresh_status`` is
+``@as_system_update_from_db``, so the poll changes a submitted row's status under the
+system flag the ``before_update_after_submit`` guard requires.
+
+Cancelled rows (#1931, maintainer ruling 2026-11-01): a locally cancelled (docstatus 2)
+row can still be paid at Ponto, and since no webhooks arrive for outgoing payments (#1921)
+the poll is the only thing that can notice. A SECOND, separately bounded pass reads the
+status of cancelled rows that still carry an open status and, ONLY when Ponto says
+``executed``, raises the #1848 alert. It never calls ``refresh_status`` on such a row and
+never writes to it: no save, no ``db_set``, no status. See ``_check_cancelled_one``.
 
 Transactions: nothing here commits. Frappe's scheduler commits after the job, as
 for every other entry in ``hooks/scheduler.py``. Each row runs in its own
@@ -34,6 +39,8 @@ from verenigingen.utils.transaction_errors import (
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
+from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import alert_executed_on_cancelled_row
 from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoAPIError,
     PontoAuthenticationError,
@@ -47,6 +54,11 @@ STALENESS_WINDOW_DAYS = 30
 # Selection is a rotating cursor (below), so rows beyond the cap are polled on later
 # runs instead of never.
 BATCH_LIMIT = 100
+
+# The cancelled-row pass is its own pass with its own cap and cursor, so it can neither use
+# up the open rows' batch nor be starved by it. A cancelled row costs one read call per run
+# until it ages out of the window, so the cap is smaller than the open rows'.
+CANCELLED_BATCH_LIMIT = 50
 
 # Outage budget. PontoClient retries and there is no circuit breaker, so a dead Ponto
 # would cost every row. Stop after this many consecutive OUTAGE-shaped row failures
@@ -76,10 +88,11 @@ _POLLED = (
 
 def poll_open_ponto_payment_statuses():
     """Scheduler entry: refresh the open, recent Ponto Requests and Links."""
-    batches = {}
+    batches, cancelled_batches = {}, {}
     for doctype, statuses, id_field in _POLLED:
         open_count = _open_count(doctype, statuses, id_field)
-        if not open_count:
+        cancelled_count = _open_count(doctype, statuses, id_field, cancelled=True)
+        if not (open_count or cancelled_count):
             continue
         if not _configured_for(doctype):
             _log_once_a_day(
@@ -89,7 +102,8 @@ def poll_open_ponto_payment_statuses():
                 "client (credentials; for links also mTLS and an enabled bank account mapping).",
             )
             continue
-        batches[doctype] = _next_batch(doctype, statuses, id_field)
+        if open_count:
+            batches[doctype] = _next_batch(doctype, statuses, id_field)
         if open_count > BATCH_LIMIT:
             _log_once_a_day(
                 f"truncated:{doctype}",
@@ -97,17 +111,35 @@ def poll_open_ponto_payment_statuses():
                 message=f"{open_count} open rows, {BATCH_LIMIT} polled per run; the rest are polled on "
                 "later runs (rotating cursor).",
             )
-    _refresh_batches(_rotated(batches))
+        if cancelled_count:
+            cancelled_batches[doctype] = _next_batch(
+                doctype, statuses, id_field, cancelled=True, limit=CANCELLED_BATCH_LIMIT
+            )
+        if cancelled_count > CANCELLED_BATCH_LIMIT:
+            _log_once_a_day(
+                f"truncated-cancelled:{doctype}",
+                title=f"Ponto status poll batch truncated: cancelled {doctype}",
+                message=f"{cancelled_count} cancelled rows still open at Ponto, {CANCELLED_BATCH_LIMIT} "
+                "checked per run; the rest are checked on later runs (rotating cursor).",
+            )
+    # Open rows first: the cancelled pass shares the outage stop and the wall-clock budget but
+    # runs after them, so it can never use up the budget the open rows need.
+    plan = [(dt, False, rows) for dt, rows in _rotated(batches).items()]
+    plan += [(dt, True, rows) for dt, rows in cancelled_batches.items()]
+    _refresh_batches(plan)
 
 
 # Raw SQL rather than frappe.qb on purpose: the cursor (a stored row name) must reach the
 # database as a BOUND parameter, and pypika splices values in as literals without escaping
 # backslashes.
-def _open_where(doctype, statuses, id_field):
-    """(FROM/WHERE sql, params) for the open rows. ``doctype`` and ``id_field`` come from the
-    module's own ``_POLLED`` constants, never from a caller; every VALUE is a bound parameter."""
+def _open_where(doctype, statuses, id_field, cancelled=False):
+    """(FROM/WHERE sql, params) for the open rows, or with ``cancelled`` for the docstatus-2 rows
+    that still carry an open status (``on_cancel`` sets "Cancelled" in memory only, #1918).
+    ``doctype`` and ``id_field`` come from the module's own ``_POLLED`` constants, never from a
+    caller; every VALUE is a bound parameter."""
+    docstatus = "= 2" if cancelled else "!= 2"
     sql = (
-        f"FROM `tab{doctype}` WHERE docstatus != 2 AND status IN %(statuses)s "
+        f"FROM `tab{doctype}` WHERE docstatus {docstatus} AND status IN %(statuses)s "
         f"AND `{id_field}` IS NOT NULL AND `{id_field}` != '' AND creation >= %(since)s"
     )
     params = {
@@ -117,20 +149,20 @@ def _open_where(doctype, statuses, id_field):
     return sql, params
 
 
-def _open_count(doctype, statuses, id_field):
-    sql, params = _open_where(doctype, statuses, id_field)
+def _open_count(doctype, statuses, id_field, cancelled=False):
+    sql, params = _open_where(doctype, statuses, id_field, cancelled)
     return frappe.db.sql(f"SELECT COUNT(*) {sql}", params)[0][0]
 
 
-def _cursor_cache_key(doctype):
-    return f"ponto_status_poll_cursor:{doctype}"
+def _cursor_cache_key(doctype, cancelled=False):
+    return f"ponto_status_poll_cursor:{'cancelled:' if cancelled else ''}{doctype}"
 
 
-def _open_rows_page(doctype, statuses, id_field, cursor_condition, cursor, limit):
+def _open_rows_page(doctype, statuses, id_field, cursor_condition, cursor, limit, cancelled=False):
     """Open rows ordered by (creation, name). ``cursor_condition`` is one of the fixed SQL
     fragments below; the cursor's values are bound parameters (a name containing a quote or a
     backslash must not reach the SQL text)."""
-    sql, params = _open_where(doctype, statuses, id_field)
+    sql, params = _open_where(doctype, statuses, id_field, cancelled)
     if cursor is not None:
         sql += f" AND {cursor_condition}"
         params.update(cursor_creation=cursor.creation, cursor_name=cursor.name)
@@ -149,8 +181,8 @@ _UP_TO_CURSOR = (
 )
 
 
-def _next_batch(doctype, statuses, id_field):
-    """The next BATCH_LIMIT rows after the stored cursor, wrapping round to the head.
+def _next_batch(doctype, statuses, id_field, cancelled=False, limit=None):
+    """The next ``limit`` (default BATCH_LIMIT) rows after the stored cursor, wrapping round to the head.
 
     A cursor in the cache rather than "oldest first" or ``modified asc``: oldest-first
     starved every row past the cap behind abandoned ones, and ``modified asc`` only
@@ -159,13 +191,14 @@ def _next_batch(doctype, statuses, id_field):
     and is applied in SQL, so there is no fixed listing cap. A lost cache just restarts
     the rotation.
     """
-    cursor = frappe.cache().get_value(_cursor_cache_key(doctype))
+    limit = limit or BATCH_LIMIT
+    cursor = frappe.cache().get_value(_cursor_cache_key(doctype, cancelled))
     if not cursor:
-        return _open_rows_page(doctype, statuses, id_field, None, None, BATCH_LIMIT)
-    after = _open_rows_page(doctype, statuses, id_field, _AFTER_CURSOR, cursor, BATCH_LIMIT)
-    if len(after) >= BATCH_LIMIT:
+        return _open_rows_page(doctype, statuses, id_field, None, None, limit, cancelled)
+    after = _open_rows_page(doctype, statuses, id_field, _AFTER_CURSOR, cursor, limit, cancelled)
+    if len(after) >= limit:
         return after
-    head = _open_rows_page(doctype, statuses, id_field, _UP_TO_CURSOR, cursor, BATCH_LIMIT - len(after))
+    head = _open_rows_page(doctype, statuses, id_field, _UP_TO_CURSOR, cursor, limit - len(after), cancelled)
     return after + head
 
 
@@ -181,12 +214,13 @@ def _rotated(batches):
     return {name: batches[name] for name in names[offset:] + names[:offset]}
 
 
-def _refresh_batches(batches):
+def _refresh_batches(plan):
+    """``plan`` is a list of ``(doctype, cancelled, rows)``, run in order."""
     deadline = _monotonic() + RUN_BUDGET_SECONDS
     consecutive_outages = attempted = 0
     last_attempted = {}
     stop_reason = None
-    for doctype, rows in batches.items():
+    for doctype, cancelled, rows in plan:
         for row in rows:
             if consecutive_outages >= MAX_CONSECUTIVE_OUTAGE_FAILURES:
                 stop_reason = f"{consecutive_outages} consecutive Ponto outage-type failures"
@@ -194,9 +228,9 @@ def _refresh_batches(batches):
                 stop_reason = f"the {RUN_BUDGET_SECONDS} s run budget was used up"
             if stop_reason:
                 break
-            last_attempted[doctype] = row
+            last_attempted[(doctype, cancelled)] = row
             attempted += 1
-            outcome = _refresh_one(doctype, row.name)
+            outcome = _refresh_one(doctype, row.name, cancelled=cancelled)
             # A data error (4xx, validation, unmapped account) says nothing about Ponto
             # being down, so it neither counts toward the stop nor resets the count.
             if outcome == OUTAGE:
@@ -208,10 +242,10 @@ def _refresh_batches(batches):
     # Only reached on a normal exit. A fatal exception (deadlock, job timeout) propagates
     # past this line: the transaction rolls back with it, so the cursor must not move
     # past rows whose work was lost.
-    for doctype, row in last_attempted.items():
-        frappe.cache().set_value(_cursor_cache_key(doctype), row)
+    for (doctype, cancelled), row in last_attempted.items():
+        frappe.cache().set_value(_cursor_cache_key(doctype, cancelled), row)
     if stop_reason:
-        total = sum(len(rows) for rows in batches.values())
+        total = sum(len(rows) for _doctype, _cancelled, rows in plan)
         frappe.log_error(
             title="Ponto status poll stopped early",
             message=f"Stopped after {attempted} of {total} selected rows: {stop_reason}. "
@@ -302,15 +336,61 @@ def _is_outage(exc):
     return False
 
 
-OK, OUTAGE, DATA_ERROR = "ok", "outage", "data_error"
+def _is_not_found(exc):
+    """True when the root cause is a Ponto 404. Root-first, like ``_is_outage``: the client
+    wrappers re-raise a status-less ``PontoAPIError``, so only the root still knows the status."""
+    for e in reversed(list(_causes(exc))):
+        if isinstance(e, PontoAPIError) and e.status_code is not None:
+            return e.status_code == 404
+    return False
 
 
-def _refresh_one(doctype, name):
-    """Refresh one row in its own savepoint. Returns OK, OUTAGE or DATA_ERROR."""
+OK, OUTAGE, DATA_ERROR, GONE = "ok", "outage", "data_error", "gone"
+
+
+def _ponto_status_of(doc):
+    """(Ponto's local-mapped status, Ponto id) for ``doc``, READ ONLY: one GET through the same
+    client ``refresh_status`` builds, then the same shared map. Nothing is written."""
+    if doc.doctype == "Ponto Payment Request":
+        from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
+
+        payment = get_payment_client().get_payment(
+            account_id=doc.ponto_account, payment_id=doc.ponto_payment_id
+        )
+        return map_request_status(payment.status), doc.ponto_payment_id
+    from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
+        get_betaalverzoek_client,
+    )
+
+    request = get_betaalverzoek_client().get_payment_request(doc.ponto_request_id)
+    return map_link_status((request.status or "").lower()), doc.ponto_request_id
+
+
+def _check_cancelled_one(doctype, name):
+    """#1931: ask Ponto about a CANCELLED row and alert (#1848) only if it was paid.
+
+    Never ``refresh_status``: that would save the cancelled document on any other status, and
+    ``self.save()`` at the end of the Link's. The only write is the alert's own Notification Log
+    and Error Log rows; the row itself is read, never changed. ``closed`` (the Link client's
+    marker, #1840) is unmapped and so never counts as executed here either. The selection is a
+    SELECT, not a lock, but the alert itself refuses a row that is not (or no longer) cancelled.
+    """
+    doc = frappe.get_doc(doctype, name)
+    mapped, ponto_id = _ponto_status_of(doc)
+    if mapped == "Executed":
+        alert_executed_on_cancelled_row(doc, ponto_id)
+
+
+def _refresh_one(doctype, name, cancelled=False):
+    """Refresh one row (or, for a cancelled row, only check it) in its own savepoint.
+    Returns OK, OUTAGE, DATA_ERROR or GONE (Ponto 404 on a cancelled row)."""
     savepoint = f"ponto_poll_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        frappe.get_doc(doctype, name).refresh_status()
+        if cancelled:
+            _check_cancelled_one(doctype, name)
+        else:
+            frappe.get_doc(doctype, name).refresh_status()
     except NON_RESUMABLE_DB_ERRORS:
         raise
     except Exception as e:
@@ -320,6 +400,11 @@ def _refresh_one(doctype, name):
             # not a row problem: abandon the run rather than carry on against lost state.
             raise fatal
         rollback_to_savepoint(savepoint)
+        if cancelled and _is_not_found(e):
+            # Expected, not a fault: cancelling a Pending row deletes the payment at Ponto, so
+            # Ponto no longer knows it. Nothing to alert about (a payment that is gone cannot
+            # have executed), and no Error Log row every hour until the row ages out of the window.
+            return GONE
         frappe.log_error(
             title=f"Ponto status poll failed: {doctype} {name}", message=f"{type(e).__name__}: {e}"
         )

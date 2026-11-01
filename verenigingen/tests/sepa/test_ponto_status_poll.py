@@ -12,10 +12,14 @@ Executed, ``create_payment_entry`` / ``process_payment_received`` are replaced b
 spy so Payment Entry attempts can be counted exactly (the Payment Entry itself is
 covered by test_ponto_payment_request_paid_after_pe).
 
-Fixture shortcuts, stated: rows are ``insert()``-ed directly at the starting status
-(docstatus 0) rather than submitted, because submit calls Ponto; ``creation`` is
-back-dated with ``db.set_value`` to make a row "too old"; Ponto Settings credentials
-are set on the Single so the job's "is Ponto configured" gate passes.
+Fixture shortcuts, stated: most rows are ``insert()``-ed directly at the starting
+status (docstatus 0) rather than submitted, because submit calls Ponto;
+``TestPollOnReallySubmittedAndCancelledRows`` is the exception and drives REAL submitted
+(``.submit()``) and cancelled (``.cancel()``) rows with only the HTTP layer stubbed (#1907,
+#1931). ``creation`` is back-dated with ``db.set_value`` to make a row "too old";
+``test_cancelled_rows_are_selected_..`` marks docstatus-2 with ``db.set_value`` (selection
+logic only, stated there); Ponto Settings credentials are set on the Single so the job's
+"is Ponto configured" gate passes.
 
 Usage:
     bench --site test_site_13 run-tests --app verenigingen \\
@@ -36,12 +40,21 @@ from rq.timeouts import JobTimeoutException
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.payment.test_ponto_payment_entry_creation import _ensure_ponto_clearing_account
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.payment.test_ponto_submitted_documents import (
+    _create_client,
+    _PontoUsers,
+)
+from verenigingen.tests.support.sepa_test_company import (
+    create_test_supplier,
+    get_eur_bank_account,
+    get_eur_test_company,
+)
 from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_payment_request import (
     PontoPaymentRequest,
 )
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import ALERT_TITLE
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
 PAY_CLIENT = "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client"
@@ -164,6 +177,26 @@ class _PollBase(EnhancedTestCase):
             frappe.get_attr(JOB)()
         return pay, link
 
+    def _cancelled_docstatus(self, doc):
+        """Fixture shortcut: an open-looking status on a docstatus-2 row (db.set_value)."""
+        frappe.db.set_value(doc.doctype, doc.name, "docstatus", 2, update_modified=False)
+        return doc
+
+    def _http_stub(self, fake_get):
+        """A context manager stubbing ONLY the transport (``requests.Session.get`` -> ``fake_get(session,
+        url, **kwargs)``), the token manager and sleep: the real clients, ``with_retry``, the doctype
+        methods and the guard all run."""
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        token = stack.enter_context(
+            patch("verenigingen.verenigingen_payments.ponto.core.ponto_client.PontoTokenManager")
+        )
+        token.return_value.get_valid_token.return_value = "token"
+        stack.enter_context(patch.object(requests.Session, "get", fake_get))
+        stack.enter_context(patch("time.sleep"))
+        return stack
+
     def _all_ponto_errors(self):
         return ERROR_TITLE_PREFIX, "Ponto status poll stopped early", "status refresh failed"
 
@@ -174,15 +207,8 @@ class _PollBase(EnhancedTestCase):
 class TestPontoStatusPoll(_PollBase):
     # --- selection ----------------------------------------------------------
 
-    def _cancelled_docstatus(self, doc):
-        """Fixture shortcut: an open-looking status on a docstatus-2 row (db.set_value)."""
-        frappe.db.set_value(doc.doctype, doc.name, "docstatus", 2, update_modified=False)
-        return doc
-
     def test_selects_exactly_the_open_rows_inside_the_window(self):
         errors_before = self._poll_errors()
-        cancelled_request = self._cancelled_docstatus(self._make_poll_request("Pending"))
-        cancelled_link = self._cancelled_docstatus(self._make_poll_link("Pending Authorization"))
         open_requests = [self._make_poll_request("Pending"), self._make_poll_request("Signed")]
         controls = [
             self._make_poll_request("Executed"), self._make_poll_request("Cancelled"), self._make_poll_request("Expired"),
@@ -203,10 +229,9 @@ class TestPontoStatusPoll(_PollBase):
         polled_links = {c.args[0] for c in link.get_payment_request.call_args_list}
         self.assertEqual(polled_links, {d.ponto_request_id for d in open_links})
         self.assertFalse(polled_links & {d.ponto_request_id for d in link_controls if d.ponto_request_id})
-        # A docstatus-2 row and a row with no Ponto id must be filtered out BEFORE
-        # refresh_status: it would throw on them, which writes an Error Log row.
-        self.assertNotIn(cancelled_request.ponto_payment_id, polled)
-        self.assertNotIn(cancelled_link.ponto_request_id, polled_links)
+        # A row with no Ponto id must be filtered out BEFORE refresh_status: it would throw on
+        # it, which writes an Error Log row. (Cancelled rows are a separate pass, #1931: see
+        # TestCancelledRowPass.)
         self.assertEqual(self._poll_errors(), errors_before)
 
     def test_staleness_boundary_row_just_inside_is_polled(self):
@@ -769,14 +794,7 @@ class TestRealClientClassification(_PollBase):
 
     def _real_clients(self, behaviour):
         """Context managers stubbing only the transport, token and sleep."""
-        from contextlib import ExitStack
-
-        stack = ExitStack()
-        token = stack.enter_context(patch("verenigingen.verenigingen_payments.ponto.core.ponto_client.PontoTokenManager"))
-        token.return_value.get_valid_token.return_value = "token"
-        stack.enter_context(patch.object(requests.Session, "get", self._fake_get(behaviour)))
-        stack.enter_context(patch("time.sleep"))
-        return stack
+        return self._http_stub(self._fake_get(behaviour))
 
     def test_each_failure_is_classified_through_the_real_request_client(self):
         self.expectErrorLog(*self._all_ponto_errors())
@@ -871,3 +889,272 @@ class TestRealTokenManagerClassification(_PollBase):
             self._classify_poll_row(token, lambda: _response(200, b"<html>x</html>")), status_poll_service.OUTAGE
         )
         self.assertEqual(self._classify_poll_row(token, lambda: _response(404)), status_poll_service.DATA_ERROR)
+
+
+class TestCancelledRowSelection(_PollBase):
+    """#1931 selection and bounds. Shortcut, stated: the rows are docstatus-0 rows pushed to
+    docstatus 2 with ``db.set_value`` (``_cancelled_docstatus``), which is exactly the state a real
+    cancel leaves in the table (``on_cancel`` sets "Cancelled" in memory only, #1918); the real
+    submit/cancel flow is driven in TestPollOnReallySubmittedAndCancelledRows. The client factory is
+    stubbed here: this class is about WHICH rows are read, not about what Ponto answers."""
+
+    def _ids(self, client_mock, kind):
+        if kind == "request":
+            return [c.kwargs["payment_id"] for c in client_mock.get_payment.call_args_list]
+        return [c.args[0] for c in client_mock.get_payment_request.call_args_list]
+
+    def test_cancelled_rows_are_selected_only_when_open_have_an_id_and_are_in_the_window(self):
+        window = status_poll_service.STALENESS_WINDOW_DAYS
+        wanted = [
+            self._cancelled_docstatus(self._make_poll_request("Pending")),
+            self._cancelled_docstatus(self._make_poll_request("Signed")),
+        ]
+        controls = [
+            self._cancelled_docstatus(self._make_poll_request("Executed")),  # not open
+            self._cancelled_docstatus(self._make_poll_request("Cancelled")),  # not open
+            self._cancelled_docstatus(self._make_poll_request("Pending", age_days=window + 5)),
+            self._cancelled_docstatus(self._make_poll_request("Pending", ponto_id=False)),
+        ]
+        link_wanted = [self._cancelled_docstatus(self._make_poll_link("Authorized"))]
+        link_controls = [
+            self._cancelled_docstatus(self._make_poll_link("Executed")),
+            self._cancelled_docstatus(self._make_poll_link("Pending Authorization", age_days=window + 5)),
+            self._cancelled_docstatus(self._make_poll_link("Pending Authorization", ponto_id=False)),
+        ]
+        # Control for "docstatus != 2 only": an ordinary open row is still read in the SAME run.
+        live = self._make_poll_request("Pending")
+        pay, link = self._run_job()
+        self.assertEqual(
+            set(self._ids(pay, "request")),
+            {d.ponto_payment_id for d in wanted} | {live.ponto_payment_id},
+        )
+        self.assertEqual(set(self._ids(link, "link")), {d.ponto_request_id for d in link_wanted})
+        for d in controls:
+            self.assertNotIn(d.ponto_payment_id, self._ids(pay, "request"))
+        for d in link_controls:
+            self.assertNotIn(d.ponto_request_id, self._ids(link, "link"))
+
+    def test_a_flood_of_cancelled_rows_neither_starves_open_rows_nor_is_starved(self):
+        self.expectErrorLog("Ponto status poll batch truncated")  # 5 cancelled rows > the cap of 2
+        with patch.object(status_poll_service, "CANCELLED_BATCH_LIMIT", 2):
+            cancelled = [
+                self._cancelled_docstatus(self._make_poll_request("Pending", age_days=20 - i)) for i in range(5)
+            ]
+            live = self._make_poll_request("Pending")
+            seen_cancelled, runs = set(), 0
+            while seen_cancelled != {d.ponto_payment_id for d in cancelled} and runs < 5:
+                pay, _link = self._run_job()
+                ids = self._ids(pay, "request")
+                self.assertIn(live.ponto_payment_id, ids, "an open row was not read in this run")
+                this_run = [i for i in ids if i != live.ponto_payment_id]
+                self.assertLessEqual(len(this_run), 2, "the cancelled pass exceeded its own cap")
+                seen_cancelled |= set(this_run)
+                runs += 1
+            self.assertEqual(seen_cancelled, {d.ponto_payment_id for d in cancelled})
+            self.assertEqual(runs, 3, "5 rows at 2 per run, rotating: 3 runs reach all of them")
+
+    def test_the_cancelled_pass_runs_after_the_open_rows_and_is_cut_off_by_the_shared_budget(self):
+        """The shared wall-clock budget: open rows are always attempted first. With the budget already
+        spent after the first row, the cancelled row is the one left for a later run."""
+        live = self._make_poll_request("Pending")
+        cancelled = self._cancelled_docstatus(self._make_poll_request("Pending", age_days=1))
+        self.expectErrorLog("Ponto status poll stopped early")
+        ticks = iter([0, 0, 10**6, 10**6, 10**6])
+        with patch.object(status_poll_service, "_monotonic", lambda: next(ticks)):
+            pay, _link = self._run_job()
+        self.assertEqual(self._ids(pay, "request"), [live.ponto_payment_id])
+        self.assertNotIn(cancelled.ponto_payment_id, self._ids(pay, "request"))
+
+
+class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
+    """#1907 + #1931 through the REAL lifecycle. Rows reach docstatus 1 through ``.submit()`` and
+    docstatus 2 through ``.cancel()`` (the client factory is stubbed for those two calls only: they
+    are not what is under test). The POLL then runs with only ``requests.Session.get``, the token
+    manager and sleep stubbed: the real Ponto clients, ``with_retry``, ``refresh_status``, the
+    ``before_update_after_submit`` guard and the system flag all execute."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = get_eur_test_company()
+        cls.bank_account = get_eur_bank_account(cls.company)
+
+    def setUp(self):
+        super().setUp()
+        # The mapping the base configured, plus the Bank Account a Request's submit needs.
+        settings = frappe.get_single("Ponto Settings")
+        for m in settings.get("bank_account_mappings", []):
+            m.bank_account = self.bank_account
+        settings.flags.ignore_validate = True
+        settings.flags.ignore_links = True
+        settings.save()
+
+    # --- fixtures: real lifecycle -------------------------------------------
+
+    def _poll_submitted_request(self, amount=42.0):
+        supplier = create_test_supplier("PollSub", prefix="_Test Poll Supplier")
+        self.track_doc("Supplier", supplier.name)
+        req = frappe.new_doc("Ponto Payment Request")
+        req.update(dict(
+            ponto_account="test-account-id", amount=amount, currency="EUR",
+            creditor_name=supplier.supplier_name, creditor_iban="NL91ABNA0417164300",
+            remittance_info="poll #1931", reference_doctype="Supplier", reference_name=supplier.name,
+        ))
+        req.insert()
+        with patch(PAY_CLIENT, return_value=_create_client(f"pay-{frappe.generate_hash(length=10)}")):
+            req.submit()
+        self.assertEqual((req.docstatus, req.status), (1, "Pending"), "fixture must be a really submitted row")
+        return req
+
+    def _poll_submitted_link(self, amount=30.0):
+        link = frappe.new_doc("Ponto Payment Link")
+        link.update(dict(
+            payment_type="One-Time", amount=amount, currency="EUR", description="poll #1931",
+            creditor_name="Vereniging Test", creditor_iban="NL91ABNA0417164300",
+        ))
+        link.insert()
+        with patch(LINK_CLIENT, return_value=_create_client(f"req-{frappe.generate_hash(length=10)}")):
+            link.submit()
+        self.assertEqual((link.docstatus, link.status), (1, "Pending Authorization"))
+        return link
+
+    def _cancel(self, doc):
+        """The real cancel. The stub only absorbs the DELETE ``on_cancel`` sends to Ponto."""
+        path = PAY_CLIENT if doc.doctype == "Ponto Payment Request" else LINK_CLIENT
+        gone = SimpleNamespace(delete_payment=lambda **kw: None, delete_payment_request=lambda *a, **kw: None)
+        with patch(path, return_value=gone):
+            doc.cancel()
+        row = self._state(doc)
+        self.assertEqual(row.docstatus, 2)
+        # #1918, measured here: the DB keeps the OPEN status, which is what makes the row selectable.
+        self.assertIn(row.status, ("Pending", "Pending Authorization"))
+        return doc
+
+    def _state(self, doc):
+        return frappe.db.get_value(
+            doc.doctype, doc.name, ["docstatus", "status", "payment_entry", "modified"], as_dict=True
+        )
+
+    # --- the HTTP layer -----------------------------------------------------
+
+    def _poll(self, answers):
+        """Run the job. ``answers`` maps a Ponto id to a Ponto status string or an HTTP error code."""
+        self.requested = []
+
+        def fake_get(session, url, **kwargs):
+            ponto_id = url.rsplit("/", 1)[-1]
+            self.requested.append(ponto_id)
+            outcome = answers.get(ponto_id, "pending")
+            if isinstance(outcome, int):
+                return _response(outcome)
+            return _response(200, {"data": {"id": ponto_id, "attributes": {"status": outcome}}})
+
+        self.assertEqual(frappe.session.user, "Administrator")
+        with self._http_stub(fake_get):
+            frappe.get_attr(JOB)()
+
+    # --- #1907: the poll moves REALLY submitted rows -------------------------
+
+    def test_poll_moves_the_status_of_a_really_submitted_request_and_link(self):
+        req, link = self._poll_submitted_request(), self._poll_submitted_link()
+        errors_before = self._poll_errors()
+        self._poll({req.ponto_payment_id: "signed", link.ponto_request_id: "signed"})
+        self.assertEqual(self._state(req).docstatus, 1)
+        self.assertEqual(self._state(link).docstatus, 1)
+        self.assertEqual(self._state(req).status, "Signed")
+        self.assertEqual(self._state(link).status, "Authorized")
+        self.assertEqual(self._poll_errors(), errors_before, "the guard must not have refused the poll")
+
+    # --- #1931: Executed on a cancelled row ----------------------------------
+
+    def _assert_alerts_once_and_untouched(self, doc, ponto_id, amount):
+        self.expectErrorLog(ALERT_TITLE)
+        before = self._state(doc)
+        self._poll({ponto_id: "executed"})
+        self._assert_one_alert(doc.doctype, doc.name, ponto_id, amount)
+        self.assertEqual(self._state(doc), before, "the cancelled document must not change")
+        self.assertIn(ponto_id, self.requested, "the cancelled row must have been read from Ponto")
+        self.assertFalse(frappe.get_all("Payment Entry", filters={"reference_no": doc.name}))
+        self._poll({ponto_id: "executed"})  # second run: the alert's own dedupe
+        self._assert_one_alert(doc.doctype, doc.name, ponto_id, amount)
+        self.assertEqual(self._state(doc), before)
+
+    def test_executed_on_a_cancelled_request_alerts_exactly_once_and_changes_nothing(self):
+        req = self._cancel(self._poll_submitted_request())
+        self._assert_alerts_once_and_untouched(req, req.ponto_payment_id, req.amount)
+
+    def test_executed_on_a_cancelled_link_alerts_exactly_once_and_changes_nothing(self):
+        link = self._cancel(self._poll_submitted_link())
+        self._assert_alerts_once_and_untouched(link, link.ponto_request_id, link.amount)
+
+    def test_any_other_ponto_status_on_a_cancelled_row_alerts_and_writes_nothing(self):
+        """``signed`` and ``rejected`` both DIFFER from the stored open status, so an "alert on any
+        status change" implementation fails here; the row was really READ each time."""
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        before = {d.name: self._state(d) for d in (req, link)}
+        errors_before = self._poll_errors()
+        for ponto_status in ("signed", "rejected", "failed", "cancelled", "expired", "pending", "closed"):
+            self._poll({req.ponto_payment_id: ponto_status, link.ponto_request_id: ponto_status})
+            self.assertIn(req.ponto_payment_id, self.requested)
+            self.assertIn(link.ponto_request_id, self.requested)
+        self.assertEqual({d.name: self._state(d) for d in (req, link)}, before)
+        self.assertEqual(self._alerts_for(req.doctype, req.name), ([], []))
+        self.assertEqual(self._alerts_for(link.doctype, link.name), ([], []))
+        self.assertEqual(self._poll_errors(), errors_before, "no save was attempted on a cancelled row")
+
+    def test_an_open_row_in_the_same_run_is_still_refreshed_normally(self):
+        """Control: the cancelled pass does not replace the open pass. Rows of both kinds, one run."""
+        live_req, live_link = self._poll_submitted_request(), self._poll_submitted_link()
+        dead_req, dead_link = self._cancel(self._poll_submitted_request()), self._cancel(self._poll_submitted_link())
+        self.expectErrorLog(ALERT_TITLE)
+        self._poll({
+            live_req.ponto_payment_id: "signed", live_link.ponto_request_id: "signed",
+            dead_req.ponto_payment_id: "executed", dead_link.ponto_request_id: "executed",
+        })
+        self.assertEqual(self._state(live_req).status, "Signed")
+        self.assertEqual(self._state(live_link).status, "Authorized")
+        for dead, ponto_id in ((dead_req, dead_req.ponto_payment_id), (dead_link, dead_link.ponto_request_id)):
+            self._assert_one_alert(dead.doctype, dead.name, ponto_id, dead.amount)
+            self.assertEqual(self._state(dead).docstatus, 2)
+        self.assertEqual(self._alerts_for(live_req.doctype, live_req.name), ([], []))
+
+    # --- #1931: a 404 on a cancelled row -------------------------------------
+
+    def test_a_404_on_a_cancelled_row_is_quiet_and_never_stops_the_run(self):
+        """``on_cancel`` deletes a Pending payment at Ponto, so a cancelled row may well 404 (NOT
+        established: what Ponto really answers). Three of each kind in front of a paid one
+        (MAX_CONSECUTIVE_OUTAGE_FAILURES in a row, per kind) must write no Error Log row, not trip
+        the outage stop, and still let the paid one alert."""
+        gone = [self._cancel(self._poll_submitted_request()) for _ in range(3)]
+        gone += [self._cancel(self._poll_submitted_link()) for _ in range(3)]
+        for i, d in enumerate(gone):  # oldest first, so the paid rows come last in each pass
+            self._age(d, 10 - i)
+        paid_req = self._cancel(self._poll_submitted_request())
+        paid_link = self._cancel(self._poll_submitted_link())
+        self.expectErrorLog(ALERT_TITLE)
+        errors_before = self._poll_errors()
+        stops_before = frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"})
+        answers = {d.get("ponto_payment_id") or d.get("ponto_request_id"): 404 for d in gone}
+        answers.update({paid_req.ponto_payment_id: "executed", paid_link.ponto_request_id: "executed"})
+        self._poll(answers)
+        self.assertEqual(self._poll_errors(), errors_before, "a 404 on a cancelled row must not be logged")
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Ponto status poll stopped early"}), stops_before)
+        self._assert_one_alert(paid_req.doctype, paid_req.name, paid_req.ponto_payment_id, paid_req.amount)
+        self._assert_one_alert(paid_link.doctype, paid_link.name, paid_link.ponto_request_id, paid_link.amount)
+
+    def test_only_a_404_is_quiet_other_failures_on_a_cancelled_row_still_classify_and_log(self):
+        """Control for the test above: the quiet path is a 404, not 'every error on a cancelled row'."""
+        self.expectErrorLog(*self._all_ponto_errors())
+        cases = {404: status_poll_service.GONE, 400: status_poll_service.DATA_ERROR,
+                 503: status_poll_service.OUTAGE, 401: status_poll_service.OUTAGE}
+        for code, expected in cases.items():
+            for make in (self._poll_submitted_request, self._poll_submitted_link):
+                with self.subTest(code=code, doctype=make.__name__):
+                    row = self._cancel(make())
+                    before = frappe.db.count("Error Log", {"method": ["like", f"{ERROR_TITLE_PREFIX}%"]})
+                    with self._http_stub(lambda session, url, **kw: _response(code)):
+                        got = status_poll_service._refresh_one(row.doctype, row.name, cancelled=True)
+                    self.assertEqual(got, expected)
+                    logged = frappe.db.count("Error Log", {"method": ["like", f"{ERROR_TITLE_PREFIX}%"]}) - before
+                    self.assertEqual(logged, 0 if expected == status_poll_service.GONE else 1)
