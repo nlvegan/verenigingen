@@ -202,9 +202,9 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
             ):
                 with self.subTest(endpoint=fn.__name__), self.assertRaises(frappe.PermissionError):
                     fn(*args)
-            self.assertEqual(
-                suspension_api.can_suspend_member(UNKNOWN)["error"]["code"], "DOES_NOT_EXIST"
-            )
+            missing = suspension_api.can_suspend_member(UNKNOWN)
+            self.assertIs(missing["success"], False, msg=missing)
+            self.assertEqual(missing["error"]["code"], "DOES_NOT_EXIST")
             self.assertTrue(suspension_api.can_suspend_member(self.member.name)["data"]["can_suspend"])
 
     # --- query-count channel ------------------------------------------------
@@ -226,6 +226,11 @@ class TestSuspensionApiMemberScope(MemberOwnershipProbeMixin, EnhancedTestCase):
         permission_allowed_without_oracle, so it is measured separately and subtracted;
         what must match is everything the endpoint adds (the chapter/board lookups of
         can_terminate_member, the member/user/team reads of the preview).
+
+        RESIDUAL, accepted: the RAW totals still differ by ~4 queries for a no-read caller,
+        because frappe.has_permission loads a real document but fails fast on an unknown
+        one. That is inside Frappe and shared by every permission_allowed_without_oracle
+        caller (9 modules); it is not closed here (see the follow-up issue).
         """
         from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 
