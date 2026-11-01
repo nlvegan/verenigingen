@@ -1130,7 +1130,7 @@ class MembershipApplicationReview {
 		// One decision for the whole selection; each application keeps its own membership type
 		// and chapter. They are approved one after the other, and every outcome is reported.
 		frappe.confirm(`Are you sure you want to approve ${selected.length} applications?`, async () => {
-			const results = { done: [], failed: [] };
+			const results = { done: [], invoice_failed: [], failed: [] };
 			for (const application_name of selected) {
 				const app = this.applications.find((a) => a.name === application_name);
 				try {
@@ -1143,10 +1143,14 @@ class MembershipApplicationReview {
 							create_invoice: 1
 						}
 					});
-					(response.message?.success ? results.done : results.failed).push({
-						application_name,
-						error: response.message?.message
-					});
+					// Approved, but the invoice could not be created (#1774): not a clean approval, and
+					// not a failed one either, so it gets its own bucket.
+					const bucket = !response.message?.success
+						? results.failed
+						: response.message.invoice_failed
+							? results.invoice_failed
+							: results.done;
+					bucket.push({ application_name, error: response.message?.message });
 				} catch (error) {
 					results.failed.push({ application_name, error: error.message });
 				}
@@ -1189,18 +1193,24 @@ class MembershipApplicationReview {
 	}
 
 	report_bulk_result(label, results) {
-		const failures = results.failed
-			.map(
-				(f) =>
-					`<li>${frappe.utils.escape_html(f.application_name)}: ${frappe.utils.escape_html(f.error || '')}</li>`
-			)
-			.join('');
+		const list_items = (rows) =>
+			rows
+				.map(
+					(f) =>
+						`<li>${frappe.utils.escape_html(f.application_name)}: ${frappe.utils.escape_html(f.error || '')}</li>`
+				)
+				.join('');
+		const invoice_failed = results.invoice_failed || [];
+		const failures = list_items(results.failed);
+		const invoice_failures = list_items(invoice_failed);
 		frappe.msgprint({
 			title: __('Bulk result'),
-			indicator: results.failed.length ? 'orange' : 'green',
+			indicator: results.failed.length || invoice_failed.length ? 'orange' : 'green',
 			message: `<p>${frappe.utils.escape_html(label)}: ${results.done.length}</p>${
-				failures ? `<p>${__('Failed')}: ${results.failed.length}</p><ul>${failures}</ul>` : ''
-			}`
+				invoice_failures
+					? `<p>${__('Approved, but the invoice could NOT be created')}: ${invoice_failed.length}</p><ul>${invoice_failures}</ul>`
+					: ''
+			}${failures ? `<p>${__('Failed')}: ${results.failed.length}</p><ul>${failures}</ul>` : ''}`
 		});
 		this.load_applications();
 		this.load_statistics();

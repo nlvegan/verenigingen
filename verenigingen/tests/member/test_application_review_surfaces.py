@@ -538,6 +538,33 @@ class TestDashboardWiring(EnhancedTestCase):
         self.assertIn("metrics.members.pending ?? '--'", script, "the refresh keeps the server-rendered '--'")
         self.assertNotIn("r.message.error || r.message.message", script)
 
+    def _method_body(self, source, name):
+        """The text of a class method in the review page script, up to the next tab-indented method."""
+        import re
+
+        start = source.index(f"\n\t{name}(")
+        match = re.search(r"\n\t(?:async )?\w+\([^)]*\) \{", source[start + 1 :])
+        return source[start : start + 1 + match.start()] if match else source[start:]
+
+    def test_bulk_approve_counts_an_invoice_failure_apart_from_a_clean_approval(self):
+        """#1774 through the review page's loop: an approval whose invoice failed is neither `done` nor
+        `failed`. Source check (the loop runs in the browser; no JS harness here)."""
+        script = self._read(
+            "verenigingen/page/membership_application_review/membership_application_review.js"
+        )
+        loop = self._method_body(script, "bulk_approve")
+        self.assertIn("invoice_failed: []", loop)
+        self.assertIn("response.message.invoice_failed", loop)
+        self.assertIn("results.invoice_failed", loop)
+        self.assertNotIn("response.message?.success ? results.done", loop, "success alone is not a clean approval")
+        report = self._method_body(script, "report_bulk_result")
+        self.assertIn("list_items(invoice_failed)", report, "listed like the failures")
+        self.assertIn("<ul>${invoice_failures}</ul>", report, "and shown in the message")
+        self.assertIn("escape_html(f.application_name)", report)
+        self.assertIn("escape_html(f.error", report, "the server message is escaped before it is shown")
+        self.assertIn("results.failed.length || invoice_failed.length ? 'orange'", report)
+        self.assertEqual(report.count("escape_html(f."), 2, "one escaping helper serves both lists")
+
     def test_staff_may_open_the_review_page(self):
         import json
         import os
