@@ -62,6 +62,7 @@ class TestDashboardClaimCounts(StaffExpenseBase):
                 "is_active": 1,
             }
         ).insert()
+        self.keep_fixture_roles(user, _roles_shipped_for_profile("Verenigingen Chapter Board Member"))
         return user
 
     def _filed(self, user, chapter=None):

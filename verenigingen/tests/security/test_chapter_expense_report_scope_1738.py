@@ -38,6 +38,9 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
         )
         self._staffexp_employee(self.staff_board)
         self._seat_financial_1738(self.staff_board, self.chapter_a, "sb")
+        self.keep_fixture_roles(
+            self.staff_board, _roles_shipped_for_profile("Verenigingen Staff") + ["Verenigingen Chapter Board Member"]
+        )
 
         # A board member with no wide role at all
         self.plain_board = self.create_test_user(
@@ -46,6 +49,7 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
         )
         self._staffexp_employee(self.plain_board)
         self._seat_financial_1738(self.plain_board, self.chapter_a, "pb")
+        self.keep_fixture_roles(self.plain_board, _roles_shipped_for_profile("Verenigingen Chapter Board Member"))
 
     def _seat_financial_1738(self, user, chapter, tag):
         """A Financial seat on ``chapter`` (own Chapter Role: staff_boards() reuses one name)."""
@@ -117,5 +121,6 @@ class TestChapterExpenseReportScope(StaffExpenseBase):
         refuse, so the report lists nothing (and does not raise). A get_all read would list A."""
         user = self.create_test_user(email=f"x1738-nr-{self.token}@test.com", roles=["Verenigingen Member"])
         self._seat_financial_1738(user, self.chapter_a, "nr")
+        self.keep_fixture_roles(user, ["Verenigingen Member"])  # the seat's flush gave the board roles
         self.assertFalse(self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read")))
         self.assertEqual(self._report_ids(user), set())

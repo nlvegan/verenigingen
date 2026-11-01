@@ -142,6 +142,7 @@ class StaffExpenseBase(EnhancedTestCase):
                 "is_active": 1,
             }
         ).insert()
+        self.keep_fixture_roles(self.staff, _roles_shipped_for_profile("Verenigingen Staff"))
 
     def claim(self, employee, chapter=None, expense_approver=None, submit=False, approval_status="Draft"):
         data = {
@@ -176,6 +177,24 @@ class StaffExpenseBase(EnhancedTestCase):
             doc.approval_status = "Approved"
             doc.submit()
         return doc
+
+    def keep_fixture_roles(self, user, roles):
+        """Put a fixture user's DIRECT roles back after seating them (#1922).
+
+        A seat inserted outside a Chapter save now runs the real board-profile flush, and the
+        profile sync REPLACES the user's roles with the board profile's (the same thing a Chapter
+        save does in production). These fixtures model a user by the roles a shipped profile
+        grants, assigned directly, so seating would silently turn Staff into a plain board
+        member. This restores exactly the roles the fixture built, and drops the profile the
+        sync attached so a later User save does not reset them again. Probe shortcut, stated.
+        """
+        doc = frappe.get_doc("User", user.name)
+        doc.set("role_profiles", [])
+        doc.set("roles", [{"role": r} for r in dict.fromkeys(roles)])
+        doc.save(ignore_permissions=True)
+        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
+        self.assertEqual(have - {"All", "Guest"}, set(roles), f"fixture roles did not stick for {user.name}")
+        return user
 
     def act_as(self, user, fn):
         original = frappe.session.user

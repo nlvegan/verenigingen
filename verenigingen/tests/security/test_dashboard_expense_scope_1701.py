@@ -143,6 +143,9 @@ class TestDashboardExpenseScope(StaffExpenseBase):
                 "is_active": 1,
             }
         ).insert()
+        # The seat's flush gave the user the board profile's roles, which DO carry the claim read
+        # right; this test is about a seat holder whose roles do not, so give those roles back.
+        self.keep_fixture_roles(user, ["Verenigingen Member"])
         can_read = self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read"))
         self.assertFalse(can_read, "control: this user really lacks the read right")
         data = self._dash_1701(user, self.chapter_a)  # control: the seat opens the dashboard
