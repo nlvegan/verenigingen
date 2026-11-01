@@ -59,10 +59,13 @@ from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_paym
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError, PontoRateLimitError
 from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    DELIVERED_MARK,
+    OWED_MARK,
     ALERT_KEY,
     ALERT_MARKER,
     ALERT_TITLE,
     UNDELIVERED_TITLE,
+    owed_alerts,
 )
 from verenigingen.verenigingen_payments.ponto.services import status_poll_service
 
@@ -1239,3 +1242,105 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self._poll({req.ponto_payment_id: "executed"})
         self.assertTrue(self._alerts_for(req.doctype, req.name)[0], "a Notification Log must now exist")
         self.assertEqual(self._undelivered_rows(req), 1)
+
+    # --- #1931 (ruling 2026-11-01): keep sending an undelivered alert until it is delivered ---
+
+    def _push_out_of_window(self, doc):
+        """Fixture shortcut: raw writes that age BOTH ``creation`` and ``modified`` past the window, so
+        the cancelled pass no longer selects the row whichever column the window counts from."""
+        long_ago = add_to_date(now_datetime(), days=-(status_poll_service.STALENESS_WINDOW_DAYS + 10))
+        frappe.db.set_value(
+            doc.doctype, doc.name, {"creation": long_ago, "modified": long_ago}, update_modified=False
+        )
+
+    def _states(self, doc):
+        """(OWED, DELIVERED) markers on the document."""
+        return tuple(
+            bool(frappe.db.exists("Comment", {"reference_doctype": doc.doctype, "reference_name": doc.name,
+                                              "comment_type": "Info", "content": ["like", f"%{mark}%"]}))
+            for mark in (OWED_MARK, DELIVERED_MARK)
+        )
+
+    def _notification_logs(self, doc):
+        return self._alerts_for(doc.doctype, doc.name)[0]
+
+    def _undeliverable_cancelled_rows(self):
+        """A cancelled Request and Link, both Executed at Ponto, alerted while the key is unseeded."""
+        req = self._cancel(self._poll_submitted_request())
+        link = self._cancel(self._poll_submitted_link())
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({req.ponto_payment_id: "executed", link.ponto_request_id: "executed"})
+        for doc in (req, link):
+            self.assertEqual(self._states(doc), (True, False), "first alert: OWED recorded, not delivered")
+            self.assertEqual(self._notification_logs(doc), [])
+        return req, link
+
+    def test_an_undelivered_alert_is_retried_after_the_row_left_the_window_without_asking_ponto(self):
+        req, link = self._undeliverable_cancelled_rows()
+        for doc in (req, link):
+            self._push_out_of_window(doc)
+        self._poll({})  # still unseeded: retried, still undeliverable, nothing asked of Ponto
+        self.assertEqual(self.requested, [], "the retry must not call Ponto")
+        register_alert_notification_type()  # the key is seeded later
+        self._poll({})
+        self.assertEqual(self.requested, [], "the retry must not call Ponto")
+        for doc in (req, link):
+            self.assertTrue(self._notification_logs(doc), "the alert must be delivered once the key exists")
+            self.assertEqual(self._states(doc), (True, True))
+            self.assertEqual(self._state(doc).docstatus, 2)
+
+    def test_once_delivered_nothing_is_retried_or_written_again(self):
+        req, link = self._undeliverable_cancelled_rows()
+        for doc in (req, link):
+            self._push_out_of_window(doc)
+        register_alert_notification_type()
+        self._poll({})
+        before = {d.name: (self._notification_logs(d), self._state(d)) for d in (req, link)}
+        errors = frappe.db.count("Error Log")
+        comments = frappe.db.count("Comment", {"comment_type": "Info", "content": ["like", "%PONTO-ALERT-%"]})
+        for _ in range(2):
+            self._poll({})
+        self.assertEqual({d.name: (self._notification_logs(d), self._state(d)) for d in (req, link)}, before)
+        self.assertEqual(frappe.db.count("Error Log"), errors)
+        self.assertEqual(
+            frappe.db.count("Comment", {"comment_type": "Info", "content": ["like", "%PONTO-ALERT-%"]}), comments
+        )
+        self.assertEqual(self.requested, [])
+        owed_now = {(o.doctype, o.name) for o in owed_alerts(1000)}
+        self.assertFalse(owed_now & {(req.doctype, req.name), (link.doctype, link.name)}, "delivered = not owed")
+
+    def test_the_owed_marker_survives_an_error_log_clear(self):
+        """Error Log is pruned (14 days by default); the retry must not depend on it."""
+        req, _link = self._undeliverable_cancelled_rows()
+        self._push_out_of_window(req)
+        frappe.db.delete("Error Log", {"error": ["like", f"%{req.name}%"]})
+        self.assertEqual(
+            frappe.db.count("Error Log", {"error": ["like", f"%{req.name}%"]}), 0, "control: log cleared"
+        )
+        register_alert_notification_type()
+        self._poll({})
+        self.assertTrue(self._notification_logs(req))
+        self.assertEqual(self._states(req), (True, True))
+
+    def test_an_in_window_undelivered_alert_is_still_retried_by_the_cancelled_pass(self):
+        """Unchanged behaviour: a row still inside the window keeps being read and alerted."""
+        req, _link = self._undeliverable_cancelled_rows()
+        register_alert_notification_type()
+        self._poll({req.ponto_payment_id: "executed"})
+        self.assertIn(req.ponto_payment_id, self.requested)
+        self.assertTrue(self._notification_logs(req))
+
+    def test_the_owed_retry_is_bounded_and_rotates(self):
+        rows = [self._cancel(self._poll_submitted_request()) for _ in range(3)]
+        self.expectErrorLog(ALERT_TITLE, UNDELIVERED_TITLE)
+        self._unseed_alert_key()
+        self._poll({r.ponto_payment_id: "executed" for r in rows})
+        for r in rows:
+            self._push_out_of_window(r)
+        register_alert_notification_type()
+        with patch.object(status_poll_service, "OWED_ALERT_RETRY_LIMIT", 2):
+            self._poll({})
+            self.assertEqual(sum(bool(self._notification_logs(r)) for r in rows), 2)
+            self._poll({})
+        self.assertTrue(all(self._notification_logs(r) for r in rows), "the third row must not be starved")

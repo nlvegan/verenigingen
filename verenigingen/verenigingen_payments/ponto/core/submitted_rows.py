@@ -52,6 +52,12 @@ UNDELIVERED_TITLE = "Ponto executed-on-cancelled-row alert was NOT DELIVERED to 
 ALERT_KEY = "ponto_executed_on_cancelled_row"
 # Starts every alert's Notification Log subject and Error Log message; the dedupe keys on it.
 ALERT_MARKER = "PONTO-EXECUTED-ON-CANCELLED-ROW"
+# Durable "this alert is still owed" state (#1931 ruling 2026-11-01: keep sending until delivered).
+# Two append-only Info comments on the cancelled row: OWED when the alert is first raised, DELIVERED
+# once a Notification Log was created. Error Log is pruned (14 days by Frappe's default retention)
+# and a Notification Log is user-deletable data, so neither can be the only marker.
+OWED_MARK = "PONTO-ALERT-OWED"
+DELIVERED_MARK = "PONTO-ALERT-DELIVERED"
 
 
 def refuse_unless_system_update(doc, guarded_fields):
@@ -149,6 +155,8 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
         return True
 
     frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
+    if _alert_state_exists(doc, DELIVERED_MARK):
+        return True
     subject = f"{ALERT_MARKER}: {doc.doctype} {doc.name} was paid at Ponto but is cancelled here"
     notified = frappe.db.get_value(
         "Notification Log",
@@ -159,8 +167,14 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
     logged = frappe.db.exists(
         "Error Log", {"method": ALERT_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]}
     )
-    if notified and logged:
-        return True
+    if notified:
+        _note_alert_state(doc, DELIVERED_MARK, "a Notification Log exists for this alert")
+        if logged:
+            return True
+    else:
+        _note_alert_state(
+            doc, OWED_MARK, "the alert has not been delivered to anyone yet; it is retried hourly"
+        )
 
     details = (
         f"{ALERT_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto, but it was cancelled here. "
@@ -183,11 +197,63 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
         # No notification created: key unseeded or disabled (skipped), no recipient left, or failed.
         # Delivery is retried on every call (the key may be seeded later), but the loud row is
         # written ONCE per document: the poll calls this hourly for a cancelled row (#1931).
-        if not delivery.get("notifications_created") and not _undelivered_logged(doc):
+        if delivery.get("notifications_created"):
+            _note_alert_state(doc, DELIVERED_MARK, "alert delivered")
+        elif not _undelivered_logged(doc):
             _log_undelivered(details, delivery)
     if not logged:
         frappe.log_error(title=ALERT_TITLE, message=f"{details}\nNotification: {delivery}")
     return True
+
+
+def _alert_state_exists(doc, mark):
+    return frappe.db.exists(
+        "Comment",
+        {
+            "reference_doctype": doc.doctype,
+            "reference_name": doc.name,
+            "comment_type": "Info",
+            "content": ["like", f"%{mark}%"],
+        },
+    )
+
+
+def _note_alert_state(doc, mark, text):
+    """Record ``mark`` once on ``doc``. A comment, not a field: the cancelled row's own columns
+    (status, payment_entry, modified) are never written; only Frappe's ``_comments`` cache column is."""
+    if not _alert_state_exists(doc, mark):
+        doc.add_comment("Info", f"{mark}: {text}")
+
+
+def owed_alerts(limit):
+    """``(doctype, name)`` of rows whose alert is OWED (raised, never delivered), least recently
+    retried first. ``modified`` of the OWED comment is bumped after each retry (``mark_retried``),
+    so a row that can never be delivered cannot starve the others."""
+    rows = frappe.db.sql(
+        """
+        SELECT o.name, o.reference_doctype, o.reference_name
+        FROM `tabComment` o
+        WHERE o.comment_type = 'Info' AND o.content LIKE %(owed)s
+            AND o.reference_doctype IN %(doctypes)s
+            AND NOT EXISTS (
+                SELECT 1 FROM `tabComment` d
+                WHERE d.comment_type = 'Info' AND d.content LIKE %(delivered)s
+                    AND d.reference_doctype = o.reference_doctype AND d.reference_name = o.reference_name
+            )
+        ORDER BY o.modified ASC LIMIT %(limit)s
+        """,
+        {
+            "owed": f"%{OWED_MARK}%",
+            "delivered": f"%{DELIVERED_MARK}%",
+            "doctypes": ("Ponto Payment Request", "Ponto Payment Link"),
+            "limit": int(limit),
+        },
+    )
+    return [frappe._dict(comment=c, doctype=d, name=n) for c, d, n in rows]
+
+
+def mark_retried(comment):
+    frappe.db.set_value("Comment", comment, "modified", frappe.utils.now_datetime(), update_modified=False)
 
 
 def _undelivered_logged(doc):
