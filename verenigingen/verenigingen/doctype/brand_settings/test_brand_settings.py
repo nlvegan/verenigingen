@@ -278,6 +278,38 @@ class TestBrandSettingsIntegration(EnhancedTestCase):
             css = f.read()
         self.assertIn("#123456", css.lower())
 
+    def test_email_css_is_identical_when_regenerated_later(self):
+        # email_brand.css is TRACKED in git and regenerated on every Brand
+        # Settings save, so any clock-dependent content shows the file as
+        # modified in the working tree after each save or test run.
+        from frappe.tests.classes.context_managers import freeze_time
+
+        from verenigingen.utils.brand_css_generator import (
+            generate_email_css_file,
+            get_email_css_file_path,
+        )
+
+        css_path = get_email_css_file_path()
+        with open(css_path, encoding="utf-8") as f:
+            original = f.read()
+        self.addCleanup(self._restore_file, css_path, original)
+
+        doc = frappe.get_single("Brand Settings")
+        generated = []
+        for moment in ("2026-01-01 08:00:00", "2026-06-15 21:30:45"):
+            with freeze_time(moment):
+                generate_email_css_file(doc)
+            with open(css_path, encoding="utf-8") as f:
+                generated.append(f.read())
+
+        self.assertIn(doc.primary_color.lower(), generated[0].lower())
+        self.assertEqual(generated[0], generated[1])
+
+    @staticmethod
+    def _restore_file(path, content):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+
     def test_get_active_brand_settings_reflects_saved_doc(self):
         self._save_with_colors("#aabbcc", "#112233", "#445566")
         frappe.cache().delete_key("active_brand_settings")
