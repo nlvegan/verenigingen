@@ -119,8 +119,6 @@ verenigingen/permissions.py::assign_chapter_board_role::1
 verenigingen/permissions.py::can_terminate_member::2
 verenigingen/permissions.py::can_view_financial_info::1
 verenigingen/permissions.py::get_user_chapter_board_positions::1
-verenigingen/permissions.py::get_user_chapter_memberships_cached::1
-verenigingen/permissions.py::get_user_treasurer_chapters_cached::1
 verenigingen/permissions.py::has_donation_permission::1
 verenigingen/permissions.py::has_membership_termination_request_permission::1
 verenigingen/permissions.py::update_all_chapter_board_roles::1
