@@ -238,12 +238,22 @@ class Volunteer(Document):
 
     def on_update(self) -> None:
         """Actions after volunteer record is saved and committed"""
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
+
         # Auto-queue activation if transitioning from New to Active with assignments
         # but without an employee record yet. Done in on_update to ensure
         # the save is committed before background job processes.
         old_status = getattr(self, "_old_status", None)
         if old_status is not None:
             self._check_auto_activation(old_status)
+
+    def after_delete(self):
+        """Drop the request's member->volunteer lookup memo (#1902)"""
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""

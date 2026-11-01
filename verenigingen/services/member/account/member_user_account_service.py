@@ -900,6 +900,10 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
             # Explicit commit ensures link persists before verification check.
             frappe.db.set_value("Member", member.name, "user", member.email)
             frappe.db.commit()
+            # set_value skips Member hooks, so drop the volunteer-lookup memo by hand (#1902)
+            from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+            invalidate_volunteer_lookup_memo()
 
             # Verify linkage persisted correctly
             linked_user = frappe.db.get_value("Member", member.name, "user")
