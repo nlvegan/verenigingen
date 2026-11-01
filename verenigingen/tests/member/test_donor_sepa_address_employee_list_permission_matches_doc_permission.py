@@ -28,20 +28,20 @@ Each test drives the underlying Chapter Member row through a REAL production
 writer (never ``db.set_value``): ``add_member_to_test_chapter`` for the
 positive/cross-chapter controls (mirroring #1529's own baseline fixture),
 ``chapter_doc.member_manager.remove_member(permanent=False)``,
-``disable_chapter_memberships_safe``, and
-``ChapterMembershipManager.transfer_member_between_chapters`` (which itself
-calls ``remove_member(permanent=False)`` on the source chapter and
-``add_member`` on the destination -- #1533's "a transfer counts only for the
-destination" policy, at the list/doc-permission layer).
+``disable_chapter_memberships_safe``, and the staff "Assign Chapter" move,
+``assign_member_to_chapter_with_cleanup`` (which calls
+``remove_member(permanent=False)`` on the source chapter and ``add_member`` on
+the destination -- #1533's "a transfer counts only for the destination"
+policy, at the list/doc-permission layer).
 """
 
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.chapter_member_row import get_chapter_member_row
+from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
 
 class _ChapterBoardLinkedRecordListDocAgreement:
@@ -182,10 +182,10 @@ class _ChapterBoardLinkedRecordListDocAgreement:
         self._assert_board_record_visibility_1543(record_name, False, f"{self.doctype} after termination")
 
     def test_transfer_moves_visibility_from_source_to_destination_chapter(self):
-        """ChapterMembershipManager.transfer_member_between_chapters -- leave_chapter
-        (remove_member(permanent=False) under the hood, enabled=0/status='Active'
-        on the SOURCE row) followed by assign_member_to_chapter (add_member,
-        a NEW enabled=1/status='Active' row on the DESTINATION). #1533: a transfer
+        """The staff move (assign_member_to_chapter_with_cleanup) --
+        remove_member(permanent=False) on the SOURCE row (enabled=0/status='Active')
+        followed by add_member (a NEW enabled=1/status='Active' row on the
+        DESTINATION). #1533: a transfer
         counts only for the destination -- this is that policy applied to list/doc
         permission rather than to a chapter goal count. The source chapter's board
         must lose access to the member's linked record; the destination
@@ -202,12 +202,7 @@ class _ChapterBoardLinkedRecordListDocAgreement:
             record_name, True, f"{self.doctype} before transfer, source board"
         )
 
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            member_id=member.name,
-            from_chapter=self.chapter.name,
-            to_chapter=self.other_chapter.name,
-            reason="Test transfer #1543",
-        )
+        result = assign_member_to_chapter_with_cleanup(member.name, self.other_chapter.name)
         self.assertTrue(result.get("success"), f"fixture setup: transfer failed: {result}")
 
         source_row = get_chapter_member_row(member.name, self.chapter.name)

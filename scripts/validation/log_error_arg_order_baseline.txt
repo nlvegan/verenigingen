@@ -231,7 +231,6 @@ verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipMa
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.get_member_chapter_status::1
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.join_chapter::1
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.leave_chapter::1
-verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.transfer_member_between_chapters::2
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::1
 verenigingen/services/chapter/chapter_reference_manager.py::cleanup_member_chapter_references::1
 verenigingen/services/csv_import/membership_import_service.py::MembershipImportService.create_membership_from_csv::1
