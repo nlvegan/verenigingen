@@ -32,5 +32,9 @@ def _cleanup_stock_email_templates(names):
             frappe.delete_doc("Email Template", name, force=True)
         if name in fixture:
             row = {k: v for k, v in fixture[name].items() if k != "modified"}
-            frappe.get_doc(row).insert()
+            doc = frappe.get_doc(row)
+            # Fixture import does not validate links either; some shipped rows point
+            # reference_doctype at a name that is not a DocType here.
+            doc.flags.ignore_links = True
+            doc.insert()
     frappe.db.commit()

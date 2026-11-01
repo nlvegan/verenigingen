@@ -38,10 +38,24 @@ class TestStockEmailTemplates(VereningingenTestCase):
 
         _cleanup_stock_email_templates([STOCK])
 
-        self.assertEqual(
-            frappe.db.get_value("Email Template", STOCK, "response_html"),
-            _load_fixture_rows()[STOCK]["response_html"],
-        )
+        fixture_row = _load_fixture_rows()[STOCK]
+        doc = frappe.get_doc("Email Template", STOCK)
+        self.assertEqual(doc.response_html, fixture_row["response_html"])
+        self.assertEqual(doc.use_html, fixture_row["use_html"])
+        self.assertEqual(doc.subject, fixture_row["subject"])
+
+    def test_row_with_a_non_doctype_reference_doctype_is_restored(self):
+        """The fixture row's reference_doctype ('Membership Application') is not a
+        DocType here; link validation on re-insert raised after the delete."""
+        name = "membership_application_confirmation"
+        fixture_row = _load_fixture_rows()[name]
+        self.assertFalse(frappe.db.exists("DocType", fixture_row["reference_doctype"]))
+
+        _cleanup_stock_email_templates([name])
+
+        doc = frappe.get_doc("Email Template", name)
+        self.assertEqual(doc.subject, fixture_row["subject"])
+        self.assertEqual(doc.reference_doctype, fixture_row["reference_doctype"])
 
     def test_name_not_in_the_fixture_is_left_deleted(self):
         self.assertNotIn(NOT_STOCK, _load_fixture_rows())
