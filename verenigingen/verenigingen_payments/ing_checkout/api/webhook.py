@@ -19,23 +19,25 @@ API Documentation: https://developer.pay.nl/docs/exchanges
 """
 
 import json
-import re
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.transaction_errors import rollback_to_savepoint
+from verenigingen.utils.service_user import ServiceUserUnavailable
+from verenigingen.utils.transaction_errors import (
+    rollback_to_savepoint,
+    safe_savepoint_name as _safe_savepoint_name,
+)
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security import (
     INGCheckoutWebhookError,
     authenticate_webhook,
     compute_webhook_hash,
-    get_webhook_user,
     is_duplicate_webhook,
     log_webhook,
     verify_ing_checkout_webhook,
@@ -59,7 +61,18 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
 
     # Authenticate: process_payment is @high_security_api(FINANCIAL) and would
     # reject the Guest webhook context. Runs AFTER signature verification.
-    authenticate_webhook()
+    try:
+        authenticate_webhook()
+    except ServiceUserUnavailable:
+        # No webhook user (#1876): refuse with a 5xx so Pay.nl redelivers, and return
+        # DIRECTLY, never raise. handle_payment's generic except calls log_webhook, and any
+        # Webhook Processing Log row (error included) makes the identical retry a 200
+        # "duplicate" that never finalizes. TODAY that row is NOT written for a Guest (the
+        # insert is permission-denied and swallowed, #1814), so this guard is dormant; it
+        # becomes load-bearing the moment Guest rows persist (the WSGI test lets them, so it
+        # is live there). The Error Log row was written already.
+        frappe.local.response["http_status_code"] = 500
+        return True
 
     status_code = (order_object.get("status") or {}).get("code")
     gateway_status = {100: "paid", -63: "failed", -90: "failed", -64: "expired"}.get(status_code, "pending")
@@ -90,19 +103,6 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
         # duplicate and never re-run). The finalizer already wrote an Error Log.
         frappe.local.response["http_status_code"] = 500
     return True
-
-
-def _safe_savepoint_name(prefix: str, identifier: Optional[str]) -> str:
-    """Build a SQL-safe savepoint identifier.
-
-    Frappe's ``frappe.db.savepoint()`` interpolates the name unquoted into
-    ``SAVEPOINT <name>``. Pay.nl IDs contain hyphens (e.g. ``EX-1234-5678``),
-    which MariaDB parses as an arithmetic expression -> "Syntax error in query"
-    and the webhook crashes before it ever processes. Replace every
-    non-alphanumeric character with an underscore so the savepoint is valid.
-    """
-    raw = f"{prefix}_{identifier or 'unknown'}"
-    return re.sub(r"[^0-9A-Za-z_]", "_", raw)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

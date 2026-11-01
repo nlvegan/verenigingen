@@ -236,20 +236,6 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
-    "chapter_member_transferred_in": {
-        "label": "Chapter Member Transferred In",
-        "category": CATEGORY_CHAPTER,
-        "description": "Sent to board when a member transfers into the chapter from another chapter.",
-        "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_ROLE_BASED,
-    },
-    "chapter_member_transferred_out": {
-        "label": "Chapter Member Transferred Out",
-        "category": CATEGORY_CHAPTER,
-        "description": "Sent to board when a member transfers out of the chapter to another chapter.",
-        "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_ROLE_BASED,
-    },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
     # =========================================================================
@@ -432,6 +418,14 @@ NOTIFICATION_KEYS = {
         "description": "Sent to member with a Ponto payment link for manual payment.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "ponto_executed_on_cancelled_row": {
+        "label": "Ponto Payment Executed On Cancelled Row (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request or Link that was "
+        "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
     },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS

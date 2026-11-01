@@ -434,21 +434,17 @@ class TestSafeSavepointName(FrappeTestCase):
     """The savepoint-name sanitizer must strip MariaDB-illegal characters."""
 
     def test_hyphenated_doc_name_sanitized(self):
-        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
-            _safe_savepoint_name,
-        )
+        from verenigingen.utils.transaction_errors import safe_savepoint_name
 
-        name = _safe_savepoint_name("payment_status", "PONTO-PAY-6206")
+        name = safe_savepoint_name("payment_status", "PONTO-PAY-6206")
         self.assertEqual(name, "payment_status_PONTO_PAY_6206")
         # Resulting identifier must be alphanumeric + underscore only
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
     def test_already_safe_name_unchanged_shape(self):
-        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
-            _safe_savepoint_name,
-        )
+        from verenigingen.utils.transaction_errors import safe_savepoint_name
 
-        name = _safe_savepoint_name("periodic_payment", "abc123")
+        name = safe_savepoint_name("periodic_payment", "abc123")
         self.assertEqual(name, "periodic_payment_abc123")
 
 

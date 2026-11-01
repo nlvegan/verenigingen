@@ -156,18 +156,20 @@ def require_profile_admin() -> None:
     """Admin-only gate (#1686 ruling, 2026-10-31) for the chapter board bulk endpoints: System
     Manager / Verenigingen Administrator only, Treasurer, National Board Member and Staff
     refused. Same message as the other guards, so an unknown and a forbidden chapter answer alike."""
-    if not _is_profile_admin():
+    if not is_profile_admin():
         frappe.throw(_("You do not have permission to change role profiles here."), frappe.PermissionError)
 
 
-def _is_profile_admin() -> bool:
+def is_profile_admin() -> bool:
+    """The one definition of "may use the chapter board bulk endpoints". The Chapter form reads
+    it through onload to decide whether to show the button, so the two cannot drift (#1831)."""
     return frappe.session.user == "Administrator" or bool(
         {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN} & set(frappe.get_roles())
     )
 
 
 def _require_may_manage_profiles_for(doctype, entity, target_ok) -> None:
-    if _is_profile_admin():
+    if is_profile_admin():
         return
     if not (
         isinstance(entity, str)

@@ -490,29 +490,5 @@
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Member left {{ chapter_name|e }}</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or company or \"Our Organization\")|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear Board Member,</p>\n        <p><strong>{{ member_name|e }}</strong> has left <strong>{{ chapter_name|e }}</strong>.</p>\n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\"><tbody>\n                <tr><td><strong>Member:</strong></td><td>{{ member_name|e }}</td></tr>\n                <tr><td><strong>Member ID:</strong></td><td><a href=\"{{ member_link|e }}\">{{ member_id|e }}</a></td></tr>\n                <tr><td><strong>Effective date:</strong></td><td>{{ effective_date|e }}</td></tr>\n                {% if leave_reason %}<tr><td><strong>Reason:</strong></td><td>{{ leave_reason|e }}</td></tr>{% endif %}\n            </tbody></table>\n        </div>\n        <hr><div class=\"email-footer\">Automated notification from the chapter management system.<br>{{ chapter_name|e }} \u00b7 {{ current_year }}</div>\n    </div>\n</div>",
     "subject": "Member left {{ chapter_name|e }}: {{ member_name|e }}",
     "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-04-20 12:00:00",
-    "name": "chapter_board_member_transferred_in",
-    "reference_doctype": null,
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-info\">\n        <h2 class=\"email-title\">Member transferred to {{ chapter_name|e }}</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or company or \"Our Organization\")|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear Board Member,</p>\n        <p><strong>{{ member_name|e }}</strong> transferred into <strong>{{ chapter_name|e }}</strong> from <strong>{{ other_chapter|e }}</strong>.</p>\n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\"><tbody>\n                <tr><td><strong>Member:</strong></td><td>{{ member_name|e }}</td></tr>\n                <tr><td><strong>Member ID:</strong></td><td><a href=\"{{ member_link|e }}\">{{ member_id|e }}</a></td></tr>\n                <tr><td><strong>From chapter:</strong></td><td>{{ other_chapter|e }}</td></tr>\n                <tr><td><strong>Effective date:</strong></td><td>{{ effective_date|e }}</td></tr>\n            </tbody></table>\n        </div>\n        <hr><div class=\"email-footer\">Automated notification from the chapter management system.<br>{{ chapter_name|e }} \u00b7 {{ current_year }}</div>\n    </div>\n</div>",
-    "subject": "{{ member_name|e }} transferred to {{ chapter_name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-04-20 12:00:00",
-    "name": "chapter_board_member_transferred_out",
-    "reference_doctype": null,
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-info\">\n        <h2 class=\"email-title\">Member transferred from {{ chapter_name|e }}</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or company or \"Our Organization\")|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear Board Member,</p>\n        <p><strong>{{ member_name|e }}</strong> transferred from <strong>{{ chapter_name|e }}</strong> to <strong>{{ other_chapter|e }}</strong>.</p>\n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\"><tbody>\n                <tr><td><strong>Member:</strong></td><td>{{ member_name|e }}</td></tr>\n                <tr><td><strong>Member ID:</strong></td><td><a href=\"{{ member_link|e }}\">{{ member_id|e }}</a></td></tr>\n                <tr><td><strong>To chapter:</strong></td><td>{{ other_chapter|e }}</td></tr>\n                <tr><td><strong>Effective date:</strong></td><td>{{ effective_date|e }}</td></tr>\n            </tbody></table>\n        </div>\n        <hr><div class=\"email-footer\">Automated notification from the chapter management system.<br>{{ chapter_name|e }} \u00b7 {{ current_year }}</div>\n    </div>\n</div>",
-    "subject": "{{ member_name|e }} transferred from {{ chapter_name|e }}",
-    "use_html": 1
   }
 ]

@@ -1046,14 +1046,32 @@ class TestChapterJoinRequest(EnhancedTestCase):
         frappe.get_doc(self._cjr_values(admin_victim.name)).insert().submit()
         self.assertTrue(self._exists_for(admin_victim.name))
 
-    def test_join_chapter_still_works_for_a_member_resolved_by_email_fallback(self):
-        """join_chapter resolves the caller with the email fallback; the Member.user-only doctype
-        check must not re-refuse a request the endpoint built for the caller's own member."""
+    def test_join_chapter_refuses_a_member_matched_only_by_email(self):
+        """#1853 (maintainer ruling 2026-11-01, reverses the old email-fallback premise of this test):
+        join_chapter identifies the caller by Member.user ONLY. A user whose email merely matches a
+        Member's is refused with a clear message and no request is created."""
         from verenigingen.api import chapter_join
 
         user = self._role_user_email("Verenigingen Member")
         member = self.create_test_member(status="Active", email=user)
         self.assertFalse(frappe.db.get_value("Member", member.name, "user"))
+        with _UserSwitcher(user):
+            result = chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
+        self.assertFalse(result["success"])
+        self.assertIn("not linked to a member record", result["error"]["message"])
+        self.assertFalse(
+            frappe.db.exists(
+                "Chapter Join Request", {"member": member.name, "chapter": self.test_chapter.name}
+            )
+        )
+
+    def test_join_chapter_works_for_a_member_linked_by_user(self):
+        """Control for the refusal above: the same flow with Member.user set succeeds."""
+        from verenigingen.api import chapter_join
+
+        user = self._role_user_email("Verenigingen Member")
+        member = self.create_test_member(status="Active", email=user)
+        member.db_set("user", user)
         with _UserSwitcher(user):
             result = chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
         self.assertTrue(result["success"], msg=result)

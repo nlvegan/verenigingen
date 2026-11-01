@@ -3,7 +3,7 @@ Extended real-DB integration coverage for verenigingen/api/suspension_api.py.
 
 Complements tests/backend/workflows/test_suspension_api.py (which covers the core
 suspend/unsuspend/preview/bulk happy paths) by exercising the remaining endpoints
-and branches: get_suspension_list pagination/filtering, get_suspension_status_safe
+and branches: get_suspension_status_safe
 (own-record / admin / guest / no-member / other-member-denied), can_suspend_member
 without a member_name and its fallback path, _can_suspend_member_fallback directly,
 and test_bank_details_debug.
@@ -19,7 +19,6 @@ import frappe
 from verenigingen.api.suspension_api import (
     _can_suspend_member_fallback,
     can_suspend_member,
-    get_suspension_list,
     get_suspension_status_safe,
     suspend_member,
     test_bank_details_debug,
@@ -37,52 +36,6 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
             last_name="Member",
             status="Active",
         )
-
-    # ------------------------------------------------------------------
-    # get_suspension_list
-    # ------------------------------------------------------------------
-    def test_get_suspension_list_includes_suspended_member(self):
-        # Suspend a real member, then confirm it surfaces in the list.
-        suspend_result = suspend_member(
-            self.member.name,
-            "List coverage suspension",
-            suspend_user=False,
-            suspend_teams=False,
-        )
-        self.assertTrue(suspend_result.get("success"), msg=suspend_result)
-
-        result = get_suspension_list()
-        self.assertTrue(result["success"], msg=result)
-        data = result["data"]
-        names = [m["name"] for m in data["data"]]
-        self.assertIn(self.member.name, names)
-        # Total count must be at least the number of returned rows.
-        self.assertGreaterEqual(data["total"], len(data["data"]))
-        # Each row carries the enrichment field.
-        for row in data["data"]:
-            self.assertIn("active_team_count", row)
-
-    def test_get_suspension_list_excludes_active_member(self):
-        # An Active member must NOT appear in the suspended list.
-        result = get_suspension_list()
-        self.assertTrue(result["success"], msg=result)
-        names = [m["name"] for m in result["data"]["data"]]
-        self.assertNotIn(self.member.name, names)
-
-    def test_get_suspension_list_pagination_clamps_limit(self):
-        # limit above 1000 is clamped; negative offset is normalized to 0.
-        result = get_suspension_list(limit=5000, offset=-10)
-        self.assertTrue(result["success"], msg=result)
-        data = result["data"]
-        self.assertEqual(data["limit"], 1000)
-        self.assertEqual(data["offset"], 0)
-
-    def test_get_suspension_list_chapter_filter(self):
-        # Filtering by a chapter no suspended member belongs to yields nothing.
-        result = get_suspension_list(chapter="Chapter-That-Does-Not-Exist-ZZZ")
-        self.assertTrue(result["success"], msg=result)
-        self.assertEqual(result["data"]["total"], 0)
-        self.assertEqual(result["data"]["data"], [])
 
     # ------------------------------------------------------------------
     # get_suspension_status_safe

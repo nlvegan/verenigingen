@@ -8,6 +8,7 @@ from frappe.model.document import Document
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
 
 class APIAuditLog(Document):
@@ -192,7 +193,7 @@ def clear_all_audit_logs():
             f"""CRITICAL SECURITY EVENT: API Audit Log Cleared
 
 User: {frappe.session.user}
-IP Address: {frappe.local.request_ip if hasattr(frappe.local, 'request_ip') else 'Unknown'}
+IP Address: {get_client_ip_or_none() or 'Unknown'}
 Timestamp: {frappe.utils.now()}
 Records Deleted: {count_before}
 User Roles: {', '.join(frappe.get_roles())}

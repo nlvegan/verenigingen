@@ -421,6 +421,15 @@ def process_webhook_event(event_type: str, event_data: Dict[str, Any]) -> Dict[s
     handler = handlers.get(event_type)
 
     if handler:
+        # Every handler may write as Guest and queue a job that runs as the webhook user.
+        # With no usable user (#1876) refuse BEFORE any of that, so the 500 asks Ponto to
+        # redeliver (whether Ponto retries a 5xx is unverified) and nothing changes
+        # meanwhile. Only for an event that HAS a handler: an unknown event is a no-op and
+        # keeps its 200 ack, instead of becoming a retry loop. Raises ServiceUserUnavailable
+        # after writing an Error Log row.
+        from .webhook_handlers import _get_webhook_user
+
+        _get_webhook_user()
         return handler(event_data)
     else:
         # Unknown event type - log and acknowledge
