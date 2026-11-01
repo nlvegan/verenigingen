@@ -42,6 +42,28 @@ MANAGED_TEMPLATES = {
 class TestMembershipEmailTemplates(VereningingenTestCase):
     """Behaviour-level tests for the default membership email template creator."""
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # #1981: this class force-deletes stock Email Templates. Snapshot what was
+        # there so tearDownClass can put it back; otherwise a later module that
+        # runs setup (which recreates a missing row from its own body) or sends
+        # the approval mail sees a different template than the shipped fixture.
+        cls._stock_templates = cls._snapshot_managed_templates()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._delete_managed_templates(cls._stock_templates)
+        super().tearDownClass()
+
+    @staticmethod
+    def _snapshot_managed_templates():
+        return {
+            name: frappe.get_doc("Email Template", name).as_dict()
+            for name in MANAGED_TEMPLATES
+            if frappe.db.exists("Email Template", name)
+        }
+
     def setUp(self):
         super().setUp()
         # Start every test from a known-clean slate so the "create" branch runs.
@@ -53,11 +75,17 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
         self._delete_managed_templates()
         super().tearDown()
 
-    def _delete_managed_templates(self):
-        """Remove all managed Email Templates (helper, not a test-body operation)."""
+    @staticmethod
+    def _delete_managed_templates(restore=None):
+        """Remove all managed Email Templates (helper, not a test-body operation),
+        then re-insert the `restore` snapshot rows, if given. One function so the
+        single commit (needed so the change survives the harness rollback) serves
+        both the delete and the #1981 restore."""
         for name in MANAGED_TEMPLATES:
             if frappe.db.exists("Email Template", name):
                 frappe.delete_doc("Email Template", name, force=True)
+        for row in (restore or {}).values():
+            frappe.get_doc({**row, "doctype": "Email Template"}).insert()
         frappe.db.commit()
 
     def _track_all_created(self):
@@ -172,3 +200,22 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
                 frappe.db.exists("Email Template", name),
                 f"'{name}' should exist after the top-up create",
             )
+
+    # ------------------------------------------------------------------
+    # #1981: leave the stock rows as found
+    # ------------------------------------------------------------------
+    def test_restore_puts_back_the_stock_rows_this_class_deleted(self):
+        """setUp already deleted every managed row; restoring the class snapshot
+        must bring back each row that existed at class start with its body."""
+        stock = type(self)._stock_templates
+        # control: the shipped fixture row must have been there to restore
+        self.assertIn("membership_application_approved", stock)
+        self.assertFalse(frappe.db.exists("Email Template", "membership_application_approved"))
+        self.addCleanup(self._delete_managed_templates)
+
+        self._delete_managed_templates(stock)
+
+        for name, row in stock.items():
+            self.assertEqual(frappe.get_doc("Email Template", name).response, row.response)
+        for name in set(MANAGED_TEMPLATES) - set(stock):
+            self.assertFalse(frappe.db.exists("Email Template", name))
