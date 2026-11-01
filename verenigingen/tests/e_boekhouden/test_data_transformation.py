@@ -106,6 +106,7 @@ class TestAmountHandling(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
         self.mock_frappe.utils.flt = lambda x, precision=None: round(float(x or 0), precision or 2)
 
@@ -238,6 +239,7 @@ class TestRowAmountValidation(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
         self.mock_frappe.utils.flt = lambda x, precision=None: round(float(x or 0), precision or 2)
         self.mock_frappe.as_json = lambda x, indent=None: str(x)
@@ -247,6 +249,7 @@ class TestRowAmountValidation(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.safe_log_mutation_error"
         )
         self.mock_log = self.log_patcher.start()
+        self.addCleanup(self.log_patcher.stop)
 
     def tearDown(self):
         """Clean up patches"""
@@ -662,6 +665,7 @@ class TestPostingDateExtraction(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):

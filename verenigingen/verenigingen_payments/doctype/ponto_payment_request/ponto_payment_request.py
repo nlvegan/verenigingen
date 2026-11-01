@@ -17,6 +17,7 @@ Status Flow:
                     -> Rejected (if signing fails)
                     -> Cancelled (if cancelled before signing)
                     -> Failed (if execution fails)
+                    -> Expired (if Ponto reports the request expired)
 """
 
 from datetime import date
@@ -29,6 +30,7 @@ from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 
 
 class PontoPaymentRequest(Document):
@@ -127,7 +129,7 @@ class PontoPaymentRequest(Document):
 
         try:
             client = get_payment_client()
-            payment = client.create_payment(
+            created = client.create_payment(
                 account_id=self.ponto_account,
                 amount=float(self.amount),
                 currency=self.currency,
@@ -141,8 +143,8 @@ class PontoPaymentRequest(Document):
             )
 
             # Update document with Ponto response
-            self.ponto_payment_id = payment.id
-            self.redirect_link = payment.redirect_link
+            self.ponto_payment_id = created.id
+            self.redirect_link = created.redirect_link
             self.status = "Pending"
 
             frappe.msgprint(
@@ -206,17 +208,11 @@ class PontoPaymentRequest(Document):
                 payment_id=self.ponto_payment_id,
             )
 
-            # Map Ponto status to our status
-            status_map = {
-                "pending": "Pending",
-                "unsigned": "Pending",
-                "signed": "Signed",
-                "executed": "Executed",
-                "rejected": "Rejected",
-                "failed": "Failed",
-            }
-
-            new_status = status_map.get(payment.status.lower(), self.status)
+            # Map Ponto status to our status. Shared with the webhook (#1835).
+            # Unmapped keeps the current status; a backward move is refused.
+            new_status = map_request_status(payment.status) or self.status
+            if is_refused_move(self.status, new_status):
+                new_status = self.status
 
             if new_status != self.status:
                 # Status + Payment Entry are one atomic unit -- #1323, the #1288
@@ -419,19 +415,28 @@ class PontoPaymentRequest(Document):
 
         Args:
             new_status: New status value
+
+        Returns:
+            True if the status moved; False if it already was ``new_status`` or
+            the move was refused (see ``is_refused_move``).
+
+            The webhook handlers do NOT read this value: they decide moved or
+            refused from ``doc.status`` after the call, because existing tests
+            stub this method (returning None). Only tests read the return value.
         """
-        if new_status != self.status:
-            # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
-            # See refresh_status()'s identical `with atomic_status_transition(...)`
-            # block above for why.
-            with atomic_status_transition("ppr_status_pe"):
-                self.status = new_status
-                # Security: Webhook callback - status update from verified Ponto event
-                self.save(ignore_permissions=True)
+        if new_status == self.status or is_refused_move(self.status, new_status):
+            return False
 
-                if new_status == "Executed":
-                    self.create_payment_entry()
+        # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
+        # See refresh_status()'s identical `with atomic_status_transition(...)`
+        # block above for why.
+        with atomic_status_transition("ppr_status_pe"):
+            self.status = new_status
+            # Security: Webhook callback - status update from verified Ponto event
+            self.save(ignore_permissions=True)
 
-            frappe.logger().info(
-                f"Ponto Payment Request {self.name} status updated to {new_status} via webhook"
-            )
+            if new_status == "Executed":
+                self.create_payment_entry()
+
+        frappe.logger().info(f"Ponto Payment Request {self.name} status updated to {new_status} via webhook")
+        return True

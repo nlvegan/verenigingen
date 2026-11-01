@@ -108,7 +108,6 @@ verenigingen/api/suspension_api.py::bulk_suspend_members::2
 verenigingen/api/suspension_api.py::can_suspend_member::2
 verenigingen/api/suspension_api.py::get_suspension_list::1
 verenigingen/api/suspension_api.py::get_suspension_preview::2
-verenigingen/api/suspension_api.py::get_suspension_status::2
 verenigingen/api/suspension_api.py::get_suspension_status_safe::1
 verenigingen/api/suspension_api.py::suspend_member::7
 verenigingen/api/suspension_api.py::test_bank_details_debug::1
@@ -232,7 +231,6 @@ verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipMa
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.get_member_chapter_status::1
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.join_chapter::1
 verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.leave_chapter::1
-verenigingen/services/chapter/chapter_membership_manager.py::ChapterMembershipManager.transfer_member_between_chapters::2
 verenigingen/services/chapter/chapter_reference_manager.py::ChapterReferenceManager.cleanup_invalid_chapter_references::1
 verenigingen/services/chapter/chapter_reference_manager.py::cleanup_member_chapter_references::1
 verenigingen/services/csv_import/membership_import_service.py::MembershipImportService.create_membership_from_csv::1
@@ -303,7 +301,6 @@ verenigingen/services/volunteer/volunteer_expense_setup.py::get_or_create_expens
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_statistics::1
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_summary::1
 verenigingen/setup/__init__.py::install_missing_btw_fields::1
-verenigingen/setup/__init__.py::setup_termination_system_integration::1
 verenigingen/setup/document_links.py::add_member_ledger_link_to_expense_claim::1
 verenigingen/setup/document_links.py::get_member_from_expense_claim::2
 verenigingen/setup/document_links.py::setup_custom_document_links::1

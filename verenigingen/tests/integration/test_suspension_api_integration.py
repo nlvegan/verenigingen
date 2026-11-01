@@ -117,7 +117,7 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertEqual(self.test_member.status, "Active")
 
     def test_suspension_status_queries(self):
-        """get_suspension_status reflects the real suspended state."""
+        """get_suspension_status_safe reflects the real suspended state for an admin."""
         self.assertTrue(
             self._suspend(
                 self.member_with_user.name, suspend_user=False, suspend_teams=False
@@ -125,7 +125,7 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         )
 
         with self.as_user(self.admin_user.email):
-            result = suspension_api.get_suspension_status(
+            result = suspension_api.get_suspension_status_safe(
                 member_name=self.member_with_user.name
             )
 
@@ -134,6 +134,39 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertTrue(data["is_suspended"])
         self.assertIn("member_status", data)
         self.assertIn("active_teams", data)
+        self.assertEqual(data["access_type"], "admin_access")
+
+    def test_unchecked_suspension_status_endpoint_is_gone(self):
+        """#1517: the MEDIUM-tier `get_suspension_status` returned any member's
+        suspension and team data to any logged-in caller (no check on member_name).
+        It had no callers and `get_suspension_status_safe` supersedes it, so it was
+        deleted. The old dotted path must not resolve, so it can never be dispatched.
+        """
+        self.assertFalse(hasattr(suspension_api, "get_suspension_status"))
+        with self.assertRaises(AttributeError):
+            frappe.get_attr("verenigingen.api.suspension_api.get_suspension_status")
+
+    def test_safe_suspension_status_refuses_another_members_record(self):
+        """The surviving endpoint refuses the caller the deleted one served: a
+        Volunteer-profile user (clears the MEDIUM tier gate, measured on test_site_1:
+        the old endpoint returned the victim's data to it; no admin role) asking
+        about someone else's member.
+        """
+        grant_matching_role_profiles(self.linked_user.name, ["Verenigingen Volunteer"])
+        self.assertTrue(
+            self._suspend(
+                self.test_member.name, suspend_user=False, suspend_teams=False
+            )["success"]
+        )
+
+        with self.as_user(self.linked_user.name):
+            result = suspension_api.get_suspension_status_safe(
+                member_name=self.test_member.name
+            )
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
+        self.assertNotIn("is_suspended", str(result))
 
     def test_bulk_suspension(self):
         """bulk_suspend_members suspends every member in the batch."""

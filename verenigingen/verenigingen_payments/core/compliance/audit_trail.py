@@ -22,6 +22,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
+
 
 class AuditEventType(Enum):
     """Types of audit events"""
@@ -270,7 +272,7 @@ class ImmutableAuditTrail:
             if hasattr(frappe.local, "request") and frappe.local.request:
                 context.update(
                     {
-                        "ip_address": frappe.local.request.environ.get("REMOTE_ADDR"),
+                        "ip_address": get_client_ip_or_none(),
                         "user_agent": frappe.local.request.environ.get("HTTP_USER_AGENT"),
                         "request_method": frappe.local.request.method,
                         "request_path": frappe.local.request.path,

@@ -29,8 +29,11 @@ class TestMigrationTransactionAutoCommit(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration - permission bypass in setUp is allowed
         self.mock_frappe.session.user = "Administrator"
@@ -170,8 +173,11 @@ class TestMigrationTransactionStateManagement(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration - permission bypass in setUp is allowed
         self.mock_frappe.session.user = "Administrator"
@@ -245,8 +251,11 @@ class TestMigrationTransactionSavepoints(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration - permission bypass in setUp is allowed
         self.mock_frappe.session.user = "Administrator"
@@ -325,8 +334,11 @@ class TestMigrationTransactionSavepointFallback(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration - permission bypass in setUp is allowed
         self.mock_frappe.session.user = "Administrator"
@@ -391,8 +403,11 @@ class TestMigrationTransactionRollback(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration - permission bypass in setUp is allowed
         self.mock_frappe.session.user = "Administrator"
@@ -465,8 +480,11 @@ class TestMigrationTransactionPermissions(unittest.TestCase):
         self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
 
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_time = self.time_patcher.start()
+        self.addCleanup(self.time_patcher.stop)
         self.mock_has_perm = self.perm_patcher.start()
+        self.addCleanup(self.perm_patcher.stop)
 
         # Default configuration
         self.mock_frappe.session.user = "limited@example.com"

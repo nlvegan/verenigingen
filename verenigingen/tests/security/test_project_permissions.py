@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from verenigingen.utils.project_permissions import (
     get_volunteer_for_user,
+    invalidate_volunteer_lookup_memo,
     validate_identifier,
     has_project_permission_via_team,
     user_has_any_team_projects,
@@ -52,7 +53,7 @@ class TestProjectPermissionHelpers(EnhancedTestCase):
         self.assertFalse(validate_identifier("Team'; DROP TABLE--", context="test: SQL injection attempt"))  # SQL injection attempt
 
     def test_get_volunteer_for_user_caching(self):
-        """Test that volunteer lookup is cached"""
+        """Test that volunteer lookup is memoised within a request"""
         # Create test data
         member = self.create_test_member(first_name="Test", last_name="User")
 
@@ -75,8 +76,8 @@ class TestProjectPermissionHelpers(EnhancedTestCase):
 
         volunteer = self.create_test_volunteer(member.name)
 
-        # Clear cache to ensure fresh lookup
-        get_volunteer_for_user.cache_clear()
+        # Drop the memo to ensure fresh lookup
+        invalidate_volunteer_lookup_memo()
 
         # First call should hit database
         member_name1, volunteer1 = get_volunteer_for_user(user_email)
@@ -331,7 +332,7 @@ class TestPerformanceRegression(EnhancedTestCase):
         volunteer = self.create_test_volunteer(member.name)
 
         # Clear cache
-        get_volunteer_for_user.cache_clear()
+        invalidate_volunteer_lookup_memo()
 
         # Should use only 1 query (JOIN instead of 2 separate queries)
         with self.assertQueryCount(1):

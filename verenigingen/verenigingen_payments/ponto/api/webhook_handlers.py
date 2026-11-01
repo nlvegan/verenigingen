@@ -10,12 +10,16 @@ Each handler processes a specific event type and returns a result dict.
 Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
-import re
 from typing import Any, Dict
 
 import frappe
 
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+    safe_savepoint_name as _safe_savepoint_name,
+)
+from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
@@ -71,20 +75,6 @@ def import_transactions_job(account_id: str) -> Dict[str, Any]:
 
     frappe.set_user(_get_webhook_user())
     return import_new_transactions(account_id=account_id)
-
-
-def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
-    """
-    Build a MariaDB-safe savepoint identifier.
-
-    Frappe's ``frappe.db.savepoint()`` interpolates the name straight into
-    ``SAVEPOINT <name>`` SQL without quoting. Document names contain hyphens
-    (e.g. ``PONTO-PAY-6206``, ``PL-2026-00001``), which are illegal in an
-    unquoted MariaDB savepoint identifier and raise a 1064 syntax error.
-    Replace any non-alphanumeric character with an underscore so the savepoint
-    can be created and rolled back to safely.
-    """
-    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{doc_name}")
 
 
 # =============================================================================
@@ -312,21 +302,12 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
         )
         return {"handled": True, "action": "logged", "reason": "payment_request_not_found"}
 
-    # Map Ponto status to our status
-    status_map = {
-        "pending": "Pending",
-        "unsigned": "Pending",
-        "signed": "Signed",
-        "executed": "Executed",
-        "rejected": "Rejected",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-    }
-
-    mapped_status = status_map.get(new_status.lower() if new_status else "", None)
+    # Shared with refresh_status() so both paths classify alike (#1835)
+    mapped_status = map_request_status(new_status)
 
     if mapped_status:
         updated_requests = []
+        refused_requests = []
         failed_requests = []
 
         for pr in payment_requests:
@@ -336,8 +317,16 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Request", pr.name)
                 doc.update_status_from_webhook(mapped_status)
-                frappe.logger().info(f"Updated Ponto Payment Request {pr.name} to status {mapped_status}")
-                updated_requests.append(pr.name)
+                if doc.status == mapped_status:
+                    frappe.logger().info(f"Updated Ponto Payment Request {pr.name} to status {mapped_status}")
+                    updated_requests.append(pr.name)
+                else:
+                    # Refused by is_refused_move (#1835): say what the row really is.
+                    frappe.logger().info(
+                        f"Ponto Payment Request {pr.name} stays {doc.status}; "
+                        f"refused move to {mapped_status}"
+                    )
+                    refused_requests.append({"name": pr.name, "status": doc.status})
             except NON_RESUMABLE_DB_ERRORS:
                 # A 1205/1213 is not one bad row: the server has discarded or half-applied the
                 # whole transaction, so the rows already marked failed and the rows still to come
@@ -360,6 +349,7 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
             "payment_id": payment_id,
             "new_status": mapped_status,
             "updated_requests": updated_requests,
+            "refused_requests": refused_requests or None,
             "failed_requests": failed_requests if failed_requests else None,
         }
 
@@ -408,23 +398,12 @@ def _update_payment_link_status(
         frappe.logger().warning(f"No Ponto Payment Link found for request ID: {request_id}")
         return {"handled": True, "action": "logged", "reason": "payment_link_not_found"}
 
-    # Map Ponto status to our status
-    status_map = {
-        "pending": "Pending Authorization",
-        "unsigned": "Pending Authorization",
-        "signed": "Authorized",
-        "authorized": "Authorized",
-        "executed": "Executed",
-        "rejected": "Rejected",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-        "expired": "Expired",
-    }
-
-    mapped_status = status_map.get(new_status.lower() if new_status else "", None)
+    # Shared with refresh_status() so both paths classify alike (#1835)
+    mapped_status = map_link_status(new_status)
 
     if mapped_status:
         updated_links = []
+        refused_links = []
         failed_links = []
         payment_entries_queued = []
 
@@ -435,8 +414,15 @@ def _update_payment_link_status(
                 frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Link", pl.name)
                 doc.update_status_from_webhook(mapped_status, debtor_info)
-                frappe.logger().info(f"Updated Ponto Payment Link {pl.name} to status {mapped_status}")
-                updated_links.append(pl.name)
+                if doc.status == mapped_status:
+                    frappe.logger().info(f"Updated Ponto Payment Link {pl.name} to status {mapped_status}")
+                    updated_links.append(pl.name)
+                else:
+                    # Refused by is_refused_move (#1835): say what the row really is.
+                    frappe.logger().info(
+                        f"Ponto Payment Link {pl.name} stays {doc.status}; refused move to {mapped_status}"
+                    )
+                    refused_links.append({"name": pl.name, "status": doc.status})
 
                 # If payment is executed, find the invoice and create a Payment Entry -
                 # as the configured webhook user, not inline in this Guest request.
@@ -493,6 +479,7 @@ def _update_payment_link_status(
             "request_id": request_id,
             "new_status": mapped_status,
             "updated_links": updated_links,
+            "refused_links": refused_links or None,
             "failed_links": failed_links if failed_links else None,
             # Queued, not created: the Payment Entry is written by a background job
             # running as the webhook user, so its name is not known here.

@@ -199,6 +199,7 @@ COMMIT tests/payment/test_sepa_mandate_management.py::2  # order-dependence
 COMMIT tests/payment/test_sepa_race_condition_manager.py::3  # order-dependence
 COMMIT tests/payment/test_sepa_reconciliation.py::3  # order-dependence
 COMMIT tests/payment/test_sepa_rollback_manager.py::5  # order-dependence
+COMMIT tests/payment/test_sepa_table_bootstrap.py::1  # order-dependence
 COMMIT tests/performance/test_performance_scenarios.py::1  # order-dependence
 COMMIT tests/repositories/test_dues_schedule_repository.py::3  # order-dependence
 COMMIT tests/resilience/test_error_recovery.py::2  # order-dependence
@@ -271,6 +272,7 @@ COMMIT tests/utils/test_history_manager_utils.py::2  # order-dependence
 COMMIT tests/utils/test_orphaned_child_table_cleanup.py::5  # order-dependence
 COMMIT tests/utils/test_setup.py::5  # order-dependence
 COMMIT tests/utils/test_utils.py::1  # order-dependence
+COMMIT tests/verenigingen_payments/test_bank_transaction_reference_backfill.py::2  # order-dependence
 COMMIT tests/volunteer/test_volunteer_skills_api.py::1  # order-dependence
 COMMIT tests/workflows/test_performance_comprehensive.py::3  # order-dependence
 COMMIT tests/www/test_eboekhouden_www_pages_coverage.py::4  # order-dependence
@@ -291,6 +293,7 @@ COMMIT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedu
 COMMIT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks_coverage.py::1  # order-dependence
 COMMIT verenigingen/doctype/membership_termination_request/test_membership_termination_request_coverage.py::4  # order-dependence
 COMMIT verenigingen/doctype/mijnrood_csv_import/test_mijnrood_csv_import_pipeline.py::1  # order-dependence
+COMMIT verenigingen/doctype/performance_optimization_setup/test_performance_optimization_setup.py::1  # order-dependence
 COMMIT verenigingen/doctype/vip_import/test_vip_import.py::21  # order-dependence
 COMMIT verenigingen_payments/doctype/sepa_mandate/test_sepa_mandate.py::1  # order-dependence
 COMMIT verenigingen_payments/ing_checkout/tests/fixtures/ing_checkout_test_helper.py::1  # order-dependence
@@ -434,6 +437,7 @@ COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/test_drain_role_grants.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::1  # order-dep-exempt

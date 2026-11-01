@@ -48,7 +48,11 @@ class ChildTableMetadata:
     
     def __init__(self, bench_path: Path):
         self.bench_path = bench_path
-        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        # Read this app from the checkout the script lives in (a worktree), not the bench's
+        # installed copy, so a branch's own DocType changes are seen (#1839).
+        self.doctype_loader = DocTypeLoader(
+            str(bench_path), verbose=False, local_app_path=str(Path(__file__).resolve().parents[2])
+        )
         self.child_tables = self._build_child_table_registry()
         self.parent_child_map = self._build_parent_child_map()
         print(f"📋 Child Table Validator loaded {len(self.child_tables)} child table DocTypes")

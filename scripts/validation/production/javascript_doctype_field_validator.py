@@ -27,7 +27,7 @@ from enum import Enum
 
 # Import comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 
 class JavaScriptContext(Enum):
@@ -73,10 +73,11 @@ class AdvancedJavaScriptFieldValidator:
     
     def __init__(self):
         # Use comprehensive DocType loader (standardized)
-        # Navigate from script to bench: scripts/validation -> apps/verenigingen -> apps -> bench
-        script_path = Path(__file__)
-        bench_path = script_path.parent.parent.parent.parent.parent
-        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        # Read DocTypes from the checkout this script lives in, the way #1905 taught the other
+        # validators to. The old `parent x5` was the bench's apps/ dir, not the bench, so the
+        # loader scanned apps/apps and loaded nothing and every reference passed (#1899).
+        app_root = Path(__file__).resolve().parents[3]
+        self.doctype_loader = get_unified_doctype_loader(str(app_root), verbose=False)
         self.doctypes = self._convert_doctypes_for_js_validation()
         
         # Patterns for different types of field references
