@@ -10,6 +10,7 @@ pointed Mollie at ``payment_gateways.mollie_subscription_webhook`` (whitelisted,
 not allow_guest) for every member-dues subscription.
 """
 
+import itertools
 from urllib.parse import urlparse
 
 import frappe
@@ -102,19 +103,26 @@ class TestProviderWebhookUrlsGuestReachable(EnhancedTestCase):
         self.assertNotIn(_members_only_probe, frappe.guest_methods)
 
 
+_REMOTE_ADDRS = itertools.count()
+
+
 class _GuestDispatchMixin:
     """Posts a Mollie-shaped form body through Frappe's real dispatch gate as Guest."""
 
     def setUp(self):
         super().setUp()
-        # The webhook limiter is a per-PROCESS singleton keyed on client IP, and this
-        # EnvironBuilder request carries no REMOTE_ADDR, so every post lands in the one
-        # "unknown" bucket (20/min, with a progressive penalty). One class's posts then
-        # throttle the next class in the same shard: the guest webhook answers 429
-        # ``rate_limited`` and books nothing. Start every test on a fresh limiter and
-        # leave a fresh one behind for whichever module runs next.
+        # The webhook limiter is a per-PROCESS singleton keyed on client IP. Requests get a
+        # unique REMOTE_ADDR (see _unique_remote_addr), which removes the shared "unknown"
+        # bucket; the reset is defence in depth, so one class's posts cannot throttle the
+        # next class in the shard (429 ``rate_limited``, nothing booked) and a fresh limiter
+        # is left behind for whichever module runs next.
         reset_rate_limiter()
         self.addCleanup(reset_rate_limiter)
+
+    @staticmethod
+    def _unique_remote_addr() -> str:
+        """A fresh TEST-NET-2 address per request, so no two posts share a limiter bucket."""
+        return f"198.51.100.{next(_REMOTE_ADDRS) % 254 + 1}"
 
     def _post_as_guest(self, dotted: str, payment_id: str):
         from frappe.handler import execute_cmd
@@ -124,6 +132,7 @@ class _GuestDispatchMixin:
             path="/",
             data={"id": payment_id},
             content_type="application/x-www-form-urlencoded",
+            environ_overrides={"REMOTE_ADDR": self._unique_remote_addr()},
         ).get_environ()
         old = (getattr(frappe.local, "request", None), frappe.local.form_dict, frappe.session.user)
         self.addCleanup(self._restore_guest_dispatch_state, old)
