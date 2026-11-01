@@ -217,7 +217,7 @@ class TestMembershipDuesCoverageAnalysisGapFill(VereningingenTestCase):
 
     # ------------------------------------- get_expected_billing_frequency
 
-    def test_get_expected_billing_frequency_returns_membership_type_period(self):
+    def test_get_expected_billing_frequency_returns_schedule_frequency(self):
         start = add_days(today(), -60)
         member, _membership, mtype = self._active_member_with_membership(
             start_date=start, billing_period="Monthly"

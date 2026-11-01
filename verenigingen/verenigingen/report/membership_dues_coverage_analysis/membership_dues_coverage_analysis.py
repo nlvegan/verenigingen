@@ -604,23 +604,28 @@ def classify_gap_type(gap_days):
         return "Critical"
 
 
+# A schedule in any of these states still defines how the member is billed.
+# Cancelled (superseded or terminated) and Test schedules do not.
+LIVE_SCHEDULE_STATUSES = ["Active", "Paused", "Grace Period", "Suspended", "Payment Plan Active"]
+
+
 def get_expected_billing_frequency(member_name, period_start, period_end):
     """Get the expected billing frequency for a member during a period.
 
-    The member's own active Membership Dues Schedule is what bills them (its
-    template may differ from the Membership Type's billing_period, #1909), so it
-    wins. Only a member with no active schedule falls back to the Type.
+    The member is billed by their own Membership Dues Schedule, whose template may
+    differ from the Membership Type's billing_period (#1909), so the schedule wins
+    when it belongs to the Membership that covers this period. A Membership Dues
+    Schedule has no start/end window of its own, so the Membership link is the only
+    way to tell which period a schedule belongs to; a period covered by another
+    (older) Membership, or a member without a live schedule, falls back to that
+    Membership's Type (as members_without_dues_schedule does).
     """
-
-    schedule_frequency = _get_active_schedule_frequency(member_name)
-    if schedule_frequency:
-        return schedule_frequency
 
     try:
         # Get membership for this period
         membership = frappe.db.sql(
             """
-            SELECT mb.membership_type
+            SELECT mb.name, mb.membership_type
             FROM `tabMembership` mb
             WHERE mb.member = %s
               AND mb.docstatus = 1
@@ -636,12 +641,12 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
         if not membership:
             return None
 
-        membership_type = membership[0]["membership_type"]
+        schedule_frequency = _get_schedule_frequency(member_name, membership[0]["name"], period_end)
+        if schedule_frequency:
+            return schedule_frequency
 
         # Get the billing period from membership type
-        billing_period = frappe.db.get_value("Membership Type", membership_type, "billing_period")
-
-        return billing_period
+        return frappe.db.get_value("Membership Type", membership[0]["membership_type"], "billing_period")
 
     except Exception as e:
         frappe.log_error(
@@ -650,13 +655,22 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
         return None
 
 
-def _get_active_schedule_frequency(member_name):
-    """billing_frequency of the member's active (non-template) dues schedule, else None."""
-    return frappe.db.get_value(
+def _get_schedule_frequency(member_name, membership_name, period_end):
+    """billing_frequency of the member's live (non-template) schedule if it bills this Membership."""
+    schedule = frappe.db.get_value(
         "Membership Dues Schedule",
-        {"member": member_name, "status": "Active", "is_template": 0},
-        "billing_frequency",
+        {"member": member_name, "status": ["in", LIVE_SCHEDULE_STATUSES], "is_template": 0},
+        ["membership", "billing_frequency"],
+        as_dict=True,
+        order_by="creation desc",
     )
+    if not schedule:
+        return None
+    # A schedule with no Membership link can only be placed in time by today.
+    belongs = schedule.membership == membership_name or (
+        not schedule.membership and getdate(period_end) >= getdate(today())
+    )
+    return schedule.billing_frequency if belongs else None
 
 
 def classify_gap_with_billing_context(gap_days, expected_billing_frequency, base_classification):
