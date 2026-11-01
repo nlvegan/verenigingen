@@ -20,8 +20,26 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+
+def _can_terminate_without_oracle(member_name):
+    """can_terminate_member(), refusing an unknown name exactly like a forbidden one.
+
+    can_terminate_member loads the Member, and a failed load queues a "Member X not found"
+    entry on frappe.message_log before it is caught -- a message that rides along in the
+    response for an unknown name and not for a real-but-forbidden one (#1911). Trim the
+    log back to its length before the call, on every path.
+    """
+    from verenigingen.permissions import can_terminate_member
+
+    log_len = len(frappe.message_log)
+    try:
+        return can_terminate_member(member_name)
+    finally:
+        del frappe.message_log[log_len:]
 
 
 @frappe.whitelist()
@@ -48,7 +66,20 @@ def suspend_member(
             )
             return OperationResult.fail(_("Suspension reason is required"), error_code="INVALID_INPUT")
 
-        # Validate member exists
+        # Permission BEFORE existence (#1911): an unknown name must be refused exactly like
+        # a forbidden one, or this endpoint tells a non-admin which member ids exist.
+        # can_terminate_member is False for an unknown name unless the caller holds an
+        # admin role, who may act on any member anyway.
+        if not _can_terminate_without_oracle(member_name):
+            frappe.log_error(
+                f"Unauthorized suspension attempt on {member_name} by {frappe.session.user}",
+                "Suspension API Permission Error",
+            )
+            return OperationResult.fail(
+                _("You don't have permission to suspend this member"), error_code="PERMISSION_DENIED"
+            )
+
+        # Validate member exists (reached only by callers permitted on every member)
         if not DocumentExistenceValidator.check_document_exists("Member", member_name):
             frappe.log_error(
                 f"suspend_member called with non-existent member {member_name} by {frappe.session.user}",
@@ -56,18 +87,6 @@ def suspend_member(
             )
             return OperationResult.fail(
                 _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
-            )
-
-        # Check permissions first
-        from verenigingen.permissions import can_terminate_member
-
-        if not can_terminate_member(member_name):
-            frappe.log_error(
-                f"Unauthorized suspension attempt on {member_name} by {frappe.session.user}",
-                "Suspension API Permission Error",
-            )
-            return OperationResult.fail(
-                _("You don't have permission to suspend this member"), error_code="PERMISSION_DENIED"
             )
 
         # Convert string booleans to actual booleans
@@ -147,7 +166,20 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
             )
             return OperationResult.fail(_("Unsuspension reason is required"), error_code="INVALID_INPUT")
 
-        # Validate member exists
+        # Permission BEFORE existence (#1911): an unknown name must be refused exactly like
+        # a forbidden one, or this endpoint tells a non-admin which member ids exist.
+        # can_terminate_member is False for an unknown name unless the caller holds an
+        # admin role, who may act on any member anyway.
+        if not _can_terminate_without_oracle(member_name):
+            frappe.log_error(
+                f"Unauthorized unsuspension attempt on {member_name} by {frappe.session.user}",
+                "Suspension API Permission Error",
+            )
+            return OperationResult.fail(
+                _("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
+            )
+
+        # Validate member exists (reached only by callers permitted on every member)
         if not DocumentExistenceValidator.check_document_exists("Member", member_name):
             frappe.log_error(
                 f"unsuspend_member called with non-existent member {member_name} by {frappe.session.user}",
@@ -155,18 +187,6 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
             )
             return OperationResult.fail(
                 _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
-            )
-
-        # Check permissions first
-        from verenigingen.permissions import can_terminate_member
-
-        if not can_terminate_member(member_name):
-            frappe.log_error(
-                f"Unauthorized unsuspension attempt on {member_name} by {frappe.session.user}",
-                "Suspension API Permission Error",
-            )
-            return OperationResult.fail(
-                _("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
             )
 
         from verenigingen.utils.termination_integration import unsuspend_member_safe
@@ -241,10 +261,9 @@ def can_suspend_member(member_name: str = None) -> OperationResult[Dict[str, Any
         # Import the function using frappe's import system to handle any import issues
         try:
             # Use frappe.get_attr to import the function
-            can_terminate_member = frappe.get_attr("verenigingen.permissions.can_terminate_member")
             # For suspension, we use the same permission logic as termination
             # since suspension is essentially a temporary termination
-            has_permission = can_terminate_member(member_name)
+            has_permission = _can_terminate_without_oracle(member_name)
             return OperationResult.ok(
                 {"can_suspend": has_permission, "member_name": member_name},
                 message=_("Permission check completed"),
@@ -320,6 +339,13 @@ def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
     try:
         if not member_name:
             return OperationResult.fail(_("member_name is required"), error_code="INVALID_INPUT")
+
+        # #1911: the HIGH tier is cleared by any chapter board member, so require read
+        # on THIS member. An unknown name and a forbidden one are refused identically.
+        if not permission_allowed_without_oracle("Member", "read", member_name):
+            return OperationResult.fail(
+                _("You don't have permission to view this member"), error_code="PERMISSION_DENIED"
+            )
 
         member = frappe.get_doc("Member", member_name)
 
@@ -422,14 +448,13 @@ def bulk_suspend_members(
         if not suspension_reason:
             return OperationResult.fail(_("suspension_reason is required"), error_code="INVALID_INPUT")
 
-        from verenigingen.permissions import can_terminate_member
         from verenigingen.utils.boolean_utils import cbool
         from verenigingen.utils.termination_integration import suspend_member_safe
 
         def process_member_suspension(member_name):
             """Suspend a single member, returning a per-member result dict."""
             try:
-                if not can_terminate_member(member_name):
+                if not _can_terminate_without_oracle(member_name):
                     return {
                         "member": member_name,
                         "success": False,
