@@ -26,6 +26,7 @@ from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import (
@@ -268,17 +269,20 @@ def _find_volunteer(row: Dict, member: Optional[Document]) -> Optional[Document]
     return None
 
 
-def _create_member(row: Dict) -> Document:
+def _create_member(row: Dict, import_doc: Optional[Document] = None) -> Document:
     """
     Create a new Member record from VIP data.
 
     Args:
         row: Mapped row data from validator
+        import_doc: VIP Import document, recorded as the member's import source (optional)
 
     Returns:
         Created Member document
     """
     member = frappe.new_doc("Member")
+    if import_doc is not None:
+        mark_member_imported(member, "VIP Import", import_doc.name)
 
     # Required fields
     member.first_name = row.get("first_name", "Unknown")
@@ -561,7 +565,7 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
 
         if not member:
             if import_doc.create_members_if_missing:
-                member = _create_member(row)
+                member = _create_member(row, import_doc)
                 stats["members_created"] += 1
             else:
                 # No rollback needed - no changes made

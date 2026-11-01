@@ -21,6 +21,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.fixtures.enhanced_test_factory import (
     EnhancedTestCase,
     suspend_insert_capture,
@@ -427,6 +428,47 @@ class TestEnsureVolunteer(EnhancedTestCase):
         self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 1)
         self.assertIn("queued", message)
         self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
+
+    def test_refused_account_queueing_is_not_reported_or_deduped_as_queued(self):
+        """#1613: create_volunteer_from_member reports a refused ACR as
+        account_creation_queued=False. The volunteer is still created, but the sync
+        must neither say the role/account was queued nor mark the member as queued
+        (which would suppress the next ACR attempt in the same event).
+
+        The refusal is real: an unfinished earlier ACR for the member blocks a new one.
+        """
+        self._create_admin_session()
+        member = self.factory.create_member(
+            first_name="RefusedAcr", last_name="Test", email="refused-acr@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        blocking = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email,
+                "full_name": member.full_name,
+                "role_profile": "Verenigingen Member",
+            }
+        ).insert()
+        self.addCleanup(
+            frappe.delete_doc, "Account Creation Request", blocking.name, ignore_permissions=True, force=True
+        )
+        self.expectErrorLog("Volunteer Account Creation Queue Error")
+
+        config = {"create_volunteer": True, "verenigingen_role": "Verenigingen Volunteer"}
+        message = get_volunteer_sync_service()._ensure_volunteer(member.name, config)
+
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import get_volunteer_for_member
+
+        vol_name = get_volunteer_for_member(member.name)
+        self.assertIsNotNone(vol_name, message)
+        self.addCleanup(self._cleanup_volunteer, vol_name)
+        self.assertIn(vol_name, message)
+        self.assertIn("already exists", message)
+        self.assertNotIn("assigned", message)
+        self.assertFalse(get_related_records_orchestrator().is_acr_queued(member.name))
 
     def test_returns_failure_when_create_volunteer_returns_failure(self):
         # Force create_volunteer_from_member to return success=False by
@@ -2070,7 +2112,7 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
 
     def _cleanup_role(self, role_name):
         try:
-            frappe.delete_doc("Role", role_name, ignore_permissions=True, force=True)
+            delete_role_and_grants(role_name)
         except Exception:
             pass
         frappe.db.commit()

@@ -46,6 +46,7 @@ from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import verify_ponto_webhook
+from verenigingen.verenigingen_payments.utils.webhook_ack import message_log_length, webhook_ack
 
 # Import handlers from split module
 from .webhook_handlers import (
@@ -223,6 +224,7 @@ def handle_ponto_webhook():
     """
     # Initialize error handler for consistent logging and correlation IDs
     error_handler = WebhookErrorHandler("ponto")
+    messages_before = message_log_length()
     payload = None
     webhook_id = None
 
@@ -250,11 +252,7 @@ def handle_ponto_webhook():
         settings = frappe.get_single("Ponto Settings")
         if not settings.enable_webhooks:
             error_handler.log_info("Webhook received but webhooks are disabled")
-            return {
-                "status": "ignored",
-                "reason": "webhooks_disabled",
-                "correlation_id": error_handler.correlation_id,
-            }
+            return webhook_ack(messages_before)
 
         # Verify webhook signature (JWT/JWKS)
         # SECURITY: When require_webhook_signature is enabled, reject unsigned requests
@@ -270,17 +268,19 @@ def handle_ponto_webhook():
             except PontoWebhookError as e:
                 error_handler.log_error("Signature verification failed", e)
                 frappe.local.response["http_status_code"] = 401
-                return error_handler.handle_validation_error("Signature verification failed")
+                error_handler.handle_validation_error("Signature verification failed")
+                return webhook_ack(messages_before)
         elif require_signature:
             # No signature provided but signature is required - reject the request
             error_handler.log_warning(
                 "Webhook rejected: no signature provided but require_webhook_signature is enabled"
             )
             frappe.local.response["http_status_code"] = 401
-            return error_handler.handle_validation_error(
+            error_handler.handle_validation_error(
                 "Webhook signature required",
                 {"reason": "missing_signature", "require_signature_enabled": True},
             )
+            return webhook_ack(messages_before)
         else:
             # No signature provided but signatures not required (development mode)
             error_handler.log_warning(
@@ -293,7 +293,8 @@ def handle_ponto_webhook():
             event_data = json.loads(payload.decode("utf-8"))
         except json.JSONDecodeError as e:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            return webhook_ack(messages_before)
 
         # Extract event type
         # Ponto uses JSON:API format, so event type may be in different locations
@@ -315,7 +316,8 @@ def handle_ponto_webhook():
                 error_details="Unknown event format",
             )
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Unknown event format")
+            error_handler.handle_validation_error("Unknown event format")
+            return webhook_ack(messages_before)
 
         # Log the webhook receipt
         error_handler.log_info(f"Processing webhook: {event_type}", {"webhook_id": webhook_id})
@@ -332,15 +334,13 @@ def handle_ponto_webhook():
             processing_result=json.dumps(result, default=str),
         )
 
-        return error_handler.create_success_response(
-            f"Webhook processed: {event_type}",
-            {"event_type": event_type, "result": result},
-        )
+        error_handler.log_info(f"Webhook processed: {event_type}", result)
+        return webhook_ack(messages_before)
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Ponto/Ibanity to retry later
         frappe.local.response["http_status_code"] = 429
-        return {"status": "rate_limited", "message": str(e), "correlation_id": error_handler.correlation_id}
+        return webhook_ack(messages_before)
 
     except PontoWebhookError as e:
         error_handler.log_error(f"Webhook processing error: {e}", e)
@@ -358,7 +358,8 @@ def handle_ponto_webhook():
         except Exception:
             pass  # Don't fail on logging errors
         frappe.local.response["http_status_code"] = 400
-        return error_handler.handle_business_logic_error(str(e), e)
+        error_handler.handle_business_logic_error(str(e), e)
+        return webhook_ack(messages_before)
 
     except Exception as e:
         error_handler.log_error("Unexpected error processing webhook", e)
@@ -376,7 +377,8 @@ def handle_ponto_webhook():
         except Exception:
             pass  # Don't fail on logging errors
         frappe.local.response["http_status_code"] = 500
-        return error_handler.handle_system_error("Error processing webhook", e)
+        error_handler.handle_system_error("Error processing webhook", e)
+        return webhook_ack(messages_before)
 
 
 def process_webhook_event(event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]:

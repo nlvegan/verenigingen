@@ -138,6 +138,12 @@ class MijnRoodVolunteerSyncService:
                 return _("Volunteer creation skipped: {0}").format(error)
 
             volunteer_name = result.get("volunteer_name")
+            if create_account and result.get("account_creation_queued") is False:
+                # The volunteer exists but its ACR was refused (and Error-Logged by
+                # create_volunteer_from_member). Do not dedup or report it as queued (#1613).
+                return _("Volunteer {0} created; account creation not queued: {1}").format(
+                    volunteer_name, result.get("account_creation_error")
+                )
             if create_account:
                 get_related_records_orchestrator().mark_acr_queued(member_name)
             self.logger.info(

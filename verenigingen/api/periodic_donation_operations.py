@@ -484,12 +484,11 @@ def render_tax_receipt_html(agreement_name: str) -> str:
     the linked Donor record.
 
     Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
-    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
-    reaches the template (prevents HTML/JS injection into the PDF). Money/date
+    wkhtmltopdf, so every donor/org-controlled string is escaped ONCE, by `|e` in
+    the template (enforced by scripts/validation/template_escaping_validator.py).
+    Do not escape here as well: that double-escapes ("Acme &amp;amp; Co"). Money/date
     values are framework-formatted and safe.
     """
-    from frappe.utils import escape_html
-
     agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
     donor = frappe.get_doc("Donor", agreement.donor)
 
@@ -499,13 +498,13 @@ def render_tax_receipt_html(agreement_name: str) -> str:
     donor_address = donor.get("address")
 
     context = {
-        "org_name": escape_html(org_name),
-        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "org_name": org_name,
+        "org_rsin": org_rsin if org_rsin else None,
         "issue_date": frappe.utils.formatdate(today()),
-        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
-        "donor_address": escape_html(donor_address) if donor_address else None,
-        "agreement_number": escape_html(agreement.agreement_number or ""),
-        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "donor_name": agreement.donor_name or donor.donor_name or "",
+        "donor_address": donor_address if donor_address else None,
+        "agreement_number": agreement.agreement_number or "",
+        "agreement_type": agreement.agreement_type if agreement.agreement_type else None,
         "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
         "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
         "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,
@@ -565,12 +564,11 @@ def render_agreement_html(agreement_name: str) -> str:
     identity from Verenigingen Settings and donor identity from the linked Donor.
 
     Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
-    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
-    reaches the template. Money/date values are framework-formatted and the
-    remaining fields come from fixed Select option sets, so all are safe.
+    wkhtmltopdf, so every donor/org-controlled string is escaped ONCE, by `|e` in
+    the template (enforced by scripts/validation/template_escaping_validator.py).
+    Do not escape here as well: that double-escapes. Money/date values are
+    framework-formatted and the remaining fields come from fixed Select option sets.
     """
-    from frappe.utils import escape_html
-
     agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
     donor = frappe.get_doc("Donor", agreement.donor)
 
@@ -580,26 +578,24 @@ def render_agreement_html(agreement_name: str) -> str:
     donor_address = donor.get("address")
 
     context = {
-        "org_name": escape_html(org_name),
-        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "org_name": org_name,
+        "org_rsin": org_rsin if org_rsin else None,
         "issue_date": frappe.utils.formatdate(today()),
-        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
-        "donor_address": escape_html(donor_address) if donor_address else None,
-        "agreement_number": escape_html(agreement.agreement_number or ""),
-        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "donor_name": agreement.donor_name or donor.donor_name or "",
+        "donor_address": donor_address if donor_address else None,
+        "agreement_number": agreement.agreement_number or "",
+        "agreement_type": agreement.agreement_type if agreement.agreement_type else None,
         "anbi_eligible": bool(agreement.anbi_eligible),
         "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
-        "payment_frequency": (
-            escape_html(agreement.payment_frequency) if agreement.payment_frequency else None
-        ),
+        "payment_frequency": (agreement.payment_frequency if agreement.payment_frequency else None),
         "payment_amount": (
             frappe.utils.fmt_money(agreement.payment_amount, currency="EUR")
             if agreement.payment_amount
             else None
         ),
-        "payment_method": escape_html(agreement.payment_method) if agreement.payment_method else None,
+        "payment_method": agreement.payment_method if agreement.payment_method else None,
         "agreement_duration": (
-            escape_html(agreement.agreement_duration_years) if agreement.agreement_duration_years else None
+            agreement.agreement_duration_years if agreement.agreement_duration_years else None
         ),
         "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
         "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,

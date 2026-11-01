@@ -26,7 +26,10 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
-from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
+from verenigingen.services.member.account.role_profile_mapping_guard import (
+    require_may_bulk_assign_profiles_for,
+    require_may_remove_profile_for,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Team-specific configuration
@@ -184,6 +187,7 @@ def bulk_assign_team_role_profiles(team_name: str):
     (auto_sync_on_role_change returns a failure instead of raising). Unlike it, a run where
     the manager rolled back reports 0: the chapter endpoint's per-user writes are independent.
     """
+    require_may_bulk_assign_profiles_for("Team", team_name)
     result = _team_manager.bulk_assign_role_profiles(team_name)
     result["members_updated"] = _count_synced_members(result)
     return result

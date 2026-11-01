@@ -26,7 +26,10 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
-from verenigingen.services.member.account.role_profile_mapping_guard import require_may_remove_profile_for
+from verenigingen.services.member.account.role_profile_mapping_guard import (
+    require_may_remove_profile_for,
+    require_profile_admin,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 # Public API surface. `_chapter_manager` is included despite the
@@ -202,6 +205,7 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
     """
     from verenigingen.services.member.account.user_role_profile_calculator import auto_sync_on_role_change
 
+    require_profile_admin()  # before the existence check: unknown and forbidden answer alike (#1686)
     if not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "members_updated": 0, "message": f"Chapter '{chapter_name}' does not exist"}
 

@@ -30,7 +30,7 @@ def _fixture_rule(name):
 
 def _counter_keys():
     r = redis.from_url(frappe.conf.redis_cache)
-    return r, r.keys(f"cor_rate_limit:{frappe.local.site}:*:{RULE}*")
+    return r, r.keys(f"cor_rate_limit:{frappe.local.site}:*:*{RULE}*")
 
 
 class TestMollieSubscriptionWebhookRateLimit(EnhancedTestCase):

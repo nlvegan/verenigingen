@@ -129,7 +129,7 @@ has_permission = {
 **Function signature**:
 
 ```python
-def has_member_permission(doc, user=None, permission_type="read"):
+def has_member_permission(doc, user=None, ptype=None):
     if not user:
         user = frappe.session.user
 

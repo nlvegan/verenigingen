@@ -320,3 +320,37 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
 
         self.assertTrue(self._emails_sent_to(active_vol.email))
         self.assertFalse(self._emails_sent_to(inactive_vol.email))
+
+    # ------------------------------------------------------------------
+    # #1798: a disabled row is not a join
+    # ------------------------------------------------------------------
+
+    def test_non_active_member_add_does_not_notify_board(self):
+        """#1798: add_member derives enabled=0 for a non-Active member, so the roster
+        hides them; the board must not be told "member joined" about them.
+
+        Real flow (assign_member_to_chapter -> MemberManager.add_member) with the real
+        setting on. The control is test_active_member_add_still_notifies_board.
+        """
+        chapter, volunteers = self._make_chapter_with_board(["notjoined@example.com"])
+        member = self.factory.create_member(status="Suspended")
+
+        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter.name, notify=True)
+
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": member.name}, ["enabled"], as_dict=True
+        )
+        self.assertIsNotNone(row, "fixture setup: the disabled row must exist")
+        self.assertEqual(row.enabled, 0, "fixture setup: a Suspended member's row must be disabled")
+        self.assertEqual(self._emails_sent_to(volunteers[0].email), [])
+
+    def test_active_member_add_still_notifies_board(self):
+        """#1798 control: the same flow for an Active member still notifies the board."""
+        chapter, volunteers = self._make_chapter_with_board(["joined@example.com"])
+        member = self.factory.create_member(status="Active")
+
+        ChapterMembershipManager.assign_member_to_chapter(member.name, chapter.name, notify=True)
+
+        self.assertTrue(
+            any(f"New member in {chapter.name}" in s for s in self._emails_sent_to(volunteers[0].email))
+        )

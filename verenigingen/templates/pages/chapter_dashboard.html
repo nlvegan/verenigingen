@@ -3,9 +3,9 @@
 {% macro format_date(date_val, format='%B %d, %Y') -%}
     {%- if date_val -%}
         {%- if date_val is string -%}
-            {{ date_val }}
+            {{ date_val|e }}
         {%- else -%}
-            {{ date_val.strftime(format) }}
+            {{ date_val.strftime(format)|e }}
         {%- endif -%}
     {%- else -%}
 
@@ -15,9 +15,9 @@
 {% macro format_datetime(date_val, format='%B %d, %Y at %H:%M') -%}
     {%- if date_val -%}
         {%- if date_val is string -%}
-            {{ date_val }}
+            {{ date_val|e }}
         {%- else -%}
-            {{ date_val.strftime(format) }}
+            {{ date_val.strftime(format)|e }}
         {%- endif -%}
     {%- else -%}
         {{ _("Recently") }}
@@ -58,13 +58,13 @@
                             {{ (user_board_role.role if user_board_role else _('Board Member'))|e }}
                         </span>
                         {% if user_board_role and user_board_role.since %}
-                            <span class="text-sm text-white" style="opacity: 0.9;">{{ _("Since") }} {{ format_date(user_board_role.since, '%B %Y') }}</span>
+                            <span class="text-sm text-white" style="opacity: 0.9;">{{ _("Since") }} {{ format_date(user_board_role.since, '%B %Y')|e }}</span>
                         {% endif %}
                     </div>
                 </div>
                 <div class="text-left md:text-right text-white">
                     <div class="text-sm mb-2" style="opacity: 0.9;">
-                        {{ _("Last Updated:") }} {{ format_datetime(dashboard_data.last_updated) if dashboard_data and dashboard_data.last_updated else _('N/A') }}
+                        {{ _("Last Updated:") }} {{ (format_datetime(dashboard_data.last_updated) if dashboard_data and dashboard_data.last_updated else _('N/A'))|e }}
                     </div>
                 </div>
             </div>
@@ -75,10 +75,10 @@
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-users"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ (dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0)|e }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Active Members") }}</p>
                     {% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.new_this_month > 0 %}
-                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month }} {{ _("this month") }}</small>
+                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month|e }} {{ _("this month") }}</small>
                     {% endif %}
                 </div>
             </div>
@@ -86,12 +86,12 @@
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-hourglass-half"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">{% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.pending is not none %}{{ dashboard_data.key_metrics.members.pending }}{% elif dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.applications_refusal %}--{% else %}0{% endif %}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.pending is not none %}{{ dashboard_data.key_metrics.members.pending|e }}{% elif dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.applications_refusal %}--{% else %}0{% endif %}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Pending Applications") }}</p>
                     {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                         {% set overdue_count = dashboard_data.pending_actions.membership_applications | selectattr('is_overdue') | list | length %}
                         {% if overdue_count > 0 %}
-                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count }} {{ _("overdue") }}</small>
+                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count|e }} {{ _("overdue") }}</small>
                         {% endif %}
                     {% endif %}
                 </div>
@@ -103,16 +103,16 @@
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-money"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ "€%.0f"|format(expenses.pending_amount) if expenses_ok else "--" }}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ ("€%.0f"|format(expenses.pending_amount) if expenses_ok else "--")|e }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Pending Expenses") }}</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ expenses.pending_count if expenses_ok else "--" }} {{ _("claims") }}</small>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ (expenses.pending_count if expenses_ok else "--")|e }} {{ _("claims") }}</small>
                 </div>
             </div>
 
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
                 <div class="text-5xl mb-3"><i class="fa fa-check-circle"></i></div>
                 <div>
-                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ "€%.0f"|format(expenses.ytd_total) if expenses_ok else "--" }}</h3>
+                    <h3 class="text-3xl font-bold m-0 text-gray-700">{{ ("€%.0f"|format(expenses.ytd_total) if expenses_ok else "--")|e }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Approved Expenses") }}</p>
                     <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ _("Year to Date") }}</small>
                 </div>
@@ -162,7 +162,7 @@
                                                     <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-success-100 text-success-700">{{ _("Active") }}</span>
                                                 {% endif %}
                                                 <small class="text-gray-500 text-xs ml-auto">
-                                                    {{ _("Joined") }} {{ format_date(member.chapter_join_date) }}
+                                                    {{ _("Joined") }} {{ format_date(member.chapter_join_date)|e }}
                                                 </small>
                                             </a>
                                         </li>
@@ -181,7 +181,7 @@
                     <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                         <h3 class="m-0 text-lg font-semibold text-gray-800"><i class="fa fa-exclamation-triangle"></i> {{ _("Requires Your Attention") }}</h3>
                         <div class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} {{ _("items") }}
+                            {{ (dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0)|e }} {{ _("items") }}
                         </div>
                     </div>
                     <div class="px-6 pb-6">
@@ -202,7 +202,7 @@
                                                 <a href="/app/membership-application-review?application={{ app.application|urlencode|e }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
                                                     {{ app.full_name|e }}
                                                 </a>
-                                                <small class="text-gray-600 text-sm">{{ _("Applied {0} days ago").format(app.days_pending) }}</small>
+                                                <small class="text-gray-600 text-sm">{{ _("Applied {0} days ago").format(app.days_pending)|e }}</small>
                                                 {% if app.is_overdue %}
                                                     <span class="inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold mt-1 self-start">{{ _("OVERDUE") }}</span>
                                                 {% endif %}
@@ -234,7 +234,7 @@
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-gray-50">
                                             <div class="flex flex-col gap-1">
                                                 <a href="/app/member/{{ request.member|urlencode|e }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">{{ request.full_name|e }}</a>
-                                                <small class="text-gray-600 text-sm">{{ _("Requested {0} days ago").format(request.days_pending) }}</small>
+                                                <small class="text-gray-600 text-sm">{{ _("Requested {0} days ago").format(request.days_pending)|e }}</small>
                                             </div>
                                             {% if user_board_role and user_board_role.permissions.can_approve_members %}
                                                 <div class="flex gap-2 flex-shrink-0">
@@ -262,8 +262,8 @@
                                                     {{ (expense.employee_name or expense.custom_volunteer or expense.name)|e }}
                                                 </a>
                                                 <small class="text-gray-600 text-sm">
-                                                    €{{ "%.2f"|format(expense.total_claimed_amount or 0) }}
-                                                    {% if expense.posting_date %} &middot; {{ format_date(expense.posting_date, '%d %b %Y') }}{% endif %}
+                                                    €{{ "%.2f"|format(expense.total_claimed_amount or 0)|e }}
+                                                    {% if expense.posting_date %} &middot; {{ format_date(expense.posting_date, '%d %b %Y')|e }}{% endif %}
                                                 </small>
                                             </div>
                                             {% if user_board_role and user_board_role.permissions.can_approve_expenses %}
@@ -308,7 +308,7 @@
                                             {% endif %}
                                         </div>
                                         <small class="text-gray-500 text-xs ml-auto">
-                                            {{ _("Since") }} {{ format_date(board_member.from_date, '%B %Y') if board_member.from_date else _('Unknown') }}
+                                            {{ _("Since") }} {{ (format_date(board_member.from_date, '%B %Y') if board_member.from_date else _('Unknown'))|e }}
                                         </small>
                                     </li>
                                 {% endfor %}
@@ -349,15 +349,15 @@
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Expenses Submitted:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Expenses Approved:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Pending Approval:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00")|e }}</strong>
                                 </li>
                             </ul>
                         </div>
@@ -367,19 +367,19 @@
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Total Expenses:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Average per Claim:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Total Claims:") }}</span>
-                                    <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
+                                    <strong class="text-gray-900">{{ (dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0)|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
                                     <span class="text-gray-600">{{ _("Purchase Invoices:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.purchase_invoices) if dashboard_data.financial_summary.ytd and dashboard_data.financial_summary.ytd.purchase_invoices else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.ytd.purchase_invoices) if dashboard_data.financial_summary.ytd and dashboard_data.financial_summary.ytd.purchase_invoices else "0.00")|e }}</strong>
                                 </li>
                             </ul>
                         </div>
@@ -389,17 +389,17 @@
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Total Dues Collected:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_gross) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_gross) if dashboard_data.financial_summary.dues_income else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
                                     <span class="text-gray-600">{{ _("Chapter Portion:") }}</span>
-                                    <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
+                                    <strong class="text-gray-900">€{{ ("%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00")|e }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
                                     <span class="text-gray-600">{{ _("Unpaid dues invoices:") }}</span>
                                     <strong class="{% if dashboard_data.dues_payment_status.all_outstanding > 0 %}text-yellow-600{% else %}text-gray-900{% endif %}">
-                                        {{ dashboard_data.dues_payment_status.all_outstanding if dashboard_data.dues_payment_status else 0 }}
-                                        (€{{ "%.2f"|format(dashboard_data.dues_payment_status.all_outstanding_amount) if dashboard_data.dues_payment_status else "0.00" }})
+                                        {{ (dashboard_data.dues_payment_status.all_outstanding if dashboard_data.dues_payment_status else 0)|e }}
+                                        (€{{ ("%.2f"|format(dashboard_data.dues_payment_status.all_outstanding_amount) if dashboard_data.dues_payment_status else "0.00")|e }})
                                     </strong>
                                 </li>
                             </ul>
@@ -425,43 +425,43 @@
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=0"
                                class="text-center p-4 bg-success-50 rounded-lg border border-success-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Up to Date:") }}</span>
-                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date }}</span>
+                                <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date|e }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">{{ _("Members with current coverage") }}</span>
                             </a>
                             <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-primary-50 rounded-lg border border-primary-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("No Dues Schedule set:") }}</span>
-                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership }}</span>
+                                <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership|e }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">{{ _("Members who don't pay any dues.") }}</span>
                             </a>
                             <a href="/app/query-report/Overdue Member Payments?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Members with unpaid dues:") }}</span>
-                                <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) }}</span>
+                                <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid|e }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount)|e }}</span>
                             </a>
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=1"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Lapsed:") }}</span>
-                                <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed }}</span>
+                                <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed|e }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">{{ _("Coverage Expired") }}</span>
                             </a>
                             <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode|e }}&is_membership_invoice=1"
                                class="text-center p-4 bg-danger-50 rounded-lg border border-danger-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Overdue:") }}</span>
-                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount) }}</span>
+                                <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue|e }}</span>
+                                <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount)|e }}</span>
                             </a>
                             <a href="/app/query-report/Members Without Payment Info?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-orange-50 rounded-lg border border-orange-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Missing Payment Info:") }}</span>
-                                <span class="text-3xl font-bold text-orange-600">{{ dashboard_data.dues_payment_status.missing_payment_info }}</span>
+                                <span class="text-3xl font-bold text-orange-600">{{ dashboard_data.dues_payment_status.missing_payment_info|e }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">{{ _("No Mollie/SEPA/Bank Transfer") }}</span>
                             </a>
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
                                 <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Total Members:") }}</span>
-                                <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members }}</span>
+                                <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members|e }}</span>
                             </a>
                         </div>
 
@@ -471,19 +471,19 @@
                             <div class="grid grid-cols-4 gap-4">
                                 <div class="text-center">
                                     <span class="block text-xs text-gray-600 mb-1">{{ _("0-30 days:") }}</span>
-                                    <strong class="text-lg text-yellow-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_under_30_days }}</strong>
+                                    <strong class="text-lg text-yellow-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_under_30_days|e }}</strong>
                                 </div>
                                 <div class="text-center">
                                     <span class="block text-xs text-gray-600 mb-1">{{ _("30-60 days:") }}</span>
-                                    <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days }}</strong>
+                                    <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days|e }}</strong>
                                 </div>
                                 <div class="text-center">
                                     <span class="block text-xs text-gray-600 mb-1">{{ _("60-90 days:") }}</span>
-                                    <strong class="text-lg text-danger-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_60_days }}</strong>
+                                    <strong class="text-lg text-danger-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_60_days|e }}</strong>
                                 </div>
                                 <div class="text-center">
                                     <span class="block text-xs text-gray-600 mb-1">{{ _("90+ days:") }}</span>
-                                    <strong class="text-lg text-danger-700">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_90_plus_days }}</strong>
+                                    <strong class="text-lg text-danger-700">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_90_plus_days|e }}</strong>
                                 </div>
                             </div>
                         </div>
@@ -506,13 +506,13 @@
                                     <a href="/app/member/{{ activity.member|urlencode|e }}" class="block no-underline">
                                         <p class="m-0 mb-2 text-gray-900 hover:text-primary-600 font-medium">{{ activity.description|e }}</p>
                                         <small class="text-gray-500 text-xs">
-                                            {{ format_datetime(activity.timestamp) }}
+                                            {{ format_datetime(activity.timestamp)|e }}
                                         </small>
                                     </a>
                                 {% else %}
                                     <p class="m-0 mb-2 text-gray-900 font-medium">{{ activity.description|e }}</p>
                                     <small class="text-gray-500 text-xs">
-                                        {{ format_datetime(activity.timestamp) }}
+                                        {{ format_datetime(activity.timestamp)|e }}
                                     </small>
                                 {% endif %}
                             </div>
@@ -529,7 +529,7 @@
                     <div class="px-6 py-4 border-b bg-primary-50 border-primary-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                         <h3 class="m-0 text-lg font-semibold text-primary-600"><i class="fa fa-file-text-o"></i>{{ _("Chapter Documents") }}</h3>
                         <div class="bg-primary-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            {{ dashboard_data.board_documents.total_count }} {{ _("documents") }}
+                            {{ dashboard_data.board_documents.total_count|e }} {{ _("documents") }}
                         </div>
                     </div>
                     <div class="p-6">
@@ -538,12 +538,12 @@
                                 <div class="mb-6 last:mb-0">
                                     <!-- Document Type Folder -->
                                     <div class="border border-gray-200 rounded-lg overflow-hidden">
-                                        <button onclick="toggleFolder('folder-{{ doc_type|replace(' ', '-')|lower|e }}')"
+                                        <button data-folder-id="folder-{{ doc_type|replace(' ', '-')|lower|e }}" onclick="toggleFolder(this.dataset.folderId)"
                                                 class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
                                             <h4 class="m-0 text-base font-semibold text-gray-800 flex items-center gap-2">
                                                 <i class="fa fa-folder text-warning-600"></i>
                                                 {% if dashboard_data.board_documents.category_icons %}
-                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '<i class="fa fa-paperclip"></i>') }}
+                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '📎')|e }}
                                                 {% else %}
                                                     {% if doc_type == "Policy" %}<i class="fa fa-clipboard"></i>
                                                     {% elif doc_type == "Meeting Minutes" %}<i class="fa fa-pencil-square-o"></i>
@@ -555,7 +555,7 @@
                                                 {% for year, docs in years_dict.items() %}
                                                     {% set doc_count.total = doc_count.total + docs|length %}
                                                 {% endfor %}
-                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total }} {{ _("documents") }})</span>
+                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total|e }} {{ _("documents") }})</span>
                                             </h4>
                                             <i class="fa fa-chevron-down text-gray-500 transition-transform" id="icon-folder-{{ doc_type|replace(' ', '-')|lower|e }}"></i>
                                         </button>
@@ -564,18 +564,18 @@
                                         <div id="folder-{{ doc_type|replace(' ', '-')|lower|e }}" class="folder-content" style="display: none;">
                                             {% for year, documents in years_dict.items() %}
                                                 <div class="border-t border-gray-200">
-                                                    <button onclick="toggleFolder('year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year }}')"
+                                                    <button data-folder-id="year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year|e }}" onclick="toggleFolder(this.dataset.folderId)"
                                                             class="w-full px-6 py-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-between cursor-pointer border-none text-left">
                                                         <span class="text-sm font-medium text-gray-700 flex items-center gap-2">
                                                             <i class="fa fa-folder-open text-warning-500"></i>
-                                                            {{ year }}
+                                                            {{ year|e }}
                                                             <span class="text-xs text-gray-500 font-normal">({{ documents|length }})</span>
                                                         </span>
-                                                        <i class="fa fa-chevron-down text-gray-400 transition-transform text-sm" id="icon-year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year }}"></i>
+                                                        <i class="fa fa-chevron-down text-gray-400 transition-transform text-sm" id="icon-year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year|e }}"></i>
                                                     </button>
 
                                                     <!-- Documents in year -->
-                                                    <div id="year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year }}" class="folder-content" style="display: none;">
+                                                    <div id="year-{{ doc_type|replace(' ', '-')|lower|e }}-{{ year|e }}" class="folder-content" style="display: none;">
                                                         <ul class="list-none p-0 m-0">
                                                             {% for doc in documents %}
                                                                 <li class="py-3 px-8 bg-gray-50 hover:bg-gray-100 transition-colors border-t border-gray-100">
@@ -591,7 +591,7 @@
                                                                         </div>
                                                                         <div class="flex flex-col md:items-end gap-1">
                                                                             <small class="text-gray-500 text-xs">
-                                                                                {{ _("Uploaded:") }} {{ format_date(doc.upload_date) }}
+                                                                                {{ _("Uploaded:") }} {{ format_date(doc.upload_date)|e }}
                                                                             </small>
                                                                             {% if doc.uploaded_by %}
                                                                                 <small class="text-gray-400 text-xs">

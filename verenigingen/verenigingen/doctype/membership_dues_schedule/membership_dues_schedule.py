@@ -1371,7 +1371,7 @@ def update_member_contribution(schedule_name: str, updates: str):
     return {"success": True, "schedule": schedule.as_dict()}
 
 
-def has_permission(doc, user=None, permission_type="read"):
+def has_permission(doc, user=None, ptype="read"):
     """
     DELEGATES TO: DuesSchedulePermissionService.check_document_permission()
 
@@ -1381,7 +1381,7 @@ def has_permission(doc, user=None, permission_type="read"):
         has_permission as _has_permission,
     )
 
-    return _has_permission(doc, user, permission_type)
+    return _has_permission(doc, user, ptype)
 
 
 def get_permission_query_conditions(user=None):

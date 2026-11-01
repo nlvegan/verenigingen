@@ -225,6 +225,12 @@ class Chapter(Document):
         """On update hook with event emission for background processing"""
         self._clear_manager_caches()
 
+        # Board rows saved through this parent never run Chapter Board Member's own hooks
+        # (Frappe skips child controllers), so drop the seat memo here (#1873).
+        from verenigingen.permissions import invalidate_board_seat_memo
+
+        invalidate_board_seat_memo()
+
         # NOTE: the dead after_save() also carried a cost-center rename guarded by
         # has_value_changed("name"). That guard is unreachable on a real update —
         # _doc_before_save is loaded from the DB so previous.name == self.name always —
@@ -1299,7 +1305,9 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     from verenigingen.services.chapter.chapter_role_profile_manager import (
         bulk_assign_chapter_board_role_profiles,
     )
+    from verenigingen.services.member.account.role_profile_mapping_guard import require_profile_admin
 
+    require_profile_admin()  # before the existence check: unknown and forbidden answer alike (#1686)
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "error": "Chapter not found"}
 

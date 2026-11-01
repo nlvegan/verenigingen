@@ -56,7 +56,6 @@ Technical Implementation:
 """
 
 import time
-from functools import lru_cache
 
 import frappe
 
@@ -77,13 +76,32 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # =========================
 
 
-@lru_cache(maxsize=100)
+_SEAT_CACHE_KEY = "verenigingen_board_seat_lookups"
+
+
+def _request_memo(kind, user, compute):
+    """Memoise a seat lookup for the current request only.
+
+    This used to be a process-wide ``lru_cache`` keyed by (user, 5-minute bucket): no site in
+    the key, and invalidated only inside the process that happened to save the row, so a
+    revoked seat kept reading for up to 5 minutes and one worker could answer site Y with
+    site X's seats (#1873). ``frappe.local`` is per request/job and per site, and Frappe
+    resets it on every ``frappe.init``. The query is one 3-table join, so one query per
+    user per request is enough.
+    """
+    memo = frappe.local.cache.setdefault(_SEAT_CACHE_KEY, {})
+    key = (kind, user)
+    if key not in memo:
+        memo[key] = compute(user)
+    return list(memo[key])
+
+
 def get_user_chapter_memberships_cached(user, cache_key=None):
-    """Cache user's chapter memberships to reduce database queries
+    """User's chapter memberships, memoised for the current request (see _request_memo)
 
     Args:
         user: User email/ID
-        cache_key: Optional cache invalidation key (timestamp)
+        cache_key: Ignored; kept so existing callers keep working
 
     Returns:
         List of chapter names where user is a board member
@@ -91,33 +109,33 @@ def get_user_chapter_memberships_cached(user, cache_key=None):
     if not user:
         return []
 
-    try:
-        user_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            WHERE m.user = %s AND cbm.is_active = 1
-        """,
-            (user,),
-            as_dict=True,
-        )
-
-        return [c.chapter_name for c in user_chapters]
-
-    except Exception as e:
-        frappe.log_error(f"Error getting user chapter memberships for {user}: {e}")
-        return []
+    return _request_memo("memberships", user, _query_user_chapter_memberships)
 
 
-@lru_cache(maxsize=50)
+def _query_user_chapter_memberships(user):
+    # No try/except: a DB error must not read as "no seats" nor be memoised as [] for the
+    # rest of the request. It propagates, and the caller fails closed.
+    user_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        WHERE m.user = %s AND cbm.is_active = 1
+    """,
+        (user,),
+        as_dict=True,
+    )
+
+    return [c.chapter_name for c in user_chapters]
+
+
 def get_user_treasurer_chapters_cached(user, cache_key=None):
-    """Cache user's treasurer positions to optimize permission checks
+    """User's treasurer positions, memoised for the current request (see _request_memo)
 
     Args:
         user: User email/ID
-        cache_key: Optional cache invalidation key (timestamp)
+        cache_key: Ignored; kept so existing callers keep working
 
     Returns:
         List of chapter names where user is treasurer
@@ -125,34 +143,39 @@ def get_user_treasurer_chapters_cached(user, cache_key=None):
     if not user:
         return []
 
-    try:
-        treasurer_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
-            WHERE m.user = %s
-            AND cbm.is_active = 1
-            AND cr.permissions_level = 'Financial'
-        """,
-            (user,),
-            as_dict=True,
-        )
+    return _request_memo("treasurer", user, _query_user_treasurer_chapters)
 
-        return [c.chapter_name for c in treasurer_chapters]
 
-    except Exception as e:
-        frappe.log_error(f"Error getting user treasurer chapters for {user}: {e}")
-        return []
+def _query_user_treasurer_chapters(user):
+    # No try/except, for the same reason as _query_user_chapter_memberships.
+    treasurer_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+        WHERE m.user = %s
+        AND cbm.is_active = 1
+        AND cr.permissions_level = 'Financial'
+    """,
+        (user,),
+        as_dict=True,
+    )
+
+    return [c.chapter_name for c in treasurer_chapters]
+
+
+def invalidate_board_seat_memo():
+    """Drop only this request's seat lookups. Call wherever a board seat is written,
+    including Chapter saves, which write the rows without running their own hooks."""
+    frappe.local.cache.pop(_SEAT_CACHE_KEY, None)
 
 
 def clear_permission_cache():
     """Clear permission caches - call when roles/memberships change"""
     try:
-        get_user_chapter_memberships_cached.cache_clear()
-        get_user_treasurer_chapters_cached.cache_clear()
+        invalidate_board_seat_memo()
 
         # Clear Frappe's internal cache as well
         if hasattr(frappe.local, "cache"):
@@ -453,7 +476,7 @@ def _check_chapter_board_access(user, target_member_name, include_pending=False)
     return _is_member_in_chapters(target_member_name, board_chapters, include_pending=include_pending)
 
 
-def has_member_permission(doc, user=None, permission_type=None):
+def has_member_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Member doctype with chapter-based access control
 
@@ -477,7 +500,7 @@ def has_member_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Member", permission_type)
+    service_result = _check_service_account_permission(user, "Member", ptype)
     if service_result is not None:
         return service_result
 
@@ -552,7 +575,7 @@ def has_member_permission(doc, user=None, permission_type=None):
     return False
 
 
-def has_volunteer_permission(doc, user=None, permission_type=None):
+def has_volunteer_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Volunteer doctype with member and chapter-based access control
 
@@ -575,7 +598,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Volunteer", permission_type)
+    service_result = _check_service_account_permission(user, "Volunteer", ptype)
     if service_result is not None:
         return service_result
 
@@ -685,7 +708,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             done.
 
     Returns:
-        (has_permission, permission_query) — a has_permission(doc, user, permission_type)
+        (has_permission, permission_query) — a has_permission(doc, user, ptype)
         callable and a permission_query(user) callable, named after the doctype.
     """
     # doctype + member_field are interpolated into SQL (table name + column). They are
@@ -699,22 +722,12 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
     table = f"`tab{doctype}`"
     slug = doctype.lower().replace(" ", "_")
 
-    def has_permission(doc, user=None, permission_type=None):
-        # WARNING: `permission_type` is ALWAYS None when this is reached through the
-        # has_permission hook. frappe/permissions.py::has_controller_permissions calls
-        # frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs
-        # drops kwargs that are not in the callee's signature -- our parameter is named
-        # permission_type, not ptype, so the value never arrives. MEASURED:
-        # frappe.get_newargs(has_donor_permission, {...,"ptype":"write",...}) -> ['doc','user'].
-        #
-        # Consequences: _check_service_account_permission below always evaluates the
-        # "read" DocPerm (perm_type = permission_type or "read"), and this check returns
-        # the same verdict for read/write/create/submit. Do NOT add ptype-dependent
-        # logic here expecting it to work, and do NOT "fix" this by renaming the
-        # parameter to ptype -- that would start feeding real ptypes into the service
-        # account branch and silently change webhook answers for non-read operations.
-        # (Sibling checks in this repo differ: chapter.py and project_permissions.py
-        # name the parameter ptype and DO receive it.)
+    def has_permission(doc, user=None, ptype=None):
+        # #1778: the parameter MUST be named `ptype`. frappe.call(method, doc=, ptype=,
+        # user=, debug=) drops any keyword the callee does not declare, so the old name
+        # `permission_type` was always None and every check ran as "read". The ptype now
+        # reaches _check_service_account_permission, so a webhook account is held to the
+        # DocPerm right actually being exercised (write/delete/...), not read.
         if not user:
             user = frappe.session.user
 
@@ -735,7 +748,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             return True
 
         # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-        service_result = _check_service_account_permission(user, doctype, permission_type)
+        service_result = _check_service_account_permission(user, doctype, ptype)
         if service_result is not None:
             return service_result
 
@@ -892,7 +905,7 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
-def has_donation_permission(doc, user=None, permission_type=None):
+def has_donation_permission(doc, user=None, ptype=None):
     """Direct permission check for Donation doctype
 
     Grants access to:
@@ -911,7 +924,7 @@ def has_donation_permission(doc, user=None, permission_type=None):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Donation", permission_type)
+    service_result = _check_service_account_permission(user, "Donation", ptype)
     if service_result is not None:
         return service_result
 
@@ -1015,7 +1028,7 @@ def get_donation_permission_query(user):
     return "1=0"
 
 
-def has_address_permission(doc, user=None, permission_type=None):
+def has_address_permission(doc, user=None, ptype=None):
     """Permission check for Address doctype - allows members to access their own addresses
     and chapter board members to access addresses of members in their chapters"""
     if not user:
@@ -1374,14 +1387,11 @@ def _employee_board_chapter_condition(user):
 def has_employee_permission(doc, user=None, ptype=None):
     """Document-level check for Employee. Mirrors get_employee_permission_query.
 
-    The third parameter is named `ptype`, not `permission_type`, because that is the
-    keyword frappe actually passes: has_controller_permissions calls
-    frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs drops
-    kwargs absent from the callee's signature. Every sibling in this module names it
-    `permission_type` and therefore always receives None -- which matters for the ones
-    that forward it into _check_service_account_permission, where
-    `perm_type = permission_type or "read"` silently evaluates every operation as a
-    read. This check ignores the value entirely, but it should not join that family.
+    The third parameter is named `ptype` because that is the keyword frappe actually
+    passes: has_controller_permissions calls frappe.call(method, doc=doc, ptype=ptype, ...)
+    and frappe.call's get_newargs drops kwargs absent from the callee's signature. Its
+    siblings used to say `permission_type` and always received None (#1778, fixed).
+    This check ignores the value entirely.
 
     Employee had a permission query and NO has_permission hook. Those two halves
     have disjoint coverage -- frappe/model/db_query.py calls frappe.has_permission
@@ -1814,7 +1824,7 @@ def get_termination_permission_query(user):
     )"""
 
 
-def has_membership_termination_request_permission(doc, user=None, permission_type=None):
+def has_membership_termination_request_permission(doc, user=None, ptype=None):
     """
     Direct permission check for Membership Termination Request doctype
     Chapter Board Members can create, read, and write termination requests for their chapter members
@@ -2155,7 +2165,7 @@ def get_team_member_permission_query(user):
     return f"({team_filter})"
 
 
-def has_expense_claim_permission(doc, user=None, permission_type=None):
+def has_expense_claim_permission(doc, user=None, ptype=None):
     """Permission check for Expense Claim doctype
 
     Grants access to:
