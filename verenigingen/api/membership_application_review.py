@@ -664,10 +664,12 @@ def _lock_pending_review_application(application_name, refusal):
     except frappe.DoesNotExistError:
         # Only a caller whose chapter access is "all" reaches here for an unknown name (the permission check
         # refuses everyone else identically to a foreign one), so the distinguishable error tells them nothing new.
-        log_security_event(
+        from verenigingen.services.chapter.chapter_security import record_application_security_event
+
+        record_application_security_event(
             "unauthorized_access_attempt",
-            {"message": f"Attempted review of non-existent application: {application_name}"},
-            severity="error",
+            "error",
+            f"Attempted review of non-existent application: {application_name}",
         )
         raise
     if application.status != "Pending Review":

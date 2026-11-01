@@ -8,6 +8,7 @@ leave the same trace (the oracle tests compare the caller's side, this is the se
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 
@@ -16,7 +17,9 @@ from verenigingen.api.membership_application_review import (
     reject_application,
     request_more_info,
 )
+from verenigingen.services.chapter.chapter_security import store_application_security_event
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
+from verenigingen.utils.security.audit_logging import SEPAAuditLogger
 
 ENDPOINTS = {
     "approve": lambda name: approve_application(name, create_invoice=False),
@@ -86,3 +89,67 @@ class TestApplicationReviewSecurityEvents(ApprovalCase):
                 error = self._call_endpoint_as(self.admin_user.email, label, "a" * 300)
                 self.assertIsInstance(error, frappe.ValidationError)
                 self.assertNotIsInstance(error, frappe.DoesNotExistError, "the length was never checked")
+
+    # -- persistence: the events must outlive the request's rollback ---------------------------------
+
+    def _refuse_with_the_queue_captured(self, names):
+        """Refuse each name as the board user with frappe.enqueue captured (it stands in for the Redis
+        push: a boundary the test cannot run without a worker); returns the captured calls."""
+        captured = []
+
+        def capture(method, **kwargs):
+            captured.append((method, kwargs))
+
+        # Mock justified: Infrastructure - the RQ queue (CI has no worker)
+        with patch("frappe.enqueue", capture):
+            for name in names:
+                self._call_endpoint_as(self.board.user, "approve", name)
+        return captured
+
+    def test_refusals_survive_the_request_rollback(self):
+        """Frappe rolls the request back on the PermissionError (frappe/app.py), so a row written inline is
+        lost: the refusal must be one job per call, pushed outside the transaction, that a worker then stores."""
+        self.email = self._fresh_applicant_email()
+        foreign = self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+        before = frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"})
+
+        captured = self._refuse_with_the_queue_captured([foreign, unknown])
+
+        self.assertEqual(len(captured), 2, "one enqueue per refusal, identical for unknown and foreign")
+        for method, kwargs in captured:
+            self.assertEqual(method, "verenigingen.services.chapter.chapter_security.store_application_security_event")
+            self.assertEqual(kwargs["queue"], "short")
+            self.assertFalse(kwargs.get("enqueue_after_commit"), "an after-commit push is dropped by the rollback")
+            self.assertEqual(set(kwargs), {"queue", "now", "event_type", "severity", "message"})
+        self.assertEqual(
+            captured[0][1]["message"].replace(foreign, "<name>"), captured[1][1]["message"].replace(unknown, "<name>")
+        )
+
+        frappe.db.rollback()  # what the request handler does on the PermissionError
+        self.assertEqual(
+            frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"}),
+            before,
+            "control: nothing was written inline, so nothing depends on the request's transaction",
+        )
+        for method, kwargs in captured:  # the worker
+            store_application_security_event(kwargs["event_type"], kwargs["severity"], kwargs["message"])
+        self.assertEqual(
+            frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"}) - before,
+            2,
+            "one row per refusal",
+        )
+
+    def test_a_burst_of_refusals_raises_the_security_alert(self):
+        """Through the real endpoint: four refusals inside the window (threshold: 3 unauthorized attempts
+        in 5 minutes) reach the alert path, because the job checks the thresholds."""
+        self.email = self._fresh_applicant_email()
+        foreign = self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+        suspicious = {"event_type": "suspicious_activity"}
+        before = frappe.db.count("API Audit Log", suspicious)
+        # Mock justified: External Service - the alert mail to administrators
+        with patch.object(SEPAAuditLogger, "_send_security_notification") as notify:
+            for _ in range(4):
+                self._call_endpoint_as(self.board.user, "approve", foreign)
+        self.assertTrue(notify.called, "four refusals inside the window must reach the alert path")
+        self.assertGreater(frappe.db.count("API Audit Log", suspicious), before)

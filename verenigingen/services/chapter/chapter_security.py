@@ -8,7 +8,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.security.audit_logging import get_audit_logger
+from verenigingen.utils.security.audit_logging import log_security_event
 
 
 def get_user_manageable_chapters(user=None):
@@ -145,16 +145,41 @@ def validate_application_permission_or_throw(application_name, action="manage", 
     allowed = can_user_read_application_record if action == "read" else can_user_manage_application_record
     if not allowed(application_name, user):
         # Server-side trace only, and the same for an unknown and a foreign name: it must not say which.
-        # check_alerts=False: the threshold check counts the site's recent events of this type (and fires an
-        # alert past a limit), so the refusal's cost would depend on OTHER callers' recent refusals, a
-        # timing channel the refusal must not have and the reason the oracle tests would flake.
-        get_audit_logger().log_event(
-            "unauthorized_access_attempt",
-            "warning",
-            details={"message": f"Refused {action} of application {application_name}"},
-            check_alerts=False,
+        record_application_security_event(
+            "unauthorized_access_attempt", "warning", f"Refused {action} of application {application_name}"
         )
         frappe.throw(
             _("You don't have permission to {0} this application").format(action),
             frappe.PermissionError,
         )
+
+
+def record_application_security_event(event_type, severity, message):
+    """Record a security event of the application review path so that it survives the request's rollback.
+
+    A refusal raises PermissionError, and Frappe rolls the request transaction back on any exception, so a
+    row written inline would vanish with it (measured: 1 row inside the transaction, 0 after the handler's
+    rollback). The event is therefore handed to a background job: the Redis push is not part of the database
+    transaction (enqueue_after_commit stays False, which would drop it on rollback too), and the job stores
+    the row, runs the threshold alert check and commits as any worker job does.
+
+    An unknown and a foreign application take this same path, once each, with the same payload shape, and
+    the message says nothing about whether the application exists.
+
+    PRODUCTION NEEDS A WORKER on the "short" queue, or the events queue up unrecorded. `now=frappe.in_test`
+    runs the job inline under test: CI has no RQ workers, and the inline row lives in the test transaction.
+    """
+    frappe.enqueue(
+        "verenigingen.services.chapter.chapter_security.store_application_security_event",
+        queue="short",
+        now=frappe.in_test,
+        event_type=event_type,
+        severity=severity,
+        message=message,
+    )
+
+
+def store_application_security_event(event_type, severity, message):
+    """The background job behind record_application_security_event: store the event and check the alert
+    thresholds (three unauthorized attempts in five minutes raise a security alert)."""
+    log_security_event(event_type, {"message": message}, severity=severity)

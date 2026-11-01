@@ -246,9 +246,10 @@ class TestLogSecurityEventTypesAreValidSelectOptions(unittest.TestCase):
         # member_duplicate_detection_service.py, security_setup.py,
         # personal_details.py, authorization.py and audit_logging.py itself.
         # #1765 deleted 9 of them with the member-keyed approval code (11 remain), then
-        # restored two on the application-keyed path (the identifier sanitiser and an unknown
-        # application; the refusal event goes through get_audit_logger directly): 13. As before, the floor is the exact count,
-        # so losing one through a scanner blind spot fails here.
+        # restored two on the application-keyed path (the identifier sanitiser, and the job that
+        # stores the review path's security events; the latter takes its event type as a
+        # parameter, so the scan counts it as unresolved): 13. As before, the floor is the exact
+        # count, so losing one through a scanner blind spot fails here.
         self.assertGreaterEqual(
             total_calls,
             13,

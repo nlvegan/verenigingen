@@ -655,7 +655,9 @@ class TestApproveApplicationBoard(ApprovalCase):
         before = len(frappe.local.message_log)
         kind = message = None
         with self.as_user(self.board.user):
-            with count_queries() as counter:
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
                 try:
                     reject_application(name, reason="No")
                 except Exception as error:
@@ -673,7 +675,9 @@ class TestApproveApplicationBoard(ApprovalCase):
         before = len(frappe.local.message_log)
         kind = message = None
         with self.as_user(self.board.user):
-            with count_queries() as counter:
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
                 try:
                     approve_application(name, create_invoice=False)
                 except Exception as error:
@@ -1008,7 +1012,9 @@ class TestApplicationChanges(ApprovalCase):
         before = len(frappe.local.message_log)
         kind = message = None
         with self.as_user(user):
-            with count_queries() as counter:
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
                 try:
                     get_application_changes(name)
                 except Exception as error:
@@ -1270,7 +1276,9 @@ class TestRequestMoreInfo(ApprovalCase):
         before = len(frappe.local.message_log)
         kind = message = None
         with self.as_user(self.board.user):
-            with count_queries() as counter:
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
                 try:
                     request_more_info(name, "Anything")
                 except Exception as error:
