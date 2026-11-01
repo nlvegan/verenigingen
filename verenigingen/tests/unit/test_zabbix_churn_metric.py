@@ -228,10 +228,13 @@ class TestRejoinedMemberIsNotCounted(ApprovalCase):
         self.assertEqual(member.status, "Quit")
         after_termination = zabbix_integration._count_recent_member_terminations()
 
-        # Supersede the Executed request (see docstring, #1548).
-        frappe.db.set_value("Membership Termination Request", request.name, "status", "Cancelled")
-
         name = self._stage_and_confirm(first_name=member.first_name, last_name=member.last_name)
+
+        # Supersede the Executed request (see docstring, #1548) only AFTER the application is
+        # confirmed: submit and confirm need the Executed Voluntary termination to admit a Quit member
+        # (a Quit member with none gets the "contact us" outcome, #1765 final review F2), so the
+        # workaround stands in for the #1548 overwrite at materialise, not for the admission check.
+        frappe.db.set_value("Membership Termination Request", request.name, "status", "Cancelled")
         materialise_member(frappe.get_doc("Membership Application Submission", name))
 
         member.reload()
