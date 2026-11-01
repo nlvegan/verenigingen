@@ -168,6 +168,67 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
         self.assertNotIn("is_suspended", str(result))
 
+    def test_unchecked_suspension_list_endpoint_is_gone(self):
+        """#1866: the MEDIUM-tier `get_suspension_list` returned the name and email of
+        every suspended member to any "Verenigingen Volunteer" caller (measured on
+        test_site_8). It had no production caller, so it was deleted. The old dotted
+        path must not resolve, so it can never be dispatched.
+        """
+        self.assertFalse(hasattr(suspension_api, "get_suspension_list"))
+        with self.assertRaises(AttributeError):
+            frappe.get_attr("verenigingen.api.suspension_api.get_suspension_list")
+
+    def test_staff_can_still_list_suspended_members_through_the_member_list(self):
+        """The staff path to the same data is the Member list view (permission checked
+        by `frappe.get_list`), which the deletion must not affect. Control: the Active
+        member is not in the result, so the filter is doing the work.
+        """
+        self.assertTrue(
+            self._suspend(
+                self.test_member.name, suspend_user=False, suspend_teams=False
+            )["success"]
+        )
+
+        with self.as_user(self.admin_user.email):
+            names = [
+                row.name
+                for row in frappe.get_list(
+                    "Member", filters={"status": "Suspended"}, fields=["name"]
+                )
+            ]
+
+        self.assertIn(self.test_member.name, names)
+        self.assertNotIn(self.member_with_user.name, names)
+
+    def test_volunteer_profile_user_cannot_list_suspended_members(self):
+        """#1866 negative property: a user holding ONLY the "Verenigingen Volunteer"
+        role profile (the caller the deleted endpoint leaked to) gets no suspended
+        member from the Member list. The suspended state is reached through the real
+        `suspend_member` flow. Control: the admin test above sees the same row.
+        """
+        volunteer_user = self.create_test_user_with_roles(
+            email="susp.volunteer@test.verenigingen.invalid",
+            roles=["Verenigingen Volunteer"],
+            first_name="Susp",
+            last_name="Volunteer",
+        )
+        grant_matching_role_profiles(volunteer_user.email, ["Verenigingen Volunteer"])
+        self.assertTrue(
+            self._suspend(
+                self.test_member.name, suspend_user=False, suspend_teams=False
+            )["success"]
+        )
+
+        with self.as_user(volunteer_user.email):
+            names = [
+                row.name
+                for row in frappe.get_list(
+                    "Member", filters={"status": "Suspended"}, fields=["name"]
+                )
+            ]
+
+        self.assertNotIn(self.test_member.name, names)
+
     def test_bulk_suspension(self):
         """bulk_suspend_members suspends every member in the batch."""
         bulk_members = [

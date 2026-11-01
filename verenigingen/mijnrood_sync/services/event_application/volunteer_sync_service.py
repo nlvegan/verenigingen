@@ -249,7 +249,7 @@ class MijnRoodVolunteerSyncService:
         and appends to the Chapter's board_members child table.
 
         Saving the Chapter triggers BoardManager.handle_board_member_additions(),
-        which assigns the Frappe role and syncs the user's role profile.
+        which defers a role-profile sync of the user; the profile carries the Frappe role (#1672).
 
         Returns:
             Human-readable status message, or None if skipped.

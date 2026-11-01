@@ -28,7 +28,10 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import (
+    get_current_user_linked_member_name,
+    get_current_user_member_name,
+)
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
@@ -96,8 +99,8 @@ def get_chapter_join_context(chapter_name: str) -> OperationResult[Dict[str, Any
             }
             return OperationResult.ok(data, message=_("Chapter information retrieved"))
 
-        # For authenticated users, check existing chapter membership
-        member = get_current_user_member_name()
+        # For authenticated users, check existing chapter membership (Member.user link only, #1853)
+        member = get_current_user_linked_member_name()
         already_member = False
 
         if member:
@@ -169,10 +172,17 @@ def join_chapter(chapter_name: str, introduction) -> OperationResult[Dict[str, A
         if frappe.session.user == "Guest":
             frappe.throw(_("Please login to join a chapter"), frappe.PermissionError)
 
-        # Verify that user has a valid member record
-        member = get_current_user_member_name()
+        # Member.user link ONLY, no Member.email fallback (#1853): a user who merely shares an
+        # email with a Member must not file a request as that Member.
+        member = get_current_user_linked_member_name()
         if not member:
-            frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+            return OperationResult.fail(
+                _(
+                    "Your account is not linked to a member record, so you cannot join a chapter. "
+                    "Please contact the membership administration."
+                ),
+                context={"operation": "join_chapter", "chapter_name": chapter_name},
+            )
 
         # Validate required introduction message
         if not introduction or not introduction.strip():
@@ -188,11 +198,6 @@ def join_chapter(chapter_name: str, introduction) -> OperationResult[Dict[str, A
                 "status": "Pending",
             }
         )
-        # `member` was resolved from the caller's session above (get_current_user_member_name,
-        # which also accepts the email fallback); the doctype's Member.user-only ownership check
-        # (#1786) must not re-refuse it.
-        join_request.flags.member_verified_by_caller = True
-
         # Save and submit the request.
         # reload() guards against #609 (whole-second creation/modified timestamp
         # -> TimestampMismatchError / CannotChangeConstantError on submit()):

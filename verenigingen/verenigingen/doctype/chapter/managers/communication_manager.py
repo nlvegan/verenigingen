@@ -220,58 +220,38 @@ class CommunicationManager(BaseManager):
             return False
 
     def notify_board_of_member_joined(self, member_id: str) -> bool:
-        """Notify all active board members that a regular member joined (or transferred in).
+        """Notify all active board members that a regular member joined.
 
-        Reads ``frappe.flags.chapter_transfer`` to decide whether to use the
-        transfer-specific template.  This is the board-facing counterpart to
-        ``notify_member_added`` (which emails only the joining member).
+        This is the board-facing counterpart to ``notify_member_added`` (which
+        emails only the joining member).
 
         Returns True if at least one email was queued.
         """
         if not self._board_lifecycle_notifications_enabled():
             return False
 
-        transfer = frappe.flags.get("chapter_transfer") or {}
-        is_transfer_in = transfer.get("member") == member_id and transfer.get("to") == self.chapter_name
-        template_name = (
-            "chapter_board_member_transferred_in" if is_transfer_in else "chapter_board_member_joined"
-        )
-        notification_key = "chapter_member_transferred_in" if is_transfer_in else "chapter_member_joined"
-        other_chapter = transfer.get("from") if is_transfer_in else None
-
         return self._dispatch_board_lifecycle_notification(
             member_id=member_id,
-            template_name=template_name,
-            notification_key=notification_key,
-            other_chapter=other_chapter,
+            template_name="chapter_board_member_joined",
+            notification_key="chapter_member_joined",
             effective_date=frappe.utils.today(),
         )
 
     def notify_board_of_member_left(self, member_id: str, leave_reason: str = None) -> bool:
-        """Notify all active board members that a regular member left (or transferred out).
+        """Notify all active board members that a regular member left.
 
-        Reads ``frappe.flags.chapter_transfer`` to decide whether to use the
-        transfer-specific template.  This is the board-facing counterpart to
-        ``notify_member_removed`` (which emails only the leaving member).
+        This is the board-facing counterpart to ``notify_member_removed`` (which
+        emails only the leaving member).
 
         Returns True if at least one email was queued.
         """
         if not self._board_lifecycle_notifications_enabled():
             return False
 
-        transfer = frappe.flags.get("chapter_transfer") or {}
-        is_transfer_out = transfer.get("member") == member_id and transfer.get("from") == self.chapter_name
-        template_name = (
-            "chapter_board_member_transferred_out" if is_transfer_out else "chapter_board_member_left"
-        )
-        notification_key = "chapter_member_transferred_out" if is_transfer_out else "chapter_member_left"
-        other_chapter = transfer.get("to") if is_transfer_out else None
-
         return self._dispatch_board_lifecycle_notification(
             member_id=member_id,
-            template_name=template_name,
-            notification_key=notification_key,
-            other_chapter=other_chapter,
+            template_name="chapter_board_member_left",
+            notification_key="chapter_member_left",
             effective_date=frappe.utils.today(),
             leave_reason=leave_reason,
         )
@@ -292,7 +272,6 @@ class CommunicationManager(BaseManager):
         member_id: str,
         template_name: str,
         notification_key: str,
-        other_chapter: str,
         effective_date: str,
         leave_reason: str = None,
     ) -> bool:
@@ -328,7 +307,6 @@ class CommunicationManager(BaseManager):
                 "member_id": member_id,
                 "member_link": frappe.utils.get_url(f"/app/member/{member_id}"),
                 "chapter_name": self.chapter_name,
-                "other_chapter": other_chapter,
                 "effective_date": frappe.utils.formatdate(effective_date),
                 "leave_reason": leave_reason,
             }

@@ -36,6 +36,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     public_api,
 )
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -60,7 +61,7 @@ def check_rate_limit(endpoint, limit_per_hour=60):
     """Check if the current user/session has exceeded rate limits"""
     try:
         # Use IP address and session for rate limiting
-        client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
+        client_ip = get_client_ip()
         cache_key = f"rate_limit:{endpoint}:{client_ip}"
 
         # frappe.cache().get() returns bytes on a cache hit (raw redis, not

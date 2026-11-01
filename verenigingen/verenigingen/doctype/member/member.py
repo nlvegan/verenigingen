@@ -422,11 +422,20 @@ class Member(
         EXTRACTED: Moved to MemberEventEmissionService.emit_status_change_events()
         for service layer separation.
         """
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
         from verenigingen.services.member.lifecycle.member_event_emission_service import (
             get_member_event_emission_service,
         )
 
         get_member_event_emission_service().emit_status_change_events(self)
+
+    def after_delete(self):
+        """Drop the request's member->volunteer lookup memo (#1902)"""
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
 
     def on_change(self):
         """Runs after all on_update hooks complete (including doc_event hooks).

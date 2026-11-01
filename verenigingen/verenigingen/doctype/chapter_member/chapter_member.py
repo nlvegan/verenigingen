@@ -128,38 +128,24 @@ class ChapterMember(Document):
         )
 
     def _notify_board_of_member_joined(self):
-        """Notify the chapter board that a member joined (or transferred in)."""
+        """Notify the chapter board that a member joined."""
         if not self._board_lifecycle_notifications_enabled():
             return
 
-        transfer = frappe.flags.get("chapter_transfer") or {}
-        is_transfer_in = transfer.get("member") == self.member and transfer.get("to") == self.parent
-        template = "chapter_board_member_transferred_in" if is_transfer_in else "chapter_board_member_joined"
-        notification_key = "chapter_member_transferred_in" if is_transfer_in else "chapter_member_joined"
-        other_chapter = transfer.get("from") if is_transfer_in else None
-
         self._dispatch_board_notification(
-            template_name=template,
-            notification_key=notification_key,
-            other_chapter=other_chapter,
+            template_name="chapter_board_member_joined",
+            notification_key="chapter_member_joined",
             effective_date=self.chapter_join_date or frappe.utils.today(),
         )
 
     def _notify_board_of_member_left(self):
-        """Notify the chapter board that a member left (or transferred out)."""
+        """Notify the chapter board that a member left."""
         if not self._board_lifecycle_notifications_enabled():
             return
 
-        transfer = frappe.flags.get("chapter_transfer") or {}
-        is_transfer_out = transfer.get("member") == self.member and transfer.get("from") == self.parent
-        template = "chapter_board_member_transferred_out" if is_transfer_out else "chapter_board_member_left"
-        notification_key = "chapter_member_transferred_out" if is_transfer_out else "chapter_member_left"
-        other_chapter = transfer.get("to") if is_transfer_out else None
-
         self._dispatch_board_notification(
-            template_name=template,
-            notification_key=notification_key,
-            other_chapter=other_chapter,
+            template_name="chapter_board_member_left",
+            notification_key="chapter_member_left",
             effective_date=frappe.utils.today(),
         )
 
@@ -176,7 +162,7 @@ class ChapterMember(Document):
         )
         return bool(setting_value)
 
-    def _dispatch_board_notification(self, template_name, notification_key, other_chapter, effective_date):
+    def _dispatch_board_notification(self, template_name, notification_key, effective_date):
         """Send the given template to all active board members of self.parent.
 
         Board member rows store the email directly (fetched from volunteer.email)
@@ -214,7 +200,6 @@ class ChapterMember(Document):
             "member_id": self.member,
             "member_link": frappe.utils.get_url(f"/app/member/{self.member}"),
             "chapter_name": self.parent,
-            "other_chapter": other_chapter,
             "effective_date": frappe.utils.formatdate(effective_date),
             "leave_reason": getattr(self, "leave_reason", None),
         }

@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url, today
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     MandateChoice,
     unambiguous_active_mandate,
@@ -216,7 +217,7 @@ class MandateService:
                 # TODO(incasso): verify once Pay.nl Direct Debit contract is
                 # live — confirm Pay.nl accepts "0.0.0.0" for background/non-
                 # request callers (scheduled debit runs have no request_ip).
-                "ipAddress": getattr(frappe.local, "request_ip", None) or "0.0.0.0",
+                "ipAddress": get_client_ip_or_none() or "0.0.0.0",
             },
             "exchangeUrl": self._get_webhook_url("mandate"),
         }
