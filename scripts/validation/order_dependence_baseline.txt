@@ -438,6 +438,7 @@ COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/stock_email_templates.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/test_drain_role_grants.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::1  # order-dep-exempt

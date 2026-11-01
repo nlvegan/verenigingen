@@ -26,6 +26,7 @@ REAL BUSINESS LOGIC TESTED:
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 from verenigingen.api.payment_processing import send_payment_reminder_email, generate_payment_reminder_html
 from unittest.mock import patch
 
@@ -460,6 +461,15 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
             context={"member": self.test_member, "payment_info": self.sample_payment_info},
         )
         self.assertNotEqual(result2.error_code, "TEMPLATE_NOT_FOUND")
+
+    @classmethod
+    def tearDownClass(cls):
+        # #1982: this class replaces/deletes fixture-shipped payment_reminder_*
+        # templates; restore the shipped rows (payment_reminder_final is not shipped).
+        _cleanup_stock_email_templates(
+            ["payment_reminder_friendly", "payment_reminder_urgent", "payment_reminder_final"]
+        )
+        super().tearDownClass()
 
     def tearDown(self):
         """Clean up test email templates"""
