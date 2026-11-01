@@ -23,6 +23,7 @@ import frappe
 
 from verenigingen.api.membership_email_templates import create_default_email_templates
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 
 # The exact set of templates the module manages, with their expected subjects.
 # Kept in sync with membership_email_templates.py so cleanup + assertions are exhaustive.
@@ -41,6 +42,13 @@ MANAGED_TEMPLATES = {
 
 class TestMembershipEmailTemplates(VereningingenTestCase):
     """Behaviour-level tests for the default membership email template creator."""
+
+    @classmethod
+    def tearDownClass(cls):
+        # #1981: this class force-deletes stock Email Templates; put the shipped
+        # fixture rows back so later modules do not see a missing row.
+        _cleanup_stock_email_templates(MANAGED_TEMPLATES)
+        super().tearDownClass()
 
     def setUp(self):
         super().setUp()
