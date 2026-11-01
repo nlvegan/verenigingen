@@ -2526,7 +2526,16 @@ function show_approval_dialog(frm) {
 						freeze: true,
 						freeze_message: __('Approving application...'),
 						callback(resp) {
-							if (resp.message && resp.message.success) {
+							if (resp.message && resp.message.success && resp.message.invoice_failed) {
+								// Approved, but no invoice was created (#1774): warn, do not toast success.
+								frappe.msgprint({
+									title: __('Approved without invoice'),
+									message: frappe.utils.escape_html(resp.message.message),
+									indicator: 'orange'
+								});
+								d.hide();
+								frm.reload_doc();
+							} else if (resp.message && resp.message.success) {
 								frappe.show_alert(
 									{
 										message: __('Application approved successfully!'),

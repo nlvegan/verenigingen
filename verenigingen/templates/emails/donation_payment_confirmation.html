@@ -8,7 +8,7 @@
         <table style="width: 100%; border-collapse: collapse;">
             <tr>
                 <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Amount Paid:</strong></td>
-                <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">€{{ donation_amount }}</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">€{{ donation_amount|e }}</td>
             </tr>
             <tr>
                 <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Payment Date:</strong></td>
@@ -25,7 +25,7 @@
         </table>
     </div>
 
-    <p>Your contribution of €{{ donation_amount }} for {{ earmarking|e }} will help us continue our important work.</p>
+    <p>Your contribution of €{{ donation_amount|e }} for {{ earmarking|e }} will help us continue our important work.</p>
 
     <p>This email serves as your payment receipt. Please keep it for your records.</p>
 

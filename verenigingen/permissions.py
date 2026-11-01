@@ -56,7 +56,6 @@ Technical Implementation:
 """
 
 import time
-from functools import lru_cache
 
 import frappe
 
@@ -77,13 +76,32 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # =========================
 
 
-@lru_cache(maxsize=100)
+_SEAT_CACHE_KEY = "verenigingen_board_seat_lookups"
+
+
+def _request_memo(kind, user, compute):
+    """Memoise a seat lookup for the current request only.
+
+    This used to be a process-wide ``lru_cache`` keyed by (user, 5-minute bucket): no site in
+    the key, and invalidated only inside the process that happened to save the row, so a
+    revoked seat kept reading for up to 5 minutes and one worker could answer site Y with
+    site X's seats (#1873). ``frappe.local`` is per request/job and per site, and Frappe
+    resets it on every ``frappe.init``. The query is one 3-table join, so one query per
+    user per request is enough.
+    """
+    memo = frappe.local.cache.setdefault(_SEAT_CACHE_KEY, {})
+    key = (kind, user)
+    if key not in memo:
+        memo[key] = compute(user)
+    return list(memo[key])
+
+
 def get_user_chapter_memberships_cached(user, cache_key=None):
-    """Cache user's chapter memberships to reduce database queries
+    """User's chapter memberships, memoised for the current request (see _request_memo)
 
     Args:
         user: User email/ID
-        cache_key: Optional cache invalidation key (timestamp)
+        cache_key: Ignored; kept so existing callers keep working
 
     Returns:
         List of chapter names where user is a board member
@@ -91,33 +109,33 @@ def get_user_chapter_memberships_cached(user, cache_key=None):
     if not user:
         return []
 
-    try:
-        user_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            WHERE m.user = %s AND cbm.is_active = 1
-        """,
-            (user,),
-            as_dict=True,
-        )
-
-        return [c.chapter_name for c in user_chapters]
-
-    except Exception as e:
-        frappe.log_error(f"Error getting user chapter memberships for {user}: {e}")
-        return []
+    return _request_memo("memberships", user, _query_user_chapter_memberships)
 
 
-@lru_cache(maxsize=50)
+def _query_user_chapter_memberships(user):
+    # No try/except: a DB error must not read as "no seats" nor be memoised as [] for the
+    # rest of the request. It propagates, and the caller fails closed.
+    user_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        WHERE m.user = %s AND cbm.is_active = 1
+    """,
+        (user,),
+        as_dict=True,
+    )
+
+    return [c.chapter_name for c in user_chapters]
+
+
 def get_user_treasurer_chapters_cached(user, cache_key=None):
-    """Cache user's treasurer positions to optimize permission checks
+    """User's treasurer positions, memoised for the current request (see _request_memo)
 
     Args:
         user: User email/ID
-        cache_key: Optional cache invalidation key (timestamp)
+        cache_key: Ignored; kept so existing callers keep working
 
     Returns:
         List of chapter names where user is treasurer
@@ -125,34 +143,39 @@ def get_user_treasurer_chapters_cached(user, cache_key=None):
     if not user:
         return []
 
-    try:
-        treasurer_chapters = frappe.db.sql(
-            """
-            SELECT DISTINCT cbm.parent as chapter_name
-            FROM `tabChapter Board Member` cbm
-            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
-            WHERE m.user = %s
-            AND cbm.is_active = 1
-            AND cr.permissions_level = 'Financial'
-        """,
-            (user,),
-            as_dict=True,
-        )
+    return _request_memo("treasurer", user, _query_user_treasurer_chapters)
 
-        return [c.chapter_name for c in treasurer_chapters]
 
-    except Exception as e:
-        frappe.log_error(f"Error getting user treasurer chapters for {user}: {e}")
-        return []
+def _query_user_treasurer_chapters(user):
+    # No try/except, for the same reason as _query_user_chapter_memberships.
+    treasurer_chapters = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent as chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+        WHERE m.user = %s
+        AND cbm.is_active = 1
+        AND cr.permissions_level = 'Financial'
+    """,
+        (user,),
+        as_dict=True,
+    )
+
+    return [c.chapter_name for c in treasurer_chapters]
+
+
+def invalidate_board_seat_memo():
+    """Drop only this request's seat lookups. Call wherever a board seat is written,
+    including Chapter saves, which write the rows without running their own hooks."""
+    frappe.local.cache.pop(_SEAT_CACHE_KEY, None)
 
 
 def clear_permission_cache():
     """Clear permission caches - call when roles/memberships change"""
     try:
-        get_user_chapter_memberships_cached.cache_clear()
-        get_user_treasurer_chapters_cached.cache_clear()
+        invalidate_board_seat_memo()
 
         # Clear Frappe's internal cache as well
         if hasattr(frappe.local, "cache"):

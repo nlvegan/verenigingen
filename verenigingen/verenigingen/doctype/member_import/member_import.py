@@ -21,6 +21,7 @@ from verenigingen.utils.csv_import_processor import (
     ensure_bulk_import_members_set,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
@@ -179,6 +180,8 @@ class MemberImport(BaseCSVImport):
                         "field_category": item.get("field_category", "Other"),
                     },
                 )
+
+            mark_member_imported(member_doc, "Member Import", self.name)
 
             member_doc.flags.ignore_mandatory = True
             # Security: Background job creating members from admin-uploaded CSV
