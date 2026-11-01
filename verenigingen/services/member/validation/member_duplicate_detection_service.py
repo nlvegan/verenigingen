@@ -454,10 +454,11 @@ def check_duplicate_for_application(application_name: str) -> OperationResult[Di
     Permission comes first and refuses an unknown and a foreign application alike. Matched Members the
     caller cannot read are counted, never described.
     """
+    from verenigingen.api.membership_application_review import _sanitize_application_name
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.services.member.application.application_materialiser import application_data
 
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "duplicate check")
     validate_application_permission_or_throw(application_name, "read")
     application = frappe.get_doc("Membership Application Submission", application_name)
     data = application_data(application)

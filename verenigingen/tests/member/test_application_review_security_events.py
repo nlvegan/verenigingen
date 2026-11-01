@@ -14,10 +14,15 @@ import frappe
 
 from verenigingen.api.membership_application_review import (
     approve_application,
+    get_application_changes,
     reject_application,
     request_more_info,
 )
 from verenigingen.services.chapter.chapter_security import store_application_security_event
+from verenigingen.services.member.validation.member_duplicate_detection_service import (
+    check_duplicate_for_application,
+)
+from verenigingen.api.chapter_dashboard_api import quick_approve_application
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.utils.security.audit_logging import SEPAAuditLogger
 
@@ -25,6 +30,12 @@ ENDPOINTS = {
     "approve": lambda name: approve_application(name, create_invoice=False),
     "reject": lambda name: reject_application(name, reason="No"),
     "request_more_info": lambda name: request_more_info(name, "Please tell us more"),
+}
+
+# The read-only endpoints refuse through the same permission check, so they sanitise first as well (S1).
+READ_ENDPOINTS = {
+    "get_application_changes": lambda name: get_application_changes(name),
+    "check_duplicate_for_application": lambda name: check_duplicate_for_application(name),
 }
 
 
@@ -89,6 +100,60 @@ class TestApplicationReviewSecurityEvents(ApprovalCase):
                 error = self._call_endpoint_as(self.admin_user.email, label, "a" * 300)
                 self.assertIsInstance(error, frappe.ValidationError)
                 self.assertNotIsInstance(error, frappe.DoesNotExistError, "the length was never checked")
+
+    def _call_read_endpoint_as(self, user, label, name):
+        with self.as_user(user):
+            with self.assertRaises(Exception) as caught:
+                READ_ENDPOINTS[label](name)
+        return caught.exception
+
+    def test_read_endpoints_sanitise_the_identifier_before_the_refusal_event(self):
+        """S1: the refusal event message carries the name, so an unsanitised name reached the stored event."""
+        markup = f"<b>x{frappe.generate_hash(length=6)}</b>"
+        for label in READ_ENDPOINTS:
+            with self.subTest(endpoint=label):
+                error = self._call_read_endpoint_as(self.board.user, label, markup)
+                self.assertIsInstance(error, frappe.PermissionError, error)
+                self.assertTrue(self._events("unauthorized_access_attempt", "&lt;b&gt;x"), "no sanitised event")
+                self.assertFalse(self._events("unauthorized_access_attempt", "<b>x"), "raw markup reached the event")
+
+    def test_the_dashboard_approval_sanitises_the_identifier_too(self):
+        """quick_approve_application (handle_api_error: a refusal comes back as a failed result, not a raise)
+        reached the refusal event with the raw name just like the read endpoints."""
+        markup = f"<b>x{frappe.generate_hash(length=6)}</b>"
+        with self.as_user(self.board.user):
+            result = quick_approve_application(markup)
+        self.assertFalse(result.get("success"), result)
+        self.assertTrue(self._events("unauthorized_access_attempt", "&lt;b&gt;x"), "no sanitised event")
+        self.assertFalse(self._events("unauthorized_access_attempt", "<b>x"), "raw markup reached the event")
+
+    def test_read_endpoints_refuse_an_overlong_identifier_as_invalid_input(self):
+        for label in READ_ENDPOINTS:
+            with self.subTest(endpoint=label):
+                before = frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"})
+                error = self._call_read_endpoint_as(self.board.user, label, "a" * 300)
+                self.assertIsInstance(error, frappe.ValidationError, error)
+                self.assertNotIsInstance(error, frappe.PermissionError)
+                self.assertEqual(
+                    frappe.db.count("API Audit Log", {"event_type": "unauthorized_access_attempt"}),
+                    before,
+                    "an overlong name must not reach a security event",
+                )
+
+    def test_read_endpoints_leave_the_same_trace_for_an_unknown_and_a_foreign_application(self):
+        self.email = self._fresh_applicant_email()
+        foreign = self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+        for label in READ_ENDPOINTS:
+            with self.subTest(endpoint=label):
+                traces = {}
+                for kind, name in (("foreign", foreign), ("unknown", unknown)):
+                    error = self._call_read_endpoint_as(self.board.user, label, name)
+                    self.assertIsInstance(error, frappe.PermissionError, (kind, error))
+                    events = self._events("unauthorized_access_attempt", name)
+                    self.assertTrue(events, f"{label}: a refused {kind} application left no event")
+                    traces[kind] = {(sev, msg.replace(name, "<name>")) for sev, msg in events}
+                self.assertEqual(traces["foreign"], traces["unknown"])
 
     # -- persistence: the events must outlive the request's rollback ---------------------------------
 

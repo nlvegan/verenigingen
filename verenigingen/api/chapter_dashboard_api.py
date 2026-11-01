@@ -140,12 +140,15 @@ def quick_approve_application(application_name: str):
 
     Returns the dict `approve_application` returns (`success`, `member`, `application`, ...).
     """
-    from verenigingen.api.membership_application_review import approve_application
+    from verenigingen.api.membership_application_review import (
+        _sanitize_application_name,
+        approve_application,
+    )
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_role
 
     validate_required_fields({"application_name": application_name}, ["application_name"])
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "dashboard approval")
 
     # approve_application repeats this check; it comes first here so the dashboard's own gate below
     # never runs for an application the caller may not even see (an unknown and a foreign application

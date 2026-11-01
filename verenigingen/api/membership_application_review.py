@@ -720,7 +720,7 @@ def get_application_changes(application_name: str) -> list[dict]:
     from verenigingen.services.member.application.application_materialiser import application_changes
     from verenigingen.utils.error_handling import mask_iban
 
-    application_name = str(application_name)
+    application_name = _sanitize_application_name(application_name, "change preview")
     validate_application_permission_or_throw(application_name, "read")
     application = frappe.get_doc("Membership Application Submission", application_name)
     rows = application_changes(application)
