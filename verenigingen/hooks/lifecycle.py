@@ -25,6 +25,17 @@ after_install = [
     "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
 ]
 
+# Run at the end of `install-app`, AFTER sync_fixtures (frappe/installer.py: after_install hooks
+# fire BEFORE the fixtures sync, after_sync after it). The webhook user's Role Profile ships as a
+# fixture, so the after_install webhook-user step can never find it on a fresh site: the user is
+# created with no roles and Verenigingen Payments Settings.webhook_user stays unset. That was
+# harmless while get_service_user fell back to Administrator; #1876 removed the fallback, so every
+# gateway webhook would refuse. `bench migrate` does not run after_sync (it has after_migrate), and a
+# CI site is a fresh install that never migrates, so this is the only convergence point there.
+after_sync = [
+    "verenigingen.setup.webhook_user_setup.ensure_webhook_user",
+]
+
 # Run before patches and schema sync. Records what our frozen DocTypes' JSON declares
 # before sync_all replaces it, so after_migrate can tell a JSON revocation from an
 # admin's grant (#1629).

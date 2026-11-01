@@ -291,3 +291,28 @@ class TestWebhookUserSetupGuarantee(EnhancedTestCase):
         self.assertIn(
             "verenigingen.setup.webhook_user_setup.ensure_webhook_user", frappe.get_hooks("after_migrate")
         )
+
+    def test_a_fresh_install_converges_through_the_after_sync_hooks(self):
+        """CI's state after `install-app` (run 41250662779): after_install ran BEFORE the fixtures
+        sync, so the webhook user exists with no roles and the setting is unset. Frappe then runs
+        `after_sync` hooks once the fixtures (the Role Profile) are in, so THAT is where setup must
+        converge. Drives the hooks the way installer.install_app does (frappe.get_attr on each
+        registered name), not setup_webhook_user directly.
+
+        The state is set directly (blank the setting; the user keeps its roles, because stripping
+        the SITE user's roles here would leak into later tests, setup commits internally) to stand
+        in for the failed after_install step. Role repair is covered by the tests above, and the
+        install ordering itself belongs to frappe and is not exercised.
+        """
+        user = self.site_user
+        frappe.db.set_single_value(SETTINGS, "webhook_user", None)
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        self.assertFalse(get_service_user(SETTINGS, "webhook_user", "Svc Test 1876"), "control: unset")
+
+        hooks = frappe.get_hooks("after_sync")
+        self.assertIn("verenigingen.setup.webhook_user_setup.ensure_webhook_user", hooks)
+        for hook in hooks:
+            frappe.get_attr(hook)()
+
+        frappe.clear_document_cache(SETTINGS, SETTINGS)
+        self.assertEqual(get_service_user(SETTINGS, "webhook_user", "Svc Test 1876"), user)
