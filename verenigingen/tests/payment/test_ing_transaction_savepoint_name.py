@@ -16,17 +16,17 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.transaction_errors import safe_savepoint_name
 from verenigingen.verenigingen_payments.ing_checkout.tests import test_transaction_service as _txn_service_tests
 
-# Reached through the module so the loader does not collect (and re-run) the borrowed class.
-_InvoiceFixture = _txn_service_tests.TestCreatePaymentEntryWithInvoice
 TEST_BANK_ACCOUNT = _txn_service_tests.TEST_BANK_ACCOUNT
 
 
 class TestINGTransactionSavepointName(EnhancedTestCase):
-    # Invoice fixture helpers, borrowed from the transaction-service tests (plain functions).
-    _ensure_mode_of_payment = _InvoiceFixture._ensure_mode_of_payment
-    _make_submitted_invoice = _InvoiceFixture._make_submitted_invoice
-    _ensure_customer = _InvoiceFixture._ensure_customer
-    _ensure_item = _InvoiceFixture._ensure_item
+    # Invoice fixture helpers borrowed from the transaction-service tests (plain functions).
+    # Never bind the donor TestCase class itself to a module-level name: the unittest loader
+    # would collect it and re-run all its tests under this module.
+    _ensure_mode_of_payment = _txn_service_tests.TestCreatePaymentEntryWithInvoice._ensure_mode_of_payment
+    _make_submitted_invoice = _txn_service_tests.TestCreatePaymentEntryWithInvoice._make_submitted_invoice
+    _ensure_customer = _txn_service_tests.TestCreatePaymentEntryWithInvoice._ensure_customer
+    _ensure_item = _txn_service_tests.TestCreatePaymentEntryWithInvoice._ensure_item
 
     def setUp(self):
         super().setUp()
@@ -92,6 +92,42 @@ class TestINGTransactionSavepointName(EnhancedTestCase):
         self.assertTrue(opened)
         txn.reload()
         self.assertEqual(txn.status, "Paid")
+
+    def test_failed_payment_entry_rolls_back_to_a_valid_savepoint(self):
+        """The except branch: ``rollback_to_savepoint`` must also get the sanitized name.
+
+        Stub at the SERVICE boundary: ``create_payment_entry_for_transaction`` is made to raise
+        a plain Exception (everything else is real, including the savepoint and rollback SQL).
+        Before the fix the handler's rollback re-raised the 1064 and the exception escaped.
+        """
+        self.expectErrorLog("Payment Entry creation failed")
+        txn = self._insert_transaction()
+        opened, spy = self._spy_savepoints()
+        rolled_back = []
+        from verenigingen.utils import transaction_errors
+
+        real_rollback = transaction_errors.rollback_to_savepoint
+
+        def rollback_spy(name):
+            rolled_back.append(name)
+            return real_rollback(name)
+
+        service_cls = "verenigingen.verenigingen_payments.ing_checkout.services.transaction_service"
+        with (
+            spy,
+            patch(f"{service_cls}.TransactionService.create_payment_entry_for_transaction", side_effect=Exception("boom")),
+            patch(f"{service_cls}.TransactionService.send_payment_entry_failure_alert"),
+            patch(
+                "verenigingen.verenigingen_payments.doctype.ing_checkout_transaction."
+                "ing_checkout_transaction.rollback_to_savepoint",
+                side_effect=rollback_spy,
+            ),
+        ):
+            txn.update_from_webhook(self._paid_webhook())
+
+        self.assertEqual(rolled_back, opened, "rollback must target the savepoint that was opened")
+        txn.reload()
+        self.assertEqual(txn.status, "Paid - Payment Entry Failed")
 
     def test_helper_sanitizes_and_only_none_becomes_unknown(self):
         self.assertEqual(safe_savepoint_name("payment_entry", "ICT-1261"), "payment_entry_ICT_1261")
