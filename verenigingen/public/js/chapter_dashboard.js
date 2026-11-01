@@ -146,7 +146,15 @@ function approveMember(memberId) {
 			callback(r) {
 				hideLoading();
 
-				if (r.message && r.message.success) {
+				if (r.message && r.message.success && r.message.invoice_failed) {
+					// Approved, but no invoice was created (#1774): warn, do not toast success.
+					frappe.msgprint({
+						title: __('Approved without invoice'),
+						message: frappe.utils.escape_html(r.message.message),
+						indicator: 'orange'
+					});
+					refreshDashboardData();
+				} else if (r.message && r.message.success) {
 					frappe.show_alert({
 						message: __('Member approved successfully'),
 						indicator: 'green'
