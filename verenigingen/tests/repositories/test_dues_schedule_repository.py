@@ -24,6 +24,8 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, 
 # minimum_amount 60, and reusing it made the EUR 15 schedules below refuse to
 # pause/cancel whenever CI packed that module earlier in the shard (#1071).
 DUES_TYPE_NAME = "Test Dues Repository Type"
+# Single source for the type's minimum and the rate the template schedules carry (EUR 15).
+DUES_TYPE_MINIMUM = 15.00
 
 
 @shared_fixture
@@ -46,7 +48,7 @@ def _ensure_named_membership_type(type_name):
             "membership_type_name": type_name,
             "is_active": 1,
             "role_profile": role_profile,
-            "minimum_amount": 15.00,
+            "minimum_amount": DUES_TYPE_MINIMUM,
         }
     )
     doc.insert(ignore_permissions=True)
@@ -63,6 +65,15 @@ class TestDuesScheduleRepository(EnhancedTestCase):
 
         # Schedules below reference this module's own Membership Type by name.
         _ensure_named_membership_type(DUES_TYPE_NAME)
+        # The helper is get-if-exists, so a stale type with a higher minimum would
+        # silently make pause/cancel refuse again (#1071).
+        actual_minimum = frappe.db.get_value("Membership Type", DUES_TYPE_NAME, "minimum_amount")
+        self.assertLessEqual(
+            actual_minimum,
+            DUES_TYPE_MINIMUM,
+            f"#1071: Membership Type {DUES_TYPE_NAME} has minimum {actual_minimum}, above the "
+            f"EUR {DUES_TYPE_MINIMUM} dues rate these schedules use",
+        )
 
         # Create test member
         self.test_member = self.create_test_member(
