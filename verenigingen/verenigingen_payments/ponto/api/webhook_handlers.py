@@ -20,6 +20,7 @@ from verenigingen.utils.transaction_errors import (
     safe_savepoint_name as _safe_savepoint_name,
 )
 from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import as_system_update, system_update
 from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
     create_ponto_payment_entry,
 )
@@ -510,6 +511,9 @@ def process_executed_payment_job(payment_link_name: str) -> Dict[str, Any]:
     return _process_executed_payment(doc)
 
 
+# The invoice matcher and the Payment Entry back-link write sales_invoice and payment_entry
+# on a submitted row; only system code may (#1907).
+@as_system_update
 def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
     """
     Process an executed Ponto payment - find matching invoice and create Payment Entry.
@@ -782,15 +786,16 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
             # Process the individual payment
             doc.process_payment_received()
 
-            # Update debtor info if provided
+            # Update debtor info if provided (a system write on a submitted row, #1907)
             if debtor_info:
-                if debtor_info.get("name"):
-                    doc.debtor_name = debtor_info["name"]
-                if debtor_info.get("iban"):
-                    doc.debtor_iban = debtor_info["iban"]
-                if debtor_info.get("bank"):
-                    doc.debtor_bank = debtor_info["bank"]
-                doc.save()
+                with system_update(doc):
+                    if debtor_info.get("name"):
+                        doc.debtor_name = debtor_info["name"]
+                    if debtor_info.get("iban"):
+                        doc.debtor_iban = debtor_info["iban"]
+                    if debtor_info.get("bank"):
+                        doc.debtor_bank = debtor_info["bank"]
+                    doc.save()
 
             frappe.logger().info(
                 f"Processed periodic payment execution for {pl.name}, "

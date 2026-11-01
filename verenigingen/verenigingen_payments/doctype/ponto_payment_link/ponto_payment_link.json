@@ -171,6 +171,7 @@
       "label": "Debtor (Payer) Details"
     },
     {
+      "allow_on_submit": 1,
       "description": "Customer name (filled after authorization)",
       "fieldname": "debtor_name",
       "fieldtype": "Data",
@@ -178,6 +179,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "description": "Customer IBAN (filled after authorization)",
       "fieldname": "debtor_iban",
       "fieldtype": "Data",
@@ -189,6 +191,7 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "description": "Customer's bank name (filled after authorization)",
       "fieldname": "debtor_bank",
       "fieldtype": "Data",
@@ -258,13 +261,16 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "description": "Sales Invoice this payment is for",
       "fieldname": "sales_invoice",
       "fieldtype": "Link",
       "label": "Sales Invoice",
-      "options": "Sales Invoice"
+      "options": "Sales Invoice",
+      "read_only_depends_on": "eval:doc.docstatus==1"
     },
     {
+      "allow_on_submit": 1,
       "description": "Payment Entry created when payment is received",
       "fieldname": "payment_entry",
       "fieldtype": "Link",
@@ -285,7 +291,7 @@
   "index_web_pages_for_search": 1,
   "is_submittable": 1,
   "links": [],
-  "modified": "2025-12-19 10:00:00",
+  "modified": "2026-10-31 18:00:00",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "Ponto Payment Link",
