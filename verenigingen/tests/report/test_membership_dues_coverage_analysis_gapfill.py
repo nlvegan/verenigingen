@@ -84,6 +84,17 @@ class TestMembershipDuesCoverageAnalysisGapFill(VereningingenTestCase):
         # save path is unaffected because production never rolls schedules back.)
         self._purge_orphaned_fee_change_history(member)
         membership_type = self.create_test_membership_type(billing_period=billing_period)
+        # The member is billed by the schedule built from the Type's template, and
+        # the report follows that schedule (#1909). Give the template the same
+        # frequency as the Type so these tests describe a member whose Type and
+        # schedule agree; the mismatch is covered in
+        # test_membership_dues_coverage_analysis_schedule_frequency.
+        template = frappe.db.get_value(
+            "Membership Dues Schedule", {"is_template": 1, "membership_type": membership_type.name}
+        )
+        template_doc = frappe.get_doc("Membership Dues Schedule", template)
+        template_doc.billing_frequency = billing_period
+        template_doc.save(ignore_permissions=True)
         membership = self.create_test_membership(
             member=member.name,
             membership_type=membership_type.name,

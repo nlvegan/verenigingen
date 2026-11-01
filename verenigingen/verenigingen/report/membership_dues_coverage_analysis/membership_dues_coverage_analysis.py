@@ -605,7 +605,16 @@ def classify_gap_type(gap_days):
 
 
 def get_expected_billing_frequency(member_name, period_start, period_end):
-    """Get the expected billing frequency for a member during a period"""
+    """Get the expected billing frequency for a member during a period.
+
+    The member's own active Membership Dues Schedule is what bills them (its
+    template may differ from the Membership Type's billing_period, #1909), so it
+    wins. Only a member with no active schedule falls back to the Type.
+    """
+
+    schedule_frequency = _get_active_schedule_frequency(member_name)
+    if schedule_frequency:
+        return schedule_frequency
 
     try:
         # Get membership for this period
@@ -639,6 +648,15 @@ def get_expected_billing_frequency(member_name, period_start, period_end):
             f"Error getting billing frequency for {member_name}: {str(e)}", "Coverage Gap Analysis"
         )
         return None
+
+
+def _get_active_schedule_frequency(member_name):
+    """billing_frequency of the member's active (non-template) dues schedule, else None."""
+    return frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member_name, "status": "Active", "is_template": 0},
+        "billing_frequency",
+    )
 
 
 def classify_gap_with_billing_context(gap_days, expected_billing_frequency, base_classification):
