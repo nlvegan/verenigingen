@@ -118,34 +118,10 @@ class TestDashboardExpenseScope(StaffExpenseBase):
     def test_board_member_without_read_right_on_expense_claim_gets_zeros_not_an_error(self):
         """A seat holder whose roles carry no Expense Claim read right: ``get_list`` would
         refuse, so the dashboard shows nothing for claims and NOT the "--" error tile."""
-        user = self.create_test_user(
-            email=f"x1701-noread-{self.token}@test.com", roles=["Verenigingen Member"]
-        )
-        member = self.create_test_member(first_name="Brd", last_name="Only", email=user.name, user=user.name)
-        volunteer = self.create_test_volunteer(member.name)
-        role = frappe.get_doc(
-            {
-                "doctype": "Chapter Role",
-                "role_name": f"Exp Fin1701 {self.token}",
-                "permissions_level": "Financial",
-                "is_active": 1,
-            }
-        ).insert()
-        frappe.get_doc(
-            {
-                "doctype": "Chapter Board Member",
-                "parent": self.chapter_a.name,
-                "parenttype": "Chapter",
-                "parentfield": "board_members",
-                "volunteer": volunteer.name,
-                "chapter_role": role.name,
-                "from_date": today(),
-                "is_active": 1,
-            }
-        ).insert()
+        user, chapter = self.seat_holder_without_claim_read("noread1701")
         can_read = self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read"))
         self.assertFalse(can_read, "control: this user really lacks the read right")
-        data = self._dash_1701(user, self.chapter_a)  # control: the seat opens the dashboard
+        data = self._dash_1701(user, chapter)  # control: the seat opens the dashboard
         self.assertEqual(self._pending_names_1701(data), [])
         self.assertEqual(data["key_metrics"]["expenses"]["pending_count"], 0)
         self.assertNotIn("error", data["key_metrics"]["expenses"])
