@@ -16,11 +16,30 @@ class ChapterBoardMember(Document):
         Chapter save, the account-creation pipeline's Phase 3 for a new account). A direct
         grant by the acting user was refused for anyone without User write and was
         replaced by the profile's roles on the next User save anyway.
+
+        A row added through a Chapter save never reaches this hook (Frappe skips child
+        controllers there), so running here means the row was inserted STANDALONE, e.g.
+        an Administrator ``POST /api/resource/Chapter Board Member`` (#1922). No Chapter
+        save follows to flush the deferred sync, so run it now.
         """
         # Clear permission cache when board membership changes
         clear_permission_cache()
+        self._provision_standalone_seat()
         # Send notification to the new board member
         self._send_board_added_notification()
+
+    def _provision_standalone_seat(self):
+        """Run the Chapter save's board access flush for a row inserted outside it (#1922).
+
+        Same queue and flush as ``Chapter.on_update``, so the sync, withdrawal check and
+        lock-error propagation are one implementation. The row is already in the database
+        here, which is what the flush reads.
+        """
+        if not (self.parent and self.parenttype == "Chapter" and self.volunteer):
+            return
+        board_manager = frappe.get_doc("Chapter", self.parent).board_manager
+        board_manager._defer_board_access_recalculation(self.volunteer)
+        board_manager.flush_pending_board_profile_syncs()
 
     def on_trash(self):
         """Remove Chapter Board Member role if no longer on any board"""
