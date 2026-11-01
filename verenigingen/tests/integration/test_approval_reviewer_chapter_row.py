@@ -10,17 +10,16 @@ Every test drives the real flow: submit_application as Guest, then approve_membe
 as Administrator. No field is set directly.
 """
 
-import json
 from unittest.mock import patch
 
 import frappe
 
-from verenigingen.api.membership_application import submit_application
 from verenigingen.api.membership_application_review import approve_membership_application
 from verenigingen.tests.backend.unit.api.test_membership_application_coverage import (
     _ensure_test_membership_type,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.guest_application import submit_application_as_guest
 
 ASSIGNMENT_FAILURE_TITLE = "Approval Chapter Assignment Failed"
 
@@ -34,30 +33,7 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         self.membership_type = _ensure_test_membership_type()
 
     def _apply_as_guest(self, **overrides):
-        data = {
-            "first_name": "Reviewer",
-            "last_name": f"Chapter{frappe.generate_hash(length=6)}",
-            "email": f"rc-{frappe.generate_hash(length=8)}@example.com",
-            "birth_date": "1990-01-01",
-            "address_line1": "1 Test Street",
-            # A city and postal code no chapter can match, so no chapter is SUGGESTED at submit:
-            # suggest_chapter_for_member also matches on the CITY, and CI shards carry shared
-            # chapters such as "Test Amsterdam Chapter" (this used "Amsterdam" and went red in CI).
-            # The precondition assertions below still check it rather than trusting it.
-            "city": f"Nergenshuizen-{frappe.generate_hash(length=6)}",
-            "postal_code": "9999ZZ",
-            "country": "Netherlands",
-            "selected_membership_type": self.membership_type,
-        }
-        data.update(overrides)
-        frappe.set_user("Guest")
-        self.addCleanup(frappe.set_user, "Administrator")
-        result = submit_application(**data)
-        frappe.set_user("Administrator")
-        self.assertTrue(result["success"], msg=json.dumps(result, default=str))
-        member = result["data"]["member_record"]
-        self.track_doc("Member", member)
-        return member
+        return submit_application_as_guest(self, self.membership_type, **overrides)
 
     def _rows(self, member):
         return {
@@ -118,24 +94,28 @@ class TestReviewerChosenChapterRowAtApproval(EnhancedTestCase):
         )
 
     def test_an_assignment_the_approval_could_not_make_is_logged(self):
-        """A chapter the assignment refuses (here: one that does not exist; approval checks
-        the member and the caller's chapter permission, not the chapter's existence) leaves
-        the member approved with no row. That used to be reported only through
-        frappe.logger().warning, which nobody reads; it must reach the Error Log."""
-        ghost = f"No Such Chapter {frappe.generate_hash(length=6)}"
-        member = self._apply_as_guest()
-        self.expectErrorLog(ASSIGNMENT_FAILURE_TITLE)  # silences tearDown; the assert below checks
+        """A non-success from the assignment (other than the benign already_exists) is logged to
+        the Error Log rather than only to frappe.logger(). Since #1860 an approval naming a
+        nonexistent chapter is refused before this point, so the non-success is injected at the
+        collaborator boundary (Mock justified: fault injection), like the except-branch test below."""
+        from verenigingen.api.membership_application_review import assign_member_to_chapter
+
+        member = frappe._dict(name=f"MEM-{frappe.generate_hash(length=6)}")
+        self.expectErrorLog(ASSIGNMENT_FAILURE_TITLE)
         start = frappe.utils.now()
-
+        target = (
+            "verenigingen.services.chapter.chapter_membership_manager."
+            "ChapterMembershipManager.assign_member_to_chapter"
+        )
+        refused = {"success": False, "error": "refused-1797", "action": "added_disabled"}
         with self.assertErrorLog(ASSIGNMENT_FAILURE_TITLE):
-            self._approve(member, ghost)
+            with patch(target, return_value=refused):  # Mock justified: fault injection
+                assign_member_to_chapter(member, "Some Chapter")
 
-        self.assertEqual(self._rows(member), {})
         failures = self._assignment_failures_since(start)
         self.assertEqual(len(failures), 1, msg=str(failures))
-        self.assertIn(ghost, failures[0].error)
-        self.assertIn(member, failures[0].error)
-
+        self.assertIn("refused-1797", failures[0].error)
+        self.assertIn(member.name, failures[0].error)
 
     def test_an_assignment_that_raises_is_logged_and_the_approval_wrapper_survives(self):
         """The wrapper's except branch: the manager is the collaborator, so stubbing it to raise

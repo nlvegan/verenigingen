@@ -84,6 +84,29 @@ def _check_member_exists_for_review(member_name, operation_label):
         frappe.throw(_("Invalid member reference"))
 
 
+def _refuse_unknown_chapter(chapter):
+    """Refuse, before anything is written, an approval that names a chapter the caller may not
+    assign. Shared with the application-record approval path (#1765), so both refuse alike.
+
+    #1860 (maintainer ruling): a chapter that does not exist is refused (it used to approve the
+    member with no chapter row).
+    #1908 (maintainer ruling): a chapter-scoped approver (get_user_manageable_chapters() is not
+    "all") may only assign a chapter it manages. Both cases get the SAME message, so a scoped
+    caller cannot tell an unknown chapter from an existing one it does not manage (otherwise the
+    refusal would reveal unpublished chapter names).
+    """
+    if not chapter:
+        return
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    manageable = get_user_manageable_chapters()
+    assignable = frappe.db.exists("Chapter", chapter) and (
+        manageable == "all" or chapter in (manageable or [])
+    )
+    if not assignable:
+        frappe.throw(_("Chapter {0} cannot be assigned").format(chapter))
+
+
 def _throw_membership_deletion_blocked(membership):
     """#1264 round 2: deleting a draft Membership during rejection can raise
     LinkExistsError if a Membership Dues Schedule linked to it is still
@@ -677,6 +700,7 @@ def approve_membership_application(
 
     validate_chapter_permission_or_throw(member_name, "approve")
     _check_member_exists_for_review(member_name, "approval")
+    _refuse_unknown_chapter(chapter)
 
     # Serialize concurrent approvals of the SAME member with a per-member advisory
     # lock. Without it, concurrent approvals each pass the idempotency guard while
@@ -1132,10 +1156,23 @@ def get_pending_applications(chapter: str | None = None, days_overdue: int | Non
             as_dict=True,
         )
 
-        # Group by member (taking the most recent chapter)
+        # Group by member (taking the most recent chapter). For a chapter-scoped approver, prefer
+        # the most recent chapter they MANAGE: this value is the review dialog's default chapter,
+        # and since #1908 an approval naming a chapter the approver does not manage is refused.
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        manageable = get_user_manageable_chapters()
+        preferred = {}
         for membership in all_memberships:
             if membership.member not in chapter_memberships:
                 chapter_memberships[membership.member] = membership.chapter_name
+            if (
+                manageable != "all"
+                and membership.chapter_name in (manageable or [])
+                and membership.member not in preferred
+            ):
+                preferred[membership.member] = membership.chapter_name
+        chapter_memberships.update(preferred)
 
     # Get all membership types in one query for amount lookup
     membership_types = {app.selected_membership_type for app in applications if app.selected_membership_type}
