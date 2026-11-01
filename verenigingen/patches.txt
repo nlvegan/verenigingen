@@ -107,3 +107,4 @@ verenigingen.patches.v2_2.seed_application_answer_masters
 verenigingen.patches.v2_2.raise_mollie_subscription_webhook_rate_limit
 verenigingen.patches.v2_2.add_application_review_critical_operation_rules
 verenigingen.patches.v2_2.backfill_member_import_source
+verenigingen.patches.v2_2.add_ponto_executed_on_cancelled_row_notification

@@ -47,6 +47,29 @@ def _sanitize_application_name(application_name, operation_label):
         frappe.throw(_("Invalid input data provided"))
 
 
+def _refuse_unknown_chapter(chapter):
+    """Refuse, before anything is written, an approval that names a chapter the caller may not
+    assign. Shared with the application-record approval path (#1765), so both refuse alike.
+
+    #1860 (maintainer ruling): a chapter that does not exist is refused (it used to approve the
+    member with no chapter row).
+    #1908 (maintainer ruling): a chapter-scoped approver (get_user_manageable_chapters() is not
+    "all") may only assign a chapter it manages. Both cases get the SAME message, so a scoped
+    caller cannot tell an unknown chapter from an existing one it does not manage (otherwise the
+    refusal would reveal unpublished chapter names).
+    """
+    if not chapter:
+        return
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    manageable = get_user_manageable_chapters()
+    assignable = frappe.db.exists("Chapter", chapter) and (
+        manageable == "all" or chapter in (manageable or [])
+    )
+    if not assignable:
+        frappe.throw(_("Chapter {0} cannot be assigned").format(chapter))
+
+
 def _sanitize_text_fields(text_fields):
     """Sanitize text input fields for API endpoints.
 
