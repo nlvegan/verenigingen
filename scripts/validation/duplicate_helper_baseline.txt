@@ -551,7 +551,6 @@ _run_case::2
 _run_import::2
 _run_webhook::2
 _safe_log_error::2
-_safe_savepoint_name::2
 _sanitize_error_message::5  # clone family, 2 near-identical pair(s)
 _sanitize_filename::2
 _sched_stub::3

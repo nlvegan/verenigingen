@@ -454,6 +454,7 @@ def notify_administrators(
     document_name=None,
     notification_key=None,
     category=None,
+    exclude_users=None,
 ):
     """
     Convenience function to notify system administrators.
@@ -474,6 +475,9 @@ def notify_administrators(
             If provided, uses Verenigingen Email Configuration for enable/disable checks.
         category (str, optional): Notification category (Admin, System, etc.)
             Used for recipient lookup in Verenigingen Email Configuration.
+        exclude_users (list, optional): User names that must never be a recipient, applied to the
+            FINAL recipient list (after the configured, category and role fallbacks). Matches the
+            user's name or email.
 
     Returns:
         dict: Result with success status and notification count
@@ -508,6 +512,9 @@ def notify_administrators(
             default_roles or list(Roles.ADMIN_PAIR),
         )
 
+    if exclude_users:
+        recipients = _without_users(recipients, exclude_users)
+
     return create_system_notification(
         recipients=recipients,
         subject=subject,
@@ -517,3 +524,13 @@ def notify_administrators(
         document_name=document_name,
         notification_key=notification_key,
     )
+
+
+def _without_users(recipients, exclude_users):
+    """Drop every recipient that is one of ``exclude_users``, by user name or by that user's email."""
+    excluded = {u.lower() for u in exclude_users}
+    for user in exclude_users:
+        email = frappe.db.get_value("User", user, "email")
+        if email:
+            excluded.add(email.lower())
+    return [r for r in recipients if r and r.lower() not in excluded]

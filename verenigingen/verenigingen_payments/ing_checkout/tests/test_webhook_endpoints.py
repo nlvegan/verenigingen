@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.utils.transaction_errors import safe_savepoint_name
 from verenigingen.verenigingen_payments.ing_checkout.api import webhook as wh
 
 MODULE = "verenigingen.verenigingen_payments.ing_checkout.api.webhook"
@@ -76,16 +77,16 @@ class TestSafeSavepointName(FrappeTestCase):
     def test_hyphens_replaced_with_underscore(self):
         # Without sanitization, "ing_payment_EX-1234-5678" is invalid SQL and the
         # webhook crashes at frappe.db.savepoint() before processing anything.
-        name = wh._safe_savepoint_name("ing_payment", "EX-1234-5678")
+        name = safe_savepoint_name("ing_payment", "EX-1234-5678")
         self.assertEqual(name, "ing_payment_EX_1234_5678")
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
     def test_none_identifier_safe(self):
-        self.assertEqual(wh._safe_savepoint_name("ing_mandate", None), "ing_mandate_unknown")
+        self.assertEqual(safe_savepoint_name("ing_mandate", None), "ing_mandate_unknown")
 
     def test_dotted_now_timestamp_sanitized(self):
         # Fallback IDs use frappe.utils.now() ("2026-06-18 18:05:48.123456").
-        name = wh._safe_savepoint_name("ing_debit", "2026-06-18 18:05:48.123456")
+        name = safe_savepoint_name("ing_debit", "2026-06-18 18:05:48.123456")
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
 

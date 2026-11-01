@@ -169,6 +169,17 @@ def get_current_user_member_name() -> Optional[str]:
     return get_member_name_for_user(frappe.session.user)
 
 
+def get_current_user_linked_member_name() -> Optional[str]:
+    """Member name for the current user by the explicit Member.user link ONLY (#1853).
+
+    For self-service chapter paths where acting as a Member changes state (join a chapter, file
+    a join request). Unlike get_current_user_member_name there is NO Member.email fallback: a
+    User who merely shares an email with an unrelated Member must not act as that Member.
+    Returns None when the user has no linked Member; a database error propagates.
+    """
+    return get_member_name_for_board_access(frappe.session.user)
+
+
 def get_current_user_member_doc():
     """
     Get the complete Member document for the current user.

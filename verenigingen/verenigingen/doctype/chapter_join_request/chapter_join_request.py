@@ -110,12 +110,9 @@ class ChapterJoinRequest(Document):
         insert and whenever `member` changes, before validate_member_exists so a refused caller
         learns nothing about the named member (existence, status). Identity is Member.user only
         (#1546, no email fallback); the staff exemption is Roles.ADMIN_ROLES (#1101), so board
-        members and treasurers are not exempt. flags.member_verified_by_caller is set by server
-        code that has already resolved the caller's own Member by its own rule (join_chapter);
-        a client cannot set a flag.
+        members and treasurers are not exempt. There is no server-side bypass flag (#1853):
+        join_chapter resolves the caller by the same Member.user rule, so it needs none.
         """
-        if self.flags.member_verified_by_caller:
-            return
         if not self.is_new() and not self.has_value_changed("member"):
             return
         user = frappe.session.user

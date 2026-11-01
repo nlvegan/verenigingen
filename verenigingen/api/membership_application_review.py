@@ -222,16 +222,23 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        if result.get("success"):
-            frappe.logger().info(f"Assigned member {member.name} to chapter {chapter}")
-        else:
-            frappe.logger().warning(
-                f"Chapter assignment returned non-success: {result.get('error', 'Unknown error')}"
+        # already_exists is the ordinary case of approving with the applicant's own chapter (its
+        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
+        # nowhere anyone reads (#1797).
+        if not result.get("success") and result.get("action") != "already_exists":
+            frappe.log_error(
+                title="Approval Chapter Assignment Failed",
+                message=f"Member {member.name}, chapter {chapter}: "
+                f"{result.get('error') or result.get('message') or 'unknown error'}",
             )
 
-    except Exception as e:
-        # Non-critical error - log but don't fail the approval
-        frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
+    except Exception:
+        # Non-critical: the approval still proceeds, but the failure must be visible.
+        frappe.log_error(
+            title="Approval Chapter Assignment Failed",
+            message=f"Member {member.name}, chapter {chapter}:\n{frappe.get_traceback()}",
+        )
 
 
 def _handle_idempotent_approval(member_name):
@@ -464,9 +471,21 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
         # Continue with approval - emails can be sent manually
 
 
-def _build_approval_response(member, invoice, billing_amount, user_creation_result):
-    """Build approval response dict with 5-way user account status branching."""
-    message = _("Application approved. Invoice sent to applicant.")
+def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
+    """Build approval response dict with 5-way user account status branching.
+
+    invoice_requested: the caller asked for an invoice. With no invoice then, the response
+    says so instead of claiming one was sent (#1774); the Error Log row is written where
+    the failure happens (MembershipCreationService._create_membership_invoice).
+    """
+    invoice_failed = bool(invoice_requested and not invoice)
+    if invoice_failed:
+        message = _(
+            "Application approved, but the membership invoice could NOT be created, so no invoice "
+            "was sent to the applicant. See the Error Log, then create the invoice manually."
+        )
+    else:
+        message = _("Application approved. Invoice sent to applicant.")
     user_account_status = "pending"
     user_account_error_code = None
     account_meta = _account_meta(user_creation_result)
@@ -517,6 +536,7 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
+        "invoice_failed": invoice_failed,
         "amount": billing_amount,
         "user_account": user_creation_result,
         "user_account_status": user_account_status,
@@ -721,13 +741,6 @@ def _approve_membership_application_locked(
     membership_type = resolve_membership_type(member, membership_type)
     validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
-    # Assign member to chapter
-    assign_member_to_chapter(member, chapter)
-    if chapter:
-        member.reload()
-        member.update_current_chapter_display()
-        member.save()
-
     # Set the selected membership type in memory (will be saved during membership creation)
     try:
         member.selected_membership_type = membership_type
@@ -753,6 +766,21 @@ def _approve_membership_application_locked(
     membership = member.create_membership_on_approval(
         create_invoice=create_invoice, approval_fields=approval_fields
     )
+
+    # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
+    # add_member derives a NEW row's enabled/status from the Member's current status; run
+    # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
+    # activation step below (it only flips 'Pending' rows) never repaired.
+    assign_member_to_chapter(member, chapter)
+    if chapter:
+        member.reload()
+        member.update_current_chapter_display()
+        # Persist only the stored Link this refresh computes (current_chapter_display is an
+        # unstored HTML field). A full member.save() here ran as the approver: a non-admin board
+        # member may write a PENDING applicant but not the now-ACTIVE member, so the approval
+        # raised PermissionError after activation. The caller was already authorized for this
+        # member by validate_chapter_permission_or_throw.
+        member.db_set("current_chapter", member.current_chapter, update_modified=False)
 
     # Activate any pre-existing pending Chapter Member rows. The application
     # form creates a Chapter Member row in status "Pending" when the applicant
@@ -790,7 +818,9 @@ def _approve_membership_application_locked(
         severity="info",
     )
 
-    return _build_approval_response(member, invoice, billing_amount, user_creation_result)
+    return _build_approval_response(
+        member, invoice, billing_amount, user_creation_result, invoice_requested=create_invoice
+    )
 
 
 @frappe.whitelist()

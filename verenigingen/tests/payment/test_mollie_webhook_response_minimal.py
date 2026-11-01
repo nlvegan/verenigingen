@@ -178,7 +178,11 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         from werkzeug.wrappers import Request
 
         environ = EnvironBuilder(
-            method="POST", path="/", data=json.dumps(payload), content_type="application/json"
+            method="POST",
+            path="/",
+            data=json.dumps(payload),
+            content_type="application/json",
+            environ_overrides={"REMOTE_ADDR": self._unique_remote_addr()},
         ).get_environ()
         old = (getattr(frappe.local, "request", None), frappe.local.form_dict, frappe.session.user)
         self.addCleanup(self._restore_guest_dispatch_state, old)
