@@ -10,18 +10,16 @@ by Administrator never passes through a Chapter save and the seated user got no 
 A row added through a Chapter save never runs the child's ``after_insert`` (Frappe skips
 child controllers there), so ``after_insert`` firing means the insert was standalone.
 
-The REST cases make REAL HTTP requests (werkzeug ``Client(frappe.app.application)``) in a
-subprocess, as Administrator, authenticated by an API key. The subprocess is a separate DB
-connection, so the fixtures and the key are committed (drained/removed in cleanup).
-Probe shortcut: the API key is written to Administrator's User row to stand in for a
-configured integration.
+The REST cases call the two routes' own ``create_doc`` functions in-process, as
+Administrator, with the request data each reads (v1: ``form_dict.data`` JSON; v2:
+``form_dict``). Both functions are literally ``new_doc(doctype, **data).insert()``; an
+HTTP round trip was run once by hand (subprocess, API key) while diagnosing: both routes
+returned 200 with the row created and no role on the unfixed tree. It is not repeated here
+because the subprocess needs committed fixtures, whose queued jobs race this process's
+teardown on a bench with RQ workers.
 """
 
 import json
-import os
-import subprocess
-import sys
-import textwrap
 from unittest import mock
 
 import frappe
@@ -47,7 +45,7 @@ class TestBoardRowStandaloneInsert1922(VereningingenTestCase):
         self.track_doc("Chapter Role", name)
         return name
 
-    def _person(self, label):
+    def _person_1922(self, label):
         email = f"row1922.{label.lower()}.{frappe.generate_hash(length=8)}@test.invalid"
         user = self.create_test_user(email)
         self.track_doc("User", user.name)
@@ -56,7 +54,7 @@ class TestBoardRowStandaloneInsert1922(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member.name)
         return frappe._dict(user=user.name, volunteer=volunteer.name, email=email)
 
-    def _row(self, person):
+    def _row_1922(self, person):
         return {
             "parent": self.chapter.name,
             "parenttype": "Chapter",
@@ -68,84 +66,71 @@ class TestBoardRowStandaloneInsert1922(VereningingenTestCase):
             "email": person.email,
         }
 
-    def _roles(self, user):
+    def _roles_1922(self, user):
         return set(frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role"))
-
-    def _create_administrator_api_token(self):
-        key, secret = frappe.generate_hash(length=15), frappe.generate_hash(length=15)
-        admin = frappe.get_doc("User", "Administrator")
-        admin.api_key, admin.api_secret = key, secret
-        admin.save()
-        frappe.db.commit()
-
-        def _cleanup_api_token():
-            frappe.db.set_value("User", "Administrator", "api_key", None, update_modified=False)
-            frappe.db.sql("delete from `__Auth` where doctype='User' and name='Administrator' and fieldname='api_secret'")
-            frappe.db.commit()
-
-        self.addCleanup(_cleanup_api_token)
-        return f"{key}:{secret}"
-
-    def _create_rows_over_http(self, person_v1, person_v2):
-        """Return {route: (status, body)} for the two real REST routes."""
-        token = self._create_administrator_api_token()
-        frappe.db.commit()
-        site = frappe.local.site
-        script = textwrap.dedent(
-            f"""
-            import json
-            import frappe
-            frappe.init(site={site!r})
-            frappe.connect()
-            frappe.clear_cache()
-            frappe.destroy()
-            import frappe.app
-            from werkzeug.test import Client
-
-            client = Client(frappe.app.application)
-            headers = {{"X-Frappe-Site-Name": {site!r}, "Authorization": "token " + {token!r}}}
-            out = {{}}
-            for route, row in (
-                ("/api/resource/Chapter Board Member", {self._row(person_v1)!r}),
-                ("/api/v2/document/Chapter Board Member", {self._row(person_v2)!r}),
-            ):
-                r = client.post(route, json=row, headers=headers)
-                out[route] = [r.status_code, r.get_data(as_text=True)[:600]]
-            print(json.dumps(out))
-            """
-        )
-        sites_dir = os.path.join(frappe.utils.get_bench_path(), "sites")
-        result = subprocess.run(
-            [sys.executable, "-c", script], cwd=sites_dir, capture_output=True, text=True, timeout=120
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
-        frappe.db.commit()  # drop this connection's stale snapshot before reading the rows
-        return json.loads(result.stdout.strip().splitlines()[-1])
 
     # ------------------------------------------------------------------ the bug
 
-    def test_administrator_rest_post_of_a_board_row_provisions_the_seat_on_both_routes(self):
-        v1, v2 = self._person("Viaone"), self._person("Viatwo")
-        for p in (v1, v2):
-            self.assertNotIn(BOARD_ROLE, self._roles(p.user), "control: no role before the POST")
+    def _create_via_v1(self, row):
+        import frappe.api.v1
 
-        out = self._create_rows_over_http(v1, v2)
+        frappe.form_dict.data = json.dumps(row)
+        return frappe.api.v1.create_doc("Chapter Board Member")
 
-        for route, (status, body) in out.items():
-            self.assertEqual(status, 200, f"{route}: {body}")
-        for p in (v1, v2):
+    def _create_via_v2(self, row):
+        import frappe.api.v2
+
+        frappe.form_dict.update(row)
+        try:
+            return frappe.api.v2.create_doc("Chapter Board Member")
+        finally:
+            frappe.form_dict.clear()
+
+    def test_administrator_rest_create_of_a_board_row_provisions_the_seat_on_both_routes(self):
+        for label, create in (("Vone", self._create_via_v1), ("Vtwo", self._create_via_v2)):
+            person = self._person_1922(label)
+            self.assertNotIn(BOARD_ROLE, self._roles_1922(person.user), "control: no role before the POST")
+
+            create(self._row_1922(person))
+
             self.assertEqual(
-                frappe.db.count("Chapter Board Member", {"parent": self.chapter.name, "volunteer": p.volunteer}),
+                frappe.db.count(
+                    "Chapter Board Member", {"parent": self.chapter.name, "volunteer": person.volunteer}
+                ),
                 1,
-                "the POSTed row exists",
+                "the created row exists",
             )
-            self.assertIn(BOARD_ROLE, self._roles(p.user))
+            self.assertIn(BOARD_ROLE, self._roles_1922(person.user), label)
+
+    def test_a_failing_flush_refuses_the_standalone_insert(self):
+        """Fail closed, deliberately (N2). Chapter.on_update runs the flush inside
+        _safe_manager_operation, which logs an unexpected failure and lets the save go on. Here
+        the only caller is an Administrator-only REST/script insert, so an unexpected failure
+        is raised: the request is refused (and rolled back) rather than a seat created with no
+        role. Per-volunteer sync failures are still only logged, as in the Chapter save."""
+        person = self._person_1922("Failing")
+        # Mock justified: injects the failure at the flush's own boundary.
+        with mock.patch(
+            "verenigingen.verenigingen.doctype.chapter.managers.board_manager."
+            "BoardManager._withdraw_board_role_if_unseated",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._create_via_v2(self._row_1922(person))
+
+    def test_a_row_with_a_nonexistent_parent_is_refused(self):
+        """A standalone row naming a Chapter that does not exist used to insert as an orphan;
+        the hook now loads the parent and raises DoesNotExistError."""
+        person = self._person_1922("Orphan")
+        row = {**self._row_1922(person), "parent": f"No Such Chapter {frappe.generate_hash(length=6)}"}
+        with self.assertRaises(frappe.DoesNotExistError):
+            self._create_via_v2(row)
 
     def test_frappe_client_insert_still_provisions_the_seat(self):
         """The already-safe route (appends to the parent and saves it): must keep working."""
-        person = self._person("Client")
-        frappe.client.insert(doc=json.dumps({"doctype": "Chapter Board Member", **self._row(person)}))
-        self.assertIn(BOARD_ROLE, self._roles(person.user))
+        person = self._person_1922("Client")
+        frappe.client.insert(doc=json.dumps({"doctype": "Chapter Board Member", **self._row_1922(person)}))
+        self.assertIn(BOARD_ROLE, self._roles_1922(person.user))
 
     # --------------------------------------------- the normal path is unchanged
 
@@ -159,9 +144,9 @@ class TestBoardRowStandaloneInsert1922(VereningingenTestCase):
             ChapterBoardMember,
         )
 
-        person = self._person("Normal")
+        person = self._person_1922("Normal")
         chapter = frappe.get_doc("Chapter", self.chapter.name)
-        chapter.append("board_members", {k: v for k, v in self._row(person).items() if not k.startswith("parent")})
+        chapter.append("board_members", {k: v for k, v in self._row_1922(person).items() if not k.startswith("parent")})
 
         # Mock justified: wraps= spies on the real calls to count them; behaviour unchanged.
         with mock.patch(
@@ -177,4 +162,4 @@ class TestBoardRowStandaloneInsert1922(VereningingenTestCase):
         seat_syncs = [c for c in sync.call_args_list if c.args and c.args[0] == person.user]
         self.assertEqual(len(seat_syncs), 1)
         standalone.assert_not_called()
-        self.assertIn(BOARD_ROLE, self._roles(person.user))
+        self.assertIn(BOARD_ROLE, self._roles_1922(person.user))

@@ -353,7 +353,6 @@ COMMIT_EXEMPT tests/backend/unit/services/test_approval_notifications.py::1  # o
 COMMIT_EXEMPT tests/backend/unit/services/test_chapter_management_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/unit/utils/test_import_helpers.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/workflows/test_periodic_donation_agreement.py::2  # order-dep-exempt
-COMMIT_EXEMPT tests/chapter/test_board_row_standalone_insert_1922.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/chapter/test_chapter_board_document.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/doctype/test_procurios_membership_import_flow.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/doctype/test_procurios_membership_import_row_atomicity.py::1  # order-dep-exempt

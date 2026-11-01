@@ -34,6 +34,14 @@ class ChapterBoardMember(Document):
         Same queue and flush as ``Chapter.on_update``, so the sync, withdrawal check and
         lock-error propagation are one implementation. The row is already in the database
         here, which is what the flush reads.
+
+        Fail closed, deliberately: ``Chapter.on_update`` wraps the flush in
+        ``_safe_manager_operation`` (an unexpected failure is logged and the save goes on),
+        this call is not. The only callers are Administrator-only REST/script inserts, so an
+        unexpected failure refuses the insert rather than creating a seat with no role.
+        Per-volunteer sync failures are still only logged (``_log_or_reraise``), as in the
+        Chapter save. A row naming a Chapter that does not exist now raises
+        DoesNotExistError here instead of inserting as an orphan.
         """
         if not (self.parent and self.parenttype == "Chapter" and self.volunteer):
             return
