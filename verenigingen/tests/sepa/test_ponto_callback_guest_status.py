@@ -519,13 +519,13 @@ class TestPontoCallbackCancelsReallySubmittedRows(_PontoPaymentRequestFixtures, 
         self.assertEqual((doc.docstatus, doc.status), (1, "Pending Authorization"))
         return doc
 
-    def test_token_proved_access_denied_cancels_a_really_make_submitted_request(self):
+    def test_token_proved_access_denied_cancels_a_really_submitted_request(self):
         doc = self._make_submitted_request()
         token = generate_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name)
         self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=token)
         self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Cancelled")
 
-    def test_token_proved_access_denied_cancels_a_really_make_submitted_link(self):
+    def test_token_proved_access_denied_cancels_a_really_submitted_link(self):
         doc = self._make_submitted_link()
         token = generate_guest_return_token(betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, doc.name)
         self._guest_get(LINK_CMD, payment_link=doc.name, error="access_denied", cancel_token=token)
