@@ -29,6 +29,7 @@ from verenigingen.utils.security.guest_return_tokens import (
 )
 from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.service_user import get_service_user
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import system_update
 
 # Scopes the signed `cancel_token` minted into the redirect_uri at signing start
 # (PontoPaymentLink.create_ponto_payment_request). Distinct from PONTO_RETURN_TOKEN_PURPOSE
@@ -129,9 +130,13 @@ def _cancel_link_if_proved(payment_link_name):
     doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
     if doc.status != "Pending Authorization":
         return False
-    doc.status = "Cancelled"
-    # The webhook user has write permission on Ponto Payment Link (added 2026-01-10).
-    doc.save()
+    # A submitted row: #1907 refuses a status change unless system code sets the flag, and the
+    # webhook user holds no `submit` right, which a docstatus 1 -> 1 save checks (#1920). Both
+    # halves are needed (see submitted_rows.py).
+    with system_update(doc):
+        doc.status = "Cancelled"
+        # Security: reached only with a valid signed cancel_token for THIS row; narrow skip (#1920).
+        doc.save(ignore_permissions=True)
     return True
 
 

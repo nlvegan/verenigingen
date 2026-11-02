@@ -20,6 +20,7 @@ Usage:
 """
 
 import itertools
+import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -28,6 +29,7 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
+from verenigingen.tests.payment.test_ponto_payment_request_paid_after_pe import _PontoPaymentRequestFixtures
 from verenigingen.utils.security.guest_return_tokens import (
     generate_guest_return_token,
     verify_guest_return_token,
@@ -170,6 +172,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
 
     # ---- control: Ponto, not the caller, is the authority ---------------------
 
+    @unittest.skip("#1876 removed the Administrator fallback, the only identity the callback's refresh_status() was authorised for; #1896 (#1834) removes the refresh itself")
     def test_error_callback_still_adopts_what_ponto_reports(self):
         """Control: the status moves when PONTO says so, with an error param present
         (Ponto says signed; the query string says access_denied). Run under the
@@ -220,6 +223,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 self.assertEqual(known_seen["response_type"], unknown_seen["response_type"])
                 self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
 
+    @unittest.skip("#1876 removed the Administrator fallback, the only identity the callback's refresh_status() was authorised for; #1896 (#1834) removes the refresh itself")
     def test_a_real_status_change_does_not_leak_a_message_to_the_caller(self):
         """refresh_status() msgprints "Status updated to Signed" only for a KNOWN name; the
         guest must not see that. Needs a status that actually changes, so it runs under the
@@ -413,6 +417,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                 self.assertEqual(c1 - c0, c2 - c1)
                 self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
+    @unittest.skip("#1876 removed the Administrator fallback, the only identity the callback's refresh_status() was authorised for; #1896 (#1834) removes the refresh itself")
     def test_link_messages_do_not_leak_a_real_status_change(self):
         """payment_link_callback trims message_log like payment_callback (reviewer nit).
         Needs a real change, so it runs under the Administrator fallback."""
@@ -454,4 +459,97 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             verify_guest_return_token(
                 betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["cancel_token"][0]
             )
+        )
+
+
+class TestPontoCallbackCancelsReallySubmittedRows(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """The token-proved cancel on rows that went through the real ``submit()`` (README rule 22).
+
+    #1907 refuses a status change on a submitted row unless system code sets the flag, and the
+    webhook user (whom the callback runs as) holds no ``submit`` right, which a docstatus 1 -> 1
+    save checks (#1920). The tests above insert at docstatus 0 and so never met either gate: a
+    plain ``doc.save()`` was green there and refused here. Only the Ponto HTTP client is stubbed.
+    """
+
+    _guest_get = TestPontoCallbackGuestStatus._guest_get
+
+    def setUp(self):
+        super().setUp()
+        self.webhook_user = TestPontoCallbackGuestStatus._make_webhook_user(self)
+        frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", self.webhook_user)
+        frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+        self.addCleanup(frappe.set_user, "Administrator")
+
+    def _make_submitted_request(self):
+        doc = frappe.new_doc("Ponto Payment Request")
+        doc.ponto_account = self.TEST_PONTO_ACCOUNT_ID
+        doc.amount = 42.0
+        doc.currency = "EUR"
+        supplier = self._create_supplier("CbSub")
+        doc.creditor_name = supplier.supplier_name
+        doc.creditor_iban = TestIBAN.ABN_AMRO_1
+        doc.remittance_info = "ref #1815"
+        doc.reference_doctype = "Supplier"
+        doc.reference_name = supplier.name
+        doc.insert(ignore_permissions=True)
+        self.track_doc("Ponto Payment Request", doc.name)
+        created = MagicMock(id=f"pid-{frappe.generate_hash(length=8)}", redirect_link="https://p/sign")
+        client = MagicMock()
+        client.create_payment.return_value = created
+        with patch(PAYMENT_CLIENT, return_value=client):
+            doc.submit()
+        self.assertEqual((doc.docstatus, doc.status), (1, "Pending"), "must be a really submitted row")
+        return doc
+
+    def _make_submitted_link(self):
+        doc = frappe.new_doc("Ponto Payment Link")
+        doc.payment_type = "One-Time"
+        doc.amount = 25.0
+        doc.currency = "EUR"
+        doc.description = "Membership dues"
+        doc.creditor_name = "Org"
+        doc.creditor_iban = TestIBAN.ABN_AMRO_1
+        doc.insert(ignore_permissions=True)
+        self.track_doc("Ponto Payment Link", doc.name)
+        created = MagicMock(id=f"rid-{frappe.generate_hash(length=8)}", redirect_link="https://p/sign")
+        client = MagicMock()
+        client.create_payment_request.return_value = created
+        with patch(LINK_CLIENT, return_value=client):
+            doc.submit()
+        self.assertEqual((doc.docstatus, doc.status), (1, "Pending Authorization"))
+        return doc
+
+    def test_token_proved_access_denied_cancels_a_really_make_submitted_request(self):
+        doc = self._make_submitted_request()
+        token = generate_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name)
+        self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=token)
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Cancelled")
+
+    def test_token_proved_access_denied_cancels_a_really_make_submitted_link(self):
+        doc = self._make_submitted_link()
+        token = generate_guest_return_token(betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, doc.name)
+        self._guest_get(LINK_CMD, payment_link=doc.name, error="access_denied", cancel_token=token)
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Cancelled")
+
+    def test_a_proved_cancel_of_a_submitted_row_is_a_status_write_only(self):
+        """Control: the cancel moves ``status`` and nothing else, and docstatus stays 1."""
+        doc = self._make_submitted_request()
+        before = frappe.db.get_value("Ponto Payment Request", doc.name, ["amount", "payment_entry", "docstatus"])
+        token = generate_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name)
+        self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=token)
+        after = frappe.db.get_value("Ponto Payment Request", doc.name, ["amount", "payment_entry", "docstatus"])
+        self.assertEqual(before, after)
+        self.assertEqual(after[2], 1)
+
+    def test_no_token_leaves_a_really_submitted_row_untouched(self):
+        """Control for the two above: without the proof the same GET writes nothing, so a green
+        cancel above is the proof's doing and not an always-cancel handler."""
+        req, link = self._make_submitted_request(), self._make_submitted_link()
+        with patch(PAYMENT_CLIENT, return_value=_client_reporting("pending")):
+            self._guest_get(REQ_CMD, payment_request=req.name, error="access_denied")
+        with patch(LINK_CLIENT, return_value=_client_reporting("pending")):
+            self._guest_get(LINK_CMD, payment_link=link.name, error="access_denied")
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Pending")
+        self.assertEqual(
+            frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization"
         )
