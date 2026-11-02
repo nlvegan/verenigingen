@@ -65,6 +65,13 @@ class TestMembershipTypesWaitForTheFixtures(_RolledBackCase):
         self._reference_data()  # RED before: RuntimeError "Could not find Role Profile"
         self.assertEqual(frappe.db.count("Membership Type", {"name": ["in", DEFAULT_TYPES]}), 0)
 
+    def test_during_an_install_with_the_profile_present_the_types_are_created_at_once(self):
+        self._in_install()
+        self._import_the_role_profile_fixture()
+        self._reference_data()
+        found = frappe.get_all("Membership Type", filters={"name": ["in", DEFAULT_TYPES]}, pluck="name")
+        self.assertCountEqual(found, DEFAULT_TYPES)
+
     def test_outside_an_install_a_missing_profile_is_still_a_failure(self):
         # Control: the deferral must not turn every missing profile into a silent skip.
         with self.assertRaises(RuntimeError) as ctx:
