@@ -123,7 +123,10 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
 
         approved = frappe.get_doc("Email Template", "membership_application_approved")
         self.assertIn("{{ payment_url }}", approved.response)
-        self.assertIn("{{ membership_type.membership_type_name }}", approved.response)
+        # #1981: the bare `membership_type.membership_type_name` raised UndefinedError (the status
+        # notification passes no membership_type); the body must stay null-safe.
+        self.assertIn("membership_type.membership_type_name if membership_type is mapping", approved.response)
+        self.assertNotIn("{{ membership_type.membership_type_name }}", approved.response)
         self.assertIn("{{ payment_amount }}", approved.response)
         self.assertIn("Congratulations", approved.response)
 

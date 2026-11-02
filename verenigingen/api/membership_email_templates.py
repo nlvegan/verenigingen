@@ -165,7 +165,7 @@ def create_default_email_templates():
     <h4>Application Details:</h4>
     <ul>
         <li><strong>Application ID:</strong> {{ application_id }}</li>
-        <li><strong>Membership Type:</strong> {{ membership_type.membership_type_name }}</li>
+        <li><strong>Membership Type:</strong> {{ (membership_type.membership_type_name if membership_type is mapping else membership_type) or "Standard Membership" }}</li>
         <li><strong>Fee Amount:</strong> {{ payment_amount }}</li>
     </ul>
 </div>
