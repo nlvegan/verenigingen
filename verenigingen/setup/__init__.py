@@ -278,6 +278,16 @@ def validate_app_dependencies():
         )
 
 
+def settings_are_saved():
+    """True once Verenigingen Settings were really saved, i.e. carry their mandatory `company`.
+
+    `get_singles_dict` is truthy for ANY row in `tabSingles`. On a fresh install (CI) a row is
+    present while no Company exists, so "has a row" let `get_doc(...).save()` run and raise
+    MandatoryError on `company` (#1957). A real save always has a company.
+    """
+    return bool(frappe.db.get_singles_dict("Verenigingen Settings").get("company"))
+
+
 def _is_initial_setup_complete() -> bool:
     """
     Check if initial setup has already been completed.
@@ -287,7 +297,7 @@ def _is_initial_setup_complete() -> bool:
     try:
         # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
         # (#889); check whether it has actually been saved instead.
-        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+        if not settings_are_saved():
             return False
         return bool(
             frappe.db.get_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete")
@@ -303,7 +313,7 @@ def _mark_initial_setup_complete():
     try:
         # frappe.db.exists(dt, dt) is unconditionally truthy for a Single
         # (#889); check whether it has actually been saved instead.
-        if frappe.db.get_singles_dict("Verenigingen Settings"):
+        if settings_are_saved():
             frappe.db.set_value(
                 "Verenigingen Settings",
                 "Verenigingen Settings",
@@ -443,7 +453,7 @@ def create_default_verenigingen_settings():
     try:
         # frappe.db.exists(dt, dt) is unconditionally truthy for a Single (#889), so it made
         # this create branch dead code; check whether the singleton was ever saved instead.
-        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+        if not settings_are_saved():
             default_company = _resolve_install_company()
             if not default_company:
                 # `company` is mandatory and a fresh site has none yet (#1647). Do not invent
@@ -527,7 +537,7 @@ def ensure_default_verenigingen_settings():
     Deliberately does NOT set initial_setup_complete: that flag means "every
     install step ran", which this hook cannot establish.
     """
-    if frappe.db.get_singles_dict("Verenigingen Settings") or not _resolve_install_company():
+    if settings_are_saved() or not _resolve_install_company():
         return
     if create_default_verenigingen_settings() is None:
         return
@@ -731,7 +741,7 @@ def setup_termination_settings():
     # Get or create Verenigingen Settings. frappe.db.exists(dt, dt) is
     # unconditionally truthy for a Single (#889); check whether it has
     # actually been saved instead.
-    if not frappe.db.get_singles_dict("Verenigingen Settings"):
+    if not settings_are_saved():
         # This should already be created by the main setup, but just in case
         return
 
@@ -834,7 +844,7 @@ def check_termination_system_status():
         # Check settings. frappe.db.exists(dt, dt) is unconditionally truthy
         # for a Single (#889); check whether it has actually been saved
         # instead, so this diagnostic reflects real configuration state.
-        if frappe.db.get_singles_dict("Verenigingen Settings"):
+        if settings_are_saved():
             from verenigingen.utils.settings_utils import get_verenigingen_settings
 
             settings = get_verenigingen_settings()

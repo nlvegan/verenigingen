@@ -333,7 +333,9 @@ def configure_creation_user_in_settings(user_email):
         # frappe.db.exists(dt, dt) is unconditionally truthy for a Single (#889), so this skip
         # never fired on a site whose Settings were not saved yet and the get_doc/save below
         # then failed on the mandatory `company` (#1647).
-        if not frappe.db.get_singles_dict("Verenigingen Settings"):
+        from verenigingen.setup import settings_are_saved
+
+        if not settings_are_saved():
             print("   ⚠️ Verenigingen Settings not found, skipping configuration")
             return {"success": True, "message": "Settings not found, skipped"}
 
