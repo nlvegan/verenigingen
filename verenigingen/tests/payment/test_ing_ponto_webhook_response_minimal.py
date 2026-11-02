@@ -61,6 +61,7 @@ class _GuestWebhookCase(EnhancedTestCase):
         frappe.local.request.get_data()
         frappe.set_user("Guest")  # resets form_dict, so first
         frappe.local.form_dict = frappe._dict()
+        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
         frappe.local.message_log = []
         result = execute_cmd(dotted)
