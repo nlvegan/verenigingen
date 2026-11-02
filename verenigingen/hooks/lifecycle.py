@@ -34,6 +34,8 @@ after_install = [
 # CI site is a fresh install that never migrates, so this is the only convergence point there.
 after_sync = [
     "verenigingen.setup.webhook_user_setup.ensure_webhook_user",
+    # The default membership types need the `Verenigingen Member` Role Profile, also a fixture (#1956).
+    "verenigingen.setup.ensure_default_membership_types",
 ]
 
 # Run before patches and schema sync. Records what our frozen DocTypes' JSON declares

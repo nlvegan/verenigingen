@@ -1904,7 +1904,7 @@ def create_all_reference_data():
     # all of them, then raise ONE summary error (#1662).
     failures = []
     for helper in (
-        create_default_membership_types,
+        _create_default_membership_types_unless_fixtures_pending,
         create_default_team_roles,
         create_default_teams,
         create_default_regions,
@@ -1920,6 +1920,28 @@ def create_all_reference_data():
 
     _raise_if_any_failed("reference data", failures)
     print("📊 Reference data creation complete\n")
+
+
+def _create_default_membership_types_unless_fixtures_pending():
+    """The default types reference the `Verenigingen Member` Role Profile, which ships ONLY as a
+    fixture. `install_app` runs after_install before sync_fixtures, so during an install the
+    profile cannot exist yet and every type failed (#1956); the `after_sync` hook
+    `ensure_default_membership_types` creates them once it does. Outside an install a missing
+    profile is a real failure and still raises."""
+    if frappe.flags.in_install and not frappe.db.exists("Role Profile", "Verenigingen Member"):
+        print("   ⏭️ Default membership types deferred: the Role Profile ships as a fixture (after_sync)")
+        return 0
+    return create_default_membership_types()
+
+
+def ensure_default_membership_types():
+    """after_sync entry point (runs after sync_fixtures on install-app): create the default
+    membership types. Does not raise, since the installer does not guard after_sync and a raise
+    would abort install-app; a failure is logged instead."""
+    try:
+        create_default_membership_types()
+    except Exception:
+        frappe.log_error(title="Default membership types setup failed", message=frappe.get_traceback())
 
 
 def create_background_service_user():
