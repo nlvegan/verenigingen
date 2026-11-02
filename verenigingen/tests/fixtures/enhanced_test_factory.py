@@ -199,6 +199,7 @@ from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
+from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
 
@@ -2443,7 +2444,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # page get_context() reads an empty dict (e.g. ponto_pay / payment_* portal
         # tests failed only inside the full CI shard, never in isolation). Re-binding
         # the proxy at the start of each test makes form_dict reads order-independent.
-        frappe.form_dict = frappe.local("form_dict")
+        guard_form_dict(self)
 
         # BATCH-QUEUE ISOLATION: reset the FinancialHistoryBatchProcessor's
         # PROCESS-GLOBAL, class-level payment/expense queues. They are drained
