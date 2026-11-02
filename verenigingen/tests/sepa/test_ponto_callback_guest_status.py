@@ -140,6 +140,14 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             frappe.set_user(original_user)
         return seen
 
+    def _cold_settings_cache(self):
+        """Make the NEXT request read the Payments Settings Single from the database. Called before
+        EACH of a known/unknown pair: the known call always ran first, so a cold read was counted
+        against it alone (a cold-only 4 vs 3). With both cold, a difference that only shows up cold
+        stays visible instead of being warmed away."""
+        frappe.db.value_cache.pop("Verenigingen Payments Settings", None)
+        frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+
     def _configure_webhook_user(self):
         frappe.db.set_value("User", self.webhook_user, "enabled", 1)
         frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", self.webhook_user)
@@ -506,8 +514,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
 
     def test_bad_token_on_a_known_name_answers_like_an_unknown_name(self):
         """Missing / wrong-name / wrong-purpose token: redirect, message_log and Error Log
-        rows identical to an unknown name. Query count NOT compared (the known name reads
-        the row, the unknown one does not, by construction)."""
+        rows and query count identical to an unknown name (cold settings cache before each call)."""
         from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 
         doc, other = self._make_ppr("Pending"), self._make_ppr("Pending")
@@ -524,8 +531,10 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                     args["cancel_token"] = token
                 with patch(PAYMENT_CLIENT, return_value=_client_reporting("pending")):
                     c0 = frappe.db.count("Error Log")
+                    self._cold_settings_cache()
                     known_seen = self._guest_get(REQ_CMD, payment_request=doc.name, **args)
                     c1 = frappe.db.count("Error Log")
+                    self._cold_settings_cache()
                     unknown_seen = self._guest_get(REQ_CMD, payment_request=unknown, **args)
                     c2 = frappe.db.count("Error Log")
                 self.assertEqual(
@@ -533,6 +542,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                     unknown_seen["location"].replace(unknown, "<N>"),
                 )
                 self.assertEqual(known_seen["message_log"], unknown_seen["message_log"])
+                self.assertEqual(known_seen["queries"], unknown_seen["queries"])
                 self.assertEqual(c1 - c0, c2 - c1)
                 self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
@@ -649,21 +659,18 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
     def test_known_link_without_a_valid_proof_answers_like_an_unknown_name(self):
         """A known link name with a missing / wrong-link / wrong-purpose proof must equal an
         unknown name on redirect, response type, message_log, session user and Error Log delta
-        (query count is compared as well and was equal when measured). Every control row is a
+        (query count is compared as well, cold cache on both calls: measured 4/4 cold, 3/3 warm). Every control row is a
         REAL link and a REAL (other) proof, so an accept-anything or pick-first fix finds a
         row to get wrong."""
         link, other_link = self._make_ppl(), self._make_ppl()
-        # Warm the request-local caches first. setUp clears the Payments Settings cache, and the known
-        # call always runs before the unknown one, so its get_service_user read of the Single was
-        # counted against it alone (a 4 != 3 that is cold cache, not an existence oracle: measured, the
-        # only known-only query was that one tabSingles read). Both paths make the same read.
-        self._guest_get(LINK_CMD, payment_link=UNKNOWN_LINK)
         for label, proof in self._bad_return_proofs(link, other_link).items():
             with self.subTest(proof=label):
                 args = {"return_proof": proof} if proof is not None else {}
                 c0 = frappe.db.count("Error Log")
+                self._cold_settings_cache()
                 known = self._guest_get(LINK_CMD, payment_link=link.name, **args)
                 c1 = frappe.db.count("Error Log")
+                self._cold_settings_cache()
                 unknown = self._guest_get(LINK_CMD, payment_link=UNKNOWN_LINK, **args)
                 c2 = frappe.db.count("Error Log")
                 self.assertEqual(self._shape(known, link.name), self._shape(unknown, UNKNOWN_LINK))
@@ -918,6 +925,9 @@ class TestPontoCallbackCancelsReallySubmittedRows(_PontoPaymentRequestFixtures, 
         token = generate_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name)
         self._guest_get(REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=token)
         after = frappe.db.get_value("Ponto Payment Request", doc.name, ["amount", "payment_entry", "docstatus"])
+        # First: the cancel happened. Without this the before == after check below also passes when
+        # the cancel was refused and nothing was written at all.
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Cancelled")
         self.assertEqual(before, after)
         self.assertEqual(after[2], 1)
 

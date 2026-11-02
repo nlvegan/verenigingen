@@ -44,6 +44,7 @@ from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 
 
@@ -190,6 +191,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # #1991: tests assign `frappe.form_dict = ...`, replacing the LocalProxy
         # process-wide; restore it now and after this test.
         guard_form_dict(self)
+        # #1983: frappe.local.response too (a bare `_dict()` has no `docs`).
+        guard_local_response(self)
 
         # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
         # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
