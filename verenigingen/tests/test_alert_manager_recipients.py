@@ -1,5 +1,8 @@
-"""#2000: monitoring alerts and the daily report go to the users holding the
-Verenigingen System Administrator role profile, never to a literal address.
+"""#2000: monitoring email goes to role-profile holders, never to a literal address.
+
+Technical alerts reach the Verenigingen System Administrator profile; business/finance
+alerts and the daily report reach the Verenigingen Administrator profile, each group with
+its own notification key (so its own cooldown).
 
 Fixture shortcut, stated: users are given the profile through
 ``grant_matching_role_profiles`` (the real ``role_profiles`` child-table write);
@@ -13,14 +16,23 @@ from frappe.utils import now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.alert_manager import (
-    ALERT_RECIPIENT_ROLE_PROFILE,
+    ALERT_GROUPS,
+    BUSINESS_ALERT_TYPES,
+    BUSINESS_GROUP,
     NO_RECIPIENTS_LOG_TITLE,
+    TECHNICAL_GROUP,
     UNSENT_LOG_CACHE_PREFIX,
     UNSENT_LOG_TITLE,
     AlertManager,
+    alert_group_for,
 )
 
-NO_RECIPIENT_TITLE = NO_RECIPIENTS_LOG_TITLE
+SYSADMIN = ALERT_GROUPS[TECHNICAL_GROUP]["role_profile"]
+VADMIN = ALERT_GROUPS[BUSINESS_GROUP]["role_profile"]
+TECH_KEY = ALERT_GROUPS[TECHNICAL_GROUP]["notification_key"]
+BIZ_KEY = ALERT_GROUPS[BUSINESS_GROUP]["notification_key"]
+TECH_TYPE = "HIGH_ERROR_RATE"
+BIZ_TYPE = "SEPA_COMPLIANCE"
 
 
 class TestAlertManagerRecipients(EnhancedTestCase):
@@ -40,53 +52,62 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         self.uid = frappe.generate_hash(length=8).lower()
         # The once-a-day Error Log guard lives in the (non-rolled-back) cache.
         for title in (NO_RECIPIENTS_LOG_TITLE, UNSENT_LOG_TITLE):
-            frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{title}")
-        self._set_system_alert_row(enabled=1)
-        # Only the fixture users hold the profile; the site may carry others.
-        for holder in frappe.get_all(
-            "User Role Profile",
-            filters={"role_profile": ALERT_RECIPIENT_ROLE_PROFILE, "parenttype": "User"},
-            pluck="parent",
-        ):
-            frappe.db.set_value("User", holder, "enabled", 0)
+            for scope in (SYSADMIN, VADMIN, TECHNICAL_GROUP, BUSINESS_GROUP):
+                frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{title}:{scope}")
+        self._set_alert_rows(TECH_KEY, 1)
+        self._set_alert_rows(BIZ_KEY, 1)
+        # Only the fixture users hold the profiles; the site may carry others.
+        for profile in (SYSADMIN, VADMIN):
+            for holder in frappe.get_all(
+                "User Role Profile",
+                filters={"role_profile": profile, "parenttype": "User"},
+                pluck="parent",
+            ):
+                frappe.db.set_value("User", holder, "enabled", 0)
 
-    def _set_system_alert_row(self, enabled):
+    def _set_alert_rows(self, key, enabled, cooldown_minutes=0):
         """EmailService skips a key whose Email Configuration row is missing or off, so own that state
-        (sites differ: only those seeded by #1959 have it). Rolled back at teardown."""
+        (sites differ: only those seeded by #1959 have it). Rolled back at teardown.
+        enabled=None removes the row."""
         config = frappe.get_single("Verenigingen Email Configuration")
         config.set(
             "notification_types",
-            [r for r in config.notification_types if r.notification_key != "system_alert"],
+            [r for r in config.notification_types if r.notification_key != key],
         )
         if enabled is not None:
             config.append(
                 "notification_types",
                 {
-                    "notification_key": "system_alert",
-                    "label": "System Alert",
+                    "notification_key": key,
+                    "label": key,
                     "category": "System",
                     "recipient_policy": "Role-Based",
                     "recipient_roles": "System Manager",
-                    "cooldown_minutes": 0,
+                    "cooldown_minutes": cooldown_minutes,
                     "enabled": enabled,
                 },
             )
         config.save()
 
-    def _make_alert_user(self, label, profile=None, enabled=1):
+    def _make_alert_user(self, label, profiles=(), enabled=1):
+        """A user holding exactly ``profiles``, in order. Frappe mirrors only the FIRST into
+        User.role_profile_name, so single-profile holders carry an unrelated profile first and a
+        lookup on the legacy field cannot find them."""
         email = f"alert-{label}-{self.uid}@test.invalid"
         user = self.create_test_user(email, roles=["System Manager"], enabled=enabled)
-        if profile:
-            # Frappe mirrors only the FIRST profile into User.role_profile_name, so the holder
-            # carries the target SECOND: a lookup on the legacy field cannot find it.
-            profiles = [profile] if profile != ALERT_RECIPIENT_ROLE_PROFILE else [
-                "Verenigingen Administrator",
-                profile,
-            ]
-            grant_matching_role_profiles(email, profiles)
+        if profiles:
+            grant_matching_role_profiles(email, ["Verenigingen Member", *profiles])
             # a disabled holder: the save above re-enables nothing, so set it last
             frappe.db.set_value("User", email, "enabled", enabled)
         return user.email
+
+    def _four_users(self):
+        return {
+            "tech": self._make_alert_user("tech", [SYSADMIN]),
+            "biz": self._make_alert_user("biz", [VADMIN]),
+            "both": self._make_alert_user("both", [SYSADMIN, VADMIN]),
+            "plain": self._make_alert_user("plain"),
+        }
 
     def _sent_to(self):
         recipients = []
@@ -94,109 +115,167 @@ class TestAlertManagerRecipients(EnhancedTestCase):
             recipients.extend(mail["recipients"] or [])
         return recipients
 
-    def _no_recipient_logs(self, since):
+    def _error_logs(self, since, title, needle):
         return frappe.get_all(
             "Error Log",
-            filters={"creation": [">=", since], "method": NO_RECIPIENT_TITLE},
+            filters={"creation": [">=", since], "method": title, "error": ["like", f"%{needle}%"]},
             pluck="name",
         )
 
+    # --- who is a recipient -------------------------------------------------------------
+
     def test_profile_holder_receives_and_others_do_not(self):
-        holder = self._make_alert_user("holder", ALERT_RECIPIENT_ROLE_PROFILE)
-        other_profile = self._make_alert_user("vadmin", "Verenigingen Administrator")
-        no_profile = self._make_alert_user("plain")
+        users = self._four_users()
 
-        recipients = AlertManager().get_alert_recipients()
+        recipients = AlertManager().get_alert_recipients(SYSADMIN)
 
-        self.assertIn(holder, recipients)
-        self.assertNotIn(other_profile, recipients)
-        self.assertNotIn(no_profile, recipients)
-        self.assertEqual(sorted(recipients), [holder])
+        self.assertEqual(sorted(recipients), sorted([users["tech"], users["both"]]))
+        self.assertNotIn(users["biz"], recipients)
+        self.assertNotIn(users["plain"], recipients)
 
     def test_disabled_holder_does_not_receive(self):
-        enabled_holder = self._make_alert_user("on", ALERT_RECIPIENT_ROLE_PROFILE)
-        disabled_holder = self._make_alert_user("off", ALERT_RECIPIENT_ROLE_PROFILE, enabled=0)
+        enabled_holder = self._make_alert_user("on", [SYSADMIN])
+        disabled_holder = self._make_alert_user("off", [SYSADMIN], enabled=0)
 
-        recipients = AlertManager().get_alert_recipients()
+        recipients = AlertManager().get_alert_recipients(SYSADMIN)
 
         self.assertIn(enabled_holder, recipients)
         self.assertNotIn(disabled_holder, recipients)
 
-    def _assert_sent_only_to(self, holder, other_profile, subject_part):
-        subjects = [mail["subject"] for mail in self.captured_emails]
-        self.assertTrue(any(subject_part in s for s in subjects), subjects)
-        sent_to = self._sent_to()
-        self.assertEqual(set(sent_to), {holder})
-        self.assertNotIn(other_profile, sent_to)
-        self.assertNotIn("admin@dev.veganisme.net", sent_to)
-
     def test_holder_without_an_email_is_not_a_recipient(self):
-        with_email = self._make_alert_user("mail", ALERT_RECIPIENT_ROLE_PROFILE)
-        no_email = self._make_alert_user("nomail", ALERT_RECIPIENT_ROLE_PROFILE)
+        with_email = self._make_alert_user("mail", [SYSADMIN])
+        no_email = self._make_alert_user("nomail", [SYSADMIN])
         # Shortcut: User.email is mandatory on insert, so blank it directly.
         frappe.db.set_value("User", no_email, "email", "")
 
-        recipients = AlertManager().get_alert_recipients()
+        recipients = AlertManager().get_alert_recipients(SYSADMIN)
 
         self.assertIn(with_email, recipients)
         self.assertNotIn("", recipients)
         self.assertEqual(sorted(recipients), [with_email])
 
-    def test_send_alert_goes_to_the_holder_only(self):
-        holder = self._make_alert_user("holder", ALERT_RECIPIENT_ROLE_PROFILE)
-        other_profile = self._make_alert_user("vadmin", "Verenigingen Administrator")
+    # --- routing ------------------------------------------------------------------------
 
-        AlertManager().send_alert("TEST_ALERT", "LOW", f"probe {self.uid}")
+    def test_alert_type_to_group_mapping_is_pinned(self):
+        for alert_type in ("HIGH_ERROR_RATE", "PERFORMANCE_DEGRADATION", "HIGH_JOB_QUEUE", "CRITICAL_ERRORS"):
+            self.assertEqual(alert_group_for(alert_type), TECHNICAL_GROUP, alert_type)
+        business = (
+            "SEPA_COMPLIANCE",
+            "HIGH_MEMBER_CHURN",
+            "STUCK_DUES_SCHEDULES",
+            "DATA_QUALITY_ISSUE",
+            "ORPHANED_PAYMENTS",
+        )
+        for alert_type in business:
+            self.assertEqual(alert_group_for(alert_type), BUSINESS_GROUP, alert_type)
+        self.assertEqual(set(business), set(BUSINESS_ALERT_TYPES))
+        # an alert type nobody mapped is technical
+        self.assertEqual(alert_group_for(f"BRAND_NEW_{self.uid}"), TECHNICAL_GROUP)
+        self.assertEqual(alert_group_for("TEST_ALERT"), TECHNICAL_GROUP)
 
-        self._assert_sent_only_to(holder, other_profile, f"probe {self.uid}")
+    def test_technical_alert_reaches_only_system_administrator_holders(self):
+        users = self._four_users()
 
-    def test_daily_report_goes_to_the_holder_only(self):
-        holder = self._make_alert_user("holder", ALERT_RECIPIENT_ROLE_PROFILE)
-        other_profile = self._make_alert_user("vadmin", "Verenigingen Administrator")
+        AlertManager().send_alert(TECH_TYPE, "LOW", f"probe {self.uid}")
+
+        self.assertEqual(sorted(self._sent_to()), sorted([users["tech"], users["both"]]))
+
+    def test_business_alert_reaches_only_administrator_holders(self):
+        users = self._four_users()
+
+        AlertManager().send_alert(BIZ_TYPE, "LOW", f"probe {self.uid}")
+
+        self.assertEqual(sorted(self._sent_to()), sorted([users["biz"], users["both"]]))
+
+    def test_daily_report_reaches_only_administrator_holders(self):
+        users = self._four_users()
 
         AlertManager().generate_daily_report()
 
-        self._assert_sent_only_to(holder, other_profile, "Daily Monitoring Report")
+        self.assertIn("Daily Monitoring Report", [m["subject"] for m in self.captured_emails])
+        self.assertEqual(sorted(self._sent_to()), sorted([users["biz"], users["both"]]))
 
-    def test_nobody_with_the_profile_queues_nothing_and_logs(self):
-        self._make_alert_user("vadmin", "Verenigingen Administrator")  # real row for a wrong fix to find
-        since = now()
-        self.expectErrorLog(NO_RECIPIENT_TITLE)
-
+    def test_a_holder_of_both_profiles_gets_each_kind_once(self):
+        users = self._four_users()
         manager = AlertManager()
-        with self.assertErrorLog(NO_RECIPIENT_TITLE):
-            manager.send_alert("TEST_ALERT", "LOW", f"probe {self.uid}")
-        manager.generate_daily_report()  # same day, same gap: no second row (see the once-a-day test)
+
+        manager.send_alert(TECH_TYPE, "LOW", f"tech {self.uid}")
+        manager.send_alert(BIZ_TYPE, "LOW", f"biz {self.uid}")
+
+        for mail in self.captured_emails:
+            self.assertEqual((mail["recipients"] or []).count(users["both"]), 1, mail["subject"])
+        self.assertEqual(self._sent_to().count(users["both"]), 2)
+
+    # --- per-group cooldown (#2003) -------------------------------------------------------
+
+    def test_each_group_has_its_own_cooldown(self):
+        both = self._make_alert_user("both", [SYSADMIN, VADMIN])
+        self._set_alert_rows(TECH_KEY, 1, cooldown_minutes=60)
+        self._set_alert_rows(BIZ_KEY, 1, cooldown_minutes=60)
+        manager = AlertManager()
+
+        manager.send_alert(BIZ_TYPE, "LOW", f"low business {self.uid}")
+        manager.send_alert(TECH_TYPE, "CRITICAL", f"critical technical {self.uid}")
+
+        subjects = [m["subject"] for m in self.captured_emails]
+        self.assertTrue(any("low business" in s for s in subjects), subjects)
+        self.assertTrue(any("critical technical" in s for s in subjects), subjects)
+        # control: the cooldown is really on, a second business alert is held back
+        manager.send_alert(BIZ_TYPE, "LOW", f"low business again {self.uid}")
+        self.assertFalse(any("low business again" in m["subject"] for m in self.captured_emails))
+        self.assertEqual(self._sent_to().count(both), 2)
+
+    # --- nobody / not queued: visible, once a day, per group ------------------------------
+
+    def test_a_group_with_nobody_logs_without_blocking_the_other(self):
+        users = {"tech": self._make_alert_user("tech", [SYSADMIN])}  # nobody holds VADMIN
+        since = now()
+        self.expectErrorLog(NO_RECIPIENTS_LOG_TITLE)
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "LOW", f"tech {self.uid}")
+        with self.assertErrorLog(NO_RECIPIENTS_LOG_TITLE):
+            manager.send_alert(BIZ_TYPE, "LOW", f"biz {self.uid}")
+
+        self.assertEqual(self._sent_to(), [users["tech"]])
+        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
+        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 0)
+
+    def test_nobody_in_either_group_queues_nothing_and_logs_once_per_group(self):
+        self._make_alert_user("plain")  # a user with neither profile
+        since = now()
+        self.expectErrorLog(NO_RECIPIENTS_LOG_TITLE)
+        manager = AlertManager()
+
+        with self.assertErrorLog(NO_RECIPIENTS_LOG_TITLE):
+            manager.send_alert(TECH_TYPE, "LOW", f"probe {self.uid}")
+        manager.send_alert(TECH_TYPE, "LOW", f"probe again {self.uid}")
+        with self.assertErrorLog(NO_RECIPIENTS_LOG_TITLE):
+            manager.generate_daily_report()
+        manager.send_alert(BIZ_TYPE, "LOW", f"probe biz {self.uid}")
 
         self.assertEqual(self._sent_to(), [])
-        self.assertEqual(len(self._no_recipient_logs(since)), 1)
+        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 1)
+        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
 
-    def test_two_sends_with_nobody_log_once(self):
-        manager = AlertManager()
-        since = now()
-        self.expectErrorLog(NO_RECIPIENT_TITLE)
-
-        with self.assertErrorLog(NO_RECIPIENT_TITLE):
-            manager.send_alert("TEST_ALERT", "LOW", f"probe {self.uid}")
-        manager.send_alert("TEST_ALERT", "LOW", f"probe again {self.uid}")
-        manager.generate_daily_report()
-
-        self.assertEqual(len(self._no_recipient_logs(since)), 1)
-
-    def test_disabled_or_absent_system_alert_row_queues_nothing_and_logs_once(self):
-        self._make_alert_user("holder", ALERT_RECIPIENT_ROLE_PROFILE)
+    def test_a_disabled_or_absent_key_stops_only_its_own_group(self):
+        users = self._four_users()
         self.expectErrorLog(UNSENT_LOG_TITLE)
         for enabled in (0, None):  # off, and no row at all
-            self._set_system_alert_row(enabled=enabled)
-            frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{UNSENT_LOG_TITLE}")
+            self._set_alert_rows(BIZ_KEY, enabled)
+            for scope in (TECHNICAL_GROUP, BUSINESS_GROUP):
+                frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{UNSENT_LOG_TITLE}:{scope}")
+            self.captured_emails.clear()
             since = now()
 
             manager = AlertManager()
-            manager.send_alert("TEST_ALERT", "LOW", f"probe {self.uid}")
-            manager.send_alert("TEST_ALERT", "LOW", f"probe again {self.uid}")
+            manager.send_alert(BIZ_TYPE, "LOW", f"biz {self.uid}")
+            manager.send_alert(BIZ_TYPE, "LOW", f"biz again {self.uid}")
+            manager.send_alert(TECH_TYPE, "LOW", f"tech {self.uid}")
 
-            self.assertEqual(self._sent_to(), [], f"enabled={enabled}")
-            rows = frappe.get_all(
-                "Error Log", filters={"creation": [">=", since], "method": UNSENT_LOG_TITLE}, pluck="name"
+            self.assertEqual(
+                sorted(self._sent_to()), sorted([users["tech"], users["both"]]), f"enabled={enabled}"
             )
+            rows = self._error_logs(since, UNSENT_LOG_TITLE, "business group")
             self.assertEqual(len(rows), 1, f"enabled={enabled}")
+            self.assertEqual(len(self._error_logs(since, UNSENT_LOG_TITLE, "technical group")), 0)
