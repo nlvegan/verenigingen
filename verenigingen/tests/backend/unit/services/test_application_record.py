@@ -72,6 +72,8 @@ class ApplicationRecordCase(ApplicationDoorMixin, VereningingenUnitTestCase):
             "country": "Netherlands",
             "frequency": "Monthly",
             "amount": "7.50",
+            "magazine_delivery": "Geen",  # a Regular form must answer both (#1968)
+            "starter_guide_delivery": "Geen",
             "iban": IBAN,
             "bank_account_name": "A. Berg",
             "consent": "1",

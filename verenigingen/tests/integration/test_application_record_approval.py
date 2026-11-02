@@ -150,18 +150,19 @@ class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
         self.assertFalse(frappe.db.get_value(SUBMISSION, application, "chapter"))
         return application
 
-    def _stage_short_and_confirm(self, **overrides) -> str:
+    def _stage_short_and_confirm(self, door_fields=None, **overrides) -> str:
         """The short form: it never asks birth date or (optionally) a mobile number."""
         template = frappe.db.get_value(
             "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
         )
         frappe.db.set_value("Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"})
-        door = self._door(monthly_dues_template=template)
+        door = self._door(**({"monthly_dues_template": template} | (door_fields or {})))
         data = {
             "first_name": "Anna", "last_name": "Berg", "email": self.email, "address_line1": "Kerkstraat",
             "postal_code": "1234AB", "house_number": "12", "city": "Utrecht", "country": "Netherlands",
             "frequency": "Monthly", "amount": "7.50", "iban": IBAN, "bank_account_name": "A. Berg",
             "consent": "1", "leave_this_empty": "",
+            "magazine_delivery": "Geen", "starter_guide_delivery": "Geen",  # a Regular form answers both (#1968)
         }
         data.update(overrides)
         previous = frappe.session.user
@@ -324,11 +325,33 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(member.referral_source_other, "Old Referral")
         self.assertEqual(member.join_reason_other, "Old Reason")
         self.assertEqual([row.join_reason for row in member.join_reasons], [self.reasons[0]])
-        # magazine_delivery is not here: the short form always supplies one (it defaults to "Geen"), so it is
-        # never blank, and a supplied delivery choice overwrites.
+        # The delivery answers are not here: a Regular form must answer them (#1968), so they are never
+        # blank there. A Housemate form never asks them: test_housemate_reapplication_keeps_delivery.
         for field in ("birth_year", "housemate_of_name", "referral_source_other", "join_reason_other",
                       "join_reasons"):
             self.assertNotIn(field, listed, f"{field}: a blank answer is not a change")
+
+    def test_housemate_reapplication_keeps_delivery(self):
+        """#1968: the Housemate form never asks the delivery questions, so its application must not change a
+        reapplying Member's delivery. It used to record "Geen" for both and approval wrote that over them.
+        PROBE SHORTCUT, stated: the delivery is written straight onto the Member to stand in for an earlier
+        application; the termination, the reapplication and the approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        member.db_set({"magazine_delivery": "Papier", "starter_guide_delivery": "Beide"})
+        name = self._stage_short_and_confirm(
+            door_fields={"form_shape": "Housemate", "monthly_dues_template": None},
+            housemate_of_name="Piet Payer", housemate_confirmed="1", amount="", iban="", consent="",
+            magazine_delivery="", starter_guide_delivery="",  # the Housemate form renders neither
+        )
+
+        listed = self._preview_fields(name)
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.housemate_of_name, "Piet Payer")  # control: the application was applied
+        self.assertEqual((member.magazine_delivery, member.starter_guide_delivery), ("Papier", "Beide"))
+        self.assertNotIn("magazine_delivery", listed)
+        self.assertNotIn("starter_guide_delivery", listed)
 
     def test_a_supplied_answer_overwrites_and_is_listed(self):
         """Control for the test above: the same flow with non-blank answers does replace them, and the

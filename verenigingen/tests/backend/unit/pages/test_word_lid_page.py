@@ -1,5 +1,7 @@
 """Public pages of the short membership application: landing, door form, confirm page, routes."""
 
+import re
+
 import frappe
 from frappe.website.serve import get_response
 from werkzeug.test import EnvironBuilder
@@ -84,6 +86,18 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         html = self._render_page_html(hiding.slug)
         self.assertNotIn('name="birth_year"', html)
         self.assertIn('name="first_name"', html)
+
+    def test_delivery_questions_start_unanswered(self):
+        # #1968: a preselected option was posted for an applicant who never chose it.
+        html = self._render_page_html(self._door().slug)
+        for question in ("magazine_delivery", "starter_guide_delivery"):
+            with self.subTest(question=question):
+                select = re.search(rf'<select[^>]*name="{question}"[^>]*>(.*?)</select>', html, re.S)
+                self.assertIsNotNone(select)  # control: the question is rendered
+                options = re.findall(r"<option[^>]*>", select.group(1))
+                self.assertRegex(options[0], r'value=""')
+                self.assertRegex(options[0], r"\bselected\b")
+                self.assertEqual([o for o in options if re.search(r"\bselected\b", o)], [options[0]])
 
     def test_route_rule_resolves_bevestig_before_door(self):
         rules = frappe.get_hooks("website_route_rules")
