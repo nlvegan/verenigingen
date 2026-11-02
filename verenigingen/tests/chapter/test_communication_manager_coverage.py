@@ -62,6 +62,7 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
                     "name": name,
                     "subject": f"{name} subject",
                     "response": "<p>{{ member_name }}</p>",
+                    "response_html": "<p>{{ member_name }}</p>",
                     "use_html": 1,
                 }
             ).insert()
