@@ -151,6 +151,30 @@ class TestShortApplicationValidation(ApplicationDoorMixin, VereningingenUnitTest
         cleaned = sav.validate_short_application(self.door, self._validation_data(country="Belgium"))
         self.assertEqual(cleaned["country"], "Belgium")
 
+    def test_unanswered_delivery_question_refused(self):
+        # #1968: a missing answer used to become "Geen", and approval wrote it over a reapplying Member's
+        # delivery. Delivery also sets the fee minimum, so an unanswered question is refused, never guessed.
+        for question in ("magazine_delivery", "starter_guide_delivery"):
+            for blank in (None, "", "  "):
+                with self.subTest(question=question, blank=blank):
+                    data = self._validation_data()
+                    if blank is None:
+                        data.pop(question)
+                    else:
+                        data[question] = blank
+                    with self.assertRaisesRegex(frappe.ValidationError, "delivery option"):
+                        sav.validate_short_application(self.door, data)
+
+    def test_housemate_form_records_no_delivery(self):
+        # The Housemate form never renders the delivery questions, so it has no answer to record: a posted
+        # value is dropped like a hidden question's, and nothing defaults to "Geen" (#1968).
+        cleaned = sav.validate_short_application(
+            self.housemate_door, self._housemate_data(magazine_delivery="Papier", starter_guide_delivery="")
+        )
+        self.assertNotIn("magazine_delivery", cleaned)
+        self.assertNotIn("starter_guide_delivery", cleaned)
+        self.assertEqual(cleaned["housemate_of_name"], "Piet Payer")  # control: the payload was accepted
+
     def test_frequency_without_door_template_refused(self):
         with self.assertRaises(frappe.ValidationError):
             sav.validate_short_application(self.door, self._validation_data(frequency="Annual", iban=""))

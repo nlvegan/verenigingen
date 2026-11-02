@@ -4,6 +4,7 @@
 	const SUBMIT = 'verenigingen.api.short_application.submit_short_application';
 	const CONFIRM = 'verenigingen.api.short_application.confirm_short_application';
 	const MAX_REASONS = 5;
+	const DELIVERY_QUESTIONS = ['magazine_delivery', 'starter_guide_delivery'];
 
 	function post(method, args) {
 		return new Promise((resolve) => {
@@ -102,7 +103,7 @@
 	}
 
 	function isPostal(form) {
-		return ['magazine_delivery', 'starter_guide_delivery'].some((name) => {
+		return DELIVERY_QUESTIONS.some((name) => {
 			const choice = value(form, name);
 			return choice === 'Papier' || choice === 'Beide';
 		});
@@ -224,6 +225,10 @@
 		if (!data.consent) {
 			found.push(__('Please agree to the membership terms.'));
 		}
+		// Rendered unanswered (#1968); a hidden question is not rendered, so it is not in the form.
+		if (DELIVERY_QUESTIONS.some((name) => state.form.elements[name] && !data[name])) {
+			found.push(__('Please choose how you want to receive the magazine and the starter guide.'));
+		}
 		return found;
 	}
 
@@ -249,7 +254,7 @@
 		}
 	}
 
-	window.ShortApplication = { chosenAmount, resetAmountOnFrequencyChange };
+	window.ShortApplication = { chosenAmount, problems, refreshDeliveryOptions, resetAmountOnFrequencyChange };
 
 	frappe.ready(init);
 })();

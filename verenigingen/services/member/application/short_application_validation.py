@@ -60,7 +60,7 @@ def validate_short_application(door, data: dict) -> dict:
     cleaned["membership_type"] = door.membership_type
     _check_email_field(cleaned)
     cleaned.update(_clean_optional_questions(data, hidden, cleaned))
-    postal = _clean_delivery(data, hidden, cleaned)
+    postal = _clean_delivery(door, data, hidden, cleaned)
     if door.form_shape == "Housemate":
         _clean_housemate(data, cleaned)
     else:
@@ -135,13 +135,23 @@ def _clean_join_reasons(raw) -> list:
     return reasons
 
 
-def _clean_delivery(data, hidden, cleaned) -> bool:
-    """Validate delivery choices; return whether either one is postal (hidden counts as not postal)."""
+def _clean_delivery(door, data, hidden, cleaned) -> bool:
+    """Validate delivery choices; return whether either one is postal.
+
+    Only a question the form renders has an answer. The form renders them on a Regular door only, and not
+    when hidden; anything else records nothing and counts as not postal. A rendered question must be
+    answered: a guessed value overwrote a reapplying Member's delivery at approval and set the fee
+    minimum for a choice nobody made (#1968).
+    """
+    if door.form_shape != "Regular":
+        return False
     postal = False
     for question in ("magazine_delivery", "starter_guide_delivery"):
         if question in hidden:
             continue
-        choice = _text(data, question) or "Geen"
+        choice = _text(data, question)
+        if not choice:
+            frappe.throw(_("Choose a delivery option for the magazine and the starter guide."))
         if choice not in DELIVERY_CHOICES:
             frappe.throw(_("Choose a valid delivery option."))
         if choice in POSTAL_CHOICES:

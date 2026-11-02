@@ -74,6 +74,7 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
             "iban": IBAN,
             "bank_account_name": "A. Berg",
             "magazine_delivery": "Digitaal",
+            "starter_guide_delivery": "Geen",  # a Regular form must answer both (#1968)
             "birth_year": "1990",
             "consent": "1",
             "website": "",
