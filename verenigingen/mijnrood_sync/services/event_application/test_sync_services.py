@@ -235,7 +235,7 @@ class TestMemberSyncService(SyncServiceBase):
 # application_sync_service
 # ─────────────────────────────────────────────────────────────────────
 class TestApplicationSyncService(SyncServiceBase):
-    def test_apply_new_application_creates_pending_member(self):
+    def test_apply_new_application_stages_a_record_and_creates_no_member(self):
         app_id = _next_id()
         email = f"app.{app_id}@example.com"
         ev = self._make_event(
@@ -251,75 +251,65 @@ class TestApplicationSyncService(SyncServiceBase):
         )
         result = get_application_sync_service().apply_new_membership_application(ev)
         self.assertTrue(result["success"], result)
-        member = frappe.get_doc("Member", ev.linked_member)
-        self.assertEqual(member.application_status, "Pending")
-        self.assertEqual(member.status, "Pending")
-        self.assertEqual(member.application_id, f"MR-APP-{app_id}")
+        application = frappe.db.get_value(
+            "Membership Application Submission",
+            {"application_id": f"MR-APP-{app_id}"},
+            ["status", "source", "email"],
+            as_dict=True,
+        )
+        self.assertEqual((application.status, application.source), ("Pending Review", "MijnRood"))
+        self.assertEqual(application.email, email)
+        self.assertFalse(frappe.db.exists("Member", {"email": email}))
 
     def test_apply_new_application_no_data_fails(self):
         ev = self._make_event("New", "admin_membership_application")
         result = get_application_sync_service().apply_new_membership_application(ev)
         self.assertFalse(result["success"])
 
+    def _stage_application(self, app_id, email, **fields):
+        ev = self._make_event(
+            "New",
+            "admin_membership_application",
+            new_data={"id": app_id, "first_name": "Old", "last_name": "Name", "email": email, **fields},
+        )
+        self.assertTrue(get_application_sync_service().apply_new_membership_application(ev)["success"])
+        return frappe.db.get_value(
+            "Membership Application Submission", {"application_id": f"MR-APP-{app_id}"}
+        )
+
     def test_apply_changed_application_updates_pending_fields(self):
         app_id = _next_id()
         email = f"appchg.{app_id}@example.com"
-        member = self._make_member(
-            application_id=f"MR-APP-{app_id}",
-            application_status="Pending",
-            status="Pending",
-            email=email,
-            first_name="Old",
-        )
+        application = self._stage_application(app_id, email)
         ev = self._make_event(
             "Changed",
             "admin_membership_application",
-            new_data={
-                "id": app_id,
-                "first_name": "New",
-                "last_name": "Name",
-                "email": email,
-                "current_membership_status_id": 1,
-            },
+            new_data={"id": app_id, "first_name": "New", "last_name": "Name", "email": email},
             changed_fields=[{"field": "first_name", "old": "Old", "new": "New"}],
-            linked_member=member.name,
         )
         result = get_application_sync_service().apply_changed_membership_application(ev)
         self.assertTrue(result["success"], result)
-        member.reload()
-        self.assertEqual(member.first_name, "New")
+        payload = json.loads(frappe.db.get_value("Membership Application Submission", application, "payload"))
+        self.assertEqual(payload["first_name"], "New")
 
-    def test_apply_changed_application_skips_already_approved(self):
-        # Guard: don't overwrite data on an already-approved application.
+    def test_apply_changed_application_skips_already_decided(self):
+        # Guard: don't overwrite data on an already-rejected application. Moved with the real
+        # transition (set_status), not a db write.
         app_id = _next_id()
-        email = f"appapproved.{app_id}@example.com"
-        member = self._make_member(
-            application_id=f"MR-APP-{app_id}",
-            status="Active",
-            email=email,
-            first_name="Keep",
-        )
-        # The Member controller forces application_status to Pending on insert,
-        # so stamp the approved state directly (matching a real approved app).
-        frappe.db.set_value("Member", member.name, "application_status", "Approved")
-        frappe.db.commit()
+        email = f"appdecided.{app_id}@example.com"
+        application = self._stage_application(app_id, email)
+        frappe.get_doc("Membership Application Submission", application).set_status("Rejected")
         ev = self._make_event(
             "Changed",
             "admin_membership_application",
-            new_data={
-                "id": app_id,
-                "first_name": "ShouldNotApply",
-                "email": email,
-                "current_membership_status_id": 1,
-            },
-            changed_fields=[{"field": "first_name", "old": "Keep", "new": "ShouldNotApply"}],
-            linked_member=member.name,
+            new_data={"id": app_id, "first_name": "ShouldNotApply", "email": email},
+            changed_fields=[{"field": "first_name", "old": "Old", "new": "ShouldNotApply"}],
         )
         result = get_application_sync_service().apply_changed_membership_application(ev)
         self.assertTrue(result["success"])
         self.assertIn("already", result["message"])
-        member.reload()
-        self.assertEqual(member.first_name, "Keep")
+        payload = json.loads(frappe.db.get_value("Membership Application Submission", application, "payload"))
+        self.assertEqual(payload["first_name"], "Old")
 
     def test_apply_approved_falls_through_to_new_member_when_unlocatable(self):
         # No pending member exists matching old/new data -> defensive fallback
@@ -342,13 +332,11 @@ class TestApplicationSyncService(SyncServiceBase):
         self.assertTrue(result["success"], result)
         self.assertTrue(frappe.db.exists("Member", {"member_id": str(new_id)}))
 
-    def test_locate_application_member_by_application_id(self):
+    def test_find_application_by_application_id(self):
         app_id = _next_id()
-        member = self._make_member(application_id=f"MR-APP-{app_id}", status="Pending")
-        located = get_application_sync_service()._locate_application_member(
-            {"id": app_id}, {"email": ""}, None
-        )
-        self.assertEqual(located, member.name)
+        application = self._stage_application(app_id, f"locate.{app_id}@example.com")
+        located = get_application_sync_service()._find_application({"id": app_id}, {}, {"email": ""})
+        self.assertEqual(located, application)
 
 
 # ─────────────────────────────────────────────────────────────────────

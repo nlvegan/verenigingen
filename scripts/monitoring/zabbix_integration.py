@@ -21,6 +21,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime, today
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
+
 # Member.status values that mean the membership has actually ended. "Terminated" is not
 # one of them -- it is not a valid option on the Member.status Select field, so a filter
 # on it never matches a real row and the churn metric was always 0. Same core set used by
@@ -823,7 +825,7 @@ def is_valid_request():
     # Optional source-IP allow-list.
     allowed_ips = frappe.conf.get("zabbix_allowed_ips") or []
     if allowed_ips and request is not None:
-        client_ip = request.environ.get("REMOTE_ADDR")
+        client_ip = get_client_ip_or_none()
         if client_ip and client_ip in allowed_ips:
             return True
 
@@ -842,7 +844,7 @@ def is_valid_zabbix_request():
     # Check IP whitelist
     allowed_ips = frappe.conf.get("zabbix_allowed_ips", [])
     if allowed_ips:
-        client_ip = frappe.request.environ.get("REMOTE_ADDR")
+        client_ip = get_client_ip_or_none()
         return client_ip in allowed_ips
 
     # Allow guest access if explicitly configured

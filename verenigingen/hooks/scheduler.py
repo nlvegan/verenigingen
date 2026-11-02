@@ -60,8 +60,8 @@ scheduler_events = {
         # SEPA Direct Debit
         "verenigingen.verenigingen_payments.api.dd_batch_scheduler.daily_batch_optimization",
         "verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
-        # Short application: expire and purge unconfirmed submissions
-        "verenigingen.services.member.application.short_application_confirm.expire_and_purge_submissions",
+        # Membership applications: expire unconfirmed ones, purge finished ones after 30 days
+        "verenigingen.services.member.application.application_record.expire_and_purge_applications",
         # Analytics
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
         # Payment plans
@@ -106,6 +106,8 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
         # SEPA pain.002 ingestion - scans inbox for bank status reports, updates batch status
         "verenigingen.services.payment.pain002_ingestion_service.run_pain002_ingestion",
+        # Ponto status poll (#1885): safety net for a missed webhook delivery
+        "verenigingen.verenigingen_payments.ponto.services.status_poll_service.poll_open_ponto_payment_statuses",
     ],
     # =========================================================================
     # WEEKLY TASKS

@@ -555,10 +555,10 @@ class TestVolunteerApplication(VereningingenTestCase):
             r"membership sign-up could not be completed",
         )
 
-    def test_become_member_with_valid_address_creates_and_links_member(self):
-        # A new applicant opts in to membership AND supplies a valid Dutch
-        # address: a Member is created and the volunteer is linked to it, with no
-        # surfaced membership error.
+    def test_become_member_with_valid_address_stages_a_membership_application(self):
+        # A new applicant opts in to membership AND supplies a valid Dutch address: since #1765 the
+        # membership application is staged (confirmation mail, no Member until approval), so the
+        # volunteer has no member to link to yet and no membership error is surfaced.
         payload = self._valid_payload(
             first_name="Wim",
             last_name="DeJong",
@@ -574,14 +574,16 @@ class TestVolunteerApplication(VereningingenTestCase):
 
         data = self._data(result)
         self.assertIsNone(data.get("membership_application_error"))
-        member_name = data["member_name"]
-        self.assertTrue(member_name, "A member should be created for a valid become_member request")
-        self.track_doc("Member", member_name)
-
-        # The created member carries the applicant's email and the volunteer is linked.
-        self.assertEqual(frappe.db.get_value("Member", member_name, "email"), payload["email"])
-        vol = frappe.get_doc("Volunteer", data["volunteer_name"])
-        self.assertEqual(vol.member, member_name, "Volunteer should be linked to the new member")
+        self.assertIsNone(data["member_name"], "no Member exists until the application is approved")
+        self.assertFalse(frappe.db.exists("Member", {"email": payload["email"]}))
+        rows = frappe.get_all(
+            "Membership Application Submission",
+            {"email": payload["email"]},
+            ["name", "status", "source"],
+        )
+        self.assertEqual([(r.status, r.source) for r in rows], [("Unconfirmed", "Full Form")])
+        self.track_doc("Membership Application Submission", rows[0].name)
+        self.assertFalse(frappe.get_doc("Volunteer", data["volunteer_name"]).member)
 
     # ------------------------------------------------------------------
     # notes-building / mapping unit behavior (pure functions)

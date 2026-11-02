@@ -2,7 +2,7 @@
 Shared event emission helper for background job enqueueing.
 
 Consolidates the repeated _emit_*_event() pattern across member_events,
-chapter_events, approval_events, and team_events.
+chapter_events and team_events.
 """
 
 import frappe

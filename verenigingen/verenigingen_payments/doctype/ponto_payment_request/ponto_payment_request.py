@@ -17,6 +17,7 @@ Status Flow:
                     -> Rejected (if signing fails)
                     -> Cancelled (if cancelled before signing)
                     -> Failed (if execution fails)
+                    -> Expired (if Ponto reports the request expired)
 """
 
 from datetime import date
@@ -29,6 +30,14 @@ from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
+    REQUEST_GUARDED_FIELDS,
+    alert_executed_on_cancelled_row,
+    as_system_update,
+    as_system_update_from_db,
+    refuse_unless_system_update,
+)
 
 
 class PontoPaymentRequest(Document):
@@ -52,6 +61,10 @@ class PontoPaymentRequest(Document):
         """
         self._validate_payment_entry_prerequisites()
         self.create_ponto_payment()
+
+    def before_update_after_submit(self):
+        """Only system code may change status / payment_entry on a submitted row (#1907)."""
+        refuse_unless_system_update(self, REQUEST_GUARDED_FIELDS)
 
     def on_cancel(self):
         """Handle cancellation."""
@@ -193,6 +206,7 @@ class PontoPaymentRequest(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
+    @as_system_update_from_db  # whitelisted: never trust the client-built document (#1907)
     def refresh_status(self):
         """
         Refresh payment status from Ponto API.
@@ -214,17 +228,13 @@ class PontoPaymentRequest(Document):
                 payment_id=self.ponto_payment_id,
             )
 
-            # Map Ponto status to our status
-            status_map = {
-                "pending": "Pending",
-                "unsigned": "Pending",
-                "signed": "Signed",
-                "executed": "Executed",
-                "rejected": "Rejected",
-                "failed": "Failed",
-            }
-
-            new_status = status_map.get(payment.status.lower(), self.status)
+            # Map Ponto status to our status. Shared with the webhook (#1835).
+            # Unmapped keeps the current status; a backward move is refused.
+            new_status = map_request_status(payment.status) or self.status
+            if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
+                return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
+            if is_refused_move(self.status, new_status):
+                new_status = self.status
 
             if new_status != self.status:
                 # Status + Payment Entry are one atomic unit -- #1323, the #1288
@@ -371,6 +381,7 @@ class PontoPaymentRequest(Document):
 
         return bank_account, company, paid_from, party_type, party
 
+    @as_system_update
     def create_payment_entry(self):
         """
         Create Payment Entry when payment is executed.
@@ -421,25 +432,38 @@ class PontoPaymentRequest(Document):
 
         frappe.logger().info(f"Created Payment Entry {pe.name} for Ponto payment {self.name}")
 
+    @as_system_update
     def update_status_from_webhook(self, new_status: str):
         """
         Update status from webhook event.
 
         Args:
             new_status: New status value
+
+        Returns:
+            True if the status moved; False if it already was ``new_status`` or
+            the move was refused (see ``is_refused_move``).
+
+            The webhook handlers do NOT read this value: they decide moved or
+            refused from ``doc.status`` after the call, because existing tests
+            stub this method (returning None). Only tests read the return value.
         """
-        if new_status != self.status:
-            # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
-            # See refresh_status()'s identical `with atomic_status_transition(...)`
-            # block above for why.
-            with atomic_status_transition("ppr_status_pe"):
-                self.status = new_status
-                # Security: Webhook callback - status update from verified Ponto event
-                self.save(ignore_permissions=True)
+        if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
+            return False  # cancelled row: finance alerted, doc untouched (#1848)
 
-                if new_status == "Executed":
-                    self.create_payment_entry()
+        if new_status == self.status or is_refused_move(self.status, new_status):
+            return False
 
-            frappe.logger().info(
-                f"Ponto Payment Request {self.name} status updated to {new_status} via webhook"
-            )
+        # Status + Payment Entry are one atomic unit -- #1323 (#1288 class).
+        # See refresh_status()'s identical `with atomic_status_transition(...)`
+        # block above for why.
+        with atomic_status_transition("ppr_status_pe"):
+            self.status = new_status
+            # Security: Webhook callback - status update from verified Ponto event
+            self.save(ignore_permissions=True)
+
+            if new_status == "Executed":
+                self.create_payment_entry()
+
+        frappe.logger().info(f"Ponto Payment Request {self.name} status updated to {new_status} via webhook")
+        return True

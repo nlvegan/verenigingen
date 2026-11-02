@@ -33,6 +33,7 @@ from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.member_lookup_service import get_member_lookup_service
 from verenigingen.utils.csv.data_transformers import clean_phone_number
 from verenigingen.utils.csv_import_processor import ensure_bulk_import_members_set
+from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
@@ -251,6 +252,8 @@ class MemberImportService(StatelessService):
             member_doc.review_notes = f"{member_doc.review_notes}\n{import_note}"
         else:
             member_doc.review_notes = import_note
+
+        mark_member_imported(member_doc, "Mijnrood CSV Import", import_doc_name)
 
         # Volunteering flag
         if create_volunteer_records:

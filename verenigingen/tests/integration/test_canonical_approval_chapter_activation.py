@@ -7,14 +7,18 @@ pre-existing pending Chapter Members.
 
 T4.1 retires the second approval orchestrator (`MemberLifecycleService.
 approve_application`). Before deletion we need behavioural equivalence:
-the canonical path at ``api.membership_application_review.approve_membership_
-application`` must subsume the lifecycle service's pending-chapter activation
-step.
+the canonical approval core (``api.membership_application_review.
+_approve_membership_application_locked``) must subsume the lifecycle service's
+pending-chapter activation step.
 
 This test mirrors ``test_chapter_membership_approval_integration.
 test_lifecycle_service_activates_chapter_membership`` but exercises the
-canonical API. It fails RED on the unpatched canonical path and passes
-GREEN after the §2.3 fix in the T4.1 design doc is applied.
+canonical core. The member-keyed entry point it used to call was removed in
+#1765; approve_application calls the core after materialise_member, and the
+whole flow (including the Chapter Member row ending Active) is covered by
+test_application_record_approval. Here the core is called directly on a factory
+Member (a stand-in for the one materialise_member creates) with the Pending row
+the application writes.
 """
 
 import frappe
@@ -59,9 +63,7 @@ class TestCanonicalApprovalChapterActivation(EnhancedTestCase):
         status to 'Active' on approval - matching MemberLifecycleService's
         legacy behaviour. Without the §2.3 patch the pending row stays
         Pending and members lose their chapter assignment on approval."""
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-        )
+        from verenigingen.api.membership_application_review import _approve_membership_application_locked
         from verenigingen.utils.application_helpers import create_pending_chapter_membership
 
         # 1. Create a pending member application.
@@ -92,11 +94,7 @@ class TestCanonicalApprovalChapterActivation(EnhancedTestCase):
         #    try to assign a new chapter - the test is about whether the
         #    EXISTING pending row is activated, not new assignment.
         member.reload()
-        approve_membership_application(
-            member_name=member.name,
-            membership_type="Standard Member",
-            chapter=None,
-        )
+        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
 
         # 5. The pending row should now be Active. This is the RED-first
         #    assertion: it fails on develop until the §2.3 patch is applied

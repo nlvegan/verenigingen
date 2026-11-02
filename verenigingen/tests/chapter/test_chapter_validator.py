@@ -148,6 +148,61 @@ class TestChapterValidator(VereningingenTestCase):
         v = ChapterValidator(self.chapter)
         self.assertFalse(v.validate_postal_code_match("1500"))
 
+    # ------------------------------------- None-valued text fields (#1877)
+
+    def _info_data(self, **overrides):
+        # A Chapter document yields key-present/value-None for an empty text field,
+        # which is what defeats ``.get(field, "")``.
+        data = {
+            "name": self.chapter.name,
+            "region": "Test Region",
+            "introduction": None,
+            "address": None,
+            "published": 1,
+        }
+        data.update(overrides)
+        return data
+
+    def test_publish_without_introduction_gives_friendly_error_not_typeerror(self):
+        from verenigingen.verenigingen.doctype.chapter.validators.chapter_info_validator import (
+            ChapterInfoValidator,
+        )
+
+        result = ChapterInfoValidator(self.chapter).validate_chapter_info(self._info_data())
+        self.assertTrue(
+            any("Missing required fields: introduction" in e for e in result.errors),
+            result.errors,
+        )
+
+    def test_validation_summary_tolerates_none_introduction_and_address(self):
+        from verenigingen.verenigingen.doctype.chapter.validators.chapter_info_validator import (
+            ChapterInfoValidator,
+        )
+
+        summary = ChapterInfoValidator(self.chapter).get_validation_summary(self._info_data())
+        self.assertEqual(summary["content_stats"]["introduction_length"], 0)
+        self.assertEqual(summary["content_stats"]["address_length"], 0)
+
+    def test_summary_lengths_are_real_for_present_values(self):
+        # Control: the None-tolerant form must still measure real text.
+        from verenigingen.verenigingen.doctype.chapter.validators.chapter_info_validator import (
+            ChapterInfoValidator,
+        )
+
+        summary = ChapterInfoValidator(self.chapter).get_validation_summary(
+            self._info_data(introduction="x" * 60, address="abc")
+        )
+        self.assertEqual(summary["content_stats"]["introduction_length"], 60)
+        self.assertEqual(summary["content_stats"]["address_length"], 3)
+
+    def test_saving_published_chapter_without_introduction_raises_validation_error(self):
+        chapter = self._reload()
+        chapter.published = 1
+        chapter.introduction = None
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            chapter.save()
+        self.assertIn("Missing required fields: introduction", str(ctx.exception))
+
     # ---------------------------------------------- publication readiness scoring
 
     def test_publication_readiness_counts_issues(self):

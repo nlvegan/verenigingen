@@ -90,7 +90,11 @@ def generate_application_id():
             app_id = f"APP-{date_str}-{random_part}"
 
         # Check for uniqueness
-        if not frappe.db.exists("Member", {"application_id": app_id}):
+        # The id is unique on the Member AND on the application record (#1765).
+        if not (
+            frappe.db.exists("Member", {"application_id": app_id})
+            or frappe.db.exists("Membership Application Submission", {"application_id": app_id})
+        ):
             return app_id
 
     # Final fallback if all attempts failed

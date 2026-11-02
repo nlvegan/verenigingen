@@ -314,7 +314,7 @@ def _add_interest_areas(volunteer_name, data):
 
 
 def _create_membership_application(data, volunteer_name):
-    """Create a membership application for a volunteer who also wants to join.
+    """Stage a membership application for a volunteer who also wants to join (#1765).
 
     Returns a dict ``{"success": bool, "member_name": str|None, "error": str|None}``.
     The membership outcome is SURFACED to the caller, not swallowed: if the
@@ -350,28 +350,10 @@ def _create_membership_application(data, volunteer_name):
             result = result.to_dict()
 
         if result.get("success"):
-            # The membership endpoint returns the new member under data.member_record
-            member_name = (result.get("data") or {}).get("member_record")
-
-            if member_name:
-                from verenigingen.utils.secure_operations import (
-                    get_system_user_for_operation,
-                    secure_user_context,
-                )
-
-                system_user = get_system_user_for_operation("volunteer_application_submission")
-
-                with secure_user_context(
-                    system_user, f"Link volunteer {volunteer_name} to member {member_name}"
-                ):
-                    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-                    volunteer_doc.member = member_name
-                    volunteer_doc.save()
-
-                frappe.logger().info(
-                    f"Created membership application {member_name} linked to volunteer {volunteer_name}"
-                )
-            return {"success": True, "member_name": member_name, "error": None}
+            # #1765: the application is staged and the applicant is mailed a confirmation link. No
+            # Member exists until it is approved, so there is nothing to link the volunteer to yet.
+            frappe.logger().info(f"Staged membership application for volunteer {volunteer_name}")
+            return {"success": True, "member_name": None, "error": None}
 
         # Surface the real failure reason instead of swallowing it.
         error_message = (result.get("error") or {}).get("message") or _(

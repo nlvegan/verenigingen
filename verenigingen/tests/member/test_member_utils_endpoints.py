@@ -522,7 +522,7 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         that happens at approval), forcing a terminal status would drop the
         applicant from get_pending_applications() (status='Pending' filter),
         hiding a legitimate rejoin from reviewers. application_date is set to
-        AFTER the termination -- exactly what update_member_from_reapplication
+        AFTER the termination -- exactly what materialise_member
         does -- which is the positive signal that distinguishes this from the
         Select-default misfire covered below."""
         member_doc = frappe.get_doc("Member", self.member.name)
@@ -535,7 +535,7 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
 
         member_doc.reload()
         # Reapplication in progress: status set to Pending, member_since NOT
-        # yet reset (matches update_member_from_reapplication's own order),
+        # yet reset (matches materialise_member's own order),
         # application_date set to now (also matches that function).
         member_doc.status = "Pending"
         member_doc.application_status = "Pending"

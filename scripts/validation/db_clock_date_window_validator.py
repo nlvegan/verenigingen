@@ -394,9 +394,15 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
                 still_matching[qualname].append(lineno)
 
         for qualname, missing in sorted(by_path[rel]):
-            for lineno in sorted(still_matching[qualname])[:missing]:
-                ok, _bad = _suppressed(lineno, lines)
-                reason = "suppressed" if ok else "unscanned"
+            # A still-matching unsuppressed site is normally still COUNTED (a partial fix:
+            # 2 -> 1 leaves the unfixed one counted), so only the excess over the current
+            # count is unscanned; a suppressed site is never counted (#1802, as #1631).
+            linenos = sorted(still_matching[qualname])
+            suppressed = [n for n in linenos if _suppressed(n, lines)[0]]
+            plain = [n for n in linenos if not _suppressed(n, lines)[0]]
+            unscanned = plain[: max(0, len(plain) - counts.get(f"{rel}::{qualname}", 0))]
+            flagged = [(n, "suppressed") for n in suppressed] + [(n, "unscanned") for n in unscanned]
+            for lineno, reason in sorted(flagged)[:missing]:
                 out.append(UnexplainedShrink(f"{rel}::{qualname}", lineno, reason))
     return out
 

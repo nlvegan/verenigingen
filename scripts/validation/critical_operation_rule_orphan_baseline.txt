@@ -646,7 +646,6 @@ critical_operation_rule.json::reconcile_payment_with_invoice::1
 critical_operation_rule.json::recreate_emma_with_mollie_ids::1
 critical_operation_rule.json::recreate_working_charts::1
 critical_operation_rule.json::refresh_member_payment_history::1
-critical_operation_rule.json::reject_application::1
 critical_operation_rule.json::reject_expense::1
 critical_operation_rule.json::remove_performance_indexes::1
 critical_operation_rule.json::remove_role_from_user::1

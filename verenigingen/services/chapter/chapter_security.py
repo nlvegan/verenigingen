@@ -8,6 +8,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.audit_logging import log_security_event
 
 
 def get_user_manageable_chapters(user=None):
@@ -40,7 +41,7 @@ def get_user_manageable_chapters(user=None):
     # `Chapter Board Member.volunteer`, which holds a Volunteer name -- the two are
     # different namespaces (Assoc-Member-... vs Assoc-Vol-...), so the query never
     # matched and every board member was read as managing no chapters. Since this is
-    # the gate `validate_chapter_permission_or_throw` uses, board members could not
+    # the gate the approval permission check uses, board members could not
     # approve applications for their own chapter at all; it only ever appeared to
     # work for users who also held one of the admin/staff roles short-circuited above.
     #
@@ -79,104 +80,6 @@ def get_user_manageable_chapters(user=None):
     return manageable_chapters
 
 
-def can_user_manage_application(member_name, user=None):
-    """
-    Check if user can manage a specific membership application
-
-    Args:
-        member_name (str): Name of the member whose application to check
-        user (str, optional): User to check permissions for. Defaults to current user.
-
-    Returns:
-        bool: True if user can manage this application
-    """
-    if not user:
-        user = frappe.session.user
-
-    manageable_chapters = get_user_manageable_chapters(user)
-
-    # Administrators can manage all applications
-    if manageable_chapters == "all":
-        return True
-
-    if not manageable_chapters:
-        return False
-
-    # Get the chapter(s) associated with this member's application. The real
-    # application flow (application_helpers.create_pending_chapter_membership)
-    # writes this row with status="Pending", not "Active" -- it is only
-    # activated later, on approval (activate_pending_chapter_memberships).
-    # Requiring 'Active' here made a board member's OWN chapter's pending
-    # applications invisible to them (#1518); 'Inactive' (a former member) is
-    # deliberately still excluded.
-    #
-    # A Pending row is admitted ONLY when the Member itself is an unapproved
-    # application (m.application_status = 'Pending'). A Chapter Member row can
-    # ALSO be "Pending" for a completely different reason: an already-Active,
-    # already-approved member requesting an ADDITIONAL chapter
-    # (member_manager.py::request_to_join, reached via Chapter.join_chapter /
-    # ChapterMembershipManager.join_chapter). Admitting THAT row too would let
-    # the requested chapter's board manage -- and, via has_member_permission /
-    # has_membership_permission below, read and write -- the member's entire,
-    # unrelated, already-approved record with no expiry. Escalation found and
-    # reproduced in review of #1518's first fix round; fixed here by keying on
-    # the Member's OWN application_status, not the child row's status alone.
-    member_chapters = frappe.db.sql(
-        """
-        SELECT DISTINCT cm.parent as chapter_name
-        FROM `tabChapter Member` cm
-        JOIN `tabMember` m ON m.name = cm.member
-        WHERE cm.member = %s
-        AND cm.enabled = 1
-        AND (
-            cm.status = 'Active'
-            OR (cm.status = 'Pending' AND m.application_status = 'Pending')
-        )
-    """,
-        (member_name,),
-        as_dict=True,
-    )
-
-    # If member has no chapter assignment, only national board can manage
-    if not member_chapters:
-        return False
-
-    # Check if user can manage any of the member's chapters
-    member_chapter_names = [ch.chapter_name for ch in member_chapters]
-    return any(chapter in manageable_chapters for chapter in member_chapter_names)
-
-
-def filter_applications_by_permission(applications, user=None):
-    """
-    Filter list of applications to only include those user can manage
-
-    Args:
-        applications (list): List of application dictionaries
-        user (str, optional): User to check permissions for
-
-    Returns:
-        list: Filtered applications list
-    """
-    if not user:
-        user = frappe.session.user
-
-    manageable_chapters = get_user_manageable_chapters(user)
-
-    # Administrators see all applications
-    if manageable_chapters == "all":
-        return applications
-
-    if not manageable_chapters:
-        return []
-
-    filtered_applications = []
-    for app in applications:
-        if can_user_manage_application(app.get("name"), user):
-            filtered_applications.append(app)
-
-    return filtered_applications
-
-
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_user_chapter_permissions():
@@ -198,20 +101,85 @@ def get_user_chapter_permissions():
     }
 
 
-def validate_chapter_permission_or_throw(member_name, action="manage", user=None):
-    """
-    Validate chapter permission or throw exception
+def can_user_manage_application_record(application_name, user=None):
+    """Can `user` review this Membership Application Submission?
 
-    Args:
-        member_name (str): Member name to check
-        action (str): Action being attempted (for error messages)
-        user (str, optional): User to check
+    Keyed on the application's own `chapter` (#1765), not on a Chapter Member row: the
+    application is not a Member and no Pending Chapter Member row exists for it. Who counts as
+    holding a seat is get_user_manageable_chapters
+    (it deliberately does not require the Chapter itself to be Active, see #1518).
 
-    Raises:
-        frappe.PermissionError: If user lacks permission
+    "All" is whatever get_user_manageable_chapters says: System Manager, Verenigingen
+    Administrator, Staff and Verenigingen National Board Member. Admins may review any application,
+    including one with no chapter. A board member
+    may review only one whose chapter they manage. An unknown name is False, on the same path
+    as a foreign one, so the two cannot be told apart.
     """
-    if not can_user_manage_application(member_name, user):
+    if not user:
+        user = frappe.session.user
+
+    manageable_chapters = get_user_manageable_chapters(user)
+    if manageable_chapters == "all":
+        return True
+    if not manageable_chapters:
+        return False
+
+    chapter = frappe.db.get_value("Membership Application Submission", str(application_name), "chapter")
+    return bool(chapter) and chapter in manageable_chapters
+
+
+def can_user_read_application_record(application_name, user=None):
+    """Can `user` read this application? Any active seat on its chapter (Ruling N), admins any.
+    The document-permission hook is the one rule (permissions.has_application_permission)."""
+    from verenigingen.permissions import has_application_permission
+
+    return bool(has_application_permission(frappe._dict(name=str(application_name)), user, "read"))
+
+
+def validate_application_permission_or_throw(application_name, action="manage", user=None):
+    """Throw PermissionError unless `user` may `action` the application: "read" follows any active seat
+    on its chapter, every other action needs an Admin-level seat (can_user_manage_application_record).
+
+    One message for "not yours" and "does not exist" (existence oracle, #1414/#1436).
+    """
+    allowed = can_user_read_application_record if action == "read" else can_user_manage_application_record
+    if not allowed(application_name, user):
+        # Server-side trace only, and the same for an unknown and a foreign name: it must not say which.
+        record_application_security_event(
+            "unauthorized_access_attempt", "warning", f"Refused {action} of application {application_name}"
+        )
         frappe.throw(
-            _("You don't have permission to {0} applications for this member's chapter").format(action),
+            _("You don't have permission to {0} this application").format(action),
             frappe.PermissionError,
         )
+
+
+def record_application_security_event(event_type, severity, message):
+    """Record a security event of the application review path so that it survives the request's rollback.
+
+    A refusal raises PermissionError, and Frappe rolls the request transaction back on any exception, so a
+    row written inline would vanish with it (measured: 1 row inside the transaction, 0 after the handler's
+    rollback). The event is therefore handed to a background job: the Redis push is not part of the database
+    transaction (enqueue_after_commit stays False, which would drop it on rollback too), and the job stores
+    the row, runs the threshold alert check and commits as any worker job does.
+
+    An unknown and a foreign application take this same path, once each, with the same payload shape, and
+    the message says nothing about whether the application exists.
+
+    PRODUCTION NEEDS A WORKER on the "short" queue, or the events queue up unrecorded. `now=frappe.in_test`
+    runs the job inline under test: CI has no RQ workers, and the inline row lives in the test transaction.
+    """
+    frappe.enqueue(
+        "verenigingen.services.chapter.chapter_security.store_application_security_event",
+        queue="short",
+        now=frappe.in_test,
+        event_type=event_type,
+        severity=severity,
+        message=message,
+    )
+
+
+def store_application_security_event(event_type, severity, message):
+    """The background job behind record_application_security_event: store the event and check the alert
+    thresholds (three unauthorized attempts in five minutes raise a security alert)."""
+    log_security_event(event_type, {"message": message}, severity=severity)

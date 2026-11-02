@@ -271,8 +271,8 @@
         {% for team in teams %}
         <div class="team-card">
             <div class="team-header">
-                <h3>{{ team.info.team_name }}</h3>
-                <span class="team-type">{{ _(team.info.team_type) }}</span>
+                <h3>{{ team.info.team_name|e }}</h3>
+                <span class="team-type">{{ _(team.info.team_type)|e }}</span>
             </div>
             <div class="team-content">
                 {% if team.info.description %}
@@ -286,15 +286,15 @@
                     {% for role in team.roles %}
                     <div class="role-item">
                         <div class="role-details">
-                            <div class="role-name">{{ role.role or role.role_type }}</div>
-                            <div class="role-type">{{ _(role.role_type) }}</div>
+                            <div class="role-name">{{ (role.role or role.role_type)|e }}</div>
+                            <div class="role-type">{{ _(role.role_type)|e }}</div>
                         </div>
                         <div class="role-duration">
                             {% if role.from_date %}
-                            {{ _("Since") }} {{ frappe.utils.formatdate(role.from_date, "dd MMM yyyy") }}
+                            {{ _("Since") }} {{ frappe.utils.formatdate(role.from_date, "dd MMM yyyy")|e }}
                             {% endif %}
                             {% if role.to_date %}
-                            <br>{{ _("Until") }} {{ frappe.utils.formatdate(role.to_date, "dd MMM yyyy") }}
+                            <br>{{ _("Until") }} {{ frappe.utils.formatdate(role.to_date, "dd MMM yyyy")|e }}
                             {% endif %}
                         </div>
                     </div>
@@ -304,7 +304,7 @@
 
             <div class="team-actions">
                 {% if team.can_view_members %}
-                <a href="/team_members?team={{ team.info.name }}" class="action-button">
+                <a href="/team_members?team={{ team.info.name|e }}" class="action-button">
                     <i class="fa fa-users"></i> {{ _("View Team Members") }}
                 </a>
                 {% else %}

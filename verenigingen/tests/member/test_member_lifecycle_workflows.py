@@ -109,7 +109,7 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         and failed on the factory's actual "Pending", because the factory does not
         set application_status at all -- the Member controller defaults it.
 
-        Not converted into a real approval test: approve_membership_application()
+        Not converted into a real approval test: approve_application()
         is already exercised end-to-end ~20 times in
         tests.backend.components.test_membership_application. What is genuinely
         unique here is the member -> Customer linkage, so that is what this now

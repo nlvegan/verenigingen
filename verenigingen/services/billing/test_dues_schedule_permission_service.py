@@ -434,14 +434,14 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
         self.assertFalse(edit_permitted, "is_chapter_board_with_finance must refuse a terminated member")
 
     def test_transfer_moves_access_from_source_to_destination_board(self):
-        """ChapterMembershipManager.transfer_member_between_chapters -- leave_chapter
-        (remove_member(permanent=False) under the hood, enabled=0/status='Active' on
-        the SOURCE row) followed by assign_member_to_chapter (add_member, a NEW
-        enabled=1/status='Active' row on the DESTINATION). #1533: a transfer counts
+        """The staff move (assign_member_to_chapter_with_cleanup) --
+        remove_member(permanent=False) on the SOURCE row (enabled=0/status='Active')
+        followed by add_member (a NEW enabled=1/status='Active' row on the
+        DESTINATION). #1533: a transfer counts
         only for the destination -- applied here to list/doc/edit permission rather
         than a chapter goal count. The source chapter's board must lose access on all
         three channels; the destination chapter's own board must gain it."""
-        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
         member, sched = self._member_with_active_schedule()
         source_board_user, source_chapter = self._make_chapter_with_finance_board(member.name)
@@ -453,12 +453,7 @@ class TestBoardFinanceEnabledCheckAgreesAcrossChannels(_BasePermissionTest):
             "fixture setup: source board must have access before transfer, or the loss below proves nothing",
         )
 
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            member_id=member.name,
-            from_chapter=source_chapter.name,
-            to_chapter=dest_chapter.name,
-            reason="Test transfer #1562",
-        )
+        result = assign_member_to_chapter_with_cleanup(member.name, dest_chapter.name)
         self.assertTrue(result.get("success"), f"fixture setup: transfer failed: {result}")
 
         source_row = get_chapter_member_row(member.name, source_chapter.name)

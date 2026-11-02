@@ -43,38 +43,14 @@ that asymmetry either way.
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.api.membership_application_review import approve_membership_application
 from verenigingen.services.member.approval.application_helpers import create_pending_chapter_membership
 from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 
 
-class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
-    """Compare the Desk list query against frappe.has_permission for every
-    Chapter Member row-state a real writer produces, for a Chapter Board Member."""
-
-    def setUp(self):
-        super().setUp()
-        self.chapter = self.create_test_chapter()
-        self.other_chapter = self.create_test_chapter()
-        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
-
-        type_name = f"Test 1529 List Perm Type {self.uid[:6]}"
-        if not frappe.db.exists("Membership Type", type_name):
-            mt = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": type_name,
-                    "minimum_amount": 15,
-                    "is_active": 1,
-                    "role_profile": "Verenigingen Member",
-                }
-            )
-            mt.insert(ignore_permissions=True)
-            self.factory.track_document("Membership Type", mt.name, priority=1)
-        self.membership_type = type_name
-
-    # ---- assertion helpers --------------------------------------------------
+class _VisibilityAsserts:
+    """List-view versus doc-level visibility checks for `self.board`'s user."""
 
     def _listed(self, doctype, name):
         """Whether the board user's real Desk list query (permission_query_conditions
@@ -105,6 +81,34 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
             f"{label}: list-view and doc-level DISAGREE for {doctype} {name} "
             f"(listed={listed}, doc_permission={doc_ok})",
         )
+
+
+class TestChapterBoardListPermissionMatchesDocLevel(_VisibilityAsserts, EnhancedTestCase):
+    """Compare the Desk list query against frappe.has_permission for every
+    Chapter Member row-state a real writer produces, for a Chapter Board Member."""
+
+    def setUp(self):
+        super().setUp()
+        self.chapter = self.create_test_chapter()
+        self.other_chapter = self.create_test_chapter()
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+        type_name = f"Test 1529 List Perm Type {self.uid[:6]}"
+        if not frappe.db.exists("Membership Type", type_name):
+            mt = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": type_name,
+                    "minimum_amount": 15,
+                    "is_active": 1,
+                    "role_profile": "Verenigingen Member",
+                }
+            )
+            mt.insert(ignore_permissions=True)
+            self.factory.track_document("Membership Type", mt.name, priority=1)
+        self.membership_type = type_name
+
+    # ---- fixture helpers ------------------------------------------------------
 
     def _fresh_chapter(self, chapter_name):
         return frappe.get_doc("Chapter", chapter_name)
@@ -231,7 +235,7 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
     def test_approve_member_request_converges_to_active_visible(self):
         """member_manager.approve_member_request -- the chapter JOIN-REQUEST
         approval path (verenigingen/api/chapter_dashboard_api.py's "pending
-        Chapter Member" branch, distinct from approve_membership_application's
+        Chapter Member" branch, distinct from approve_application's
         Membership-APPLICATION path) -- flips the join request's Pending row to
         Active without touching `enabled` (already 1 from request_to_join).
 
@@ -303,39 +307,6 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
         )
 
         self._assert_visibility("Member", member.name, False, "join request rejected, requested chapter")
-
-    def test_approval_flips_pending_row_to_active_and_stays_visible(self):
-        """approve_membership_application flips the Pending Chapter Member row to
-        Active and creates the Membership record. Both must stay visible to the
-        board that just approved (and now legitimately manages) this member."""
-        applicant = self._create_real_pending_applicant("Approved")
-        create_pending_chapter_membership(applicant, self.chapter.name)
-
-        result = approve_membership_application(
-            member_name=applicant.name,
-            membership_type=self.membership_type,
-            create_invoice=False,
-            notes="Approved for #1529 list-permission test",
-        )
-        self.assertTrue(result.get("success"), f"fixture setup: approval failed: {result}")
-
-        cm_row = frappe.db.get_value(
-            "Chapter Member",
-            {"member": applicant.name, "parent": self.chapter.name},
-            ["enabled", "status"],
-            as_dict=True,
-        )
-        self.assertEqual(
-            (cm_row.enabled, cm_row.status),
-            (1, "Active"),
-            "fixture setup: approval did not activate the Chapter Member row",
-        )
-
-        membership_name = frappe.db.get_value("Membership", {"member": applicant.name})
-        self.assertIsNotNone(membership_name, "fixture setup: approval did not create a Membership")
-
-        self._assert_visibility("Member", applicant.name, True, "approved member, own chapter")
-        self._assert_visibility("Membership", membership_name, True, "approved member's membership")
 
     def test_remove_member_permanent_false_not_visible(self):
         """remove_member(permanent=False) -- what a member leaving the chapter
@@ -445,3 +416,38 @@ class TestChapterBoardListPermissionMatchesDocLevel(EnhancedTestCase):
         )
 
         self._assert_visibility("Member", member.name, False, "suspended member added to chapter")
+
+
+class TestApprovedApplicationStaysVisible(_VisibilityAsserts, ApprovalCase):
+    """approve_application writes the applicant's Pending Chapter Member row (materialise_member) and flips it
+    to Active, then creates the Membership. Both must stay visible to the board that just approved (and now
+    legitimately manages) this member. Driven through the real flow: submit -> confirm -> approve."""
+
+    def setUp(self):
+        super().setUp()
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def test_approval_flips_pending_row_to_active_and_stays_visible(self):
+        name = self._stage_and_confirm()
+
+        result = self._approve_as(name, user=self.board.user)
+        self.assertTrue(result.get("success"), f"fixture setup: approval failed: {result}")
+
+        member_name = result["member"]
+        cm_row = frappe.db.get_value(
+            "Chapter Member",
+            {"member": member_name, "parent": self.chapter.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        self.assertEqual(
+            (cm_row.enabled, cm_row.status),
+            (1, "Active"),
+            "fixture setup: approval did not activate the Chapter Member row",
+        )
+
+        membership_name = frappe.db.get_value("Membership", {"member": member_name})
+        self.assertIsNotNone(membership_name, "fixture setup: approval did not create a Membership")
+
+        self._assert_visibility("Member", member_name, True, "approved member, own chapter")
+        self._assert_visibility("Membership", membership_name, True, "approved member's membership")

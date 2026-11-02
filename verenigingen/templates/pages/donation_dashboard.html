@@ -26,8 +26,8 @@
             <div class="card metric-card">
                 <div class="card-body">
                     <h6 class="text-muted">{{ _("Total Donations This Year") }}</h6>
-                    <h3 class="mb-0">€{{ "{:,.2f}".format(total_donations_amount) }}</h3>
-                    <small class="text-muted">{{ total_donations_count }} {{ _("donations") }}</small>
+                    <h3 class="mb-0">€{{ "{:,.2f}".format(total_donations_amount)|e }}</h3>
+                    <small class="text-muted">{{ total_donations_count|e }} {{ _("donations") }}</small>
                 </div>
             </div>
         </div>
@@ -35,8 +35,8 @@
             <div class="card metric-card">
                 <div class="card-body">
                     <h6 class="text-muted">{{ _("Active ANBI Agreements") }}</h6>
-                    <h3 class="mb-0">{{ active_anbi_agreements }}</h3>
-                    <small class="text-success">€{{ "{:,.2f}".format(total_annual_commitment) }} {{ _("annual") }}</small>
+                    <h3 class="mb-0">{{ active_anbi_agreements|e }}</h3>
+                    <small class="text-success">€{{ "{:,.2f}".format(total_annual_commitment)|e }} {{ _("annual") }}</small>
                 </div>
             </div>
         </div>
@@ -44,8 +44,8 @@
             <div class="card metric-card">
                 <div class="card-body">
                     <h6 class="text-muted">{{ _("Unique Donors") }}</h6>
-                    <h3 class="mb-0">{{ unique_donors }}</h3>
-                    <small class="text-muted">{{ consent_percentage }}% {{ _("with consent") }}</small>
+                    <h3 class="mb-0">{{ unique_donors|e }}</h3>
+                    <small class="text-muted">{{ consent_percentage|e }}% {{ _("with consent") }}</small>
                 </div>
             </div>
         </div>
@@ -53,8 +53,8 @@
             <div class="card metric-card">
                 <div class="card-body">
                     <h6 class="text-muted">{{ _("Reportable to Belastingdienst") }}</h6>
-                    <h3 class="mb-0">{{ reportable_donations_count }}</h3>
-                    <small class="text-muted">€{{ "{:,.2f}".format(reportable_donations_amount) }}</small>
+                    <h3 class="mb-0">{{ reportable_donations_count|e }}</h3>
+                    <small class="text-muted">€{{ "{:,.2f}".format(reportable_donations_amount)|e }}</small>
                 </div>
             </div>
         </div>
@@ -97,15 +97,15 @@
                 <div class="card-body">
                     <div class="row text-center">
                         <div class="col-4">
-                            <h4 class="mb-1">{{ active_anbi_agreements }}</h4>
+                            <h4 class="mb-1">{{ active_anbi_agreements|e }}</h4>
                             <small class="text-success">{{ _("ANBI (5+ years)") }}</small>
                         </div>
                         <div class="col-4">
-                            <h4 class="mb-1">{{ active_pledge_agreements }}</h4>
+                            <h4 class="mb-1">{{ active_pledge_agreements|e }}</h4>
                             <small class="text-info">{{ _("Pledges (1-4 years)") }}</small>
                         </div>
                         <div class="col-4">
-                            <h4 class="mb-1 text-warning">{{ expiring_soon_count }}</h4>
+                            <h4 class="mb-1 text-warning">{{ expiring_soon_count|e }}</h4>
                             <small class="text-muted">{{ _("Expiring Soon") }}</small>
                         </div>
                     </div>
@@ -113,11 +113,11 @@
                     <div class="row">
                         <div class="col-6">
                             <small class="text-muted">{{ _("Individual Donors") }}</small>
-                            <h5>{{ individual_donors }}</h5>
+                            <h5>{{ individual_donors|e }}</h5>
                         </div>
                         <div class="col-6">
                             <small class="text-muted">{{ _("Organization Donors") }}</small>
-                            <h5>{{ organization_donors }}</h5>
+                            <h5>{{ organization_donors|e }}</h5>
                         </div>
                     </div>
                 </div>
@@ -146,18 +146,18 @@
                                 {% for agreement in expiring_agreements[:5] %}
                                 <tr>
                                     <td>
-                                        <a href="/app/periodic-donation-agreement/{{ agreement.name }}">
-                                            {{ agreement.agreement_number }}
+                                        <a href="/app/periodic-donation-agreement/{{ agreement.name|e }}">
+                                            {{ agreement.agreement_number|e }}
                                         </a>
                                         {% if agreement.anbi_eligible %}
                                         <span class="badge bg-success ms-1">ANBI</span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ agreement.donor_name }}</td>
-                                    <td>{{ frappe.utils.formatdate(agreement.end_date) }}</td>
+                                    <td>{{ agreement.donor_name|e }}</td>
+                                    <td>{{ frappe.utils.formatdate(agreement.end_date)|e }}</td>
                                     <td>
                                         <span class="badge bg-{{ 'danger' if agreement.days_remaining <= 30 else 'warning' }}">
-                                            {{ agreement.days_remaining }}
+                                            {{ agreement.days_remaining|e }}
                                         </span>
                                     </td>
                                 </tr>
@@ -196,17 +196,17 @@
                     <tbody>
                         {% for donation in recent_donations %}
                         <tr>
-                            <td>{{ frappe.utils.formatdate(donation.donation_date) }}</td>
+                            <td>{{ frappe.utils.formatdate(donation.donation_date)|e }}</td>
                             <td>
-                                <a href="/app/donor/{{ donation.donor }}">
-                                    {{ donation.donor_name }}
+                                <a href="/app/donor/{{ donation.donor|e }}">
+                                    {{ donation.donor_name|e }}
                                 </a>
                             </td>
-                            <td>€{{ "{:,.2f}".format(donation.amount) }}</td>
+                            <td>€{{ "{:,.2f}".format(donation.amount)|e }}</td>
                             <td>
                                 {% if donation.periodic_donation_agreement %}
-                                <a href="/app/periodic-donation-agreement/{{ donation.periodic_donation_agreement }}">
-                                    {{ donation.agreement_number }}
+                                <a href="/app/periodic-donation-agreement/{{ donation.periodic_donation_agreement|e }}">
+                                    {{ donation.agreement_number|e }}
                                 </a>
                                 {% else %}
                                 <span class="text-muted">{{ _("One-time") }}</span>

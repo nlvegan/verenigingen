@@ -245,6 +245,20 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/)'
 
+      - id: template-escaping-validator
+        name: 🛡️ Template Output Escaping (hard gate, #1890)
+        description: >-
+          Frappe renders page AND email templates with Jinja autoescape OFF, so a bare
+          `{{ member.full_name }}` prints user-typed text as markup (stored XSS). Every
+          `{{ }}` under verenigingen/templates must end in |e (or |tojson, a numeric
+          filter), be a literal `_("...")`, or carry a reasoned allowlist entry in the
+          validator. Needs jinja2 on the PATH python.
+        entry: python scripts/validation/template_escaping_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/templates/.*\.html$'
+        stages: [pre-commit]
+
       - id: veg11-destructive-command-validator
         name: 🚧 veg11 Destructive-Command Guard (#1127)
         description: Blocks a doc/README/test comment pairing `veg11.veganisme.org` (the production-data-copy site) with run-tests, run-parallel-tests, run-ui-tests, or reinstall

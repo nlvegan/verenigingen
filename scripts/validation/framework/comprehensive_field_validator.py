@@ -32,7 +32,7 @@ import argparse
 
 # Import our comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -299,7 +299,7 @@ class ComprehensiveFieldValidator:
         self.pre_commit_mode = pre_commit_mode
         
         # Use comprehensive DocType loader
-        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=verbose)
         self.doctypes = self._convert_doctypes_for_compatibility()
         
         # Load other components

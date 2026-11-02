@@ -620,7 +620,9 @@ class TestPontoWebhookEventRouting(FrappeTestCase):
             )
         )
 
-        with patch("frappe.enqueue"):
+        # The routing is under test, not the site's webhook user (#1876 pre-check), so the user
+        # lookup is stubbed; the refusal itself is covered by the #1876 WSGI test.
+        with patch("frappe.enqueue"), patch("verenigingen.verenigingen_payments.ponto.api.webhook_handlers._get_webhook_user", return_value="svc@example.com"):
             result = process_webhook_event(PontoEventType.SYNC_SUCCEEDED.value, payload)
 
         self.assertTrue(result["handled"])
@@ -667,7 +669,7 @@ class TestPontoWebhookEventRouting(FrappeTestCase):
         minimal_payload = {"data": {"type": "test", "id": "test"}}
 
         for event_type in event_types:
-            with patch("frappe.enqueue"):
+            with patch("frappe.enqueue"), patch("verenigingen.verenigingen_payments.ponto.api.webhook_handlers._get_webhook_user", return_value="svc@example.com"):
                 with patch("frappe.log_error"):
                     result = process_webhook_event(event_type, minimal_payload)
                     # Should be handled (even if just logged)
@@ -791,11 +793,15 @@ class TestPontoWebhookUser(FrappeTestCase):
             _get_webhook_user,
         )
 
-        # This relies on service_user helper which has fallback logic
+        # No fallback (#1876): this returns the configured, enabled webhook user, or raises
+        # ServiceUserUnavailable. Converge the site first, as migrate does, so the test does
+        # not depend on what an earlier module left in the settings.
+        from verenigingen.setup.webhook_user_setup import setup_webhook_user
+
+        self.assertTrue(setup_webhook_user()["success"])
         user = _get_webhook_user()
 
-        # Should return a valid user (Administrator fallback if not configured)
-        self.assertIsNotNone(user)
+        self.assertEqual(user, frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user"))
 
 
 class TestPontoAccountSyncStatus(FrappeTestCase):
@@ -863,9 +869,14 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
         self.assertEqual(result["reason"], "payment_link_not_found")
 
     def test_status_mapping(self):
-        """Should correctly map Ponto statuses to internal statuses."""
-        # Test the mapping logic
-        status_map = {
+        """The Link map the poll and the webhook share is exactly this (#1841).
+
+        This used to assert a local dict against itself. Now it pins the real
+        LINK_STATUS_MAP the handlers import.
+        """
+        from verenigingen.verenigingen_payments.ponto.core.status_maps import LINK_STATUS_MAP
+
+        expected = {
             "pending": "Pending Authorization",
             "unsigned": "Pending Authorization",
             "signed": "Authorized",
@@ -876,10 +887,7 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
             "cancelled": "Cancelled",
             "expired": "Expired",
         }
-
-        for ponto_status, expected in status_map.items():
-            mapped = status_map.get(ponto_status.lower())
-            self.assertEqual(mapped, expected, f"Status {ponto_status} should map to {expected}")
+        self.assertEqual(LINK_STATUS_MAP, expected)
 
 
 class TestPontoPaymentEntryCreation(FrappeTestCase):

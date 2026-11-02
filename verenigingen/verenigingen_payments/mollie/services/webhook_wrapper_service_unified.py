@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
+from frappe.utils import flt
 
 from verenigingen.verenigingen_payments.core.resilience import CircuitBreakerConfig, RetryConfig
 
@@ -515,6 +516,7 @@ class UnifiedWebhookWrapperService:
                 elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
                     result = router.route_payment(payment_id, payment)
+                    result = self._book_dues_reversals(payment_id, payment, result)
 
                     # Add timing information
                     duration = time.time() - start_time
@@ -672,6 +674,94 @@ class UnifiedWebhookWrapperService:
                 "payment_id": payment_id,
                 "duration_seconds": duration,
             }
+
+    @staticmethod
+    def _payment_reports_reversal(payment) -> bool:
+        """Does Mollie say this payment has been refunded or charged back?
+
+        Mollie re-posts the SAME ``tr_`` id for a retry and for a reversal of it, so the
+        id cannot tell them apart; the payment object can -- ``amountRefunded`` /
+        ``amountChargedBack`` are only non-zero once a reversal exists. Reading them
+        costs nothing (the payment is already fetched) and keeps the Mollie list calls
+        off every ordinary delivery.
+        """
+        from ..utils.common_helpers import read_payment_field
+
+        for snake, camel in (
+            ("amount_refunded", "amountRefunded"),
+            ("amount_charged_back", "amountChargedBack"),
+        ):
+            value = read_payment_field(payment, snake, camel)
+            if isinstance(value, dict):
+                value = value.get("value")
+            if flt(value) > 0:
+                return True
+        return False
+
+    def _book_dues_reversals(
+        self, payment_id: str, payment, forward_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """After the dues booking, book any refund/chargeback this delivery announces.
+
+        The DUES branch used to return before refund discovery (STEP 1 below), so a
+        refunded dues payment never reached ``process_reversal_webhook`` (#370). Each
+        reversal goes there -- it already books dues reversals as a Journal Entry
+        against the invoice and is idempotent per reversal id -- so a pure retry
+        (nothing announced) and a re-delivery of an already-booked reversal both end
+        with state unchanged.
+
+        Forward first: a failed forward booking is returned as is (Mollie retries) and no
+        reversal work is attempted on top of it. That guard is not separately tested: once
+        the forward Payment Entry exists no real input fails the forward step, and
+        ``process_reversal_webhook`` already refuses a payment that was never booked.
+        A reversal that cannot be booked
+        turns the response into an error for the same reason, instead of a 200 that
+        would stop Mollie delivering it again.
+        """
+        if forward_result.get("status") == "error" or not self._payment_reports_reversal(payment):
+            return forward_result
+
+        state = self.idempotency_manager.check_payment_processing_state(payment_id, include_mollie_api=True)
+        if state.refund_check_failed or state.chargeback_check_failed:
+            # Same designed degradation as STEP 1: say so and let Mollie retry. The
+            # forward booking is idempotent, so the retry costs nothing.
+            frappe.local.response.http_status_code = 503
+            frappe.local.response["Retry-After"] = "60"
+            return {
+                "status": "service_unavailable",
+                "message": "Mollie API unavailable - cannot verify refund/chargeback state",
+                "payment_id": payment_id,
+            }
+
+        outcomes = [
+            self.process_reversal_webhook(
+                payment_id=payment_id,
+                reversal_id=refund["refund_id"],
+                amount=refund["amount"],
+                reversal_type="refund",
+                reversal_date=refund.get("refund_date"),
+            )
+            for refund in state.pending_refunds
+        ] + [
+            self.process_reversal_webhook(
+                payment_id=payment_id,
+                reversal_id=chargeback["chargeback_id"],
+                amount=chargeback["amount"],
+                reversal_type="chargeback",
+                reason=chargeback.get("reason") or None,
+            )
+            for chargeback in state.pending_chargebacks
+        ]
+
+        failed = [o for o in outcomes if o.get("status") == "error"]
+        forward_result["reversals"] = [o.get("status") for o in outcomes]
+        if failed:
+            forward_result["status"] = "error"
+            forward_result["message"] = (
+                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
+                f"{failed[0].get('message')}"
+            )
+        return forward_result
 
     def _handle_fully_processed_payment(
         self, payment_id: str, processing_state, start_time: float

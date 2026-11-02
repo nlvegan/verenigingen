@@ -41,8 +41,8 @@ Four fixes:
   module, utils/security/report_role_gate.py, to avoid a clone of the same
   four-line body across two files).
 
-  NOTE: get_application_stats (pages/membership_applications/__init__.py),
-  one of #1486's five originally-named candidates, was investigated and NOT
+  NOTE: get_application_stats (pages/membership_applications/__init__.py, deleted
+  in #1765 with issue #1915: a dead UI), one of #1486's five originally-named candidates, was investigated and NOT
   fixed here: BOTH of that file's two @standard_api endpoints reference a
   Member field, `suggested_chapter`, that does not exist on the Member
   DocType (confirmed against member.json and live on test_site_6 --

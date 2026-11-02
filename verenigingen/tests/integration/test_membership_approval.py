@@ -29,10 +29,30 @@ from unittest.mock import patch
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import time
 
-from verenigingen.api.membership_application_review import approve_membership_application
+from verenigingen.api.membership_application_review import _approve_membership_application_locked
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.error_handling import PermissionError as VPermissionError
 import unittest
+
+
+def approve_core(
+    member_name,
+    membership_type=None,
+    chapter=None,
+    notes=None,
+    create_invoice=True,
+    activate_as_volunteer=False,
+):
+    """Run the approval core on a Pending Member.
+
+    The member-keyed entry point these tests used to call was removed in #1765. approve_application is the
+    entry point now: it runs materialise_member and then this core, so a factory Pending Member stands in
+    for the one materialise_member creates. The entry point itself (permission gate, application status,
+    outcome on the application) is covered by test_application_record_approval and
+    test_member_approval_permissions.
+    """
+    return _approve_membership_application_locked(
+        member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+    )
 
 
 class TestMembershipApprovalRealIntegration(EnhancedTestCase):
@@ -204,7 +224,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                 # Real business logic generates many queries (1134 observed) - this is actual behavior
                 with self.assertQueryCount(1500):  # Real business complexity limit
                     # Call actual approval API - NO MOCKING OF BUSINESS LOGIC
-                    result = approve_membership_application(
+                    result = approve_core(
                         member_name=member.name,
                         membership_type=self.membership_type.name,
                         chapter=self.chapter.name,
@@ -350,7 +370,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         endpoint at chapter.py:1165 -- this only ever sets enabled=0 and never
         touches status, leaving enabled=0/status='Pending'), and is then
         re-assigned to the SAME chapter during approval. The board must end up
-        seeing an Active, enabled chapter row -- approve_membership_application
+        seeing an Active, enabled chapter row -- the approval core
         must not leave the applicant's chapter membership silently disabled
         just because their Pending row happened to be disabled beforehand.
         """
@@ -392,7 +412,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         with self.as_user(self.admin_user.email):
             # Mock justified: External Service - email service, not business logic
             with patch('frappe.sendmail'):
-                result = approve_membership_application(
+                result = approve_core(
                     member_name=member.name,
                     membership_type=self.membership_type.name,
                     chapter=self.chapter.name,
@@ -437,7 +457,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     # Test validation error for missing membership type
                     # Real business logic may handle this differently
                     try:
-                        result = approve_membership_application(
+                        result = approve_core(
                             member_name=member.name,
                             membership_type="",  # Invalid empty membership type
                             create_invoice=True
@@ -459,46 +479,6 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         else:
             self.assertEqual(member.application_status, "Pending")
             self.assertEqual(member.status, "Pending")
-
-    def test_approval_workflow_permission_validation(self):
-        """Test that approval workflow respects permission boundaries"""
-        
-        unique_id = int(time.time() * 1000) % 10000 + 2
-        member = self.create_test_member(
-            first_name="Permission",
-            last_name="TestMember",
-            email=f"permission.test.{unique_id}@example.com",
-            status="Pending",
-            application_status="Pending",
-            selected_membership_type=self.membership_type.name,
-            chapter=self.chapter.name
-        )
-        
-        # Create user without approval permissions
-        unique_id_user = int(time.time() * 1000) % 10000 + 100
-        limited_user = self.create_test_user_with_roles(
-            email=f"limited.user.{unique_id_user}@example.com",
-            roles=["Verenigingen Member"]  # No admin permissions
-        )
-        
-        # Test approval with limited permissions should fail
-        with self.as_user(limited_user.email):
-            # Mock justified: External email service, not business logic
-            with patch('frappe.sendmail'):
-                with patch('frappe.db.get_single_value') as mock_settings:
-                    mock_settings.return_value = 'admin@example.com'
-                    
-                    # Should raise permission error
-                    with self.assertRaises((frappe.PermissionError, VPermissionError)):
-                        approve_membership_application(
-                            member_name=member.name,
-                            membership_type=self.membership_type.name,
-                            create_invoice=True
-                        )
-        
-        # Member status should remain unchanged
-        member.reload()
-        self.assertEqual(member.application_status, "Pending")
 
     def test_approval_workflow_account_creation_integration(self):
         """Test integration between approval workflow and account creation system"""
@@ -537,7 +517,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                 # auto-require employee creation (see AccountCreationManager
                 # .requires_employee_creation and its CSV-import note). So pass
                 # activate_as_volunteer=True to exercise the volunteer path.
-                result = approve_membership_application(
+                result = approve_core(
                     member_name=member.name,
                     membership_type=self.membership_type.name,
                     create_invoice=False,
@@ -592,7 +572,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             # Mock justified: External email service, not business logic
             with patch('frappe.sendmail'):
                 # Test with invoice generation enabled
-                result = approve_membership_application(
+                result = approve_core(
                     member_name=member.name,
                     membership_type=self.membership_type.name,
                     create_invoice=True
@@ -653,7 +633,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     mock_settings.return_value = 'admin@example.com'
                     
                     # Test with invoice generation disabled
-                    result = approve_membership_application(
+                    result = approve_core(
                         member_name=member2.name,
                         membership_type=self.membership_type.name,
                         create_invoice=False
@@ -716,7 +696,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     }.get((doctype, field))
 
                     # This must not raise AttributeError: 'dict' object has no attribute 'success'
-                    result = approve_membership_application(
+                    result = approve_core(
                         member_name=member.name,
                         membership_type=self.membership_type.name,
                         chapter=self.chapter.name,
@@ -796,7 +776,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                         ("Global Defaults", "default_company"): "Test Company",
                     }.get((doctype, field))
 
-                    result = approve_membership_application(
+                    result = approve_core(
                         member_name=member.name,
                         membership_type=self.membership_type.name,
                         chapter=self.chapter.name,
@@ -856,7 +836,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                         ("Global Defaults", "default_company"): "Test Company",
                     }.get((doctype, field))
 
-                    result = approve_membership_application(
+                    result = approve_core(
                         member_name=member.name,
                         membership_type=self.membership_type.name,
                         chapter=self.chapter.name,

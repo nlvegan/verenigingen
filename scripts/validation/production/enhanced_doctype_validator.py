@@ -20,7 +20,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Union
 from dataclasses import dataclass
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -44,7 +44,7 @@ class DocTypeSchema:
         self.bench_path = bench_path
         
         # Initialize comprehensive DocType loader
-        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.doctype_loader = get_unified_doctype_loader(str(app_path), verbose=False)
         self.schemas = self._convert_to_legacy_format()
         self.child_table_mapping = self._build_child_table_mapping()
         print(f"📊 Enhanced DocType validator loaded {len(self.schemas)} DocTypes")

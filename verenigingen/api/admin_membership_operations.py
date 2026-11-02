@@ -160,67 +160,45 @@ def get_application_stats():
     if not any(role in frappe.get_roles() for role in Roles.ADMIN_ROLES):
         frappe.throw(_("Insufficient permissions"))
 
+    # Applications are Membership Application Submissions, not Members (#1765). Admin-only (above), so
+    # these counts are unscoped on purpose; a board member's lists go through the permission query.
+    submission = "Membership Application Submission"
     stats = {}
 
-    # Total applications by status
     status_counts = frappe.db.sql(
-        """
-        SELECT application_status, COUNT(*) as count
-        FROM `tabMember`
-        WHERE application_status IS NOT NULL
-        GROUP BY application_status
-    """,
+        "SELECT status, COUNT(*) AS count FROM `tabMembership Application Submission` GROUP BY status",
         as_dict=True,
     )
+    stats["by_status"] = {row.status: row.count for row in status_counts}
 
-    stats["by_status"] = {s.application_status: s.count for s in status_counts}
+    stats["last_30_days"] = frappe.db.count(submission, {"confirmed_on": [">=", add_days(today(), -30)]})
 
-    # Applications in last 30 days
-    stats["last_30_days"] = frappe.db.count("Member", {"application_date": [">=", add_days(today(), -30)]})
-
-    # Average processing time (for approved applications)
+    # Average days from confirmation to decision, over applications that were approved.
     avg_time = frappe.db.sql(
         """
-        SELECT AVG(TIMESTAMPDIFF(DAY, application_date, review_date)) as avg_days
-        FROM `tabMember`
-        WHERE application_status = 'Approved'
-        AND review_date IS NOT NULL
-        AND application_date IS NOT NULL
+        SELECT AVG(TIMESTAMPDIFF(DAY, confirmed_on, review_date)) AS avg_days
+        FROM `tabMembership Application Submission`
+        WHERE status = 'Approved' AND review_date IS NOT NULL AND confirmed_on IS NOT NULL
     """,
         as_dict=True,
     )
-
     stats["avg_processing_days"] = round(avg_time[0].avg_days or 0, 1)
 
-    # Overdue applications (> 14 days)
     stats["overdue_count"] = frappe.db.count(
-        "Member", {"application_status": "Pending", "application_date": ["<", add_days(today(), -14)]}
+        submission, {"status": "Pending Review", "confirmed_on": ["<", add_days(today(), -14)]}
     )
 
-    # Applications by chapter - using Chapter Member table
-    chapter_counts = frappe.db.sql(
+    # Pending Review applications by chapter ("Unassigned" is a NULL chapter)
+    stats["by_chapter"] = frappe.db.sql(
         """
-        SELECT cm.parent as current_chapter_display, COUNT(*) as count
-        FROM `tabMember` m
-        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
-        WHERE m.application_status = 'Pending'
-        GROUP BY cm.parent
+        SELECT chapter AS current_chapter_display, COUNT(*) AS count
+        FROM `tabMembership Application Submission`
+        WHERE status = 'Pending Review'
+        GROUP BY chapter
         ORDER BY count DESC
         LIMIT 10
     """,
         as_dict=True,
-    )
-
-    stats["by_chapter"] = chapter_counts
-
-    # Volunteer interest rate
-    total_apps = frappe.db.count("Member", {"application_status": ["!=", None]})
-    volunteer_interested = frappe.db.count(
-        "Member", {"application_status": ["!=", None], "interested_in_volunteering": 1}
-    )
-
-    stats["volunteer_interest_rate"] = round(
-        (volunteer_interested / total_apps * 100) if total_apps > 0 else 0, 1
     )
 
     return stats

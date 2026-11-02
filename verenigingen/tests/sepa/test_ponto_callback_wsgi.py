@@ -123,6 +123,59 @@ SCRIPT = textwrap.dedent(
             created.append(("Ponto Payment Request", d.name))
             return d.name
 
+        # REALLY submitted rows (README rule 22): the submit lifecycle runs, so docstatus is 1 and
+        # #1907's guard plus the docstatus 1 -> 1 permission check apply to the callback's save.
+        # Only the Ponto HTTP client is stubbed. The Request also needs its payment-entry
+        # prerequisites (a mapped bank account) checked at submit; that one method is stubbed
+        # here because building a bank/company fixture inside a committing subprocess is out of
+        # proportion. Nothing the callback does depends on it.
+        from unittest.mock import MagicMock, patch
+        from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_payment_request import (
+            PontoPaymentRequest,
+        )
+
+        def make_submitted_link():
+            d = frappe.new_doc("Ponto Payment Link")
+            d.payment_type = "One-Time"
+            d.amount = 25
+            d.currency = "EUR"
+            d.description = "WSGI-1883-SUBMITTED"
+            d.creditor_name = "Org"
+            d.creditor_iban = TestIBAN.ABN_AMRO_1
+            d.insert()
+            created.append(("Ponto Payment Link", d.name))
+            client = MagicMock()
+            client.create_payment_request.return_value = MagicMock(id="wsgi-sub-link", redirect_link="https://x/y")
+            with patch(
+                "verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client.get_betaalverzoek_client",
+                return_value=client,
+            ):
+                d.submit()
+            assert (d.docstatus, d.status) == (1, "Pending Authorization"), (d.docstatus, d.status)
+            return d.name
+
+        def make_submitted_request():
+            d = frappe.new_doc("Ponto Payment Request")
+            d.ponto_account = "wsgi-acc"
+            d.amount = 20
+            d.currency = "EUR"
+            d.creditor_name = "Org"
+            d.creditor_iban = TestIBAN.ABN_AMRO_1
+            d.remittance_info = "ref"
+            d.insert()
+            created.append(("Ponto Payment Request", d.name))
+            client = MagicMock()
+            client.create_payment.return_value = MagicMock(id="wsgi-sub-req", redirect_link="https://x/y")
+            with patch.object(PontoPaymentRequest, "_validate_payment_entry_prerequisites"), patch(
+                "verenigingen.verenigingen_payments.ponto.clients.payment_client.get_payment_client",
+                return_value=client,
+            ):
+                d.submit()
+            assert (d.docstatus, d.status) == (1, "Pending"), (d.docstatus, d.status)
+            return d.name
+
+        sub_link, sub_link_ctl = make_submitted_link(), make_submitted_link()
+        sub_req, sub_req_ctl = make_submitted_request(), make_submitted_request()
         link_name, link_other = make_link(), make_link()
         req_name, req_other = make_request(), make_request()
         link_done = make_link("Executed", "WSGI-1883-RETURN-DETAILS")
@@ -134,6 +187,10 @@ SCRIPT = textwrap.dedent(
             "link_return": gen(link_cb.RETURN_PROOF_PURPOSE, link_done),
             "req_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, req_name),
             "req_other_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, req_other),
+            "sub_link_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
+            "sub_req_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
+            "sub_link_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
+            "sub_req_ctl_wrong": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
         }}
         frappe.destroy()
 
@@ -176,6 +233,17 @@ SCRIPT = textwrap.dedent(
         after_proved = counts()
         out["delta_controls"] = {{k: after_controls[k] - before[k] for k in before}}
         out["delta_proved"] = {{k: after_proved[k] - after_controls[k] for k in before}}
+
+        # the same, on really submitted rows. Controls first: a token minted for ANOTHER row.
+        get(f"{{LINK}}?payment_link={{sub_link_ctl}}&error=access_denied&cancel_token={{tok['sub_link_ctl_wrong']}}")
+        get(f"{{REQ}}?payment_request={{sub_req_ctl}}&error=access_denied&cancel_token={{tok['sub_req_ctl_wrong']}}")
+        out["sub_control_link"] = status_of("Ponto Payment Link", sub_link_ctl)
+        out["sub_control_request"] = status_of("Ponto Payment Request", sub_req_ctl)
+        get(f"{{LINK}}?payment_link={{sub_link}}&error=access_denied&cancel_token={{tok['sub_link_cancel']}}")
+        get(f"{{REQ}}?payment_request={{sub_req}}&error=access_denied&cancel_token={{tok['sub_req_cancel']}}")
+        fresh()
+        out["sub_link"] = frappe.db.get_value("Ponto Payment Link", sub_link, ["status", "docstatus"])
+        out["sub_request"] = frappe.db.get_value("Ponto Payment Request", sub_req, ["status", "docstatus"])
 
         # the legitimate return: follow the redirect the callback ACTUALLY returns
         r = get(f"{{LINK}}?payment_link={{link_done}}&return_proof={{tok['link_return']}}")
@@ -284,3 +352,15 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
 
     def test_a_name_only_guest_is_not_given_the_page(self):
         self.assertEqual(self.out["name_only_location_path"], "/app/home")
+
+    def test_a_token_proved_cancel_persists_on_really_submitted_rows(self):
+        """README rules 21 and 22 together: real WSGI request, fresh-connection read, and rows
+        that went through submit(). A plain save is refused by #1907's guard, the flag alone by
+        the webhook user's missing submit right (#1920); only flag + ignore_permissions persists."""
+        self.assertEqual(self.out["sub_link"], ["Cancelled", 1])
+        self.assertEqual(self.out["sub_request"], ["Cancelled", 1])
+
+    def test_a_token_for_another_row_does_not_cancel_a_submitted_row(self):
+        """Control: real submitted rows to get wrong, a real (other) token."""
+        self.assertEqual(self.out["sub_control_link"], "Pending Authorization")
+        self.assertEqual(self.out["sub_control_request"], "Pending")

@@ -1,7 +1,6 @@
 import calendar
 import csv
 import io
-import json
 
 import frappe
 from frappe import _
@@ -55,7 +54,7 @@ def get_context(context):
             "member": member,
             "current_schedule": current_schedule,
             "payment_method": payment_method,
-            "payment_data": json.dumps(payment_data),
+            "payment_data": payment_data,
             "payment_timeline": payment_timeline,
             "next_payment": next_payment,
             "coverage_percentage": coverage_info["percentage"],

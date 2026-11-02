@@ -212,6 +212,7 @@ class TestHealthAndPerformanceEndpoints(EnhancedTestCase):
         # Force DEVELOPMENT so @development_only_api endpoints are reachable on CI.
         self._env_patch = patch(_ENV_DETECT, return_value=EnvironmentLevel.DEVELOPMENT)
         self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
         # performance_monitor.metrics is a process-global singleton list shared
         # across the whole suite. Snapshot and clear it so each test starts from a
         # known-empty state: otherwise a stray entry left by a sibling test (e.g.

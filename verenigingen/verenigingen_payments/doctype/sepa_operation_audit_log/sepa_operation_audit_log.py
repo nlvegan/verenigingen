@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
 
 class SEPAOperationAuditLog(Document):
@@ -51,7 +52,7 @@ class SEPAOperationAuditLog(Document):
         # bound" and the entire audit insert fails -- dropping the row exactly
         # when the audit trail matters most.
         if not self.ip_address:
-            self.ip_address = self._safe_request_header("X-Forwarded-For")
+            self.ip_address = get_client_ip_or_none() or "unknown"
 
         if not self.user_agent:
             self.user_agent = self._safe_request_header("User-Agent")

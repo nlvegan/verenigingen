@@ -4,40 +4,28 @@ Security-sensitive: the response, the message log and the Error Log must be iden
 not the email belongs to a Member. Only the email that goes out differs.
 """
 
-import hashlib
 import json
-from urllib.parse import urlencode
 
 import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
-from frappe.utils import cint, get_url
+from frappe.utils import cint
 
-from verenigingen.api.membership_application import _handle_existing_member
-from verenigingen.services.member.application.short_application_confirm import (
-    CONFIRM_TOKEN_PURPOSE,
-    confirm_submission,
+from verenigingen.services.member.application.application_record import (
+    confirm_application,
+    stage_application,
 )
 from verenigingen.services.member.application.short_application_validation import (
     validate_short_application,
 )
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
-from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
-CONFIRM_PATH = "/word-lid/bevestig"
 MAX_AMOUNT = 10000
 MAX_FREE_TEXT = 140
 CAPPED_TEXT_FIELDS = ("join_reason_other", "referral_source_other")
 # A name browser autofill leaves alone; "website" was filled in for real applicants.
 HONEYPOT_FIELD = "leave_this_empty"
-# Mails this form sends to one address per day, so it cannot be used to flood a mailbox.
-MAX_MAILS_PER_ADDRESS_PER_DAY = 3
-
-
-def build_confirm_url(submission_name: str) -> str:
-    token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, submission_name)
-    return f"{CONFIRM_PATH}?{urlencode({'submission': submission_name, 'token': token})}"
 
 
 @frappe.whitelist(allow_guest=True)
@@ -55,7 +43,7 @@ def submit_short_application(door: str, **data) -> dict:
         message = str(error)
         frappe.clear_messages()  # frappe.throw() queued it; the dict is the only channel
         return {"success": False, "message": message}
-    _route(door, cleaned)
+    stage_application("Short Form", cleaned["email"], cleaned, door)
     return success
 
 
@@ -101,67 +89,10 @@ def _join_reasons(raw) -> list:
     return raw
 
 
-def _route(door_name, cleaned):
-    email = cleaned["email"]
-    if not _within_daily_mail_cap(email):
-        return  # same response as a sent mail, so the cap says nothing about the address
-    existing = frappe.db.get_value(
-        "Member", {"email": email}, ["name", "status", "application_status"], as_dict=True
-    )
-    if existing:
-        _action, blocked = _handle_existing_member(existing, cleaned)
-        if blocked:
-            return _send_already_member_email(email)
-    submission = frappe.get_doc(
-        {
-            "doctype": "Membership Application Submission",
-            "door": door_name,
-            "email": email,
-            "payload": json.dumps(cleaned, default=str),
-        }
-    )
-    submission.flags.ignore_permissions = True  # Security: guest write limited to an inert, validated row
-    submission.insert()
-    _send_confirmation_email(email, submission.name)
-
-
-def _within_daily_mail_cap(email) -> bool:
-    digest = hashlib.sha256(email.encode()).hexdigest()
-    key = frappe.cache.make_key(f"short_application_mails:{digest}")
-    count = frappe.cache.incrby(key, 1)
-    if frappe.cache.ttl(key) == -1:  # first mail, or a request that died before setting it
-        frappe.cache.expire(key, 24 * 3600)
-    return count <= MAX_MAILS_PER_ADDRESS_PER_DAY
-
-
-def _send_confirmation_email(email, submission_name):
-    link = get_url(build_confirm_url(submission_name))
-    frappe.sendmail(
-        recipients=[email],
-        subject=_("Bevestig je aanmelding"),
-        message=_(
-            "<p>Bedankt voor je aanmelding. Klik op de link hieronder om je aanmelding te bevestigen. "
-            "De link is 7 dagen geldig.</p><p><a href='{0}'>Bevestig mijn aanmelding</a></p>"
-            "<p>Heb je je niet aangemeld? Dan kun je deze e-mail negeren.</p>"
-        ).format(link),
-    )
-
-
-def _send_already_member_email(email):
-    frappe.sendmail(
-        recipients=[email],
-        subject=_("Je aanmelding"),
-        message=_(
-            "<p>Er is al een lidmaatschap gekoppeld aan dit e-mailadres. "
-            "Neem contact met ons op als je hulp nodig hebt.</p>"
-        ),
-    )
-
-
 @frappe.whitelist(allow_guest=True)
 @rate_limit(limit=30, seconds=3600)
 @public_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 def confirm_short_application(submission: str, token: str) -> dict:
     """Confirm an application from the emailed link. POST only; every refusal looks the same."""
-    return confirm_submission(submission, token)
+    return confirm_application(submission, token)

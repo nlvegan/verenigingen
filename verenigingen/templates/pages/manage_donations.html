@@ -44,7 +44,7 @@
         <div class="bg-warning-100 border border-warning-300 text-warning-800 p-4 rounded-lg mb-6">
             <div class="flex items-start">
                 <i class="fa fa-exclamation-triangle mr-2 mt-0.5"></i>
-                <div>{{ error_message }}</div>
+                <div>{{ error_message|e }}</div>
             </div>
         </div>
         {% endif %}
@@ -57,15 +57,15 @@
             <div class="bg-teal-50 border border-teal-200 p-4 rounded-lg mb-4">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="text-center">
-                        <div class="text-2xl font-bold text-teal-700">€{{ "%.2f"|format(donation_summary.total_donated) }}</div>
+                        <div class="text-2xl font-bold text-teal-700">€{{ "%.2f"|format(donation_summary.total_donated)|e }}</div>
                         <div class="text-sm text-teal-600">{{ _("Total Donated") }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.total_donations }}</div>
+                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.total_donations|e }}</div>
                         <div class="text-sm text-teal-600">{{ _("Total Donations") }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.active_recurring }}</div>
+                        <div class="text-2xl font-bold text-teal-700">{{ donation_summary.active_recurring|e }}</div>
                         <div class="text-sm text-teal-600">{{ _("Active Recurring") }}</div>
                     </div>
                 </div>
@@ -85,27 +85,27 @@
                         <div class="flex items-center mb-2">
                             <i class="fa fa-heart text-red-500 mr-2"></i>
                             <h4 class="text-lg font-medium text-gray-800">
-                                €{{ "%.2f"|format(donation.amount) }} {{ _("per") }} {{ _(donation.recurring_frequency.lower()) }}
+                                €{{ "%.2f"|format(donation.amount)|e }} {{ _("per") }} {{ _(donation.recurring_frequency.lower())|e }}
                             </h4>
                         </div>
 
                         <div class="space-y-1 text-sm text-gray-600">
-                            <p><span class="font-medium">{{ _("Started:") }}</span> {{ frappe.utils.formatdate(donation.donation_date) }}</p>
-                            <p><span class="font-medium">{{ _("Payment Method:") }}</span> {{ _(donation.mode_of_payment) }}</p>
+                            <p><span class="font-medium">{{ _("Started:") }}</span> {{ frappe.utils.formatdate(donation.donation_date)|e }}</p>
+                            <p><span class="font-medium">{{ _("Payment Method:") }}</span> {{ _(donation.mode_of_payment)|e }}</p>
                             {% if donation.fund_designation %}
-                            <p><span class="font-medium">{{ _("Fund:") }}</span> {{ _(donation.fund_designation) }}</p>
+                            <p><span class="font-medium">{{ _("Fund:") }}</span> {{ _(donation.fund_designation)|e }}</p>
                             {% endif %}
                             {% if donation.mollie_subscription_id %}
                             <p><span class="font-medium">{{ _("Next Payment:") }}</span>
                                 {% if donation.next_payment_date %}
-                                    {{ frappe.utils.formatdate(donation.next_payment_date) }}
+                                    {{ frappe.utils.formatdate(donation.next_payment_date)|e }}
                                 {% else %}
                                     {{ _("Calculating...") }}
                                 {% endif %}
                             </p>
                             <p><span class="font-medium">{{ _("Status:") }}</span>
                                 <span class="capitalize {% if donation.subscription_status == 'active' %}text-green-600{% else %}text-red-600{% endif %}">
-                                    {{ _(donation.subscription_status or 'Unknown') }}
+                                    {{ _(donation.subscription_status or 'Unknown')|e }}
                                 </span>
                             </p>
                             {% endif %}
@@ -114,13 +114,15 @@
                         {% if donation.mollie_subscription_id and donation.subscription_status == "active" %}
                         <div class="mt-4 flex flex-wrap gap-2">
                             <button type="button"
-                                    onclick="showUpdateDonationModal('{{ donation.name }}', {{ donation.amount }}, '{{ donation.recurring_frequency }}', '{{ donation.fund_designation or '' }}')"
+                                    data-donation-id="{{ donation.name|e }}" data-amount="{{ donation.amount|e }}" data-frequency="{{ donation.recurring_frequency|e }}" data-fund="{{ (donation.fund_designation or '')|e }}"
+                                    onclick="showUpdateDonationModal(this.dataset.donationId, Number(this.dataset.amount), this.dataset.frequency, this.dataset.fund)"
                                     class="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors duration-200">
                                 <i class="fa fa-edit mr-1"></i>
                                 {{ _("Update Amount") }}
                             </button>
                             <button type="button"
-                                    onclick="cancelRecurringDonation('{{ donation.name }}', {{ donation.amount }}, '{{ donation.recurring_frequency }}')"
+                                    data-donation-id="{{ donation.name|e }}" data-amount="{{ donation.amount|e }}" data-frequency="{{ donation.recurring_frequency|e }}"
+                                    onclick="cancelRecurringDonation(this.dataset.donationId, Number(this.dataset.amount), this.dataset.frequency)"
                                     class="inline-flex items-center px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors duration-200">
                                 <i class="fa fa-times mr-1"></i>
                                 {{ _("Cancel Recurring") }}
@@ -153,14 +155,14 @@
                     <tbody class="divide-y divide-gray-200">
                         {% for donation in recent_donations %}
                         <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm text-gray-900">{{ frappe.utils.formatdate(donation.donation_date) }}</td>
-                            <td class="px-4 py-3 text-sm font-medium text-gray-900">€{{ "%.2f"|format(donation.amount) }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-900">{{ frappe.utils.formatdate(donation.donation_date)|e }}</td>
+                            <td class="px-4 py-3 text-sm font-medium text-gray-900">€{{ "%.2f"|format(donation.amount)|e }}</td>
                             <td class="px-4 py-3 text-sm text-gray-600">
                                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs
                                     {% if donation.status == 'Recurring' %}bg-blue-100 text-blue-800
                                     {% elif donation.status == 'One-time' %}bg-green-100 text-green-800
                                     {% else %}bg-gray-100 text-gray-800{% endif %}">
-                                    {{ _(donation.status) }}
+                                    {{ _(donation.status)|e }}
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-sm">
@@ -170,7 +172,7 @@
                                     {% if donation.paid %}{{ _("Paid") }}{% else %}{{ _("Pending") }}{% endif %}
                                 </span>
                             </td>
-                            <td class="px-4 py-3 text-sm text-gray-600">{{ _(donation.mode_of_payment) }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600">{{ _(donation.mode_of_payment)|e }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -215,7 +217,7 @@
 
                 <form id="updateDonationForm" class="space-y-4">
                     <input type="hidden" id="updateDonationId" name="donation_id">
-                    <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token }}">
+                    <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token|e }}">
 
                     <div>
                         <label for="newAmount" class="block text-sm font-medium text-gray-700 mb-2">
@@ -287,7 +289,7 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+                'X-Frappe-CSRF-Token': {{ frappe.session.csrf_token|default('')|tojson }}
             },
             body: JSON.stringify({
                 donation_id: donationId,
@@ -335,7 +337,7 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+                'X-Frappe-CSRF-Token': {{ frappe.session.csrf_token|default('')|tojson }}
             },
             body: JSON.stringify({
                 donation_id: donationId

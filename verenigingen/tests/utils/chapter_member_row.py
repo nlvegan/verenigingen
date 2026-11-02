@@ -6,7 +6,7 @@
 
 Used by board-permission tests that drive a Chapter Member row through a REAL
 production writer (remove_member(permanent=False), disable_chapter_memberships_safe,
-ChapterMembershipManager.transfer_member_between_chapters) and then assert on the
+the staff move assign_member_to_chapter_with_cleanup) and then assert on the
 resulting (enabled, status) combination, to confirm the fixture setup actually
 produced the state the test claims it did.
 

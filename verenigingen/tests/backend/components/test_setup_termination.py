@@ -43,14 +43,12 @@ class TestSetupTerminationRoles(FrappeTestCase):
         after = frappe.db.count("Role")
         self.assertEqual(before, after, "Re-running role setup must not create duplicate roles")
 
-    def test_role_setup_swallows_db_errors(self):
-        """The function wraps its body in try/except and only prints on
-        failure (never raises). Force frappe.db.exists to blow up and assert
-        the function returns None instead of propagating."""
+    def test_role_setup_propagates_db_errors(self):
+        """#1662: the step no longer swallows its own failure (it used to print and return None,
+        so execute_after_install could not see it). A DB error must reach the caller."""
         with patch.object(frappe.db, "exists", side_effect=RuntimeError("boom")):
-            # Must not raise.
-            result = setup_mod.setup_termination_roles_and_permissions()
-        self.assertIsNone(result)
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                setup_mod.setup_termination_roles_and_permissions()
 
 
 class TestSetupTerminationSettings(FrappeTestCase):
@@ -163,16 +161,13 @@ class TestSetupTerminationSystemIntegration(FrappeTestCase):
         self.assertEqual(roles_before, frappe.db.count("Role"))
         self.assertEqual(workflows_before, frappe.db.count("Workflow"))
 
-    def test_integration_logs_and_swallows_errors(self):
-        """The orchestrator wraps everything in try/except and logs to the
-        Error Log instead of raising. Force the first step
-        (setup_termination_settings) to raise and assert the function still
-        returns None (does not propagate) and an error was logged."""
+    def test_integration_propagates_step_errors(self):
+        """#1662: the orchestrator no longer swallows a failing step (it used to log and return
+        None, hiding the failure from execute_after_install, whose runner now records it). A
+        failing first step (setup_termination_settings) must reach the caller."""
         with patch.object(setup_mod, "setup_termination_settings", side_effect=RuntimeError("kaboom")):
-            with patch.object(frappe, "log_error") as mock_log:
-                result = setup_mod.setup_termination_system_integration()
-        self.assertIsNone(result)
-        mock_log.assert_called_once()
+            with self.assertRaisesRegex(RuntimeError, "kaboom"):
+                setup_mod.setup_termination_system_integration()
 
 
 class TestSetupTerminationManualEndpoint(FrappeTestCase):

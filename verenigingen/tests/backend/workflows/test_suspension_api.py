@@ -23,7 +23,7 @@ from verenigingen.api.suspension_api import (
     bulk_suspend_members,
     can_suspend_member,
     get_suspension_preview,
-    get_suspension_status,
+    get_suspension_status_safe,
     suspend_member,
     unsuspend_member,
 )
@@ -183,7 +183,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_get_suspension_status_api_active_member(self):
         """Status API MUST accurately report active member status"""
-        result = get_suspension_status(self.test_member_1.name)
+        result = get_suspension_status_safe(self.test_member_1.name)
         
         # ASSERTION: Must return valid status structure
         self.assertIsNotNone(result)
@@ -214,7 +214,7 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.assertTrue(suspend_result.get("success"))
         
         # Check status
-        result = get_suspension_status(self.test_member_1.name)
+        result = get_suspension_status_safe(self.test_member_1.name)
         
         # ASSERTION: Must show suspended status (payload nested under "data")
         self.assertIsNotNone(result)

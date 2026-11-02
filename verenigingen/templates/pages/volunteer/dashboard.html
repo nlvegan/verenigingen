@@ -299,19 +299,19 @@
     {% if error_message %}
         <div class="alert alert-danger">
             <i class="fa fa-exclamation-triangle"></i>
-            {{ error_message }}
+            {{ error_message|e }}
         </div>
     {% else %}
         {% if data_warning %}
         <div class="alert alert-warning">
             <i class="fa fa-exclamation-triangle"></i>
-            {{ data_warning }}
+            {{ data_warning|e }}
         </div>
         {% endif %}
         <!-- Dashboard Header -->
         <div class="dashboard-header">
             <div class="header-content">
-                <h1>{{ _("Welcome back,") }} {{ volunteer_profile.volunteer_name }}!</h1>
+                <h1>{{ _("Welcome back,") }} {{ volunteer_profile.volunteer_name|e }}!</h1>
                 <p>{{ _("Your volunteer dashboard") }}</p>
             </div>
             <div class="header-actions">
@@ -334,19 +334,19 @@
                     </h2>
                     <div class="stats-grid">
                         <div class="stat-item">
-                            <h4>€{{ "{:,.2f}".format(expense_summary.total_submitted) }}</h4>
+                            <h4>€{{ "{:,.2f}".format(expense_summary.total_submitted)|e }}</h4>
                             <p>{{ _("Total Submitted (12 months)") }}</p>
                         </div>
                         <div class="stat-item">
-                            <h4>€{{ "{:,.2f}".format(expense_summary.total_approved) }}</h4>
+                            <h4>€{{ "{:,.2f}".format(expense_summary.total_approved)|e }}</h4>
                             <p>{{ _("Total Approved") }}</p>
                         </div>
                         <div class="stat-item">
-                            <h4>{{ expense_summary.pending_count }}</h4>
+                            <h4>{{ expense_summary.pending_count|e }}</h4>
                             <p>{{ _("Pending Approval") }}</p>
                         </div>
                         <div class="stat-item">
-                            <h4>{{ expense_summary.recent_count }}</h4>
+                            <h4>{{ expense_summary.recent_count|e }}</h4>
                             <p>{{ _("This Month") }}</p>
                         </div>
                     </div>
@@ -361,14 +361,14 @@
                     {% if recent_activities %}
                         {% for activity in recent_activities %}
                             <div class="activity-item">
-                                <div class="activity-icon {{ activity.type }}">
-                                    <i class="fa {{ activity.icon }}"></i>
+                                <div class="activity-icon {{ activity.type|e }}">
+                                    <i class="fa {{ activity.icon|e }}"></i>
                                 </div>
                                 <div class="activity-content">
-                                    <div class="activity-title">{{ activity.title }}</div>
-                                    <div class="activity-description">{{ activity.description }}</div>
+                                    <div class="activity-title">{{ activity.title|e }}</div>
+                                    <div class="activity-description">{{ activity.description|e }}</div>
                                     <div class="activity-meta">
-                                        {{ frappe.utils.formatdate(activity.date) }} • {{ _(activity.status) }}
+                                        {{ frappe.utils.formatdate(activity.date)|e }} • {{ _(activity.status)|e }}
                                     </div>
                                 </div>
                             </div>
@@ -395,11 +395,11 @@
                         {% if volunteer_profile %}
                         <div class="profile-field">
                             <label>{{ _("Email") }}</label>
-                            <span>{{ volunteer_profile.email or _("Not set") }}</span>
+                            <span>{{ (volunteer_profile.email or _("Not set"))|e }}</span>
                         </div>
                         <div class="profile-field">
                             <label>{{ _("Status") }}</label>
-                            <span>{{ _(volunteer_profile.status) if volunteer_profile.status else _("Unknown") }}</span>
+                            <span>{{ (_(volunteer_profile.status) if volunteer_profile.status else _("Unknown"))|e }}</span>
                         </div>
                         {% else %}
                         <div class="profile-field">
@@ -409,7 +409,7 @@
                         {% if volunteer_profile.member_info and volunteer_profile.member_info.member_id %}
                             <div class="profile-field">
                                 <label>{{ _("Member ID") }}</label>
-                                <span>{{ volunteer_profile.member_info.member_id }}</span>
+                                <span>{{ volunteer_profile.member_info.member_id|e }}</span>
                             </div>
                         {% endif %}
                     </div>
@@ -420,7 +420,7 @@
                         </label>
                         <div class="interests-tags">
                             {% for interest in volunteer_profile.interests %}
-                                <span class="interest-tag">{{ interest.interest_area }}</span>
+                                <span class="interest-tag">{{ interest.interest_area|e }}</span>
                             {% endfor %}
                         </div>
                     {% endif %}
@@ -437,8 +437,8 @@
                         {% for chapter in organizations.chapters %}
                             <div class="org-item">
                                 <div class="org-info">
-                                    <h4>{{ chapter.chapter_name }}</h4>
-                                    <p>{{ chapter.city }}</p>
+                                    <h4>{{ chapter.chapter_name|e }}</h4>
+                                    <p>{{ chapter.city|e }}</p>
                                 </div>
                                 <span class="org-type">{{ _("Chapter") }}</span>
                             </div>
@@ -449,8 +449,8 @@
                         {% for team in organizations.teams %}
                             <div class="org-item">
                                 <div class="org-info">
-                                    <h4>{{ team.team_name }}</h4>
-                                    <p>{{ team.role or _("Member") }}</p>
+                                    <h4>{{ team.team_name|e }}</h4>
+                                    <p>{{ (team.role or _("Member"))|e }}</p>
                                 </div>
                                 <span class="org-type team">{{ _("Team") }}</span>
                             </div>
@@ -475,10 +475,10 @@
                         {% for activity in upcoming_activities %}
                             <div class="activity-item">
                                 <div class="activity-content">
-                                    <div class="activity-title">{{ activity.title }}</div>
-                                    <div class="activity-description">{{ activity.description }}</div>
+                                    <div class="activity-title">{{ activity.title|e }}</div>
+                                    <div class="activity-description">{{ activity.description|e }}</div>
                                     <div class="activity-meta">
-                                        {{ frappe.utils.formatdate(activity.date) }}
+                                        {{ frappe.utils.formatdate(activity.date)|e }}
                                     </div>
                                 </div>
                             </div>

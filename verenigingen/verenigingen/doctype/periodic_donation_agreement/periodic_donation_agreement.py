@@ -11,6 +11,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 class PeriodicDonationAgreement(Document):
     def validate(self):
+        self.validate_activation_goes_through_workflow()
         self.calculate_end_date()
         self.calculate_payment_amount()
         self.validate_dates()
@@ -33,6 +34,30 @@ class PeriodicDonationAgreement(Document):
         self.update_donation_tracking()
         self.set_commitment_type()
         self.set_default_tax_year()
+
+    def validate_activation_goes_through_workflow(self):
+        """Refuse a web-request save that makes `status` Active without the workflow's Active state.
+
+        The form's 'Activate Agreement' button used to set status and save, skipping the
+        'Verify and Activate' transition and its verification condition (#1811). A real
+        transition (apply_workflow) sets workflow_state to Active in the same save, before
+        validate runs, so it passes; a plain status write leaves workflow_state behind.
+
+        Scoped to requests (desk form, REST, frappe.client) and to an active workflow. No
+        production code writes Active outside the workflow, but internal Python (scripts, jobs,
+        and ~50 existing tests that build Active agreements directly) is trusted code, not the
+        boundary this guards. Without an active workflow, status is the state machine.
+        """
+        if self.status != "Active" or not getattr(frappe.local, "request", None):
+            return
+        if not self.meta.get_workflow():
+            return
+        was_active = self._doc_before_save and self._doc_before_save.status == "Active"
+        if not was_active and self.get("workflow_state") != "Active":
+            frappe.throw(
+                _("An agreement can only be activated with the workflow action 'Verify and Activate'."),
+                frappe.ValidationError,
+            )
 
     def before_insert(self):
         # Generate agreement number if not set

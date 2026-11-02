@@ -210,6 +210,54 @@ def _has_limit_one(call):
     return False
 
 
+# #1513: calls that commit the open transaction, each read from the installed frappe
+# source and (sql_ddl, truncate, rename_table, change_column_type, add_unique,
+# auto_commit) measured on a test site: a Note inserted and left uncommitted still
+# existed after db.rollback().
+#   sql_ddl             database.py: self.commit() then the DDL, unconditionally
+#   truncate            -> sql_ddl;  change_column_type, rename_column -> sql_ddl
+#   rename_table        plain self.sql("RENAME TABLE ..."); MariaDB DDL autocommits
+#                       server-side (frappe's own ImplicitCommitError list omits rename)
+#   add_index/add_unique  self.commit() before the ALTER, only when the index is missing
+#   updatedb            self.commit() after syncing the table, only for non-Single
+#                       doctypes
+# add_index/add_unique/updatedb are conditional; flagging them statically is the
+# deliberate over-approximation.
+# NOT matched, on purpose: a raw `db.sql("ALTER|CREATE|DROP|TRUNCATE ...")`. Frappe
+# raises ImplicitCommitError for those whenever writes are pending (measured), so it
+# cannot silently commit a row; a string-literal keyword match would also need
+# f-string/variable queries it cannot see. A raw RENAME is the known remaining gap.
+_COMMITTING_DB_CALLS = (
+    "db.commit",
+    "db.sql_ddl",
+    "db.truncate",
+    "db.rename_table",
+    "db.rename_column",
+    "db.change_column_type",
+    "db.add_index",
+    "db.add_unique",
+    "db.updatedb",
+)
+
+
+def _is_auto_commit_sql(chain, call):
+    """`frappe.db.sql(..., auto_commit=<x>)` commits before and after the query.
+
+    Any `auto_commit` keyword whose value is not a literal False/0/None is treated as
+    committing (`auto_commit=1`, `auto_commit=flag`): over-approximating is the safe
+    direction for a ratchet. KNOWN GAP: a `**kw` expansion and the positional 9th
+    argument are not inspected; neither occurs in this tree, and flagging every `**`
+    would false-positive on unrelated calls.
+    """
+    if not chain.endswith("db.sql"):
+        return False
+    return any(
+        kw.arg == "auto_commit"
+        and not (isinstance(kw.value, ast.Constant) and kw.value.value in (False, 0, None))
+        for kw in call.keywords
+    )
+
+
 class Finding:
     __slots__ = ("kind", "file", "line", "snippet")
 
@@ -253,7 +301,11 @@ class Visitor(ast.NodeVisitor):
         # commit is still emitted, just as the non-blocking COMMIT_EXEMPT kind, so a
         # rename into/out of that exemption is visible in the report/baseline diff
         # rather than a finding silently vanishing.
-        if chain.endswith("db.commit"):
+        # #1513: the same escape from the per-test rollback happens through Frappe
+        # methods that commit internally, so the chain match is a suffix SET
+        # (_COMMITTING_DB_CALLS) and `db.sql(..., auto_commit=True)`. A raw
+        # `db.sql("ALTER ...")` string is deliberately NOT matched; see that constant.
+        if chain.endswith(_COMMITTING_DB_CALLS) or _is_auto_commit_sql(chain, node):
             self._add("COMMIT_EXEMPT" if self._in_helper() else "COMMIT", node)
 
         # REUSE: unscoped get_all/get_list in a setUp picking an arbitrary record
