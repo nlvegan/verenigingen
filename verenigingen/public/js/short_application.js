@@ -137,8 +137,9 @@
 			Array.from(select.options).forEach((option) => {
 				option.disabled = abroad && (option.value === 'Papier' || option.value === 'Beide');
 			});
+			// Undo a choice that is no longer available; the applicant chooses again (#1968).
 			if (select.selectedOptions[0] && select.selectedOptions[0].disabled) {
-				select.value = 'Digitaal';
+				select.value = '';
 			}
 		});
 	}

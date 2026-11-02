@@ -82,9 +82,23 @@ describe('short application delivery questions', () => {
 				</select>
 			</form>`;
 		const form = document.getElementById('f');
-		// Abroad, a selected paper option is replaced by Digitaal. The placeholder must not be.
+		// Abroad, paper is not available: a paper choice is undone back to unanswered, never swapped for
+		// another option the applicant did not pick.
 		refreshDeliveryOptions(form);
 		expect(form.elements.magazine_delivery.value).toBe('');
-		expect(form.elements.starter_guide_delivery.value).toBe('Digitaal'); // control: paper is still undone
+		expect(form.elements.starter_guide_delivery.value).toBe('');
+		expect(form.elements.starter_guide_delivery.selectedOptions[0].disabled).toBe(false); // control
+	});
+
+	test('a Dutch address leaves unanswered questions unanswered', () => {
+		// refresh runs on load and on every change/input event, so it must never fill in a blank.
+		const form = render('', '');
+		const country = document.createElement('input');
+		country.name = 'country';
+		country.value = 'Netherlands';
+		form.appendChild(country);
+		refreshDeliveryOptions(form);
+		expect(form.elements.magazine_delivery.value).toBe('');
+		expect(form.elements.starter_guide_delivery.value).toBe('');
 	});
 });
