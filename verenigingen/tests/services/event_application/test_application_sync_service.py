@@ -286,6 +286,45 @@ class TestFindApplication(MijnRoodApplicationCase):
         self.assertIsNone(get_application_sync_service()._find_application({}, {}, {"email": self.email}))
 
 
+    def test_email_fallback_skips_decided_mijnrood_applications(self):
+        """Control: both decided states, each a real MijnRood row of the same email, are skipped."""
+        from verenigingen.services.member.application.application_record import record_external_application
+
+        payload = {"first_name": "Mijn", "last_name": "Rood", "email": self.email}
+        superseded = record_external_application("MijnRood", self.email, payload, f"MR-APP-{self._row + 1}")
+        rejected = record_external_application("MijnRood", self.email, payload, f"MR-APP-{self._row + 2}")
+        self.track_doc(SUBMISSION, superseded)
+        self.track_doc(SUBMISSION, rejected)
+        frappe.get_doc(SUBMISSION, rejected).set_status("Rejected")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, superseded, "status"), "Superseded")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, rejected, "status"), "Rejected")
+
+        self.assertIsNone(get_application_sync_service()._find_application({}, {}, {"email": self.email}))
+
+
+class TestStagingEntryPoints(MijnRoodApplicationCase):
+    def test_a_board_member_is_refused_at_every_real_entry_point_and_nothing_is_staged(self):
+        """Least-privileged caller. Staging runs as the system, so the gate is the entry point: a board
+        member (no read on MijnRood Sync Event, not admin) cannot apply a New application event."""
+        from frappe.handler import run_doc_method
+
+        from verenigingen.mijnrood_sync.services.event_application import dispatcher
+
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        event = self._sync_event("New", "admin_membership_application", self._application_row())
+        calls = (
+            lambda: run_doc_method(method="apply_event", dt="MijnRood Sync Event", dn=event),
+            lambda: run_doc_method(method="approve_and_apply", dt="MijnRood Sync Event", dn=event),
+            lambda: dispatcher.batch_apply([event]),
+            lambda: dispatcher.batch_approve_and_apply([event]),
+        )
+        for call in calls:
+            with self.as_user(board.user), self.assertRaises(frappe.PermissionError):
+                call()
+
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), 0)
+
+
 class TestPromotion(MijnRoodApplicationCase):
     def test_approved_event_approves_through_the_approval_core(self):
         application, name = self._stage()
@@ -310,7 +349,7 @@ class TestPromotion(MijnRoodApplicationCase):
         self.assertEqual(str(member.member_id), str(new_id))
         self.assertEqual(member.iban.replace(" ", ""), "NL91ABNA0417164300")
 
-    def test_promotion_builds_membership_dues_chapter_and_no_invoice(self):
+    def test_promotion_builds_membership_dues_chapter_and_first_invoice(self):
         application, name = self._stage()
         self.assertTrue(self._apply_sync_event(self._approved_event(application))["success"])
 
@@ -331,7 +370,8 @@ class TestPromotion(MijnRoodApplicationCase):
             as_dict=True,
         )
         self.assertEqual([(r.status, r.enabled) for r in chapter_rows], [("Active", 1)])
-        self.assertEqual(frappe.db.count("Sales Invoice", {"customer": member.customer, "docstatus": 1}), 0)
+        # maintainer ruling (#1855, 2026-11-02): approval creates the first invoice, as a web-form approval does
+        self.assertEqual(frappe.db.count("Sales Invoice", {"customer": member.customer, "docstatus": 1}), 1)
         self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), 1)
 
     def test_approved_locally_first_then_event_only_syncs(self):

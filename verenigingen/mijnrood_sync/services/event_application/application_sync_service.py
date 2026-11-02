@@ -242,10 +242,10 @@ class MijnRoodApplicationSyncService:
         - try_promote_application (apply-time cross-run safety net)
 
         The approval is ``approve_application``, the one every approval goes through, so the
-        membership, dues schedule, chapter activation, user account and approval mail are the core's,
-        and the approver is the staff member applying this sync event (their chapter scope applies).
-        No invoice is created: MijnRood bills its own members, and the dues schedule it carries is
-        built from the contribution MijnRood reports. Then the member row's data (the new
+        membership, dues schedule, first invoice, chapter activation, user account and approval mail
+        are the core's (maintainer ruling, #1855), and the approver is the staff member applying this
+        sync event (their chapter scope applies). The dues schedule is built from the contribution
+        MijnRood reports. Then the member row's data (the new
         member_id, Mollie ids, address) is applied through MemberImportService, and the standard
         related records are synced as for any MijnRood member.
 
@@ -319,9 +319,7 @@ class MijnRoodApplicationSyncService:
             f"Approved via MijnRood (event {event.name}). "
             f"Application id {old_data.get('id')} → member_id {new_data.get('id')}."
         )
-        result = approve_application(
-            application_name, membership_type=membership_type, notes=notes, create_invoice=False
-        )
+        result = approve_application(application_name, membership_type=membership_type, notes=notes)
         if not result.get("success"):
             return {"failure": result.get("message") or _("Approval of {0} failed").format(application_name)}
         return {"member": result["member"]}
