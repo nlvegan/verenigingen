@@ -144,6 +144,7 @@ class TestMembershipScheduler(VereningingenTestCase):
                     "name": "membership_renewal_reminder",
                     "subject": "Renewal reminder",
                     "response": "<p>Please renew {{ days_to_expiry }}</p>",
+                    "response_html": "<p>Please renew {{ days_to_expiry }}</p>",
                     "use_html": 1,
                 }
             )

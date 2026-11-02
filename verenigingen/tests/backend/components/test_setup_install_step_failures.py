@@ -174,7 +174,7 @@ class TestInstallStepsSurfaceTheirFailures(FrappeTestCase):
         settings = frappe.get_single("Verenigingen Settings")
         for field in ("enable_termination_system", "appeal_deadline_days"):
             setattr(settings, field, 0)
-        with mock.patch.object(frappe.db, "get_singles_dict", return_value={"x": 1}):
+        with mock.patch.object(frappe.db, "get_singles_dict", return_value={"company": "x"}):
             with mock.patch(
                 "verenigingen.utils.settings_utils.get_verenigingen_settings", return_value=settings
             ):

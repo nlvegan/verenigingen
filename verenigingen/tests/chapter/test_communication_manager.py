@@ -73,6 +73,7 @@ class TestCommunicationManager(VereningingenTestCase):
                 "name": name,
                 "subject": subject,
                 "response": response,
+                "response_html": response,
                 "use_html": 1,
             }
         ).insert()

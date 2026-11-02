@@ -288,6 +288,7 @@ class TestNotifyMemberOfPaymentFailure(EnhancedTestCase):
                 "name": name,
                 "subject": "Payment failed",
                 "response": "<p>Your payment failed.</p>",
+                "response_html": "<p>Your payment failed.</p>",
                 "use_html": 1,
             }
         )
