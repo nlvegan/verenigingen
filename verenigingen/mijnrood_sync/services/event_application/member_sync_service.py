@@ -81,21 +81,21 @@ class MijnRoodMemberSyncService:
         existing_name, existing_result = self.find_existing_member_or_conflict(
             row_data.get("member_id"), row_data.get("email")
         )
+        # Check for application→member promotion: MijnRood deletes the application row and creates
+        # a new member row with a different ID. The application is a Membership Application
+        # Submission here (#1855), not a Member, so it never shows up as an existing member or a
+        # conflict: look for it whenever no member of this member_id exists. If a member of this
+        # email does exist, approving the application refuses it and the event fails loudly.
+        if row_data.get("email") and (existing_result is None or not existing_result.get("success")):
+            from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+                get_application_sync_service,
+            )
+
+            promotion_result = get_application_sync_service().try_promote_application(event, row_data)
+            if promotion_result:
+                return promotion_result
+
         if existing_result is not None:
-            # Check for application→member promotion: MijnRood deletes the
-            # application row and creates a new member row with a different ID.
-            # find_existing_member_or_conflict sees this as a conflict (email
-            # match, member_id mismatch). If the existing member is a pending
-            # application, this is actually a promotion, not a conflict.
-            if not existing_result.get("success") and row_data.get("email"):
-                from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
-                    get_application_sync_service,
-                )
-
-                promotion_result = get_application_sync_service().try_promote_application(event, row_data)
-                if promotion_result:
-                    return promotion_result
-
             if existing_name:
                 event.linked_member = existing_name
             return existing_result

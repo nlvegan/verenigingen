@@ -54,7 +54,7 @@
    "fieldname": "source",
    "fieldtype": "Select",
    "label": "Source",
-   "options": "Short Form\nFull Form",
+   "options": "Short Form\nFull Form\nMijnRood",
    "read_only": 1
   },
   {
@@ -138,7 +138,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-31 22:00:00.000000",
+ "modified": "2026-11-02 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Application Submission",

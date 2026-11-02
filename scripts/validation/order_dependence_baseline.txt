@@ -16,7 +16,7 @@ COMMIT e_boekhouden/doctype/e_boekhouden_migration/test_e_boekhouden_migration.p
 COMMIT e_boekhouden/services/tests/test_account_migration_service.py::3  # order-dependence
 COMMIT mijnrood_sync/doctype/mijnrood_sync_event/test_mijnrood_sync_event.py::1  # order-dependence
 COMMIT mijnrood_sync/services/event_application/test_dispatcher.py::7  # order-dependence
-COMMIT mijnrood_sync/services/event_application/test_sync_services.py::7  # order-dependence
+COMMIT mijnrood_sync/services/event_application/test_sync_services.py::6  # order-dependence
 COMMIT mijnrood_sync/test_field_mapping_and_utils.py::2  # order-dependence
 COMMIT mijnrood_sync/test_polling_service_coverage.py::2  # order-dependence
 COMMIT mijnrood_sync/test_tasks.py::1  # order-dependence
@@ -226,7 +226,7 @@ COMMIT tests/sepa/test_sepa_sequence_type_compliance.py::1  # order-dependence
 COMMIT tests/sepa/test_sepa_week3_features.py::1  # order-dependence
 COMMIT tests/sepa/test_sepa_week4_r5_parity.py::1  # order-dependence
 COMMIT tests/services/event_application/_fixtures.py::1  # order-dependence
-COMMIT tests/services/event_application/test_application_sync_service.py::8  # order-dependence
+COMMIT tests/services/event_application/test_application_sync_service.py::6  # order-dependence
 COMMIT tests/services/event_application/test_mapping_service.py::1  # order-dependence
 COMMIT tests/services/event_application/test_member_sync_service.py::2  # order-dependence
 COMMIT tests/services/event_application/test_related_records_orchestrator.py::6  # order-dependence
@@ -414,7 +414,6 @@ COMMIT_EXEMPT tests/sepa/test_sepa_mandate_retry_report_coverage.py::1  # order-
 COMMIT_EXEMPT tests/sepa/test_sepa_sequence_type_compliance.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_sepa_week4_r5_parity.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/_fixtures.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/services/event_application/test_application_sync_service.py::10  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_mapping_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_member_sync_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_related_records_orchestrator.py::9  # order-dep-exempt

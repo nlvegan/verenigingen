@@ -138,13 +138,45 @@ def supersede_older(email: str, keep: str) -> int:
     return superseded
 
 
-def _record_confirmation(submission, payload):
+def record_external_application(source: str, email: str, payload: dict, application_id: str) -> str:
+    """Insert an application another system already vouched for, straight into Pending Review (#1855).
+
+    The MijnRood sync is the one caller: its applicants confirmed their address upstream and a staff
+    member approves each sync event, so no confirmation mail goes out. Everything after the insert is the
+    confirm path's own (_record_confirmation, supersede_older), so such an application is reviewed,
+    approved and recorded exactly like a form's. Returns the application's name.
+    """
+    email = email.strip().lower()
+    submission = frappe.get_doc(
+        {"doctype": SUBMISSION, "email": email, "source": source, "payload": json.dumps(payload, default=str)}
+    )
+    submission.flags.ignore_permissions = True  # Security: system sync of an authenticated upstream row
+    submission.insert()
+    _record_confirmation(submission, payload, application_id=application_id)
+    supersede_older(email, keep=submission.name)
+    return submission.name
+
+
+def update_pending_application(submission, payload: dict) -> None:
+    """Replace the payload of a Pending Review application with a newer one from the same source,
+    refreshing what is derived from it (name, type, suggested chapter)."""
+    submission.db_set(
+        {
+            "payload": json.dumps(payload, default=str),
+            "applicant_name": _applicant_name(payload),
+            "membership_type": _chosen_membership_type(submission.source, payload),
+            "chapter": _suggested_chapter(submission, payload),
+        }
+    )
+
+
+def _record_confirmation(submission, payload, application_id=None):
     submission.db_set(
         {
             "applicant_name": _applicant_name(payload),
             "membership_type": _chosen_membership_type(submission.source, payload),
             "chapter": _suggested_chapter(submission, payload),
-            "application_id": generate_application_id(),
+            "application_id": application_id or generate_application_id(),
             "confirmed_on": now_datetime(),
         }
     )
