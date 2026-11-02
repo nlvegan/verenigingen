@@ -462,7 +462,7 @@ def add_notification_types(notification_types: str) -> dict:
     """
     import json
 
-    from verenigingen.notification_registry import get_notification_meta
+    from verenigingen.notification_registry import DEFAULT_COOLDOWN_MINUTES, get_notification_meta
 
     # Require write permission on Verenigingen Email Configuration
     if not frappe.has_permission("Verenigingen Email Configuration", "write"):
@@ -506,7 +506,9 @@ def add_notification_types(notification_types: str) -> dict:
                 "category": nt_data.get("category") or registry_meta.get("category") or "Admin",
                 "description": nt_data.get("description") or registry_meta.get("description") or "",
                 "priority": nt_data.get("priority") or registry_meta.get("priority") or "Medium",
-                "cooldown_minutes": nt_data.get("cooldown_minutes", 60),
+                "cooldown_minutes": nt_data.get(
+                    "cooldown_minutes", registry_meta.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
+                ),
                 "enabled": 1,
                 "recipient_policy": nt_data.get("recipient_policy")
                 or registry_meta.get("recipient_policy")

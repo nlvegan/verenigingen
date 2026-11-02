@@ -7,6 +7,7 @@ silently. This is the same row "Sync Registry" adds, minus the dialog.
 
 import frappe
 
+from verenigingen.notification_registry import DEFAULT_COOLDOWN_MINUTES
 from verenigingen.utils.constants import Roles
 
 
@@ -36,7 +37,7 @@ def _registry_row(key, meta):
         "description": meta["description"],
         "priority": meta["priority"],
         "recipient_policy": meta["recipient_policy"],
-        "cooldown_minutes": 60,
+        "cooldown_minutes": meta.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES),
         "enabled": 1,
     }
     if meta["recipient_policy"] == "Role-Based":
