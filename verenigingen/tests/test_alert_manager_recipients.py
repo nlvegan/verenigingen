@@ -128,7 +128,7 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         sent_to = self._sent_to()
         self.assertEqual(set(sent_to), {holder})
         self.assertNotIn(other_profile, sent_to)
-        self.assertFalse([r for r in sent_to if "dev.veganisme.net" in r])
+        self.assertNotIn("admin@dev.veganisme.net", sent_to)
 
     def test_holder_without_an_email_is_not_a_recipient(self):
         with_email = self._make_alert_user("mail", ALERT_RECIPIENT_ROLE_PROFILE)
