@@ -31,6 +31,9 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.security_decorators import development_only
 
+# Role Profile (defined in fixtures/role_profile.json) whose holders receive the alerts (#2000).
+ALERT_RECIPIENT_ROLE_PROFILE = "Verenigingen System Administrator"
+
 
 class AlertManager:
     """Central alert management system"""
@@ -93,9 +96,9 @@ class AlertManager:
                 frappe.log_error(f"Alert: {alert_type} - {message}", json.dumps(details or {}, indent=2))
 
             # Send email notification
-            recipients = frappe.get_system_settings("alert_recipients") or frappe.conf.get(
-                "alert_recipients", ["admin@dev.veganisme.net"]
-            )
+            recipients = self.get_alert_recipients()
+            if not recipients:
+                return alert_doc
 
             email_service = get_email_service()
             email_service.send_simple_email(
@@ -111,6 +114,41 @@ class AlertManager:
         except Exception as e:
             frappe.log_error(f"Failed to send alert: {str(e)}")
             return None
+
+    def get_alert_recipients(self):
+        """Emails of the enabled users holding the System Administrator role profile.
+
+        Maintainer ruling on #2000: monitoring alerts and the daily report go to the
+        users with the Verenigingen System Administrator role profile. Frappe v16 keeps
+        profiles in the ``role_profiles`` child table and clears the single
+        ``role_profile_name`` Link, so the child table is the source of truth.
+        When nobody matches there is deliberately NO literal fallback: the gap is
+        recorded in the Error Log and the caller skips the send.
+        """
+        profile = ALERT_RECIPIENT_ROLE_PROFILE
+        users = frappe.get_all(
+            "User Role Profile",
+            filters={"role_profile": profile, "parenttype": "User"},
+            pluck="parent",
+        )
+        emails = []
+        if users:
+            emails = frappe.get_all(
+                "User",
+                filters={"name": ["in", list(set(users))], "enabled": 1, "email": ["is", "set"]},
+                pluck="email",
+                order_by="email asc",
+            )
+
+        if not emails:
+            frappe.log_error(
+                title="Monitoring alert not sent: no recipients",
+                message=(
+                    f"No enabled user with an email address holds the role profile '{profile}', "
+                    "so monitoring alerts and the daily report have nobody to go to."
+                ),
+            )
+        return emails
 
     def format_alert_email(self, alert_type, severity, message, details):
         """Format alert email"""
@@ -138,7 +176,10 @@ class AlertManager:
             }
 
             # Send daily report
-            recipients = frappe.conf.get("alert_recipients", ["admin@dev.veganisme.net"])
+            recipients = self.get_alert_recipients()
+            if not recipients:
+                return
+
             email_service = get_email_service()
             email_service.send_simple_email(
                 recipients=recipients,
