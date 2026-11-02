@@ -4,14 +4,14 @@
 <div class="container mt-4" style="max-width: 560px;">
     <h2>{{ _("Pay Installment") }}</h2>
     {% if no_access %}
-        <div class="alert alert-danger">{{ message }}</div>
+        <div class="alert alert-danger">{{ message|e }}</div>
     {% elif not installment %}
         <div class="alert alert-info">{{ _("This payment plan has no payment due right now.") }}</div>
         <a href="/payment_plans" class="btn btn-secondary">{{ _("Back to payment plans") }}</a>
     {% else %}
         <p>
-            {{ _("Installment") }} #{{ installment.installment_number }} —
-            <strong>€{{ "%.2f"|format(installment.amount or 0) }}</strong>
+            {{ _("Installment") }} #{{ installment.installment_number|e }} —
+            <strong>€{{ "%.2f"|format(installment.amount or 0)|e }}</strong>
         </p>
         {% if not payment_methods %}
             <div class="alert alert-warning">{{ _("Online payment is not available right now. Please contact support.") }}</div>
@@ -21,9 +21,9 @@
                     <label>{{ _("Payment method") }}</label>
                     {% for m in payment_methods %}
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="method" value="{{ m.id }}"
-                               id="method-{{ m.id }}" {% if loop.first %}checked{% endif %}>
-                        <label class="form-check-label" for="method-{{ m.id }}">{{ m.label }}</label>
+                        <input class="form-check-input" type="radio" name="method" value="{{ m.id|e }}"
+                               id="method-{{ m.id|e }}" {% if loop.first %}checked{% endif %}>
+                        <label class="form-check-label" for="method-{{ m.id|e }}">{{ m.label|e }}</label>
                     </div>
                     {% endfor %}
                 </div>
@@ -42,7 +42,7 @@ document.getElementById('pay-form').addEventListener('submit', function (e) {
     var method = document.querySelector('input[name=method]:checked').value;
     frappe.call({
         method: 'verenigingen.api.payment_plan_management.initiate_installment_payment',
-        args: { plan: '{{ plan.name }}', installment_number: {{ installment.installment_number }}, method: method },
+        args: { plan: {{ plan.name|default('')|tojson }}, installment_number: {{ installment.installment_number|int }}, method: method },
         callback: function (r) {
             var data = (r.message && r.message.data) || r.message || {};
             if (data.redirect_url) {

@@ -232,16 +232,14 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         chapter_member = create_pending_chapter_membership(member, self.test_chapter)
         self.assertIsNotNone(chapter_member, "Pending chapter member should be created")
 
-        # Approve via the canonical API path (T4.1 retired
-        # Member.approve_application). The canonical path runs the full
-        # membership creation pipeline; no need to patch.
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-        )
-        approve_membership_application(
-            member_name=member.name,
-            membership_type=member.selected_membership_type,
-            chapter=None,
+        # Approve via the canonical approval core (T4.1 retired
+        # Member.approve_application; #1765 retired the member-keyed entry point,
+        # approve_application calls this core). It runs the full membership
+        # creation pipeline; no need to patch.
+        from verenigingen.api.membership_application_review import _approve_membership_application_locked
+
+        _approve_membership_application_locked(
+            member.name, member.selected_membership_type, None, None, True, False
         )
 
         # Verify member was approved

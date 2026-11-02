@@ -82,6 +82,12 @@ CORE_GRANTS = (
     ("Address", "Verenigingen Webhook User", ("read", "write", "create")),
     ("Address", "Verenigingen Chapter Board Member", ("read", "write", "export")),
     ("Customer", "Verenigingen Webhook User", ("read", "write", "create")),
+    # Item read for the Verenigingen Administrator profile (#1774); the row also carries `export`,
+    # the framework default add_permission gives every new row. Its only invoicing role is
+    # Accounts Manager, which can create a Sales Invoice but cannot read Item (stock Item read
+    # goes to Accounts USER), and ERPNext checks Item read against the session user, so the
+    # invoice created at approval failed for that approver.
+    ("Item", "Verenigingen Administrator", ("read",)),
     ("Contact", "Sales User", ("read", "write", "create", "report", "export", "share", "print", "email")),
     ("Contact", "Accounts User", ("read", "write", "create", "report", "export", "share", "print", "email")),
     ("Contact", "Purchase User", ("read", "write", "create", "report", "export", "share", "print", "email")),
@@ -160,7 +166,10 @@ CORE_GRANTS = (
             "email",
         ),
     ),
-    ("Bank Transaction", "Verenigingen Webhook User", ("read", "write", "create", "submit")),
+    # cancel (#1876): the webhook has no Administrator fallback any more, and
+    # _withdraw_bank_transaction cancels the Bank Transaction when a refund/chargeback Journal
+    # Entry fails to post. Without it that cleanup left a live phantom withdrawal.
+    ("Bank Transaction", "Verenigingen Webhook User", ("read", "write", "create", "submit", "cancel")),
     (
         "Journal Entry",
         "Accounts Manager",

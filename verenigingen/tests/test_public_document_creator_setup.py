@@ -32,6 +32,7 @@ from verenigingen.setup.public_document_creator_setup import (
     verify_public_document_creator_setup,
     verify_role_permissions,
 )
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 MANAGED_DOCTYPES = ["Donor", "Donation", "Member", "Address", "Contact"]
@@ -125,7 +126,7 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
             ):
                 frappe.delete_doc("Custom DocPerm", perm, force=True, ignore_permissions=True)
             if frappe.db.exists("Role", PUBLIC_CREATOR_ROLE):
-                frappe.delete_doc("Role", PUBLIC_CREATOR_ROLE, force=True, ignore_permissions=True)
+                delete_role_and_grants(PUBLIC_CREATOR_ROLE)
             frappe.clear_cache()
         except Exception:
             pass

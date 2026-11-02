@@ -24,7 +24,6 @@ Projects can be linked to teams/chapters either:
 """
 
 import re
-from functools import lru_cache
 
 import frappe
 from frappe import _
@@ -146,14 +145,23 @@ def validate_identifier(value, max_length=140, context="identifier"):
     return True
 
 
-@lru_cache(maxsize=128)
+_VOLUNTEER_LOOKUP_KEY = "verenigingen_volunteer_lookups"
+
+
 def get_volunteer_for_user(user):
     """
-    Get volunteer record for user with caching
+    Get volunteer record for user, memoised for the current request only
 
     This helper consolidates the repeated member→volunteer lookup pattern
-    used throughout the permission system, reducing database queries and
-    improving performance.
+    used throughout the permission system, reducing database queries within
+    one request.
+
+    This used to be a process-wide ``lru_cache`` keyed by user alone: no site in the
+    key, no expiry, and never cleared outside tests, so an unlinked user (or a Volunteer
+    created after a first miss) kept resolving to the old answer for the life of the
+    worker (#1902). ``frappe.local.cache`` is per request/job and per site and Frappe
+    resets it on every ``frappe.init``; same mechanism as the board-seat memo of #1873.
+    Writers of Member.user / Volunteer.member call ``invalidate_volunteer_lookup_memo``.
 
     Args:
         user: User email
@@ -162,8 +170,21 @@ def get_volunteer_for_user(user):
         tuple: (member_name, volunteer_name) or (None, None)
 
     Raises:
-        PermissionSystemError: If database error occurs
+        PermissionSystemError: If database error occurs (never memoised)
     """
+    memo = frappe.local.cache.setdefault(_VOLUNTEER_LOOKUP_KEY, {})
+    if user not in memo:
+        memo[user] = _query_volunteer_for_user(user)
+    return memo[user]
+
+
+def invalidate_volunteer_lookup_memo():
+    """Drop this request's member→volunteer lookups. Call wherever Member.user or a
+    Volunteer row is written or deleted."""
+    frappe.local.cache.pop(_VOLUNTEER_LOOKUP_KEY, None)
+
+
+def _query_volunteer_for_user(user):
     try:
         # Single optimized query with JOIN instead of 2 separate lookups
         result = frappe.db.sql(

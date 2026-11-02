@@ -19,28 +19,31 @@ API Documentation: https://developer.pay.nl/docs/exchanges
 """
 
 import json
-import re
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.transaction_errors import rollback_to_savepoint
+from verenigingen.utils.service_user import ServiceUserUnavailable
+from verenigingen.utils.transaction_errors import (
+    rollback_to_savepoint,
+    safe_savepoint_name as _safe_savepoint_name,
+)
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security import (
     INGCheckoutWebhookError,
     authenticate_webhook,
     compute_webhook_hash,
-    get_webhook_user,
     is_duplicate_webhook,
     log_webhook,
     verify_ing_checkout_webhook,
 )
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
+from verenigingen.verenigingen_payments.utils.webhook_ack import message_log_length, webhook_ack
 
 
 def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
@@ -58,7 +61,18 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
 
     # Authenticate: process_payment is @high_security_api(FINANCIAL) and would
     # reject the Guest webhook context. Runs AFTER signature verification.
-    authenticate_webhook()
+    try:
+        authenticate_webhook()
+    except ServiceUserUnavailable:
+        # No webhook user (#1876): refuse with a 5xx so Pay.nl redelivers, and return
+        # DIRECTLY, never raise. handle_payment's generic except calls log_webhook, and any
+        # Webhook Processing Log row (error included) makes the identical retry a 200
+        # "duplicate" that never finalizes. TODAY that row is NOT written for a Guest (the
+        # insert is permission-denied and swallowed, #1814), so this guard is dormant; it
+        # becomes load-bearing the moment Guest rows persist (the WSGI test lets them, so it
+        # is live there). The Error Log row was written already.
+        frappe.local.response["http_status_code"] = 500
+        return True
 
     status_code = (order_object.get("status") or {}).get("code")
     gateway_status = {100: "paid", -63: "failed", -90: "failed", -64: "expired"}.get(status_code, "pending")
@@ -89,19 +103,6 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
         # duplicate and never re-run). The finalizer already wrote an Error Log.
         frappe.local.response["http_status_code"] = 500
     return True
-
-
-def _safe_savepoint_name(prefix: str, identifier: Optional[str]) -> str:
-    """Build a SQL-safe savepoint identifier.
-
-    Frappe's ``frappe.db.savepoint()`` interpolates the name unquoted into
-    ``SAVEPOINT <name>``. Pay.nl IDs contain hyphens (e.g. ``EX-1234-5678``),
-    which MariaDB parses as an arithmetic expression -> "Syntax error in query"
-    and the webhook crashes before it ever processes. Replace every
-    non-alphanumeric character with an underscore so the savepoint is valid.
-    """
-    raw = f"{prefix}_{identifier or 'unknown'}"
-    return re.sub(r"[^0-9A-Za-z_]", "_", raw)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -138,6 +139,7 @@ def handle_payment():
     """
     # Initialize error handler for consistent logging and correlation IDs
     error_handler = WebhookErrorHandler("ing_checkout_payment")
+    messages_before = message_log_length()
     raw_payload = None
     event_id = None
 
@@ -161,7 +163,8 @@ def handle_payment():
         raw_payload = frappe.request.get_data()
         if not raw_payload:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Empty request body")
+            error_handler.handle_validation_error("Empty request body")
+            return webhook_ack(messages_before)
 
         # Verify webhook signature
         signature = frappe.request.headers.get("X-Pay-Signature") or frappe.request.headers.get("Signature")
@@ -170,7 +173,8 @@ def handle_payment():
         except INGCheckoutWebhookError as e:
             error_handler.log_error("Signature verification failed", e, {"details": e.details})
             frappe.local.response["http_status_code"] = 401
-            return error_handler.handle_validation_error("Signature verification failed")
+            error_handler.handle_validation_error("Signature verification failed")
+            return webhook_ack(messages_before)
 
         # Parse payload
         try:
@@ -179,7 +183,8 @@ def handle_payment():
             )
         except json.JSONDecodeError as e:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            return webhook_ack(messages_before)
 
         raw_payload_str = raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload)
 
@@ -189,11 +194,7 @@ def handle_payment():
         # Check for duplicate webhook (idempotency)
         if is_duplicate_webhook(event_id, raw_payload_str):
             error_handler.log_info(f"Duplicate webhook ignored: {event_id}")
-            return {
-                "status": "duplicate",
-                "message": "Webhook already processed",
-                "correlation_id": error_handler.correlation_id,
-            }
+            return webhook_ack(messages_before)
 
         # Validate payload structure
         if not payload.get("object"):
@@ -205,9 +206,8 @@ def handle_payment():
                 status="error",
                 error_details="Invalid webhook payload structure - missing 'object'",
             )
-            return error_handler.handle_validation_error(
-                "Invalid webhook payload structure - missing 'object'"
-            )
+            error_handler.handle_validation_error("Invalid webhook payload structure - missing 'object'")
+            return webhook_ack(messages_before)
 
         # Extract key fields
         order_id = payload.get("id")
@@ -228,9 +228,7 @@ def handle_payment():
         # block — the shared finalizer commits/rolls back and must not run inside
         # ING's savepoint.
         if _maybe_finalize_payment_plan(order_id, payload):
-            if frappe.local.response.get("http_status_code") == 500:
-                return {"status": "error", "message": "payment plan finalization failed"}
-            return {"status": "success", "order_id": order_id, "handled": "payment_plan"}
+            return webhook_ack(messages_before)
 
         # Process the payment with savepoint for atomicity
         savepoint_name = _safe_savepoint_name("ing_payment", order_id)
@@ -247,19 +245,17 @@ def handle_payment():
                 processing_result=json.dumps(result, default=str),
             )
 
-            return error_handler.create_success_response(
-                f"Payment webhook processed for order {order_id}",
-                {"order_id": order_id, "result": result},
-            )
+            error_handler.log_info(f"Payment webhook processed for order {order_id}", result)
+            return webhook_ack(messages_before)
 
         except Exception:
             rollback_to_savepoint(savepoint_name)
             raise
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Pay.nl to retry later
         frappe.local.response["http_status_code"] = 429
-        return {"status": "rate_limited", "message": str(e), "correlation_id": error_handler.correlation_id}
+        return webhook_ack(messages_before)
 
     except INGCheckoutWebhookError as e:
         error_handler.log_error(f"Webhook processing error: {e.message}", e, {"details": e.details})
@@ -273,7 +269,8 @@ def handle_payment():
                 error_details=str(e),
             )
         frappe.local.response["http_status_code"] = 400
-        return error_handler.handle_business_logic_error(str(e), e)
+        error_handler.handle_business_logic_error(str(e), e)
+        return webhook_ack(messages_before)
 
     except Exception as e:
         error_handler.log_error("Unexpected error processing payment webhook", e)
@@ -287,7 +284,8 @@ def handle_payment():
                 error_details=str(e),
             )
         frappe.local.response["http_status_code"] = 500
-        return error_handler.handle_system_error("Error processing payment webhook", e)
+        error_handler.handle_system_error("Error processing payment webhook", e)
+        return webhook_ack(messages_before)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -303,6 +301,7 @@ def handle_mandate():
     """
     # Initialize error handler for consistent logging and correlation IDs
     error_handler = WebhookErrorHandler("ing_checkout_mandate")
+    messages_before = message_log_length()
     raw_payload = None
     mandate_id = None
 
@@ -324,7 +323,8 @@ def handle_mandate():
         raw_payload = frappe.request.get_data()
         if not raw_payload:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Empty request body")
+            error_handler.handle_validation_error("Empty request body")
+            return webhook_ack(messages_before)
 
         # Verify webhook signature
         signature = frappe.request.headers.get("X-Pay-Signature") or frappe.request.headers.get("Signature")
@@ -333,7 +333,8 @@ def handle_mandate():
         except INGCheckoutWebhookError as e:
             error_handler.log_error("Signature verification failed", e, {"details": e.details})
             frappe.local.response["http_status_code"] = 401
-            return error_handler.handle_validation_error("Signature verification failed")
+            error_handler.handle_validation_error("Signature verification failed")
+            return webhook_ack(messages_before)
 
         # Parse payload
         try:
@@ -342,7 +343,8 @@ def handle_mandate():
             )
         except json.JSONDecodeError as e:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            return webhook_ack(messages_before)
 
         raw_payload_str = raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload)
 
@@ -354,11 +356,7 @@ def handle_mandate():
         # Check for duplicate webhook
         if is_duplicate_webhook(mandate_id, raw_payload_str):
             error_handler.log_info(f"Duplicate webhook ignored: {mandate_id}")
-            return {
-                "status": "duplicate",
-                "message": "Webhook already processed",
-                "correlation_id": error_handler.correlation_id,
-            }
+            return webhook_ack(messages_before)
 
         mandate_object = payload.get("object", {})
         status = mandate_object.get("status")
@@ -379,19 +377,17 @@ def handle_mandate():
                 processing_result=json.dumps(result, default=str),
             )
 
-            return error_handler.create_success_response(
-                f"Mandate webhook processed for {mandate_id}",
-                {"mandate_id": mandate_id, "result": result},
-            )
+            error_handler.log_info(f"Mandate webhook processed for {mandate_id}", result)
+            return webhook_ack(messages_before)
 
         except Exception:
             rollback_to_savepoint(savepoint_name)
             raise
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Pay.nl to retry later
         frappe.local.response["http_status_code"] = 429
-        return {"status": "rate_limited", "message": str(e), "correlation_id": error_handler.correlation_id}
+        return webhook_ack(messages_before)
 
     except Exception as e:
         error_handler.log_error("Unexpected error processing mandate webhook", e)
@@ -405,7 +401,8 @@ def handle_mandate():
                 error_details=str(e),
             )
         frappe.local.response["http_status_code"] = 500
-        return error_handler.handle_system_error("Error processing mandate webhook", e)
+        error_handler.handle_system_error("Error processing mandate webhook", e)
+        return webhook_ack(messages_before)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -419,6 +416,7 @@ def handle_direct_debit():
     """
     # Initialize error handler for consistent logging and correlation IDs
     error_handler = WebhookErrorHandler("ing_checkout_direct_debit")
+    messages_before = message_log_length()
     raw_payload = None
     reference_id = None
 
@@ -440,7 +438,8 @@ def handle_direct_debit():
         raw_payload = frappe.request.get_data()
         if not raw_payload:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Empty request body")
+            error_handler.handle_validation_error("Empty request body")
+            return webhook_ack(messages_before)
 
         # Verify webhook signature
         signature = frappe.request.headers.get("X-Pay-Signature") or frappe.request.headers.get("Signature")
@@ -449,7 +448,8 @@ def handle_direct_debit():
         except INGCheckoutWebhookError as e:
             error_handler.log_error("Signature verification failed", e, {"details": e.details})
             frappe.local.response["http_status_code"] = 401
-            return error_handler.handle_validation_error("Signature verification failed")
+            error_handler.handle_validation_error("Signature verification failed")
+            return webhook_ack(messages_before)
 
         # Parse payload
         try:
@@ -458,7 +458,8 @@ def handle_direct_debit():
             )
         except json.JSONDecodeError as e:
             frappe.local.response["http_status_code"] = 400
-            return error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            error_handler.handle_validation_error("Invalid JSON payload", {"error": str(e)})
+            return webhook_ack(messages_before)
 
         raw_payload_str = raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload)
 
@@ -470,11 +471,7 @@ def handle_direct_debit():
         # Check for duplicate webhook
         if is_duplicate_webhook(reference_id, raw_payload_str):
             error_handler.log_info(f"Duplicate webhook ignored: {reference_id}")
-            return {
-                "status": "duplicate",
-                "message": "Webhook already processed",
-                "correlation_id": error_handler.correlation_id,
-            }
+            return webhook_ack(messages_before)
 
         debit_object = payload.get("object", {})
         status = debit_object.get("status")
@@ -497,19 +494,17 @@ def handle_direct_debit():
                 processing_result=json.dumps(result, default=str),
             )
 
-            return error_handler.create_success_response(
-                f"Direct debit webhook processed for {reference_id}",
-                {"reference_id": reference_id, "result": result},
-            )
+            error_handler.log_info(f"Direct debit webhook processed for {reference_id}", result)
+            return webhook_ack(messages_before)
 
         except Exception:
             rollback_to_savepoint(savepoint_name)
             raise
 
-    except WebhookRateLimitExceeded as e:
+    except WebhookRateLimitExceeded:
         # Return 429 to signal Pay.nl to retry later
         frappe.local.response["http_status_code"] = 429
-        return {"status": "rate_limited", "message": str(e), "correlation_id": error_handler.correlation_id}
+        return webhook_ack(messages_before)
 
     except Exception as e:
         error_handler.log_error("Unexpected error processing direct debit webhook", e)
@@ -523,7 +518,8 @@ def handle_direct_debit():
                 error_details=str(e),
             )
         frappe.local.response["http_status_code"] = 500
-        return error_handler.handle_system_error("Error processing direct debit webhook", e)
+        error_handler.handle_system_error("Error processing direct debit webhook", e)
+        return webhook_ack(messages_before)
 
 
 def _process_payment_webhook(order_id: str, payload: dict) -> Dict[str, Any]:

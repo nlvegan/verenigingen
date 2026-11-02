@@ -250,4 +250,5 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
             result = self._handle_payment_for_reference(order_id, intent.name, status_code=100)
 
         self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
-        self.assertEqual(result.get("status"), "success")
+        # #1804: the anonymous body is only an ack.
+        self.assertEqual(result, {"status": "ok"})

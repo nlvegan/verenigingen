@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import flt, getdate, today
 
 from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+from verenigingen.templates.pages.chapter_dashboard import _callers_expense_claims
 
 
 def execute(filters=None):
@@ -58,7 +59,9 @@ def get_data(filters):
     # Get data from ERPNext Expense Claims
     erpnext_data = get_erpnext_expense_data(filters)
 
-    # Filter by user access permissions
+    # Filter by user access permissions. Scoping to the caller's own list is done at the read
+    # (get_erpnext_expense_data uses get_list, #1738); this chapter filter only narrows further
+    # for non-admins. Its default admin roles include Staff, so it is not the guarantee.
     user_chapters = get_user_accessible_chapters()
     filtered_data = []
 
@@ -141,9 +144,9 @@ def get_erpnext_expense_data(filters):
             else:
                 base_filters["posting_date"] = ["<=", filters.get("to_date")]
 
-    # Get ERPNext Expense Claims
-    expense_claims = frappe.get_all(
-        "Expense Claim",
+    # Get ERPNext Expense Claims the CALLER may list (get_all skipped
+    # get_expense_claim_permission_query, #1738); same helper as the dashboard (#1701)
+    expense_claims = _callers_expense_claims(
         filters=base_filters,
         fields=[
             "name",

@@ -1,22 +1,31 @@
 # -*- coding: utf-8 -*-
-"""#1731: submit_application is a Guest endpoint, and both chapter steps need rights a Guest lacks.
+"""#1731: the chapter suggestion runs for an anonymous applicant, and needs rights a Guest lacks.
 
-Determining the suggested chapter and saving the Pending Chapter Member row therefore run as the
-configured system user. That escalation is only safe if the chapter the anonymous caller named is one
-the application form could have offered, so the refusal cases are tested here as hard as the happy path.
-Every test drives the real submit_application as Guest; nothing is stubbed.
+Since #1765 the suggestion is made when the applicant CONFIRMS the emailed link (the application is a
+Membership Application Submission until approval) and is stored on the submission; no Chapter Member row
+is written. The suggestion still runs as the configured system user, which is only safe if the chapter the
+anonymous caller named is one the application form could have offered, so the refusal cases are tested
+here as hard as the happy path. Every test drives the real endpoints as Guest; nothing is stubbed.
 """
 
 import json
+import random
 
 import frappe
 from frappe.utils import add_days, today
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
+from verenigingen.api import short_application as sa
 from verenigingen.api.membership_application import submit_application
+from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
 from verenigingen.tests.backend.unit.api.test_membership_application_coverage import (
     _ensure_test_membership_type,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+SUBMISSION = "Membership Application Submission"
 
 
 class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
@@ -28,6 +37,7 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
         self.membership_type = _ensure_test_membership_type()
 
     def _apply_as_guest(self, **overrides):
+        """Submit and confirm as Guest; return (submission name, chapter suggested on it, messages)."""
         data = {
             "first_name": "Guest",
             "last_name": f"Applicant{frappe.generate_hash(length=6)}",
@@ -40,25 +50,26 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
             "selected_membership_type": self.membership_type,
         }
         data.update(overrides)
-        frappe.set_user("Guest")
+        self._previous_request = getattr(frappe.local, "request", None)
+        self.addCleanup(setattr, frappe.local, "request", self._previous_request)
         self.addCleanup(frappe.set_user, "Administrator")
-        before_messages = len(frappe.local.message_log)
+        frappe.set_user("Guest")
         result = submit_application(**data)
-        messages = [m for m in frappe.local.message_log[before_messages:]]
+        self.assertTrue(result["success"], msg=json.dumps(result, default=str))
+        name = frappe.get_all(SUBMISSION, {"email": data["email"].lower()}, pluck="name")[0]
+        self.track_doc(SUBMISSION, name)
+        token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, name)
+        frappe.local.request = Request(EnvironBuilder(method="POST").get_environ())
+        frappe.local.request_ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+        before_messages = len(frappe.local.message_log)
+        confirmed = sa.confirm_short_application(name, token)
+        messages = list(frappe.local.message_log[before_messages:])
         user_after = frappe.session.user
         frappe.set_user("Administrator")
         self.assertEqual(user_after, "Guest", "the system-user context must not leak past the endpoint")
-        self.assertTrue(result["success"], msg=json.dumps(result, default=str))
-        member = result["data"]["member_record"]
-        self.track_doc("Member", member)
-        return member, messages
-
-    def _pending_rows(self, member):
-        return frappe.get_all(
-            "Chapter Member",
-            filters={"member": member},
-            fields=["parent", "status", "enabled"],
-        )
+        self.assertTrue(confirmed["success"], msg=json.dumps(confirmed, default=str))
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        return name, frappe.db.get_value(SUBMISSION, name, "chapter"), messages
 
     def _setup_errors_since(self, start):
         return frappe.get_all(
@@ -76,54 +87,48 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
         kwargs.setdefault("published", 1)
         return self.create_test_chapter(**kwargs)
 
-    def test_selected_chapter_gets_a_pending_row_without_an_error(self):
+    def test_selected_chapter_is_suggested_without_an_error_or_a_roster_row(self):
         chapter = self._published_chapter()
+        rows_before = frappe.db.count("Chapter Member", {"parent": chapter.name})
         start = frappe.utils.now()
-        member, messages = self._apply_as_guest(selected_chapter=chapter.name)
+        _name, suggested, messages = self._apply_as_guest(selected_chapter=chapter.name)
 
-        rows = self._pending_rows(member)
-        self.assertEqual([(r.parent, r.status) for r in rows], [(chapter.name, "Pending")], msg=str(rows))
+        self.assertEqual(suggested, chapter.name)
+        self.assertEqual(frappe.db.count("Chapter Member", {"parent": chapter.name}), rows_before)
         self.assertFalse(self._setup_errors_since(start))
-        self.assertFalse(
-            [m for m in messages if "Failed to save chapter membership" in json.dumps(m)],
-            msg="a successful application must not carry the red chapter error",
-        )
+        self.assertEqual(messages, [], msg="a successful confirmation must not carry a chapter message")
 
     def test_postal_code_suggestion_works_for_a_guest(self):
         chapter = self._published_chapter(postal_codes="8301-8399")
-        member, _messages = self._apply_as_guest(postal_code="8345AB")
+        _name, suggested, _messages = self._apply_as_guest(postal_code="8345AB")
 
-        rows = self._pending_rows(member)
         self.assertEqual(
-            [(r.parent, r.status) for r in rows],
-            [(chapter.name, "Pending")],
-            msg="the suggestion step was refused for Guest, so no chapter was suggested",
+            suggested, chapter.name, "the suggestion step was refused for Guest, so no chapter was suggested"
         )
 
     def test_unpublished_chapter_is_refused_and_untouched(self):
         chapter = self._published_chapter(published=0)
         before = frappe.db.get_value("Chapter", chapter.name, "modified")
         start = frappe.utils.now()
-        member, _messages = self._apply_as_guest(selected_chapter=chapter.name)
+        _name, suggested, _messages = self._apply_as_guest(selected_chapter=chapter.name)
 
-        self.assertEqual(self._pending_rows(member), [])
+        self.assertIsNone(suggested)
         self.assertFalse(self._setup_errors_since(start), "the refused chapter still reached a chapter step")
         self.assertEqual(frappe.db.get_value("Chapter", chapter.name, "modified"), before)
 
     def test_inactive_published_chapter_is_refused(self):
         chapter = self._published_chapter(status="Inactive")
         start = frappe.utils.now()
-        member, _messages = self._apply_as_guest(selected_chapter=chapter.name)
-        self.assertEqual(self._pending_rows(member), [])
+        _name, suggested, _messages = self._apply_as_guest(selected_chapter=chapter.name)
+        self.assertIsNone(suggested)
         self.assertFalse(self._setup_errors_since(start), "the refused chapter still reached a chapter step")
 
     def test_unknown_chapter_name_is_refused(self):
-        """Without the guard create_pending_chapter_membership logs 'Chapter Not Found' for this name."""
         start = frappe.utils.now()
-        member, _messages = self._apply_as_guest(
+        _name, suggested, _messages = self._apply_as_guest(
             selected_chapter="No Such Chapter " + frappe.generate_hash(length=6)
         )
-        self.assertEqual(self._pending_rows(member), [])
+        self.assertIsNone(suggested)
         self.assertFalse(self._setup_errors_since(start), "the unknown name still reached a chapter step")
 
     def test_other_members_and_chapters_are_left_alone(self):
@@ -141,13 +146,14 @@ class TestSubmitApplicationChapterStepsAsGuest(EnhancedTestCase):
         )
         self.assertTrue(any(r.member == bystander.name for r in rows_before), "control needs a real row")
         other_before = frappe.db.get_value("Chapter", other_chapter.name, "modified")
+        chapter_before = frappe.db.get_value("Chapter", chapter.name, "modified")
 
-        member, _messages = self._apply_as_guest(selected_chapter=chapter.name)
+        _name, suggested, _messages = self._apply_as_guest(selected_chapter=chapter.name)
 
+        self.assertEqual(suggested, chapter.name)
         rows_after = frappe.get_all(
             "Chapter Member", filters={"parent": chapter.name}, fields=["member", "status", "enabled"]
         )
-        added = [r for r in rows_after if r not in rows_before]
-        self.assertEqual([(r.member, r.status) for r in added], [(member, "Pending")])
-        self.assertEqual([r for r in rows_before if r not in rows_after], [])
+        self.assertEqual(rows_after, rows_before, "confirming writes no roster row")
+        self.assertEqual(frappe.db.get_value("Chapter", chapter.name, "modified"), chapter_before)
         self.assertEqual(frappe.db.get_value("Chapter", other_chapter.name, "modified"), other_before)

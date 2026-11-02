@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, getdate
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -58,7 +59,7 @@ def get_data(filters=None):
         # AUDIT: Log configuration access for financial compliance
         frappe.logger().info(
             f"Mollie Balance Report: Configuration accessed by {frappe.session.user} "
-            f"from {frappe.local.request_ip or 'unknown IP'}"
+            f"from {get_client_ip_or_none() or 'unknown IP'}"
         )
 
         # Get password field (requires direct settings access)

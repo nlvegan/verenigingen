@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 # Import comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -38,7 +38,7 @@ class SpecializedPatternValidator:
         self.bench_path = self.app_path.parent.parent
         
         # Use comprehensive DocType loader (standardized)
-        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_unified_format()
         
         # Known field mappings from SEPA fixes

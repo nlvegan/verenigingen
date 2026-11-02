@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
+
 
 class MollieAuditLogger:
     """
@@ -379,7 +381,7 @@ class MollieAuditLogger:
                     "severity": severity,
                     "timestamp": now_datetime(),
                     "user": frappe.session.user if frappe.session else "System",
-                    "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                    "ip_address": get_client_ip_or_none(),
                 }
             )
 

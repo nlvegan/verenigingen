@@ -10,6 +10,7 @@ import frappe
 from frappe.model.document import Document
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
 
 class MollieAuditLog(Document):
@@ -103,8 +104,7 @@ class MollieAuditLog(Document):
             audit_log.timestamp = frappe.utils.now()
 
             # Get IP address if available
-            if frappe.local.request:
-                audit_log.ip_address = frappe.local.request.environ.get("REMOTE_ADDR")
+            audit_log.ip_address = get_client_ip_or_none()
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(

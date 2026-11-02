@@ -21,6 +21,8 @@ from frappe.utils import add_days, now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.invoice_payments import build_eur_membership_invoice
+from verenigingen.tests.utils.query_counter import count_queries
+from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.payment_history_validator import validate_and_repair_payment_history
 from verenigingen.utils.security.api_security_framework import (
@@ -359,15 +361,32 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
             validation_result = recovery_validation()
             self.assertTrue(validation_result["success"], "Validation should complete even with errors")
 
-    def test_performance_under_integrated_load(self):
-        """Test system performance under integrated load"""
+    def test_payment_history_queueing_is_query_free_under_integrated_load(self):
+        """Payment-history updates stay cheap under integrated load.
+
+        #1578: this used to assert a 10 s wall-clock bound, which measured
+        runner load (the same code took 4.4 s, 10.75 s and 6.92 s in CI). The
+        budget is now a QUERY count for the code under test,
+        ``add_invoice_to_payment_history``, which only queues the update.
+
+        Measured on develop: 0 queries per call. The batch processor drains
+        its queue inline once 30 s have passed since its last drain
+        (``_maybe_process_batches``), and that clock is process-global, so
+        without pinning it the first call in a fresh process costs 79 queries
+        and a call after other tests ran costs whatever they left queued.
+        The test pins the drain clock so the budget is deterministic; the
+        drain itself is not what is being budgeted here.
+        """
+        # Budget per member (5 calls): measured 0. A regression that adds even
+        # one query per call costs 5 and trips this; 3 leaves a little room for
+        # a one-off lookup without hiding a per-call regression.
+        QUERY_BUDGET_PER_MEMBER = 3
 
         @high_security_api(operation_type=OperationType.FINANCIAL)
         def performance_test_operation(member_name, operation_count):
             member = frappe.get_doc("Member", member_name)
             processed_invoices = []
-
-            start_time = time.time()
+            history_queries = []
 
             for i in range(operation_count):
                 # Create invoice
@@ -377,17 +396,33 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
                 processed_invoices.append(invoice.name)
 
                 # Add to payment history with race condition handling
-                member.add_invoice_to_payment_history(invoice.name)
-
-            processing_time = time.time() - start_time
+                with count_queries() as counter:
+                    member.add_invoice_to_payment_history(invoice.name)
+                history_queries.extend(counter.queries)
 
             return {
                 "member": member_name,
                 "operations": operation_count,
-                "processing_time": processing_time,
                 "invoices": processed_invoices,
-                "avg_time_per_operation": processing_time / operation_count,
+                "history_queries": history_queries,
             }
+
+        # Pin the process-global drain clocks (see docstring) for both queues,
+        # since the expense queue drains from the same call. Register the
+        # restore BEFORE applying the pin so a failure mid-way cannot leak it.
+        clocks = FinancialHistoryBatchProcessor._last_processed
+        saved = {k: clocks[k] for k in ("payments", "expenses") if k in clocks}
+
+        def restore_clock():
+            for k in ("payments", "expenses"):
+                if k in saved:
+                    clocks[k] = saved[k]
+                else:
+                    clocks.pop(k, None)
+
+        self.addCleanup(restore_clock)
+        for k in ("payments", "expenses"):
+            clocks[k] = now_datetime()
 
         # Performance test with integrated security
         with self.as_user(self.test_user.email):
@@ -402,18 +437,11 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
                 self.assertEqual(result["operations"], 5)
                 self.assertEqual(len(result["invoices"]), 5)
 
-                # Performance should be reasonable (less than 10 seconds for 5 operations)
-                self.assertLess(
-                    result["processing_time"],
-                    10.0,
-                    f"Performance test should complete within 10s: {result['processing_time']:.2f}s",
-                )
-
-                # Average time per operation should be reasonable
-                self.assertLess(
-                    result["avg_time_per_operation"],
-                    2.0,
-                    f"Average operation time should be reasonable: {result['avg_time_per_operation']:.2f}s",
+                self.assertLessEqual(
+                    len(result["history_queries"]),
+                    QUERY_BUDGET_PER_MEMBER,
+                    "add_invoice_to_payment_history issued too many queries for 5 calls: \n"
+                    + "\n\n".join(result["history_queries"]),
                 )
 
             # Run final validation to ensure consistency

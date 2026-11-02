@@ -1,5 +1,7 @@
 """Public pages of the short membership application: landing, door form, confirm page, routes."""
 
+import re
+
 import frappe
 from frappe.website.serve import get_response
 from werkzeug.test import EnvironBuilder
@@ -85,6 +87,18 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         self.assertNotIn('name="birth_year"', html)
         self.assertIn('name="first_name"', html)
 
+    def test_delivery_questions_start_unanswered(self):
+        # #1968: a preselected option was posted for an applicant who never chose it.
+        html = self._render_page_html(self._door().slug)
+        for question in ("magazine_delivery", "starter_guide_delivery"):
+            with self.subTest(question=question):
+                select = re.search(rf'<select[^>]*name="{question}"[^>]*>(.*?)</select>', html, re.S)
+                self.assertIsNotNone(select)  # control: the question is rendered
+                options = re.findall(r"<option[^>]*>", select.group(1))
+                self.assertRegex(options[0], r'value=""')
+                self.assertRegex(options[0], r"\bselected\b")
+                self.assertEqual([o for o in options if re.search(r"\bselected\b", o)], [options[0]])
+
     def test_route_rule_resolves_bevestig_before_door(self):
         rules = frappe.get_hooks("website_route_rules")
         routes = [r["from_route"] for r in rules]
@@ -93,7 +107,7 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         self.assertLess(routes.index("/word-lid/bevestig"), routes.index("/word-lid/<door>"))
 
     def test_confirm_page_get_renders_button_and_writes_nothing(self):
-        from verenigingen.api import short_application as sa
+        from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
         from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
         door = self._door()
@@ -107,7 +121,7 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
             }
         ).insert()
         self.track_doc(SUBMISSION, submission.name)
-        token = generate_guest_return_token(sa.CONFIRM_TOKEN_PURPOSE, submission.name)
+        token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, submission.name)
         response = self._page_get("word-lid/bevestig", submission=submission.name, token=token)
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)

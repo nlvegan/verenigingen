@@ -272,7 +272,7 @@ class TestMemberManager(VereningingenTestCase):
         # by remove_member(permanent=False) reaches enabled=0/status='Pending'
         # through REAL writers, no db.set_value/raw SQL needed at all).
         #
-        # approve_membership_application calls ChapterMembershipManager.
+        # approve_application calls ChapterMembershipManager.
         # assign_member_to_chapter -> MemberManager.add_member BEFORE flipping the
         # applicant's Member.status from Pending to Active (assign_member_to_
         # chapter runs at membership_application_review.py:700; the status flip
@@ -318,7 +318,7 @@ class TestMemberManager(VereningingenTestCase):
         self.assertFalse(row.enabled)
         self.assertEqual(row.status, "Pending")
 
-        # Real writer #3: the exact call approve_membership_application makes
+        # Real writer #3: the exact call approve_application makes
         # (via assign_member_to_chapter) BEFORE the applicant's Member.status is
         # flipped to Active. applicant.status is still "Pending" here.
         self.assertEqual(frappe.db.get_value("Member", applicant.name, "status"), "Pending")

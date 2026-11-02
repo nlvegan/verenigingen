@@ -16,7 +16,7 @@ COMMIT e_boekhouden/doctype/e_boekhouden_migration/test_e_boekhouden_migration.p
 COMMIT e_boekhouden/services/tests/test_account_migration_service.py::3  # order-dependence
 COMMIT mijnrood_sync/doctype/mijnrood_sync_event/test_mijnrood_sync_event.py::1  # order-dependence
 COMMIT mijnrood_sync/services/event_application/test_dispatcher.py::7  # order-dependence
-COMMIT mijnrood_sync/services/event_application/test_sync_services.py::7  # order-dependence
+COMMIT mijnrood_sync/services/event_application/test_sync_services.py::6  # order-dependence
 COMMIT mijnrood_sync/test_field_mapping_and_utils.py::2  # order-dependence
 COMMIT mijnrood_sync/test_polling_service_coverage.py::2  # order-dependence
 COMMIT mijnrood_sync/test_tasks.py::1  # order-dependence
@@ -75,13 +75,12 @@ COMMIT tests/backend/portal/test_portal_functions.py::1  # order-dependence
 COMMIT tests/backend/security/test_security_comprehensive.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_membership_application_coverage.py::2  # order-dependence
-COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::5  # order-dependence
+COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::3  # order-dependence
 COMMIT tests/backend/unit/api/test_payment_dashboard_api.py::2  # order-dependence
 COMMIT tests/backend/unit/api/test_suspension_api_extended.py::2  # order-dependence
 COMMIT tests/backend/unit/controllers/test_membership_controller.py::1  # order-dependence
 COMMIT tests/backend/unit/services/test_approval_notifications.py::1  # order-dependence
 COMMIT tests/backend/unit/services/test_chapter_management_service.py::3  # order-dependence
-COMMIT tests/backend/unit/utils/test_application_helpers_reapplication.py::2  # order-dependence
 COMMIT tests/backend/unit/utils/test_import_helpers.py::1  # order-dependence
 COMMIT tests/backend/unit/utils/test_truncating_cleanup_endpoints.py::1  # order-dependence
 COMMIT tests/backend/validation/test_approval_helpers.py::1  # order-dependence
@@ -153,7 +152,7 @@ COMMIT tests/integration/services/test_invoice_generator_branches.py::15  # orde
 COMMIT tests/integration/test_api_authentication_decorators_integration.py::1  # order-dependence
 COMMIT tests/integration/test_authentication_flows.py::1  # order-dependence
 COMMIT tests/integration/test_canonical_approval_chapter_activation.py::2  # order-dependence
-COMMIT tests/integration/test_chapter_membership_approval_integration.py::3  # order-dependence
+COMMIT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dependence
 COMMIT tests/integration/test_employee_user_link_security.py::1  # order-dependence
 COMMIT tests/integration/test_membership_approval.py::2  # order-dependence
 COMMIT tests/integration/test_monitoring_system.py::3  # order-dependence
@@ -199,6 +198,7 @@ COMMIT tests/payment/test_sepa_mandate_management.py::2  # order-dependence
 COMMIT tests/payment/test_sepa_race_condition_manager.py::3  # order-dependence
 COMMIT tests/payment/test_sepa_reconciliation.py::3  # order-dependence
 COMMIT tests/payment/test_sepa_rollback_manager.py::5  # order-dependence
+COMMIT tests/payment/test_sepa_table_bootstrap.py::1  # order-dependence
 COMMIT tests/performance/test_performance_scenarios.py::1  # order-dependence
 COMMIT tests/repositories/test_dues_schedule_repository.py::3  # order-dependence
 COMMIT tests/resilience/test_error_recovery.py::2  # order-dependence
@@ -226,7 +226,7 @@ COMMIT tests/sepa/test_sepa_sequence_type_compliance.py::1  # order-dependence
 COMMIT tests/sepa/test_sepa_week3_features.py::1  # order-dependence
 COMMIT tests/sepa/test_sepa_week4_r5_parity.py::1  # order-dependence
 COMMIT tests/services/event_application/_fixtures.py::1  # order-dependence
-COMMIT tests/services/event_application/test_application_sync_service.py::8  # order-dependence
+COMMIT tests/services/event_application/test_application_sync_service.py::6  # order-dependence
 COMMIT tests/services/event_application/test_mapping_service.py::1  # order-dependence
 COMMIT tests/services/event_application/test_member_sync_service.py::2  # order-dependence
 COMMIT tests/services/event_application/test_related_records_orchestrator.py::6  # order-dependence
@@ -271,6 +271,7 @@ COMMIT tests/utils/test_history_manager_utils.py::2  # order-dependence
 COMMIT tests/utils/test_orphaned_child_table_cleanup.py::5  # order-dependence
 COMMIT tests/utils/test_setup.py::5  # order-dependence
 COMMIT tests/utils/test_utils.py::1  # order-dependence
+COMMIT tests/verenigingen_payments/test_bank_transaction_reference_backfill.py::2  # order-dependence
 COMMIT tests/volunteer/test_volunteer_skills_api.py::1  # order-dependence
 COMMIT tests/workflows/test_performance_comprehensive.py::3  # order-dependence
 COMMIT tests/www/test_eboekhouden_www_pages_coverage.py::4  # order-dependence
@@ -291,6 +292,7 @@ COMMIT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedu
 COMMIT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks_coverage.py::1  # order-dependence
 COMMIT verenigingen/doctype/membership_termination_request/test_membership_termination_request_coverage.py::4  # order-dependence
 COMMIT verenigingen/doctype/mijnrood_csv_import/test_mijnrood_csv_import_pipeline.py::1  # order-dependence
+COMMIT verenigingen/doctype/performance_optimization_setup/test_performance_optimization_setup.py::1  # order-dependence
 COMMIT verenigingen/doctype/vip_import/test_vip_import.py::21  # order-dependence
 COMMIT verenigingen_payments/doctype/sepa_mandate/test_sepa_mandate.py::1  # order-dependence
 COMMIT verenigingen_payments/ing_checkout/tests/fixtures/ing_checkout_test_helper.py::1  # order-dependence
@@ -392,6 +394,7 @@ COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_payment_request_paid_after_pe.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_ponto_submitted_documents.py::5  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_recurring_donation_charge.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_sepa_rollback_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/repositories/test_dues_schedule_repository.py::3  # order-dep-exempt
@@ -411,7 +414,6 @@ COMMIT_EXEMPT tests/sepa/test_sepa_mandate_retry_report_coverage.py::1  # order-
 COMMIT_EXEMPT tests/sepa/test_sepa_sequence_type_compliance.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_sepa_week4_r5_parity.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/_fixtures.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/services/event_application/test_application_sync_service.py::10  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_mapping_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_member_sync_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/event_application/test_related_records_orchestrator.py::9  # order-dep-exempt
@@ -434,6 +436,8 @@ COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/stock_email_templates.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/test_drain_role_grants.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::1  # order-dep-exempt
@@ -449,7 +453,6 @@ COMMIT_EXEMPT verenigingen_payments/tests/utils_shared/test_db_helpers.py::1  # 
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::1  # order-dependence
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings_remote.py::1  # order-dependence
 REUSE services/csv_import/test_member_import_service.py::1  # order-dependence
-REUSE tests/backend/components/test_application_submission.py::1  # order-dependence
 REUSE tests/backend/components/test_termination_display.py::1  # order-dependence
 REUSE tests/backend/comprehensive/test_financial_integration_edge_cases.py::1  # order-dependence
 REUSE tests/backend/comprehensive/test_termination_workflow_edge_cases.py::1  # order-dependence
@@ -462,10 +465,10 @@ REUSE tests/backend/security/test_security_core.py::2  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_mt940_and_emails.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::2  # order-dependence
+REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_validation_endpoint_wrappers.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::4  # order-dependence
+REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_fee_query_consolidation.py::5  # order-dependence
 REUSE tests/backend/workflows/test_chapter_membership_workflow.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle.py::1  # order-dependence

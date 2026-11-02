@@ -5,7 +5,7 @@ Chapter Join Page Context Handler
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_linked_member_name
 from verenigingen.utils.secure_operations import (
     get_system_user_for_operation,
     secure_user_context,
@@ -36,7 +36,8 @@ def get_context(context):
         return context
 
     # Check if user is already a member of this chapter
-    member = get_current_user_member_name()
+    # Member.user link only, no email fallback (#1853)
+    member = get_current_user_linked_member_name()
     context.already_member = False
 
     if member:
@@ -60,7 +61,10 @@ def handle_join_chapter_request(context, chapter, member):
     """Handle the chapter join request"""
     try:
         if not member:
-            frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+            frappe.throw(
+                _("Your account is not linked to a member record, so you cannot join a chapter."),
+                frappe.DoesNotExistError,
+            )
 
         # Get form data
         website_url = frappe.form_dict.get("website_url", "").strip()

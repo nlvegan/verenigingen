@@ -352,6 +352,7 @@ class TestProcessorCanProcess(unittest.TestCase):
         # We need to patch frappe for processor initialization
         self.frappe_patcher = patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe")
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):
@@ -429,6 +430,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """Set up mock processors"""
         self.frappe_patcher = patch("verenigingen.e_boekhouden.utils.processors.payment_processor.frappe")
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
         self.mock_frappe.get_single.return_value = MagicMock(
             get=MagicMock(return_value=None)  # No gateway config

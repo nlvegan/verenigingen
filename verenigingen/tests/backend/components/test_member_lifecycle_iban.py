@@ -48,51 +48,6 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
         membership.insert()
         return membership
 
-    @unittest.skip("Application submission API requires complex setup - skip for now")
-    def test_member_application_with_iban(self):
-        """Test member application with IBAN validation"""
-        from verenigingen.api.membership_application import submit_application, approve_membership_application
-
-        # Create application with IBAN using the actual API
-        application_data = {
-            "first_name": "Test",
-            "last_name": "Application",
-            "email": "test.application.iban@example.com",
-            "membership_type": "Regular",
-            "payment_method": "SEPA Direct Debit",
-            "iban": "NL13TEST0123456789",
-            "bank_account_name": "Test Application",
-            "birth_date": "1990-01-01",
-            "address_line1": "Test Street 123",
-            "postal_code": "1234AB",
-            "city": "Amsterdam"
-        }
-
-        # Submit application via API
-        result = submit_application(**application_data)
-        self.assertTrue(result.get("success"), "Application submission should succeed")
-
-        member_name = result.get("member_name")
-        self.assertIsNotNone(member_name, "Should return member name")
-
-        # Get created member (in Pending status)
-        member = frappe.get_doc("Member", member_name)
-
-        # Approve the application
-        approve_result = approve_membership_application(member_name)
-        self.assertTrue(approve_result.get("success"), "Approval should succeed")
-
-        # Reload member to get updated data
-        member.reload()
-
-        # Check IBAN was transferred and formatted
-        self.assertIsNotNone(member.iban, "IBAN should be set")
-        self.assertEqual(member.bank_account_name, "Test Application")
-
-        # Check IBAN history exists (may be created during setup or changes)
-        if hasattr(member, 'iban_history') and member.iban_history:
-            self.assertGreaterEqual(len(member.iban_history), 1, "Should have IBAN history")
-
     def test_member_iban_change_lifecycle(self):
         """Test IBAN changes during member lifecycle"""
         # Create member

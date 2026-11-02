@@ -409,8 +409,9 @@ def generate_email_css_file(doc=None, method=None):
         danger_text = get_contrasting_text_color(brand_settings.error_color or "#f8d7da")
         info_text = get_contrasting_text_color(brand_settings.info_color or "#d1ecf1")
 
+        # No generation timestamp: this file is tracked in git, and a clock-dependent
+        # line made every Brand Settings save (and test run) show it as modified.
         email_css = f"""/* Email Brand CSS - Auto-generated from Brand Settings */
-/* Generated at: {frappe.utils.now()} */
 /* NOTE: Literal hex values - email clients don't support CSS variables */
 
 /* Email container and layout */

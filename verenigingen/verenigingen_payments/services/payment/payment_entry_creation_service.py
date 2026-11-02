@@ -21,13 +21,11 @@ service does NOT bypass those checks for anyone. The Mollie webhook meets that b
 running as the configured service user (webhook_security.py sets it after signature
 verification). Ponto does NOT - its executed-payment branch runs inline under an
 allow_guest request - so that path must arrange a permitted identity itself rather than
-assume one. Note also that get_service_user() falls back to Administrator when
-`Verenigingen Payments Settings.webhook_user` does not resolve -- including when it
-names a user that has been DELETED, since the enabled-flag lookup returns None for a
-missing user exactly as for a disabled one, so the setting can read as configured
-while every gateway silently runs as Administrator. setup_webhook_user now runs on
-after_migrate and converges, so a site should not sit in that state; verify with
-get_service_user() rather than by eyeballing the setting.
+assume one. Note also that get_service_user() has no Administrator fallback (#1876): when
+`Verenigingen Payments Settings.webhook_user` does not resolve (unset, disabled, or naming
+a DELETED user) the gateway webhooks refuse and ask the gateway to redeliver. The
+after_migrate hook ensure_webhook_user converges the setting; verify with
+get_service_user() rather than by eyeballing it.
 
 Does NOT handle:
 - Unallocated payment entries (this service is invoice-driven by construction)

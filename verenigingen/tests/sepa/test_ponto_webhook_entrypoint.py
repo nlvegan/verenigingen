@@ -87,8 +87,8 @@ class TestPontoWebhookEntryPoint(_WebhookEntryPointBase):
     def test_webhooks_disabled_returns_ignored(self):
         payload = PontoTestDataFactory.create_sync_succeeded_webhook(account_id="acct-1")
         result = self._call_entry_point(payload, enable_webhooks=False)
-        self.assertEqual(result["status"], "ignored")
-        self.assertEqual(result["reason"], "webhooks_disabled")
+        # #1804: the body does not announce the setting; it is an ack like any other.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_missing_signature_when_required_returns_401(self):
         payload = PontoTestDataFactory.create_sync_succeeded_webhook(account_id="acct-1")
@@ -109,13 +109,14 @@ class TestPontoWebhookEntryPoint(_WebhookEntryPointBase):
     def test_valid_unsigned_sync_event_dispatches(self):
         account_id = "550e8400-e29b-41d4-a716-446655440000"
         payload = PontoTestDataFactory.create_sync_succeeded_webhook(account_id=account_id)
-        with patch(f"{WEBHOOK_MODULE}.frappe.enqueue"):
+        with patch(f"{WEBHOOK_MODULE}.frappe.enqueue") as enqueue:
             with patch(
                 f"{WEBHOOK_MODULE}._update_account_sync_status", return_value=True
             ):
                 result = self._call_entry_point(payload, require_signature=False)
-        # Success response envelope carries the event_type + result
-        self.assertIn("result", result.get("data", result))
+        # #1804: the body is only an ack, so dispatch is proved by the handler's side effect.
+        self.assertEqual(result, {"status": "ok"})
+        enqueue.assert_called()
 
     def test_signature_present_and_verified_dispatches(self):
         account_id = "acct-verified"
@@ -433,21 +434,17 @@ class TestSafeSavepointName(FrappeTestCase):
     """The savepoint-name sanitizer must strip MariaDB-illegal characters."""
 
     def test_hyphenated_doc_name_sanitized(self):
-        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
-            _safe_savepoint_name,
-        )
+        from verenigingen.utils.transaction_errors import safe_savepoint_name
 
-        name = _safe_savepoint_name("payment_status", "PONTO-PAY-6206")
+        name = safe_savepoint_name("payment_status", "PONTO-PAY-6206")
         self.assertEqual(name, "payment_status_PONTO_PAY_6206")
         # Resulting identifier must be alphanumeric + underscore only
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
     def test_already_safe_name_unchanged_shape(self):
-        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
-            _safe_savepoint_name,
-        )
+        from verenigingen.utils.transaction_errors import safe_savepoint_name
 
-        name = _safe_savepoint_name("periodic_payment", "abc123")
+        name = safe_savepoint_name("periodic_payment", "abc123")
         self.assertEqual(name, "periodic_payment_abc123")
 
 

@@ -20,7 +20,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2 style="margin: 0; color: #0066cc;">{{ company_name|default('Verenigingen', true) }}</h2>
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|default('Verenigingen', true)|e }}</h2>
         </div>
 
         <div class="content">
@@ -64,19 +64,19 @@
             <p>If you have questions about this decision or would like to discuss alternative options, please contact the membership team.</p>
 
             <center>
-                <a href="{{ portal_link|default('#', true) }}" class="button">View Your Membership</a>
+                <a href="{{ portal_link|default('#', true)|e }}" class="button">View Your Membership</a>
             </center>
 
             <p>We're here to help and appreciate your understanding.</p>
 
             <p>Best regards,<br>
-            {{ company_name|default('Verenigingen', true) }} Membership Team</p>
+            {{ company_name|default('Verenigingen', true)|e }} Membership Team</p>
         </div>
 
         <div class="footer">
-            <p>This is an automated message from {{ company_name|default('Verenigingen', true) }}.<br>
+            <p>This is an automated message from {{ company_name|default('Verenigingen', true)|e }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
-            © {{ current_year }} {{ company_name|default('Verenigingen', true) }}. All rights reserved.</p>
+            © {{ current_year|e }} {{ company_name|default('Verenigingen', true)|e }}. All rights reserved.</p>
         </div>
     </div>
 </body>

@@ -21,7 +21,11 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+    safe_savepoint_name,
+)
 
 # Status code mapping from Pay.nl
 STATUS_MAP = {
@@ -91,7 +95,7 @@ class INGCheckoutTransaction(Document):
         from verenigingen.verenigingen_payments.ing_checkout.services import get_transaction_service
 
         service = get_transaction_service()
-        savepoint_name = f"payment_entry_{self.name}"
+        savepoint_name = safe_savepoint_name("payment_entry", self.name)
 
         try:
             frappe.db.savepoint(savepoint_name)

@@ -53,6 +53,7 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
             return_value={"available": True, "subscriptions_enabled": True, "test_mode": True},
         )
         self._mollie_config_patch.start()
+        self.addCleanup(self._mollie_config_patch.stop)
 
     def tearDown(self):
         self._mollie_config_patch.stop()

@@ -383,3 +383,126 @@ class TestTerminationUtils(EnhancedTestCase):
             ),
             "distinct members sharing a full_name must not be flagged as duplicates",
         )
+
+    # ==================================================================
+    # audit_termination_compliance: Quit member with no Executed request (#1777)
+    # ==================================================================
+    def _execute_termination_through_service(self, member):
+        """Terminate `member` through the real TerminationExecutionService."""
+        from unittest.mock import patch
+
+        from verenigingen.services.termination import TerminationExecutionService
+
+        req = self._make_termination_request(
+            member, status="Approved", approved_by=frappe.session.user, approval_date=frappe.utils.now()
+        )
+        req.submit()
+        # Same transaction patching as test_termination_execution_service: execute() commits.
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            TerminationExecutionService().execute(req)
+        return req
+
+    def _quit_integrity_error_logs(self, member_name):
+        return frappe.get_all(
+            "Error Log",
+            filters={
+                "method": "Quit Member Without Executed Termination",
+                "error": ["like", f"%{member_name}%"],
+            },
+            pluck="name",
+        )
+
+    def test_audit_flags_quit_member_without_executed_termination(self):
+        """A Quit member with no Executed request is reported; one terminated through
+        the real service is not.
+
+        The flagged state is built with a DIRECT status write: no flow that goes through
+        the termination service produces it (execute() sets Quit and the Executed request
+        together). The real producers are outside it: a hand edit of Member.status, and the
+        CSV import, which sets Quit for 'opgezegd' rows with `_skip_status_validation`.
+        """
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        terminated = self._make_member()
+        self._execute_termination_through_service(terminated)
+        self.assertEqual(frappe.db.get_value("Member", terminated.name, "status"), "Quit")
+
+        orphan = self._make_member()
+        frappe.db.set_value("Member", orphan.name, "status", "Quit")  # probe shortcut, see docstring
+
+        result = tu.audit_termination_compliance()
+
+        self.assertGreaterEqual(result["quit_without_termination"], 1)
+        self.assertTrue(any(orphan.name in i for i in result["data_integrity_issues"]))
+        self.assertFalse(any(terminated.name in i for i in result["data_integrity_issues"]))
+        self.assertTrue(self._quit_integrity_error_logs(orphan.name), "operator gets an Error Log row")
+        self.assertFalse(self._quit_integrity_error_logs(terminated.name))
+
+    def test_audit_quit_member_with_only_unexecuted_request_is_flagged(self):
+        """Control: a Quit member whose request is Approved (not Executed) still counts."""
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        member = self._make_member()
+        self._make_termination_request(member, status="Approved")
+        frappe.db.set_value("Member", member.name, "status", "Quit")  # probe shortcut
+        result = tu.audit_termination_compliance()
+        self.assertTrue(any(member.name in i for i in result["data_integrity_issues"]))
+
+    def test_audit_non_quit_member_without_termination_not_flagged(self):
+        """Control: only status Quit is in scope (Active/Inactive members have no request)."""
+        member = self._make_member()
+        result = tu.audit_termination_compliance()
+        self.assertFalse(any(member.name in i for i in result["data_integrity_issues"]))
+
+    def test_quit_only_finding_reaches_the_admin_alert(self):
+        """A run whose ONLY finding is a Quit member without a termination notifies admins.
+
+        Real spy on the notification boundary (wraps the real function, so the notification
+        still runs): `total_issues > 0` alone does not send, the notify condition must name
+        this finding. Needs a site with no orphaned/stale requests, else the other branch
+        notifies and this proves nothing -- asserted below.
+        """
+        from unittest.mock import patch  # Mock justified: spy on the notification boundary
+
+        from verenigingen.utils import notification_helpers
+
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        member = self._make_member()
+        frappe.db.set_value("Member", member.name, "status", "Quit")  # probe shortcut
+        with patch.object(
+            notification_helpers, "notify_administrators", wraps=notification_helpers.notify_administrators
+        ) as spy:
+            result = tu.audit_termination_compliance()
+        self.assertEqual(result["orphaned_records"], 0, "site must have no other trigger")
+        self.assertLessEqual(result["stale_requests"], 5, "site must have no other trigger")
+        spy.assert_called_once()
+        self.assertIn("Quit Without Executed Termination", spy.call_args.kwargs["message"])
+
+    def test_quit_check_failure_does_not_skip_other_findings(self):
+        """An exception inside the Quit check is logged and the audit still returns its results."""
+        from unittest.mock import patch  # Mock justified: force a DB failure inside the new check
+
+        self.expectErrorLog("Quit Member Integrity Check Error")
+        with patch.object(
+            tu, "get_quit_members_without_executed_termination", side_effect=RuntimeError("boom")
+        ):
+            result = tu.audit_termination_compliance()
+        self.assertNotIn("error", result)
+        self.assertIn("orphaned_records", result)
+
+    def test_quit_finding_error_log_is_capped(self):
+        """The Error Log message lists at most QUIT_FINDING_LIST_CAP names plus the total."""
+        from unittest.mock import patch  # Mock justified: avoid creating 50+ members
+
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        names = [f"FAKE-{i:04d}" for i in range(tu.QUIT_FINDING_LIST_CAP + 7)]
+        with patch.object(tu, "get_quit_members_without_executed_termination", return_value=names):
+            tu.audit_termination_compliance()
+        row = frappe.get_all(
+            "Error Log",
+            filters={"method": "Quit Member Without Executed Termination", "error": ["like", "%FAKE-0000%"]},
+            fields=["error"],
+            limit=1,
+            order_by="creation desc",
+        )[0]
+        self.assertIn(str(len(names)), row.error)
+        self.assertIn(names[tu.QUIT_FINDING_LIST_CAP - 1], row.error)
+        self.assertNotIn(names[tu.QUIT_FINDING_LIST_CAP], row.error)

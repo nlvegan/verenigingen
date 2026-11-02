@@ -368,7 +368,7 @@ class Member(
     # Member.approve_application removed in T4.1. It was a deprecated
     # whitelisted wrapper around MemberLifecycleService.approve_application
     # with no production callers. The canonical approval path lives at
-    # api.membership_application_review.approve_membership_application; it
+    # api.membership_application_review.approve_application; it
     # calls member.create_membership_on_approval() directly.
 
     def create_membership_on_approval(
@@ -402,7 +402,7 @@ class Member(
 
     # Member.reject_application removed in T4.1, same reasoning as
     # approve_application. The canonical rejection path is
-    # api.membership_application_review.reject_membership_application.
+    # api.membership_application_review.reject_application.
 
     def validate(self) -> None:
         """Validate document data with optional performance optimizations.
@@ -422,11 +422,20 @@ class Member(
         EXTRACTED: Moved to MemberEventEmissionService.emit_status_change_events()
         for service layer separation.
         """
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
         from verenigingen.services.member.lifecycle.member_event_emission_service import (
             get_member_event_emission_service,
         )
 
         get_member_event_emission_service().emit_status_change_events(self)
+
+    def after_delete(self):
+        """Drop the request's member->volunteer lookup memo (#1902)"""
+        from verenigingen.utils.project_permissions import invalidate_volunteer_lookup_memo
+
+        invalidate_volunteer_lookup_memo()  # #1902
 
     def on_change(self):
         """Runs after all on_update hooks complete (including doc_event hooks).

@@ -246,7 +246,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
 
         assign_member_to_chapter is ADDITIVE: a member may belong to multiple
         chapters at once. Removing the member from the previous chapter is the
-        responsibility of the separate transfer_member_between_chapters operation.
+        responsibility of the separate assign_member_to_chapter_with_cleanup operation.
         This test therefore verifies that assigning to Beta adds the Beta
         membership while leaving the Alpha membership intact.
         """

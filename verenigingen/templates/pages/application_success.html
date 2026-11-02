@@ -44,7 +44,7 @@
 
                 {% if payment_url %}
                 <div class="mt-4">
-                    <a href="{{ payment_url }}" class="btn btn-primary btn-lg">
+                    <a href="{{ payment_url|e }}" class="btn btn-primary btn-lg">
                         {{ _("Complete Payment") }}
                     </a>
                 </div>
@@ -52,7 +52,7 @@
 
                 <div class="mt-4">
                     <p class="text-muted">
-                        {{ _("Application ID") }}: <strong>{{ member_id }}</strong><br>
+                        {{ _("Application ID") }}: <strong>{{ member_id|e }}</strong><br>
                         {{ _("Please save this for your records.") }}
                     </p>
                 </div>

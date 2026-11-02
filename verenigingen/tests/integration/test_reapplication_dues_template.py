@@ -3,36 +3,30 @@
 #1730: a reapplying Member must be approved on the template and amount of the
 reapplication, not on the ones from the earlier application.
 
-Everything is driven through the REAL flow: submit_application (new member) ->
-reject_membership_application -> submit_application (same email, reapplication)
--> approve_membership_application. Nothing is seeded with db_set; the expected
+Everything is driven through the REAL flow: submit_application -> the emailed confirm link ->
+approve_application (a new Member), a real voluntary termination (Quit), then submit_application
+(same email) -> confirm -> approve_application again. Nothing is seeded with db_set; the expected
 template and rate are read from the fixtures the test creates.
-"""
 
-from unittest.mock import patch
+Since #1765 an application is its own record: a REJECTED application never leaves a Member behind, so
+the old "reject, then reapply" route to a reapplying Member (and the Pending Member updated before
+review) no longer exists. The Member a reapplication updates is a voluntarily-Quit one. Where the subject
+is the Member BEFORE approval (what the reapplication wrote onto it), materialise_member is called on the
+confirmed application, because approve_application would carry the member on to Active.
+"""
 
 import frappe
 from frappe.utils import add_days, add_months, flt, getdate, today
 from freezegun import freeze_time
 
-from verenigingen.api.membership_application import submit_application
-from verenigingen.api.membership_application_review import (
-    approve_membership_application,
-    reject_membership_application,
-)
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.services.member.application.application_materialiser import materialise_member
+from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 
 
-class TestReapplicationDuesTemplate(EnhancedTestCase):
+class TestReapplicationDuesTemplate(ApprovalCase):
     def setUp(self):
         super().setUp()
         run = frappe.generate_hash(length=6)
-        self.chapter = self.factory.ensure_test_chapter(
-            f"Test Chapter {run}", {"short_name": "TST", "country": "Netherlands"}
-        )
-        self.membership_type = self.factory.ensure_membership_type(
-            f"Reapp Type {run}", {"amount": 25.00, "billing_period": "Monthly"}
-        )
         self.default_template = frappe.get_doc(
             "Membership Dues Schedule", self.membership_type.dues_schedule_template
         )
@@ -40,7 +34,6 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         # Two templates of DIFFERENT frequency and rate for the same type.
         self.monthly_template = self._template(f"Reapp Monthly {run}", "Monthly", self.minimum + 11)
         self.annual_template = self._template(f"Reapp Annual {run}", "Annual", self.minimum + 123)
-        self._prepare_environment()
 
     def _template(self, name, frequency, rate):
         return self.ensure_dues_schedule_template(
@@ -55,124 +48,58 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
             },
         )
 
-    def _prepare_environment(self):
-        """Same approval prerequisites as tests/integration/test_membership_approval.py."""
-        if not frappe.db.exists("Item Group", "Memberships"):
-            frappe.get_doc(
-                {
-                    "doctype": "Item Group",
-                    "item_group_name": "Memberships",
-                    "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
-            ).insert()
-        self.membership_type.get_or_create_membership_item()
-        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
-
-        self.admin_user = self.create_test_user_with_roles(
-            email=f"reapp.admin.{frappe.generate_hash(length=6)}@example.com",
-            roles=["System Manager", "Verenigingen Administrator"],
-        )
-        grant_matching_role_profiles(self.admin_user.email, "Verenigingen Administrator")
-
     # -- real-flow helpers -------------------------------------------------
 
-    def _submit_application(self, email, template=None, amount=None):
-        payload = dict(
-            first_name="Reapp",
-            last_name=f"Applicant{frappe.generate_hash(length=6)}",
-            email=email,
-            birth_date=add_days(today(), -365 * 30),
-            address_line1="123 Test Street",
-            city="Amsterdam",
-            postal_code="1234AB",
-            country="Netherlands",
-            selected_membership_type=self.membership_type.name,
-            selected_chapter=self.chapter.name,
-        )
+    def _apply_for_membership(self, email, template=None, amount=None):
+        """Submit the full form as Guest and follow the emailed link; returns the application's name."""
+        overrides = {"email": email}
         if template:
-            payload["selected_dues_schedule"] = template.name
+            overrides["selected_dues_schedule"] = template.name
         if amount is not None:
-            payload["custom_contribution_fee"] = amount
-            payload["uses_custom_amount"] = 1
-        result = submit_application(**payload)
-        self.assertTrue(result["success"], f"submit_application failed: {result}")
-        return result["data"]["member_record"]
+            overrides["custom_contribution_fee"] = amount
+            overrides["uses_custom_amount"] = 1
+        return self._stage_and_confirm(**overrides)
 
-    def _reject(self, member_name):
-        with self.as_user(self.admin_user.email):
-            reject_membership_application(member_name, reason="first attempt rejected")
-        self.assertEqual(frappe.db.get_value("Member", member_name, "application_status"), "Rejected")
-
-    def _approve(self, member_name):
-        with self.as_user(self.admin_user.email):
-            # Mock justified: External Service - SMTP delivery, not business logic
-            with patch("frappe.sendmail"):
-                result = approve_membership_application(
-                    member_name=member_name,
-                    membership_type=self.membership_type.name,
-                    chapter=self.chapter.name,
-                    notes="reapplication test",
-                    create_invoice=False,
-                )
+    def _approve_for_schedule(self, application):
+        """approve_application as an administrator; returns the Member's non-template dues schedule row."""
+        result = self._approve_as(
+            application,
+            membership_type=self.membership_type.name,
+            chapter=self.chapter.name,
+            notes="reapplication test",
+        )
         self.assertTrue(result.get("success"), f"Approval failed: {result}")
         return frappe.db.get_value(
             "Membership Dues Schedule",
-            {"member": member_name, "is_template": 0},
+            {"member": result["member"], "is_template": 0},
             ["name", "template_reference", "billing_frequency", "dues_rate"],
             as_dict=True,
         )
 
-    def _reapply_and_approve(self, first, second):
-        """first/second are (template, amount) tuples; returns (member, schedule)."""
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, *first)
-        self._reject(member)
-        self.assertEqual(self._submit_application(email, *second), member, "reapplication must reuse the Member")
-        return member, self._approve(member)
+    def _member_of(self, application):
+        return frappe.db.get_value(SUBMISSION, application, "member")
+
+    def _approved_member(self, email, template=None, amount=None):
+        application = self._apply_for_membership(email, template, amount)
+        self._approve_for_schedule(application)
+        return self._member_of(application)
+
+    def _fresh_email(self):
+        return f"reapp-{frappe.generate_hash(length=8)}@example.com"
 
     # -- tests --------------------------------------------------------------
 
-    def test_reapplication_with_other_template_and_no_amount_uses_new_template(self):
-        """Monthly template + custom amount first, Annual template and NO amount on reapplication."""
-        old_amount = self.minimum + 7.5
-        member, schedule = self._reapply_and_approve(
-            (self.monthly_template, old_amount), (self.annual_template, None)
-        )
-        self.assertIsNotNone(schedule, "no dues schedule created on approval")
-        self.assertEqual(schedule.template_reference, self.annual_template.name)
-        self.assertEqual(schedule.billing_frequency, "Annual")
-        self.assertEqual(flt(schedule.dues_rate), flt(self.annual_template.dues_rate))
-        self.assertNotEqual(flt(schedule.dues_rate), flt(old_amount))
+    def test_a_second_application_before_review_uses_the_latest_choice(self):
+        """The applicant applies again while the first is still waiting: the older application is
+        superseded and approval uses the latest choice (Monthly + amount, then Annual and no amount)."""
+        email = self._fresh_email()
+        older = self._apply_for_membership(email, self.monthly_template, self.minimum + 7.5)
+        newer = self._apply_for_membership(email, self.annual_template, None)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded")
 
-    def test_reapplication_with_other_template_and_new_amount_uses_new_template_and_amount(self):
-        """Worst case: old Monthly template, new Annual template with a new amount."""
-        new_amount = self.minimum + 200.25
-        member, schedule = self._reapply_and_approve(
-            (self.monthly_template, self.minimum + 7.5), (self.annual_template, new_amount)
-        )
-        self.assertEqual(schedule.template_reference, self.annual_template.name)
-        self.assertEqual(schedule.billing_frequency, "Annual")
-        self.assertEqual(flt(schedule.dues_rate), flt(new_amount))
+        schedule = self._approve_for_schedule(newer)
 
-    def test_reapplication_without_template_or_amount_falls_back_to_type_default(self):
-        """A reapplication that picks nothing must not inherit the earlier template or fee."""
-        old_amount = self.minimum + 7.5
-        member, schedule = self._reapply_and_approve(
-            (self.monthly_template, old_amount), (None, None)
-        )
-        self.assertNotEqual(schedule.template_reference, self.monthly_template.name)
-        self.assertEqual(schedule.template_reference, self.default_template.name)
-        self.assertNotEqual(flt(schedule.dues_rate), flt(old_amount))
-        self.assertEqual(frappe.db.get_value("Member", member, "application_dues_schedule"), None)
-        self.assertFalse(frappe.db.get_value("Member", member, "application_custom_fee"))
-
-    def test_pending_application_updated_before_review_uses_the_latest_choice(self):
-        """Scenario 2 (no rejection): the applicant resubmits while still Pending."""
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, self.monthly_template, self.minimum + 7.5)
-        self.assertEqual(self._submit_application(email, self.annual_template, None), member)
-        schedule = self._approve(member)
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
         self.assertEqual(schedule.template_reference, self.annual_template.name)
         self.assertEqual(schedule.billing_frequency, "Annual")
         self.assertEqual(flt(schedule.dues_rate), flt(self.annual_template.dues_rate))
@@ -180,22 +107,19 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
     def test_voluntary_quit_reapplication_records_the_new_template_on_the_member(self):
         """Narrow on purpose: only Member.application_dues_schedule, after a voluntary Quit.
 
-        Narrow on purpose: what approval then does with the reused schedule is pinned by the
-        test_quit_rejoiner_* tests below (#1737, #1741).
-        PROBE SHORTCUT: the Membership's commitment_end_date is backdated so a genuine
-        past-dated termination can run; the termination and reapplication are real.
+        What approval then does with the reused schedule is pinned by the test_quit_rejoiner_* tests
+        below (#1737, #1741). materialise_member is called on the confirmed application because the
+        subject is what the reapplication wrote onto the Member BEFORE approval.
+        PROBE SHORTCUT: the Membership's commitment_end_date is backdated so a genuine past-dated
+        termination can run; the termination and reapplication are real.
         """
-        from verenigingen.tests.support.termination_request import execute_real_termination
+        email = self._fresh_email()
+        member = self._approved_member(email, self.monthly_template, None)
+        self._quit(member)
 
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, self.monthly_template, None)
-        self._approve(member)
-        plan = frappe.db.get_value("Member", member, "current_membership_plan")
-        frappe.db.set_value("Membership", plan, "commitment_end_date", add_days(today(), -60))
-        execute_real_termination(self, member, add_days(today(), -30))
-        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Quit")
+        application = self._apply_for_membership(email, self.annual_template, None)
+        materialise_member(frappe.get_doc(SUBMISSION, application))
 
-        self.assertEqual(self._submit_application(email, self.annual_template, None), member)
         self.assertEqual(
             frappe.db.get_value("Member", member, "application_dues_schedule"), self.annual_template.name
         )
@@ -203,7 +127,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
     # -- voluntary-Quit rejoiner (#1741, #1737) ----------------------------
 
     def _quit(self, member, termination_date=None):
-        """Approve ``member`` then run a REAL voluntary termination (status Executed).
+        """Run a REAL voluntary termination (status Executed) on an approved ``member``.
 
         PROBE SHORTCUT: only the Membership's commitment_end_date is backdated, so a
         genuine past-dated termination is allowed. The termination itself, and every
@@ -211,7 +135,6 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         """
         from verenigingen.tests.support.termination_request import execute_real_termination
 
-        self._approve(member)
         termination_date = termination_date or add_days(today(), -30)
         old_membership = frappe.db.get_value("Member", member, "current_membership_plan")
         frappe.db.set_value("Membership", old_membership, "commitment_end_date", add_days(termination_date, -30))
@@ -221,9 +144,9 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         return old_membership
 
     def _quit_and_rejoin(self, first, second):
-        """first/second are (template, amount); returns (member, old_schedule, old_membership)."""
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, *first)
+        """first/second are (template, amount); returns (member, old_schedule, old_membership, rejoin_application)."""
+        email = self._fresh_email()
+        member = self._approved_member(email, *first)
         old_membership = self._quit(member)
         old_schedule = frappe.db.get_value(
             "Membership Dues Schedule", {"member": member, "is_template": 0}, "name"
@@ -233,8 +156,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
             "Cancelled",
             "precondition: the real termination cancelled the schedule",
         )
-        self.assertEqual(self._submit_application(email, *second), member)
-        return member, old_schedule, old_membership
+        return member, old_schedule, old_membership, self._apply_for_membership(email, *second)
 
     def _schedules(self, member):
         return frappe.get_all(
@@ -242,11 +164,12 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         )
 
     def test_quit_rejoiner_reuses_and_reactivates_the_schedule_on_a_new_membership(self):
-        member, old_schedule, old_membership = self._quit_and_rejoin(
+        member, old_schedule, old_membership, rejoin = self._quit_and_rejoin(
             (self.monthly_template, None), (self.annual_template, None)
         )
-        self._approve(member)
+        self._approve_for_schedule(rejoin)
 
+        self.assertEqual(self._member_of(rejoin), member, "the rejoin updates the same Member")
         self.assertEqual(self._schedules(member), [old_schedule], "the earlier schedule is reused")
         schedule = frappe.get_doc("Membership Dues Schedule", old_schedule)
         self.assertEqual(schedule.status, "Active")
@@ -256,12 +179,25 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         self.assertEqual(schedule.membership, new_membership)
         self.assertEqual(frappe.db.get_value("Member", member, "status"), "Active")
 
+    def test_quit_rejoiner_with_other_template_and_no_amount_uses_the_new_template(self):
+        """Monthly template + custom amount first, Annual template and NO amount on the rejoin."""
+        old_amount = self.minimum + 7.5
+        _, old_schedule, _, rejoin = self._quit_and_rejoin(
+            (self.monthly_template, old_amount), (self.annual_template, None)
+        )
+        schedule = self._approve_for_schedule(rejoin)
+        self.assertEqual(schedule.name, old_schedule)
+        self.assertEqual(schedule.template_reference, self.annual_template.name)
+        self.assertEqual(schedule.billing_frequency, "Annual")
+        self.assertEqual(flt(schedule.dues_rate), flt(self.annual_template.dues_rate))
+        self.assertNotEqual(flt(schedule.dues_rate), flt(old_amount))
+
     def test_quit_rejoiner_is_approved_on_the_new_template_and_chosen_amount(self):
         chosen = self.minimum + 200.25
-        member, old_schedule, _ = self._quit_and_rejoin(
+        _, old_schedule, _, rejoin = self._quit_and_rejoin(
             (self.monthly_template, self.minimum + 7.5), (self.annual_template, chosen)
         )
-        schedule = self._approve(member)
+        schedule = self._approve_for_schedule(rejoin)
         self.assertEqual(schedule.name, old_schedule)
         self.assertEqual(schedule.template_reference, self.annual_template.name)
         self.assertEqual(schedule.billing_frequency, "Annual")
@@ -271,27 +207,31 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
     def test_quit_rejoiner_with_same_template_and_new_amount_gets_the_new_amount(self):
         """The template is unchanged, so only the amount can differ: the #1737 core case."""
         chosen = self.minimum + 33.5
-        member, _, _ = self._quit_and_rejoin(
+        _, _, _, rejoin = self._quit_and_rejoin(
             (self.monthly_template, self.minimum + 7.5), (self.monthly_template, chosen)
         )
-        self.assertEqual(flt(self._approve(member).dues_rate), flt(chosen))
+        self.assertEqual(flt(self._approve_for_schedule(rejoin).dues_rate), flt(chosen))
 
     def test_quit_rejoiner_picking_nothing_gets_the_type_default_template(self):
+        """A reapplication that picks nothing must not inherit the earlier template or fee."""
         old_amount = self.minimum + 7.5
-        member, _, _ = self._quit_and_rejoin((self.monthly_template, old_amount), (None, None))
-        schedule = self._approve(member)
+        member, _, _, rejoin = self._quit_and_rejoin((self.monthly_template, old_amount), (None, None))
+        schedule = self._approve_for_schedule(rejoin)
+        self.assertNotEqual(schedule.template_reference, self.monthly_template.name)
         self.assertEqual(schedule.template_reference, self.default_template.name)
         self.assertNotEqual(flt(schedule.dues_rate), flt(old_amount))
         self.assertEqual(flt(schedule.dues_rate), self._default_rate())
+        self.assertEqual(frappe.db.get_value("Member", member, "application_dues_schedule"), None)
+        self.assertFalse(frappe.db.get_value("Member", member, "application_custom_fee"))
 
     def test_quit_rejoiner_picking_nothing_is_not_pinned_to_the_earlier_templates_rate(self):
         """Member.dues_rate mirrors the earlier schedule (here the Monthly template's rate) but
         is no choice: the rejoiner who picks nothing gets the default template's own rate."""
-        member, _, _ = self._quit_and_rejoin((self.monthly_template, None), (None, None))
+        member, _, _, rejoin = self._quit_and_rejoin((self.monthly_template, None), (None, None))
         mirrored = flt(frappe.db.get_value("Member", member, "dues_rate"))
         self.assertEqual(mirrored, flt(self.monthly_template.dues_rate), "precondition: stale mirror")
         self.assertNotEqual(mirrored, self._default_rate(), "precondition: the two rates differ")
-        schedule = self._approve(member)
+        schedule = self._approve_for_schedule(rejoin)
         self.assertEqual(schedule.template_reference, self.default_template.name)
         self.assertEqual(flt(schedule.dues_rate), self._default_rate())
 
@@ -307,10 +247,9 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         The earlier membership, its invoice and the real termination happen 200 days in the
         past (freezegun); the reapplication and approval happen now.
         """
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
+        email = self._fresh_email()
         with freeze_time(add_days(today(), -200)):
-            member = self._submit_application(email, self.monthly_template, None)
-            self._approve(member)
+            member = self._approved_member(email, self.monthly_template, None)
             schedule_name = self._schedules(member)[0]
             first = frappe.get_doc("Membership Dues Schedule", schedule_name).generate_invoice()
         self.assertIsNotNone(first, "precondition: the first membership was invoiced")
@@ -323,8 +262,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
             1,
             "precondition: the earlier invoice survives the termination",
         )
-        self.assertEqual(self._submit_application(email, self.monthly_template, None), member)
-        self._approve(member)
+        self._approve_for_schedule(self._apply_for_membership(email, self.monthly_template, None))
 
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         rejoin_start = getdate(frappe.db.get_value("Member", member, "member_since"))
@@ -352,9 +290,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
             MembershipCreationService,
         )
 
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, self.monthly_template, None)
-        self._approve(member)
+        member = self._approved_member(self._fresh_email(), self.monthly_template, None)
         schedule_name = self._schedules(member)[0]
         get_dues_schedule_lifecycle_service().cancel_schedule(
             frappe.get_doc("Membership Dues Schedule", schedule_name), reason="admin cleanup"
@@ -378,13 +314,13 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         the real executor cannot run again) with a later execution_date, and
         _ensure_dues_schedule_exists is called directly (UNIT-LEVEL) because the gate would
         refuse this member before approval; the new Membership is built by the service's own
-        _create_new_membership rather than through approve_membership_application.
+        _create_new_membership rather than through approve_application.
         """
         from verenigingen.services.member.approval.membership_creation_service import (
             MembershipCreationService,
         )
 
-        member = self._submit_application(f"reapp-{frappe.generate_hash(length=8)}@example.com", None, None)
+        member = self._approved_member(self._fresh_email(), None, None)
         old_membership = self._quit(member)
         voluntary = frappe.get_all(
             "Membership Termination Request",
@@ -434,7 +370,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         )
         from verenigingen.utils.exceptions import InvalidStatusTransitionError
 
-        member = self._submit_application(f"reapp-{frappe.generate_hash(length=8)}@example.com", None, None)
+        member = self._approved_member(self._fresh_email(), None, None)
         self._quit(member)
         name = self._schedules(member)[0]
         schedule = frappe.get_doc("Membership Dues Schedule", name)
@@ -457,10 +393,7 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         )
 
         chosen = self.minimum + 77.5
-        member = self._submit_application(
-            f"reapp-{frappe.generate_hash(length=8)}@example.com", self.monthly_template, None
-        )
-        self._approve(member)
+        member = self._approved_member(self._fresh_email(), self.monthly_template, None)
         member_doc = frappe.get_doc("Member", member)
         membership = frappe.get_doc("Membership", member_doc.current_membership_plan)
         member_doc.application_dues_schedule = self.annual_template.name
@@ -471,10 +404,16 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         self.assertEqual(schedule.template_reference, self.annual_template.name)
         self.assertEqual(flt(schedule.dues_rate), flt(chosen))
 
-    def test_staff_override_on_a_pending_member_survives_a_resubmission(self):
-        """A fee override staff saved on the Pending Member is not the application's: keep it."""
-        email = f"reapp-{frappe.generate_hash(length=8)}@example.com"
-        member = self._submit_application(email, self.monthly_template, None)
+    def test_staff_override_on_the_member_survives_a_reapplication(self):
+        """A fee override staff saved on the Member is not the application's: keep it.
+
+        The Member is a voluntarily-Quit one (the only kind a reapplication updates since #1765).
+        materialise_member is called on the confirmed application because the subject is what the
+        reapplication writes onto the Member BEFORE approval.
+        """
+        email = self._fresh_email()
+        member = self._approved_member(email, self.monthly_template, None)
+        self._quit(member)
         staff_amount = self.minimum + 1
         with self.as_user(self.admin_user.email):
             doc = frappe.get_doc("Member", member)
@@ -484,7 +423,9 @@ class TestReapplicationDuesTemplate(EnhancedTestCase):
         stored = frappe.db.get_value("Member", member, ["dues_rate", "fee_override_reason"], as_dict=True)
         self.assertEqual(flt(stored.dues_rate), flt(staff_amount), "precondition: staff save persisted")
 
-        self.assertEqual(self._submit_application(email, self.annual_template, None), member)
+        application = self._apply_for_membership(email, self.annual_template, None)
+        materialise_member(frappe.get_doc(SUBMISSION, application))
+
         kept = frappe.db.get_value(
             "Member", member, ["dues_rate", "fee_override_reason", "application_dues_schedule"], as_dict=True
         )

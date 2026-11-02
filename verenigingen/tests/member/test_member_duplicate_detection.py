@@ -20,7 +20,6 @@ from verenigingen.services.member.validation.member_duplicate_detection_service 
     check_iban_duplicate,
     fuzzy_match_name_birthdate,
     check_address_duplicate,
-    check_duplicate_for_approval,
     _calculate_name_similarity,
 )
 
@@ -489,97 +488,6 @@ class TestComprehensiveDuplicateDetection(EnhancedTestCase):
 
         self.assertEqual(len(duplicates_high), 0)
         self.assertGreater(len(duplicates_low), 0)
-
-
-class TestAPISecurity(EnhancedTestCase):
-    """Test API endpoint security features"""
-
-    def setUp(self):
-        super().setUp()
-        clear_rate_limits()
-
-    def test_api_requires_valid_member_name(self):
-        """API should validate member name input"""
-        # Test user already has System Manager role from setUp()
-
-        # Test with invalid member name
-        result = check_duplicate_for_approval("NonExistentMember123")
-
-        # check_duplicate_for_approval is decorated with an API security
-        # decorator, which serializes the OperationResult into the nested-schema
-        # dict (success/error/meta) via to_dict(). Assert on dict keys.
-        self.assertFalse(result["success"])
-        self.assertIsNotNone(result["error"]["message"])
-        self.assertEqual(result.get("meta", {}).get("has_duplicates"), False)
-
-    def test_api_success_categorizes_duplicates(self):
-        """The success path returns duplicates bucketed by confidence level.
-
-        A shared email is a 1.0 (high-confidence) match, so checking the second
-        member must report has_duplicates True with the email match landing in
-        the high_confidence bucket and the summary counts agreeing.
-        """
-        import uuid
-
-        shared_email = f"dup.api.{uuid.uuid4().hex[:8]}@example.com"
-        member1 = self.create_test_member(
-            first_name="Api", last_name="DupOne", email=shared_email, birth_date="1985-05-05"
-        )
-        # Second member shares the email (definitive 1.0 match against member1).
-        member2 = self.create_test_member(
-            first_name="Api", last_name="DupTwo", email=shared_email, birth_date="1985-05-05"
-        )
-
-        # Force the shared email post-creation so the factory's uniquifier cannot
-        # split the two members apart (see set_shared_email).
-        set_shared_email(member1.name, shared_email)
-        set_shared_email(member2.name, shared_email)
-
-        result = check_duplicate_for_approval(member1.name)
-
-        # Decorator serializes the OperationResult; the success payload is under data.
-        self.assertTrue(result["success"], result)
-        data = result["data"]
-        self.assertTrue(data["has_duplicates"])
-        self.assertGreaterEqual(data["duplicate_count"], 1)
-        # The email match (1.0) is high-confidence.
-        self.assertGreaterEqual(data["summary"]["high"], 1)
-        # Summary counts are internally consistent with the bucket lengths.
-        self.assertEqual(data["summary"]["high"], len(data["high_confidence"]))
-        self.assertEqual(data["summary"]["medium"], len(data["medium_confidence"]))
-        self.assertEqual(data["summary"]["low"], len(data["low_confidence"]))
-
-    def test_api_permission_check(self):
-        """API should check user permissions"""
-        # Create the member as the default (System Manager) test user from setUp().
-        member = self.create_test_member(
-            first_name="Test",
-            last_name="User",
-            birth_date="1990-01-01"
-        )
-
-        # As an unauthenticated guest the API must refuse with a permission error
-        # (raised by the API security framework). as_user() restores the original
-        # session user automatically on exit, so we don't leave Guest context
-        # leaking into later tests.
-        from verenigingen.utils.error_handling import PermissionError as VPermissionError
-        with self.as_user("Guest"):
-            with self.assertRaises((frappe.PermissionError, VPermissionError)):
-                check_duplicate_for_approval(member.name)
-
-    def test_api_sanitizes_error_messages(self):
-        """API should not expose internal error details"""
-        # Test user already has System Manager role from setUp()
-
-        # Test with invalid member name
-        result = check_duplicate_for_approval("InvalidName123")
-
-        # Decorator serializes OperationResult into the nested-schema dict.
-        self.assertFalse(result["success"])
-        # Error should be user-friendly, not exposing internals
-        error_message = result["error"]["message"] or ""
-        self.assertNotIn("Traceback", error_message)
-        self.assertNotIn("Exception", error_message)
 
 
 class TestEdgeCases(EnhancedTestCase):

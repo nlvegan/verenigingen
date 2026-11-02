@@ -680,9 +680,9 @@ def update_termination_status_display(doc, method=None):
     # read as retained by membership_analytics.py -- and separately erased
     # apply_suggestion's own write in the same save that made it. The real
     # rejoin/approval flow is what sets status to "Active"
-    # (services/member/approval/application_helpers.py::
-    # update_member_from_reapplication -> api/membership_application_review.py::
-    # approve_membership_application), so require that as the positive
+    # (services/member/application/application_materialiser.py::
+    # materialise_member -> api/membership_application_review.py::
+    # approve_application), so require that as the positive
     # signal, mirroring #1548's own supersession reasoning one level up.
     # Member.status options: Pending, Active, Rejected, Expired, Suspended,
     # Banned, Deceased, Quit -- only "Active" is a currently-held membership.
@@ -742,7 +742,7 @@ def update_termination_status_display(doc, method=None):
         #
         # The reliable, POSITIVE signal that this Pending status belongs to
         # a reapplication that postdates THIS termination is application_date:
-        # update_member_from_reapplication() sets it to now() in the same
+        # materialise_member() sets it to now() in the same
         # save that sets status/application_status to Pending, before this
         # termination could exist. `>=` (not `>`): application_date is a
         # Datetime and target_date a Date, so a reapplication processed the

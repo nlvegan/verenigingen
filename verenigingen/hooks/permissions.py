@@ -29,10 +29,12 @@ permission_query_conditions = {
     "Project": "verenigingen.utils.project_permissions.get_project_permission_query_conditions",
     "Expense Claim": "verenigingen.permissions.get_expense_claim_permission_query",
     "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.get_permission_query_conditions",
+    "Membership Application Submission": "verenigingen.permissions.get_application_permission_query",
 }
 
 # Document-level permission checkers
-# Each function receives (doc, user, permission_type) and returns True/False
+# Each function receives (doc, user, ptype) and returns True/False. The parameter MUST be
+# named `ptype`: frappe.call drops undeclared keywords (#1778).
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
     "Employee": "verenigingen.permissions.has_employee_permission",
@@ -49,4 +51,5 @@ has_permission = {
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
     "Expense Claim": "verenigingen.permissions.has_expense_claim_permission",
     "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.has_permission",
+    "Membership Application Submission": "verenigingen.permissions.has_application_permission",
 }

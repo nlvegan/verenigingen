@@ -20,14 +20,17 @@ test-quality-enforcer: exempt-thread-context-setup
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from unittest.mock import patch
 
 import frappe
 
-# T4.1: MemberLifecycleService was retired; concurrency tests below were
-# repointed to the canonical api.membership_application_review path.
+from verenigingen.api.membership_application_review import approve_application, reject_application
 from verenigingen.services.member.identification.member_id_service import MemberIDService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.tests.setup import ensure_member_test_masters
+
+SUBMISSION = "Membership Application Submission"
 
 
 def _create_thread_context(site: str):
@@ -224,8 +227,15 @@ class TestMemberIDConcurrency(EnhancedTestCase):
         self.assertEqual(total_assigned, 3, f"Expected 3 total assignments. Results: {results}")
 
 
-class TestApplicationApprovalConcurrency(EnhancedTestCase):
-    """Test application approval/rejection under concurrent execution."""
+class TestApplicationApprovalConcurrency(ApprovalCase):
+    """Test application approval/rejection under concurrent execution.
+
+    Driven through the real flow (submit -> confirm -> approve_application / reject_application) on a
+    Membership Application Submission; the member-keyed endpoints these tests used to race were removed
+    in #1765. approve_application serialises on an advisory lock per application and refuses a second
+    call once the application is no longer Pending Review, so the guarantee is "exactly one actor
+    succeeds, the others are refused".
+    """
 
     def setUp(self):
         """Set up test fixtures."""
@@ -234,131 +244,38 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
         # invoice and reads Verenigingen Settings.company) works under an
         # isolated single-module run on a clean snapshot. Idempotent.
         ensure_member_test_masters()
-        self.uid = str(int(time.time() * 1000))[-6:]
-        self.created_members = []
         # Capture site name for threads
         self.site = frappe.local.site
 
     def tearDown(self):
-        """Clean up test data."""
-        for member_name in self.created_members:
+        """Clean up test data: the Member a thread's approval created is on another connection."""
+        for member_name in frappe.get_all("Member", {"email": self.email}, pluck="name"):
             try:
-                if frappe.db.exists("Member", member_name):
-                    frappe.delete_doc("Member", member_name, force=True)
+                frappe.delete_doc("Member", member_name, force=True)
             except Exception:
                 pass
         frappe.db.commit()
         super().tearDown()
 
-    def _create_pending_application(self, suffix: str) -> str:
-        """Create a pending application member."""
-        member = frappe.new_doc("Member")
-        member.first_name = f"ApprovalTest{self.uid}"
-        member.last_name = f"Member{suffix}"
-        member.email = f"approval.test.{self.uid}.{suffix}@test.invalid"
-        member.status = "Pending"
-        member.application_status = "Pending"
-        member.application_id = f"APP-{self.uid}-{suffix}"
-        member.insert(ignore_permissions=True)
-        self.created_members.append(member.name)
+    def _create_confirmed_application(self) -> str:
+        """A Pending Review application, committed so the worker threads' own connections can see it."""
+        name = self._stage_and_confirm()
         frappe.db.commit()
-        return member.name
+        return name
 
-    def test_concurrent_approval_idempotent_no_duplicate_memberships(self):
-        """Concurrent approvals of the same member must not create duplicate
-        Memberships or invoices.
+    def _run_in_threads(self, work, num_threads=5):
+        """Run work(thread_id) on `num_threads` threads, each with its own Frappe context.
 
-        Behavioural-property weakening note (T4.1): the deprecated
-        MemberLifecycleService used a lock-based exclusivity model and
-        returned ALREADY_APPROVED for losers. The canonical
-        api.membership_application_review path uses an idempotency guard
-        (re-reads application_status before doing work) rather than a
-        lock; concurrent losers succeed instead of failing. The
-        guarantee changes from 'exactly one succeeds, others fail' to
-        'at most one Membership is created'. The latter is still correct
-        for the business invariant (no duplicate billing). Whether to add
-        an advisory_lock on the canonical path is a separate brainstorm,
-        deliberately scoped out of T4.1.
+        Returns [{"thread", "response"} | {"thread", "error"}].
         """
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-        )
-
-        member_name = self._create_pending_application("concurrent")
-        site = self.site  # Capture for closure
-
-        results = []
-        lock = threading.Lock()
-
-        def try_approve(thread_id):
-            try:
-                _create_thread_context(site)
-                response = approve_membership_application(
-                    member_name=member_name,
-                    membership_type=None,
-                    chapter=None,
-                )
-                with lock:
-                    results.append({
-                        "thread": thread_id,
-                        "response": response,
-                    })
-            except Exception as e:
-                with lock:
-                    results.append({"thread": thread_id, "error": str(e)})
-            finally:
-                _cleanup_thread_context()
-
-        num_threads = 5
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [executor.submit(try_approve, i) for i in range(num_threads)]
-            for future in as_completed(futures):
-                pass
-
-        # The business invariant: at most one Membership exists for this
-        # member after all threads complete. (We allow zero too because
-        # all threads could in theory race the validation - in practice
-        # at least one succeeds.)
-        memberships = frappe.get_all(
-            "Membership",
-            filters={"member": member_name},
-        )
-        self.assertLessEqual(
-            len(memberships),
-            1,
-            f"At most one Membership should exist for {member_name}. "
-            f"Found {len(memberships)}. Results: {results}",
-        )
-
-        # And the member ends up in the Approved/Active state.
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.application_status, "Approved")
-        self.assertEqual(member.status, "Active")
-
-    def test_concurrent_rejection_idempotent_no_duplicate_state(self):
-        """Concurrent rejections of the same member must end in the
-        Rejected state and not produce any contradictory partial state.
-
-        Same property-weakening note as the approval sibling: canonical
-        path is idempotent-guarded rather than lock-exclusive.
-        """
-        from verenigingen.api.membership_application_review import (
-            reject_membership_application,
-        )
-
-        member_name = self._create_pending_application("reject")
         site = self.site
-
         results = []
         lock = threading.Lock()
 
-        def try_reject(thread_id):
+        def run(thread_id):
             try:
                 _create_thread_context(site)
-                response = reject_membership_application(
-                    member_name=member_name,
-                    reason=f"Rejected by thread {thread_id}",
-                )
+                response = work(thread_id)
                 with lock:
                     results.append({"thread": thread_id, "response": response})
             except Exception as e:
@@ -367,41 +284,66 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
             finally:
                 _cleanup_thread_context()
 
-        num_threads = 5
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [executor.submit(try_reject, i) for i in range(num_threads)]
+            futures = [executor.submit(run, i) for i in range(num_threads)]
             for future in as_completed(futures):
                 pass
+        return results
 
-        # Final state must be Rejected.
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(
-            member.application_status,
-            "Rejected",
-            f"Member should be Rejected after concurrent rejections. Results: {results}",
+    def test_concurrent_approval_idempotent_no_duplicate_memberships(self):
+        """Concurrent approvals of the same application must not create duplicate
+        Memberships or Members, and exactly one of them wins."""
+        name = self._create_confirmed_application()
+
+        results = self._run_in_threads(lambda thread_id: approve_application(name, create_invoice=False))
+
+        winners = [r for r in results if r.get("response", {}).get("success")]
+        self.assertEqual(len(winners), 1, f"exactly one approval must win. Results: {results}")
+
+        members = frappe.get_all("Member", {"email": self.email}, pluck="name")
+        self.assertEqual(len(members), 1, f"one Member for the applicant. Results: {results}")
+        memberships = frappe.get_all("Membership", filters={"member": members[0]})
+        self.assertLessEqual(
+            len(memberships),
+            1,
+            f"At most one Membership should exist for {members[0]}. Found {len(memberships)}. Results: {results}",
         )
+
+        member = frappe.get_doc("Member", members[0])
+        self.assertEqual(member.application_status, "Approved")
+        self.assertEqual(member.status, "Active")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
+
+    def test_concurrent_rejection_idempotent_no_duplicate_state(self):
+        """Concurrent rejections of the same application must end in the Rejected state, one winning,
+        and must not create a Member."""
+        name = self._create_confirmed_application()
+
+        with patch("frappe.sendmail"):  # Mock justified: External Service - SMTP delivery
+            results = self._run_in_threads(
+                lambda thread_id: reject_application(name, reason=f"Rejected by thread {thread_id}")
+            )
+
+        winners = [r for r in results if r.get("response", {}).get("success")]
+        self.assertEqual(len(winners), 1, f"exactly one rejection must win. Results: {results}")
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, name, "status"),
+            "Rejected",
+            f"Application should be Rejected after concurrent rejections. Results: {results}",
+        )
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
 
     def test_approve_then_reject_fails(self):
-        """Approving then trying to reject must keep the member Approved.
-
-        The canonical reject API throws on already-processed applications;
-        we accept either an exception or an unchanged-state result, as
-        long as the Approved state is preserved.
-        """
-        from verenigingen.api.membership_application_review import (
-            approve_membership_application,
-            reject_membership_application,
-        )
-
-        member_name = self._create_pending_application("approve_first")
-        approve_membership_application(member_name=member_name, membership_type=None)
+        """Approving then trying to reject must keep the application Approved and the Member Active."""
+        name = self._create_confirmed_application()
+        with patch("frappe.sendmail"):  # Mock justified: External Service - SMTP delivery
+            approve_application(name, create_invoice=False)
         frappe.db.commit()
 
         # Try to reject - should fail (already approved).
         with self.assertRaises(Exception):
-            reject_membership_application(
-                member_name=member_name, reason="Should fail"
-            )
+            reject_application(name, reason="Should fail")
 
-        member = frappe.get_doc("Member", member_name)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
+        member = frappe.get_doc("Member", {"email": self.email})
         self.assertEqual(member.application_status, "Approved")

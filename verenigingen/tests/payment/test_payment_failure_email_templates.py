@@ -23,11 +23,22 @@ import frappe
 from frappe.utils import getdate, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 from verenigingen.utils.operation_result import OperationResult
 
 
 class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     """Tests for payment failure email templates"""
+
+    @classmethod
+    def tearDownClass(cls):
+        # #1982: tests here delete the fixture-shipped payment_failure_* templates;
+        # restore the shipped rows (payment_failure_generic is not shipped).
+        _cleanup_stock_email_templates(
+            ["payment_failure_first", "payment_failure_second", "payment_failure_final",
+             "payment_failure_generic", "subscription_cancelled", "subscription_suspended"]
+        )
+        super().tearDownClass()
 
     def setUp(self):
         """Set up email template testing environment"""

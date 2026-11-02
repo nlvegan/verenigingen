@@ -8,13 +8,14 @@ Tests the whitelisted API functions for membership applications
 
 submit_application returns an OperationResult envelope (it never raises for
 validation problems):
-    {"success": True, "data": {"member_record", "application_id", "status"}, ...}
+    {"success": True, "data": {"status": "confirmation_sent"}, ...}
     {"success": False, "error": {"message", "errors": [...]}, ...}
 
 It is called with keyword arguments (def submit_application(**kwargs)).
 """
 
 
+import json
 from unittest import mock
 
 import frappe
@@ -53,88 +54,49 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         return data
 
     def test_submit_application_valid_data(self):
-        """Test submitting a valid membership application"""
+        """A valid application is staged: no Member exists until it is confirmed and approved (#1765)."""
         application_data = self._valid_application_data()
 
         result = membership_application.submit_application(**application_data)
 
         self.assertTrue(result["success"], msg=result.get("error"))
-        data = result["data"]
-        self.assertIn("member_record", data)
-        self.assertIn("application_id", data)
-        self.assertEqual(data["status"], "pending_review")
-
-        # Verify member created
-        member = frappe.get_doc("Member", data["member_record"])
-        self.track_doc("Member", member.name)
-
-        self.assertEqual(member.first_name, application_data["first_name"])
-        self.assertEqual(member.last_name, application_data["last_name"])
-        self.assertEqual(member.email, application_data["email"])
-        self.assertEqual(member.status, "Pending")
-        self.assertEqual(member.application_status, "Pending")
-
-    def test_submit_application_returns_a_status_token_that_authorizes_the_status_page(self):
-        """#1051: the "Check Application Status" link needs a return token wired
-        through the submit path, or application_status.py's get_context has no
-        way to prove the browser reading it is the one that just applied --
-        member_record alone is a sequential, enumerable Member docname.
-        """
-        from verenigingen.templates.pages.application_status import (
-            APPLICATION_STATUS_TOKEN_PURPOSE,
+        self.assertEqual(result["data"], {"status": "confirmation_sent"})
+        self.assertFalse(frappe.db.exists("Member", {"email": application_data["email"]}))
+        rows = frappe.get_all(
+            "Membership Application Submission",
+            {"email": application_data["email"]},
+            ["name", "status", "source"],
         )
-        from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
-
-        result = membership_application.submit_application(**self._valid_application_data())
-
-        self.assertTrue(result["success"], msg=result.get("error"))
-        data = result["data"]
-        self.track_doc("Member", data["member_record"])
-
-        self.assertIn("status_token", data)
-        self.assertTrue(
-            verify_guest_return_token(
-                APPLICATION_STATUS_TOKEN_PURPOSE, data["member_record"], data["status_token"]
-            )
-        )
+        self.assertEqual([(r.status, r.source) for r in rows], [("Unconfirmed", "Full Form")])
+        self.track_doc("Membership Application Submission", rows[0].name)
 
     def test_submit_application_duplicate_email(self):
-        """Test submitting application with duplicate email returns a failure result"""
+        """A second application with the same email is staged too; confirming the second one
+        supersedes the first (see test_application_record)."""
         email = _unique("existing") + "@example.com"
 
-        # Submit a first application with this email
-        first = membership_application.submit_application(**self._valid_application_data(email=email))
-        self.assertTrue(first["success"], msg=first.get("error"))
-        self.track_doc("Member", first["data"]["member_record"])
+        for _attempt in range(2):
+            result = membership_application.submit_application(**self._valid_application_data(email=email))
+            self.assertTrue(result["success"], msg=result.get("error"))
 
-        # Submit again with the same email
-        second = membership_application.submit_application(**self._valid_application_data(email=email))
-
-        # Either it fails with a duplicate-email error, or it is handled as a
-        # reapplication (same member record updated). Both are acceptable.
-        if not second["success"]:
-            error = second.get("error", {})
-            message = error.get("message", "") if isinstance(error, dict) else str(error)
-            self.assertIn("already", message.lower())
-        else:
-            self.assertEqual(
-                second["data"]["member_record"], first["data"]["member_record"]
-            )
+        rows = frappe.get_all("Membership Application Submission", {"email": email}, pluck="name")
+        self.assertEqual(len(rows), 2)
+        for name in rows:
+            self.track_doc("Membership Application Submission", name)
 
     def test_submit_application_special_characters(self):
-        """Test submitting application with special characters in name"""
-        application_data = self._valid_application_data(
-            first_name="José", last_name="O'Brien-García"
-        )
+        """Special characters in a name survive into the stored payload unchanged."""
+        application_data = self._valid_application_data(first_name="José", last_name="O'Brien-García")
 
         result = membership_application.submit_application(**application_data)
         self.assertTrue(result["success"], msg=result.get("error"))
 
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        self.track_doc("Member", member.name)
-
-        self.assertEqual(member.first_name, "José")
-        self.assertEqual(member.last_name, "O'Brien-García")
+        row = frappe.get_all(
+            "Membership Application Submission", {"email": application_data["email"]}, ["name", "payload"]
+        )[0]
+        self.track_doc("Membership Application Submission", row.name)
+        payload = json.loads(row.payload)
+        self.assertEqual((payload["first_name"], payload["last_name"]), ("José", "O'Brien-García"))
 
     def test_submit_application_missing_required_fields(self):
         """Test submitting application with missing required fields"""
@@ -158,46 +120,6 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         error = result.get("error", {})
         message = error.get("message", "") if isinstance(error, dict) else str(error)
         self.assertIn("email", message.lower())
-
-    def test_submit_application_with_sepa_details(self):
-        """Test submitting application with SEPA payment details"""
-        application_data = self._valid_application_data(
-            payment_method="SEPA Direct Debit",
-            iban="NL91ABNA0417164300",
-            bank_account_name="SEPA Test",
-        )
-
-        result = membership_application.submit_application(**application_data)
-        self.assertTrue(result["success"], msg=result.get("error"))
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        self.track_doc("Member", member.name)
-
-        self.assertEqual(member.payment_method, "SEPA Direct Debit")
-        self.assertEqual(member.iban, "NL91 ABNA 0417 1643 00")  # Formatted
-        self.assertEqual(member.bank_account_name, "SEPA Test")
-
-    def test_submit_application_age_calculation(self):
-        """Test member.age is computed from birth_date on application submit.
-
-        NOTE: this only verifies age COMPUTATION. The original test exercised an
-        underage (15yo) applicant; that edge case (minor handling / parental
-        consent) is no longer covered here and should be restored in a dedicated
-        test once the intended underage behaviour is confirmed (flagged 2026-06-02).
-        """
-        application_data = self._valid_application_data(
-            birth_date=add_days(today(), -365 * 30)  # 30 years old
-        )
-
-        result = membership_application.submit_application(**application_data)
-        self.assertTrue(result["success"], msg=result.get("error"))
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        self.track_doc("Member", member.name)
-
-        # Verify age calculated and reasonable
-        self.assertGreaterEqual(member.age, 29)
-        self.assertLessEqual(member.age, 31)
 
     def test_validate_postal_code(self):
         """Test postal code validation API"""

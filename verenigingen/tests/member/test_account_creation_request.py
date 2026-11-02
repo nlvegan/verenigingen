@@ -254,67 +254,8 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertLess(age, 1)  # just created
 
     # =================================================================
-    # handle_completion / _assign_pending_board_member_roles
+    # handle_completion
     # =================================================================
-
-    def test_handle_completion_assigns_pending_board_role(self):
-        # A volunteer added to a chapter board BEFORE their user existed gets the
-        # board role retroactively when the ACR completes.
-        email = f"acrctl.board.{frappe.generate_hash(length=6)}@test.invalid"
-        member = self.create_test_member(
-            first_name="AcrBoard",
-            last_name=f"M{frappe.generate_hash(length=5)}",
-            email=email,
-            status="Active",
-        )
-        user = self.create_test_user(email, roles=["Verenigingen Member"])
-        self.track_doc("User", user.name)
-        frappe.db.set_value("Member", member.name, "user", user.name)
-
-        volunteer = self.create_test_volunteer(member=member.name)
-        if not frappe.db.exists("Chapter Role", "Bestuurslid"):
-            frappe.get_doc(
-                {"doctype": "Chapter Role", "role_name": "Bestuurslid", "is_active": 1}
-            ).insert()
-            self.track_doc("Chapter Role", "Bestuurslid")
-        chapter = self.create_test_chapter()
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-        chapter_doc.append(
-            "board_members",
-            {
-                "volunteer": volunteer.name,
-                "chapter_role": "Bestuurslid",
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            },
-        )
-        chapter_doc.save()
-
-        request = self._insert_acr(source_record=member.name, email=email)
-        # Call the private helper directly (the public path is on_update->handle_completion).
-        request._assign_pending_board_member_roles(member.name)
-
-        has_role = frappe.db.exists(
-            "Has Role", {"parent": user.name, "role": "Verenigingen Chapter Board Member"}
-        )
-        self.assertTrue(has_role)
-
-    def test_assign_pending_board_role_no_volunteer_noop(self):
-        # No volunteer for the member -> graceful no-op: no board-member role granted.
-        request = self._insert_acr()
-        self.assertFalse(
-            frappe.db.exists("Volunteer", {"member": self.member.name}),
-            "precondition: member has no volunteer",
-        )
-        request._assign_pending_board_member_roles(self.member.name)  # must not raise
-        # The early-return must leave no Chapter Board Member role behind.
-        self.assertFalse(
-            frappe.db.exists(
-                "Has Role",
-                {"parent": self.member.email, "role": "Verenigingen Chapter Board Member"},
-            ),
-            "no board-member role may be granted when the member has no volunteer",
-        )
 
     def test_handle_completion_skips_email_for_csv_member(self):
         # A member with no application_id (CSV import) must not trigger an approval

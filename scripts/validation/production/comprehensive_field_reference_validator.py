@@ -376,7 +376,7 @@ import os
 
 # Import comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 
 @dataclass
@@ -433,7 +433,7 @@ class DatabaseSchemaReader:
         bench_path = self.app_path.parent.parent
         
         # Initialize comprehensive DocType loader
-        loader = DocTypeLoader(str(bench_path), verbose=False)
+        loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
         doctype_metas = loader.get_doctypes()
         
         # Convert comprehensive DocTypeMetadata to simplified DocTypeSchema format

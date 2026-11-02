@@ -855,14 +855,6 @@ class BoardManager(BaseManager):
                     self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                         board_member.volunteer, board_member.chapter_role, board_member.from_date
                     )
-                    try:
-                        board_member.assign_board_member_role()
-                    except Exception as e:
-                        self._log_or_reraise(
-                            "Failed to assign board member role",
-                            {"volunteer": board_member.volunteer},
-                            e,
-                        )
             return
 
         # The `members`-table half of seating -- _add_to_chapter_members -- is NOT here.
@@ -874,25 +866,14 @@ class BoardManager(BaseManager):
                 board_member.volunteer, board_member.chapter_role, board_member.from_date
             )
 
-            # Assign Frappe role and role profile to the volunteer's user account.
-            # Child table after_insert doesn't fire when rows are added via parent save,
-            # so we call this explicitly here instead.
-            try:
-                board_member.assign_board_member_role()
-            except Exception as e:
-                self._log_or_reraise(
-                    "Failed to assign board member role",
-                    {"volunteer": board_member.volunteer},
-                    e,
-                )
-
-            # Defer role-profile sync until after the Chapter (and its
-            # board_members child rows) are persisted. handle_board_member_additions
-            # runs during validate/before_save, so the new Chapter Board Member row
-            # is NOT yet in the database. get_board_member_profiles() queries
-            # `tabChapter Board Member`, so running the sync now would compute a
-            # non-board profile and overwrite the "Verenigingen Chapter Board Member"
-            # role that assign_board_member_role() just added — silently dropping it.
+            # The board role and profile come from the role-profile sync, deferred until
+            # after the Chapter (and its board_members child rows) are persisted:
+            # handle_board_member_additions runs during validate/before_save, so the new
+            # Chapter Board Member row is NOT yet in the database, and
+            # get_board_member_profiles() queries `tabChapter Board Member`, so syncing now
+            # would compute a non-board profile. No direct role grant is made here (#1672):
+            # it was refused for an actor without User write, and the profile sync replaces
+            # a user's roles with the profile's anyway.
             self._defer_board_access_recalculation(board_member.volunteer)
 
     def seat_board_members_as_chapter_members(self, old_doc):
@@ -1326,9 +1307,15 @@ class BoardManager(BaseManager):
             user = frappe.db.get_value("Member", member_name, "user")
             if not user:
                 return
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                sync_user_role_profile,
+            )
 
-            auto_sync_on_role_change(user)
+            # reraise_non_resumable: the grant this sync replaced (#1672) ran in validate(),
+            # where a 1213/1205 aborted the Chapter save. The sync swallows them by default,
+            # which would let a seat commit with no role until the nightly sync.
+            # A non-lock failure comes back as success=False and is already in the Error Log.
+            sync_user_role_profile(user, reraise_non_resumable=True)
         except Exception as e:
             self._log_or_reraise(
                 "Failed to sync role profile for volunteer", {"volunteer": volunteer_name}, e

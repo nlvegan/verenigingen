@@ -74,13 +74,14 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "default": "Draft",
       "fieldname": "status",
       "fieldtype": "Select",
       "in_list_view": 1,
       "in_standard_filter": 1,
       "label": "Status",
-      "options": "Draft\nPending\nSigned\nExecuted\nRejected\nCancelled\nFailed",
+      "options": "Draft\nPending\nSigned\nExecuted\nRejected\nCancelled\nFailed\nExpired",
       "read_only": 1
     },
     {
@@ -175,6 +176,7 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "description": "Payment Entry created when payment is executed",
       "fieldname": "payment_entry",
       "fieldtype": "Link",
@@ -195,7 +197,7 @@
   "index_web_pages_for_search": 1,
   "is_submittable": 1,
   "links": [],
-  "modified": "2025-12-19 07:00:00",
+  "modified": "2026-10-31 18:00:00",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "Ponto Payment Request",
@@ -272,6 +274,10 @@
     {
       "color": "gray",
       "title": "Cancelled"
+    },
+    {
+      "color": "yellow",
+      "title": "Expired"
     },
     {
       "color": "red",

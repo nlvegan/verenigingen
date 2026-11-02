@@ -21,7 +21,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.auth import HTTPRequest
 from frappe.tests.utils import FrappeTestCase
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
 from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
 from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import resolves_to
@@ -92,15 +95,35 @@ class TestMandatePayloadSpec(FrappeTestCase):
         self.assertEqual(payload["amount"], {"value": 1250, "currency": "EUR"})
         self.assertIsInstance(payload["amount"]["value"], int)
 
+    def _bind_mandate_payload_request(self, remote_addr, xff=None):
+        """Bind a REAL werkzeug request and let Frappe derive request_ip, as in production."""
+        orig_request = getattr(frappe.local, "request", None)
+        orig_request_ip = getattr(frappe.local, "request_ip", None)
+
+        def restore():
+            frappe.local.request = orig_request  # Mock justified: execution-context state
+            frappe.local.request_ip = orig_request_ip  # Mock justified: execution-context state
+
+        self.addCleanup(restore)
+        headers = {"X-Forwarded-For": xff} if xff is not None else {}
+        environ = EnvironBuilder(method="POST", path="/x", headers=headers, data=b"{}").get_environ()
+        environ["REMOTE_ADDR"] = remote_addr
+        frappe.local.request = Request(environ)  # Mock justified: real request bound as the execution context
+        HTTPRequest.__new__(HTTPRequest).set_request_ip()
+
     def test_includes_request_ip_address(self):
-        """customer.ipAddress is required by Pay.nl; sourced from the request IP."""
-        original = getattr(frappe.local, "request_ip", None)
-        try:
-            frappe.local.request_ip = "203.0.113.7"
-            payload = self._build()
-            self.assertEqual(payload["customer"]["ipAddress"], "203.0.113.7")
-        finally:
-            frappe.local.request_ip = original
+        """customer.ipAddress is required by Pay.nl; sourced from the TRUSTED client IP (#1768).
+
+        A trusted proxy (127.0.0.1) appended the real client to the XFF the client sent.
+        """
+        self._bind_mandate_payload_request("127.0.0.1", "203.0.113.7")
+        self.assertEqual(self._build()["customer"]["ipAddress"], "203.0.113.7")
+
+    def test_forged_leftmost_xff_is_not_sent_as_request_ip(self):
+        """Control: Frappe's request_ip is the forged leftmost XFF; the payload must not use it."""
+        self._bind_mandate_payload_request("127.0.0.1", "198.51.100.9, 203.0.113.7")
+        self.assertEqual(frappe.local.request_ip, "198.51.100.9")  # the untrusted value exists
+        self.assertEqual(self._build()["customer"]["ipAddress"], "203.0.113.7")
 
     def test_serviceid_and_uppercase_default(self):
         payload = self._build()

@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -39,7 +39,7 @@ class ProductionFieldValidator:
         
         # Initialize comprehensive DocType loader
         print("🔄 Loading comprehensive DocType information...")
-        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_compatibility()
         print(f"✅ Loaded {len(self.doctypes)} DocTypes for production validation")
         

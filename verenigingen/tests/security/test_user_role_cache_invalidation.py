@@ -6,7 +6,7 @@ Tests for #693: the user role-profile cache (AuthorizationEngine's versioned
 Redis cache -- see authorization_engine.get_user_role_profiles) is never
 invalidated when a user's roles/role profile change via the normal User.save()
 path used by every role-granting service in this app
-(ChapterBoardMember.assign_board_member_role, sync_user_role_profile,
+(sync_user_role_profile,
 member_role_service, ...).
 
 Both existing hooks/doc_events.py handlers miss this:
@@ -72,8 +72,7 @@ class TestUserRoleCacheInvalidationOnRoleChange(EnhancedTestCase):
         return cache_key
 
     def _grant_role_via_save(self, user, role):
-        """Mirrors ChapterBoardMember.assign_board_member_role /
-        member_role_service: append the role on the parent User doc and save --
+        """Mirrors member_role_service (and the removed board-role grant, #1672): append the role on the parent User doc and save --
         the shape every production role-granting path in this app uses."""
         user.append("roles", {"role": role})
         user.save(ignore_permissions=True)
@@ -96,10 +95,9 @@ class TestUserRoleCacheInvalidationOnRoleChange(EnhancedTestCase):
         user.save(ignore_permissions=True)
 
     def test_appending_a_role_and_saving_invalidates_the_cache(self):
-        """The dominant production shape: ChapterBoardMember.assign_board_member_role,
-        BoardManager, member_role_service etc. all grant a role via
-        user_doc.append("roles", ...); user_doc.save() -- never touching
-        role_profile_name."""
+        """A common production shape (member_role_service and similar) grants a role via
+        user_doc.append("roles", ...); user_doc.save() -- never touching role_profile_name.
+        (BoardManager no longer does: since #1672 the board role comes from the profile sync.)"""
         user = self._make_plain_user("rolecache-append")
         cache_key = self._prime_cache(user.name)
 

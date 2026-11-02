@@ -52,6 +52,13 @@ class TestWebhookUserSetup(VereningingenTestCase):
         cls._restore_settings_webhook_user(
             frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
         )
+        # ...and a restored value is still not a USER. The gateway webhooks have no
+        # Administrator fallback any more (#1876), so a shard that runs this module and
+        # then a webhook-user-dependent one (the Ponto executed-payment job, ING plan
+        # finalization) must find the site converged the way migrate leaves it. Without
+        # this, the sweep above leaves webhook_user unset or dangling for every later
+        # module in the shard.
+        w.setup_webhook_user()
         super().tearDownClass()
 
     def tearDown(self):
@@ -96,8 +103,8 @@ class TestWebhookUserSetup(VereningingenTestCase):
         setUpClass swallowed the resulting failure 12 times in 14 tests.
 
         Clearing is the correct fallback, not a workaround: an unset webhook_user
-        is a state production handles (`get_service_user` falls back to
-        Administrator, `verify_webhook_user_setup` reports incomplete). A dangling
+        is a state production handles (`get_service_user` returns None and the gateway
+        webhooks refuse, `verify_webhook_user_setup` reports incomplete). A dangling
         one is invalid state that breaks an unrelated Single's every save.
         """
         if value and not frappe.db.exists("User", value):
@@ -132,8 +139,9 @@ class TestWebhookUserSetup(VereningingenTestCase):
     def _sweep_webhook_users(cls):
         # REFUSE to sweep on a non-test site. This deletes every webhook-user% User
         # on whatever site the suite runs against, and the webhook service user is
-        # now a real dependency: gateway services fall back to Administrator without
-        # it (get_service_user), silently, until the next migrate re-creates it.
+        # now a real dependency: the gateway webhooks refuse (5xx, Error Log row) without
+        # it (get_service_user has no Administrator fallback, #1876) until the next migrate
+        # re-creates it.
         # The comment above notes this suite has been pointed at the live site before.
         site = getattr(frappe.local, "site", "") or ""
         if not (site.startswith("test_site") or site.endswith(".localhost") or frappe.conf.get("developer_mode")):
@@ -252,7 +260,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         On a real site the configured user had been deleted, leaving the setting
         pointing at a nonexistent account. get_service_user() treats that exactly
         like an unset one (frappe.db.get_value returns None for a missing user) and
-        silently falls back to Administrator -- while the setting still reads as
+        returns None, so the gateway webhooks refuse -- while the setting still reads as
         configured. Resolving to the configured address means setup recreates it
         rather than creating a second user beside it.
         """
@@ -466,7 +474,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     def test_create_account_re_enables_a_disabled_user(self):
         """A disabled service user is equivalent to no user: get_service_user reads
-        `enabled` and falls back to Administrator, so setup must converge on it."""
+        `enabled` and returns None (the webhooks refuse), so setup must converge on it."""
         email = w.generate_webhook_user_email()
         self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
         self._track_if_exists(email)

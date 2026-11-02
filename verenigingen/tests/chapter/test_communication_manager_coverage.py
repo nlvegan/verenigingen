@@ -39,7 +39,6 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
         frappe.db.set_single_value(
             "Verenigingen Settings", "send_chapter_assignment_notifications", self._orig_setting
         )
-        frappe.flags.pop("chapter_transfer", None)
         frappe.flags.is_bulk_import = False
         frappe.flags.suppress_chapter_notifications = False
         super().tearDown()
@@ -123,18 +122,6 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
         result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
         self.assertTrue(result, "an active board member + enabled setting must queue a notification")
 
-    def test_notify_board_of_member_joined_transfer_in_uses_transfer_template(self):
-        self._enable_notifications()
-        self._make_template("chapter_board_member_transferred_in")
-        self._seat_board_member(first="TransferInBoard")
-        frappe.flags.chapter_transfer = {
-            "member": self.member.name,
-            "to": self.chapter.name,
-            "from": "Some Other Chapter",
-        }
-        result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
-        self.assertTrue(result)
-
     def test_notify_board_of_member_left_with_board_returns_true(self):
         self._enable_notifications()
         self._make_template("chapter_board_member_left")
@@ -142,18 +129,6 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
         result = self.chapter.communication_manager.notify_board_of_member_left(
             self.member.name, leave_reason="moved"
         )
-        self.assertTrue(result)
-
-    def test_notify_board_of_member_left_transfer_out_uses_transfer_template(self):
-        self._enable_notifications()
-        self._make_template("chapter_board_member_transferred_out")
-        self._seat_board_member(first="TransferOutBoard")
-        frappe.flags.chapter_transfer = {
-            "member": self.member.name,
-            "from": self.chapter.name,
-            "to": "Destination Chapter",
-        }
-        result = self.chapter.communication_manager.notify_board_of_member_left(self.member.name)
         self.assertTrue(result)
 
     def test_notify_board_of_member_left_disabled_returns_false(self):

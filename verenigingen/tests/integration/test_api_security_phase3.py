@@ -62,43 +62,6 @@ class TestAPISecurityPhase3Integration(EnhancedTestCase):
         self.member_user = self.permission_scenario["unauthorized_users"][0]
 
     @unittest.skip(
-        "Authorization-contract judgment call: the authorized test user (System "
-        "Manager + Verenigingen Administrator) is denied HIGH access because the "
-        "current ROLE_PROFILE_SECURITY_MAPPING (authorization_policy.py) grants HIGH "
-        "via Role Profiles / specific roles, and create_permission_test_scenario does "
-        "not assign a Role Profile that maps to HIGH for approve_membership_application. "
-        "Confirming the intended authorization surface for this endpoint needs a "
-        "product decision; see flagged_for_followup."
-    )
-    def test_membership_application_review_api_security(self):
-        """
-        Test membership application review API with real authentication.
-        """
-        member = self.create_test_member(status="Pending", birth_date="1990-01-01")
-
-        # Unauthorized access (member trying to approve applications)
-        with self.as_user(self.member_user.email):
-            with self.assertRaises(frappe.PermissionError):
-                frappe.call(
-                    "verenigingen.api.membership_application_review.approve_membership_application",
-                    member_name=member.name,
-                    membership_type="Standard Member",
-                    create_invoice=True,
-                )
-
-        # Authorized access (admin approving application)
-        with self.as_user(self.admin_user.email):
-            result = frappe.call(
-                "verenigingen.api.membership_application_review.approve_membership_application",
-                member_name=member.name,
-                membership_type="Standard Member",
-                create_invoice=True,
-            )
-            self.assertTrue(result.get("success"))
-            member.reload()
-            self.assertEqual(member.status, "Active")
-
-    @unittest.skip(
         "Requires a real HTTP request context: this test patches frappe.local.request "
         "to simulate a missing CSRF token, but frappe.local.request is unset under "
         "`bench run-tests`, so CSRF enforcement cannot be exercised in-process. Needs "
@@ -120,8 +83,8 @@ class TestAPISecurityPhase3Integration(EnhancedTestCase):
 
                 with self.assertRaises((frappe.CSRFTokenError, frappe.PermissionError)):
                     frappe.call(
-                        "verenigingen.api.membership_application_review.approve_membership_application",
-                        member_name=member.name,
+                        "verenigingen.api.membership_application_review.approve_application",
+                        application_name=member.name,
                         membership_type="Standard Member",
                     )
 

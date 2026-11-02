@@ -7,9 +7,6 @@ verenigingen.verenigingen.web_form.membership_application.
 The actual implementations have been moved to the API modules.
 """
 
-# Re-export the actual implementation
-from verenigingen.api.membership_application_review import approve_membership_application  # noqa: F401
-
 
 # Stub implementations for functions that may have been removed/refactored
 def submit_membership_application(*args, **kwargs):
@@ -54,7 +51,6 @@ def get_proficiency_label(*args, **kwargs):
 
 
 __all__ = [
-    "approve_membership_application",
     "submit_membership_application",
     "create_volunteer_application_data",
     "create_volunteer_from_approved_member",

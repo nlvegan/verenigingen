@@ -285,7 +285,7 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     def test_staff_may_not_approve_members(self):
         """The safety property that keeps the staff grant read-only.
 
-        quick_approve_member takes a SECOND gate - get_user_board_role(), which has no
+        quick_approve_join_request takes a SECOND gate - get_user_board_role(), which has no
         staff branch and returns None - so staff are denied despite seeing every
         chapter. If someone ever adds staff to get_user_board_role's admin
         short-circuit, this fails, and that is the point.
@@ -294,10 +294,10 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         frappe.throw into an OperationResult/dict. Asserting assertRaises here would
         fail even though access is correctly denied.
         """
-        from verenigingen.api.chapter_dashboard_api import quick_approve_member
+        from verenigingen.api.chapter_dashboard_api import quick_approve_join_request
 
         with self.as_user(self.staff_email):
-            result = quick_approve_member(member_name=self.board_member.name, chapter_name=self.chapter.name)
+            result = quick_approve_join_request(member_name=self.board_member.name, chapter_name=self.chapter.name)
 
         payload = result.to_dict() if hasattr(result, "to_dict") else result
         self.assertFalse(payload.get("success"))

@@ -77,34 +77,37 @@ class TestImprovedErrorHandling(EnhancedTestCase):
         print(f"✅ PASS: {result}")
     
     def test_application_review_api_invalid_member(self):
-        """Test application review API rejects an invalid member reference.
+        """Test application review API rejects an invalid application reference.
 
-        approve_membership_application validates the member via frappe.throw
-        (raising ValidationError) rather than returning an error dict, so the
-        invalid reference must surface as a raised exception.
+        approve_application loads the application (a DoesNotExistError, a
+        ValidationError) rather than returning an error dict, so the invalid
+        reference must surface as a raised exception. The caller here is
+        Administrator (chapter access "all"), for whom existence reveals nothing:
+        a board member gets the identical refusal for an unknown and a foreign
+        application (test_application_record_approval).
         """
-        print("\n5. Testing Application Review API - Invalid member")
+        print("\n5. Testing Application Review API - Invalid application")
 
-        from verenigingen.api.membership_application_review import approve_membership_application
+        from verenigingen.api.membership_application_review import approve_application
 
         with self.assertRaises(frappe.ValidationError) as ctx:
-            approve_membership_application("NON_EXISTENT_MEMBER")
-        self.assertIn("invalid member reference", str(ctx.exception).lower())
-        print("✅ PASS: ValidationError raised for invalid member")
+            approve_application("NON_EXISTENT_APPLICATION")
+        self.assertIn("not found", str(ctx.exception).lower())
+        print("✅ PASS: ValidationError raised for invalid application")
 
     def test_application_review_api_missing_reason(self):
         """Test application review API with missing rejection reason.
 
-        reject_membership_application validates the member reference first (via
-        frappe.throw); the "test-member" reference does not exist, so a
-        ValidationError is raised before reason validation is reached.
+        reject_application loads the application first; the "test-application"
+        reference does not exist, so a ValidationError (DoesNotExistError) is
+        raised before reason validation is reached.
         """
         print("\n6. Testing Application Review API - Missing rejection reason")
 
-        from verenigingen.api.membership_application_review import reject_membership_application
+        from verenigingen.api.membership_application_review import reject_application
 
         with self.assertRaises(frappe.ValidationError):
-            reject_membership_application("test-member", "")
+            reject_application("test-application", "")
         print("✅ PASS: ValidationError raised")
     
     def test_dd_batch_scheduler_permissions(self):
@@ -153,8 +156,8 @@ class TestImprovedErrorHandling(EnhancedTestCase):
         # These endpoints validate their inputs via frappe.throw, so an invalid
         # reference surfaces as a raised ValidationError rather than an error dict.
         raising_functions = [
-            ("membership_application_review", "approve_membership_application", [""]),
-            ("membership_application_review", "reject_membership_application", ["", ""]),
+            ("membership_application_review", "approve_application", [""]),
+            ("membership_application_review", "reject_application", ["", ""]),
         ]
 
         for module, func_name, args in dict_returning_functions:

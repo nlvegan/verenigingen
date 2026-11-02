@@ -443,7 +443,7 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     and take it as their chapter gate: get_chapter_member_emails, get_active_members_count,
     get_pending_applications_count, get_board_members_count, get_new_members_count,
     get_filed_expense_claims_count, get_approved_expense_claims_count,
-    get_volunteer_expenses_count and quick_approve_member - plus
+    get_volunteer_expenses_count and quick_approve_application - plus
     chapter_dashboard.get_chapter_dashboard_data, which exposes financial_summary,
     dues_payment_status, member_overview, pending_actions and board_documents for the chapter.
     For the eight read endpoints it is the ONLY chapter check: the @high_security_api /
@@ -464,7 +464,7 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     Staff being included here is therefore an explicit owner decision (2026-07-17): staff act
     as read-only administrators over all chapters, including member email addresses via
     get_chapter_member_emails. Mutating actions remain closed because they take a second gate -
-    quick_approve_member requires get_user_board_role().permissions.can_approve_members, and
+    quick_approve_application requires get_user_board_role().permissions.can_approve_members, and
     get_user_board_role() has no staff branch, so it returns None for staff. That is a load-
     bearing safety property; tests/services/test_chapter_board_chapters.py pins it.
     """

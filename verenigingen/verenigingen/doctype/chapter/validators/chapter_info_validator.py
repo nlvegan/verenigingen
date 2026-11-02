@@ -239,7 +239,7 @@ class ChapterInfoValidator(BaseValidator):
                 )
 
             # Check if chapter has at least some content
-            intro_length = len(chapter_data.get("introduction", ""))
+            intro_length = len(chapter_data.get("introduction") or "")
             if intro_length < 50:
                 result.add_warning(
                     (
@@ -316,8 +316,8 @@ class ChapterInfoValidator(BaseValidator):
                 "has_custom_route": bool(chapter_data.get("route")),
             },
             "content_stats": {
-                "introduction_length": len(chapter_data.get("introduction", "")),
-                "address_length": len(chapter_data.get("address", "")),
+                "introduction_length": len(chapter_data.get("introduction") or ""),
+                "address_length": len(chapter_data.get("address") or ""),
                 "has_html_content": bool(chapter_data.get("meetup_embed_html")),
             },
         }

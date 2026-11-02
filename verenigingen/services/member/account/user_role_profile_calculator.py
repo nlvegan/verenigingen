@@ -318,7 +318,30 @@ def calculate_user_role_profile_set(user: str) -> list:
         key=lambda name: name != NATIONAL_TREASURER_PROFILE,
     )
     own = [name for _prio, name in candidates if name not in NATIONAL_PROFILES]
-    return [own[0], *national] if own else national
+    stacked = _staff_and_seat_profiles(user, member) if own else []
+    return [*dict.fromkeys([*own[:1], *stacked]), *national]
+
+
+def _staff_and_seat_profiles(user: str, member: str) -> list:
+    """Staff and the best board-seat profile stack, whichever won the priority contest (#1969).
+
+    Maintainer ruling on #1969 (2026-11-01), extending #1615: a staffer registered through an
+    association-wide Team who holds ANY chapter board seat keeps Staff AND gets the seat's
+    profile. Only the highest seat profile is added (as for any board member), and only
+    the ONE staff profile the seatless path would pick (the first PRIORITY_STAFF candidate,
+    same winner rule) is stacked. "Staff" here means a profile from a Team flagged
+    ``is_association_wide`` (priority 75), NOT the profile literally named "Verenigingen
+    Staff"; a member on any other team, or on none, is unchanged.
+    """
+    staff = [name for prio, name in get_team_profiles(user, member) if prio == PRIORITY_STAFF]
+    seats = sorted(
+        (item for item in get_board_member_profiles(user, member) if item[1] not in NATIONAL_PROFILES),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    if not staff or not seats:
+        return []
+    return [seats[0][1], staff[0]]
 
 
 SYNC_GRANTED_FIELD = "custom_sync_granted_profiles"
@@ -890,6 +913,7 @@ def sync_user_role_profile(
     allow_disabled: bool = False,
     withdraw: tuple = (),
     nightly: bool = False,
+    reraise_non_resumable: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -915,6 +939,10 @@ def sync_user_role_profile(
             fails is rolled back, and a deadlock/timeout is re-raised instead of being
             swallowed, so the run stops rather than resuming on a damaged transaction.
             The event-driven callers keep the replace behaviour (#1293).
+        reraise_non_resumable: Re-raise a deadlock/lock-wait instead of returning
+            success=False, WITHOUT the other nightly behaviours. For a caller whose own
+            save must abort when the transaction is broken (the Chapter board seating
+            flush, #1672). Default False: every other event-driven caller is unchanged.
 
     Returns:
         dict: {
@@ -1136,7 +1164,7 @@ def sync_user_role_profile(
         }
 
     except NON_RESUMABLE_DB_ERRORS as e:
-        if nightly:
+        if nightly or reraise_non_resumable:
             raise
         return _sync_failed(user, e)
     # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always

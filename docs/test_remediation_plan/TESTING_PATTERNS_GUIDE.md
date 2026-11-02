@@ -811,7 +811,6 @@ HTTP Integration Testing methodology successfully proven and implemented:
 2. **Suspension/Termination APIs** (38+ inappropriate mocks eliminated)
    - `suspend_member` - Real member document operations
    - `unsuspend_member` - Real status restoration workflow
-   - `get_suspension_status` - Real database queries
    - `bulk_suspend_members` - Real batch processing
 
 ### **HTTP Integration Breakthrough** 🚀

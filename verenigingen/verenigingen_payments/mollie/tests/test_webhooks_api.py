@@ -44,7 +44,10 @@ class TestHandleMolliePaymentWebhook(EnhancedTestCase):
             out = webhooks.handle_mollie_payment_webhook()
         self.assertEqual(out["status"], "error")
         self.assertEqual(frappe.local.response.http_status_code, 500)
-        self.assertEqual(out["message"], "Internal server error processing webhook")
+        # #1781: the old assertion read the generic ``message`` key; the property (nothing
+        # internal reaches the caller) is kept: the body is the bare ack, without "internal boom".
+        self.assertEqual(out, {"status": "error"})
+        self.assertNotIn("internal boom", str(out))
 
     def test_backward_compat_aliases_route_to_main(self):
         """mollie_payment_webhook and mollie_subscription_webhook both delegate to

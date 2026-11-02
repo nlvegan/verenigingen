@@ -23,16 +23,16 @@
                         <table class="table">
                             <tr>
                                 <td><strong>{{ _("Member") }}:</strong></td>
-                                <td>{{ member.full_name }}</td>
+                                <td>{{ member.full_name|e }}</td>
                             </tr>
                             <tr>
                                 <td><strong>{{ _("Membership Type") }}:</strong></td>
-                                <td>{{ member.selected_membership_type }}</td>
+                                <td>{{ member.selected_membership_type|e }}</td>
                             </tr>
                             <tr>
                                 <td><strong>{{ _("Amount Due") }}:</strong></td>
                                 <td class="text-primary">
-                                    <h4>{{ frappe.format_value(invoice.grand_total, {"fieldtype": "Currency"}) }}</h4>
+                                    <h4>{{ frappe.format_value(invoice.grand_total, {"fieldtype": "Currency"})|e }}</h4>
                                 </td>
                             </tr>
                         </table>
@@ -43,8 +43,8 @@
                             {% for method in payment_methods %}
                             <div class="payment-method-option">
                                 <button class="btn btn-outline-primary btn-block"
-                                        onclick="processPayment('{{ method.name }}')">
-                                    <i class="fa fa-credit-card"></i> {{ _("Pay with") }} {{ method.name }}
+                                        data-method="{{ method.name|e }}" onclick="processPayment(this.dataset.method)">
+                                    <i class="fa fa-credit-card"></i> {{ _("Pay with") }} {{ method.name|e }}
                                 </button>
                             </div>
                             {% endfor %}
@@ -61,7 +61,7 @@
                     <div class="card-body">
                         <p>{{ _("If you're experiencing issues with payment, please contact our support team.") }}</p>
                         <p>
-                            <i class="fa fa-envelope"></i> {{ support_email|default("support@example.com") }}<br>
+                            <i class="fa fa-envelope"></i> {{ support_email|default("support@example.com")|e }}<br>
                             <i class="fa fa-phone"></i> +1 234 567 890
                         </p>
                     </div>
@@ -89,7 +89,7 @@ function processPayment(method) {
     frappe.msgprint(__('Processing payment with ' + method + '...'));
 
     // For now, simulate payment processing
-    window.location.href = '/payment/process/{{ member.name }}/{{ invoice.name }}/' + method;
+    window.location.href = '/payment/process/' + encodeURIComponent({{ member.name|default('')|tojson }}) + '/' + encodeURIComponent({{ invoice.name|default('')|tojson }}) + '/' + encodeURIComponent(method);
 }
 </script>
 {% endblock %}

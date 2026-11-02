@@ -4,6 +4,7 @@
 	const SUBMIT = 'verenigingen.api.short_application.submit_short_application';
 	const CONFIRM = 'verenigingen.api.short_application.confirm_short_application';
 	const MAX_REASONS = 5;
+	const DELIVERY_QUESTIONS = ['magazine_delivery', 'starter_guide_delivery'];
 
 	function post(method, args) {
 		return new Promise((resolve) => {
@@ -51,10 +52,24 @@
 			result.textContent = response.message;
 			if (response.success) {
 				confirmForm.style.display = 'none';
+				showStatusLink(result, response.status_url);
 			} else {
 				button.disabled = false;
 			}
 		});
+	}
+
+	function showStatusLink(result, statusUrl) {
+		// Only our own status page: the value comes from the server, but a link is never built from
+		// anything that does not start with its path.
+		if (typeof statusUrl !== 'string' || !statusUrl.startsWith('/application_status?')) {
+			return;
+		}
+		const link = document.createElement('a');
+		link.href = statusUrl;
+		link.textContent = __('Bekijk de status van je aanmelding');
+		result.appendChild(document.createElement('br'));
+		result.appendChild(link);
 	}
 
 	function initApplicationForm(form) {
@@ -88,7 +103,7 @@
 	}
 
 	function isPostal(form) {
-		return ['magazine_delivery', 'starter_guide_delivery'].some((name) => {
+		return DELIVERY_QUESTIONS.some((name) => {
 			const choice = value(form, name);
 			return choice === 'Papier' || choice === 'Beide';
 		});
@@ -122,8 +137,9 @@
 			Array.from(select.options).forEach((option) => {
 				option.disabled = abroad && (option.value === 'Papier' || option.value === 'Beide');
 			});
+			// Undo a choice that is no longer available; the applicant chooses again (#1968).
 			if (select.selectedOptions[0] && select.selectedOptions[0].disabled) {
-				select.value = 'Digitaal';
+				select.value = '';
 			}
 		});
 	}
@@ -210,6 +226,10 @@
 		if (!data.consent) {
 			found.push(__('Please agree to the membership terms.'));
 		}
+		// Rendered unanswered (#1968); a hidden question is not rendered, so it is not in the form.
+		if (DELIVERY_QUESTIONS.some((name) => state.form.elements[name] && !data[name])) {
+			found.push(__('Please choose how you want to receive the magazine and the starter guide.'));
+		}
 		return found;
 	}
 
@@ -235,7 +255,7 @@
 		}
 	}
 
-	window.ShortApplication = { chosenAmount, resetAmountOnFrequencyChange };
+	window.ShortApplication = { chosenAmount, problems, refreshDeliveryOptions, resetAmountOnFrequencyChange };
 
 	frappe.ready(init);
 })();

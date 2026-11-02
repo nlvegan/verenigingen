@@ -54,6 +54,7 @@ class TestMalformedMutationData(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):
@@ -227,6 +228,7 @@ class TestBaseProcessorDuplicateCheck(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = None  # No duplicate by default
 
     def tearDown(self):
@@ -455,6 +457,7 @@ class TestNegativeRowAmountWarning(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.payment_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = None
         self.mock_frappe.get_single.return_value = MagicMock(
             get=MagicMock(return_value=None)
@@ -464,12 +467,14 @@ class TestNegativeRowAmountWarning(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_base_frappe = self.base_patcher.start()
+        self.addCleanup(self.base_patcher.stop)
         self.mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
         self.log_patcher = patch(
             "verenigingen.e_boekhouden.utils.processors.payment_processor.safe_log_mutation_error"
         )
         self.mock_log = self.log_patcher.start()
+        self.addCleanup(self.log_patcher.stop)
 
     def tearDown(self):
         """Clean up patches"""
@@ -508,12 +513,14 @@ class TestPaymentGatewayEdgeCases(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.payment_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.utils.flt = lambda x, precision=None: round(float(x or 0), precision or 2)
 
         self.base_patcher = patch(
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_base_frappe = self.base_patcher.start()
+        self.addCleanup(self.base_patcher.stop)
         self.mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):
@@ -617,6 +624,7 @@ class TestErrorFormatting(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):
@@ -686,6 +694,7 @@ class TestMutationValidation(unittest.TestCase):
             "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
         )
         self.mock_frappe = self.frappe_patcher.start()
+        self.addCleanup(self.frappe_patcher.stop)
         self.mock_frappe.db.get_value.return_value = "Default Cost Center"
 
     def tearDown(self):

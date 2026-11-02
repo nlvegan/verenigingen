@@ -345,21 +345,16 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # Create second chapter for transfer
         target_chapter = self.create_chapter(region="Zuid-Holland")
 
-        # Transfer member between chapters using ChapterMembershipManager
-        from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+        # Transfer member between chapters with the staff move (Member form "Assign Chapter")
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
-        transfer_result = ChapterMembershipManager.transfer_member_between_chapters(
-            member_id=original_member.name,
-            from_chapter=self.test_chapter.name,
-            to_chapter=target_chapter.name,
-            reason="Test chapter transfer workflow",
-            assigned_by=frappe.session.user
+        transfer_result = assign_member_to_chapter_with_cleanup(
+            original_member.name, target_chapter.name, note="Test chapter transfer workflow"
         )
 
         # Verify transfer completed successfully
         self.assertTrue(transfer_result.get("success"),
-                       f"Transfer failed: {transfer_result.get('error')}")
-        self.assertEqual(transfer_result.get("action"), "transferred")
+                       f"Transfer failed: {transfer_result.get('message')}")
 
         # Reload member and verify chapter display updated
         original_member.reload()
