@@ -186,10 +186,9 @@ class MijnRoodEventApplicationService(StatefulService):
         return self._sync_division_to_chapter(new_data, event)
 
     def _apply_new_membership_application(self, event) -> dict:
-        """Create a pending membership application from MijnRood data.
+        """Stage a MijnRood application as a Membership Application Submission (Pending Review).
 
-        Creates a Member document with application_status=Pending so it
-        enters the normal membership application review workflow.
+        The same record both web forms create (#1855); no Member exists until it is approved.
         """
         return get_application_sync_service().apply_new_membership_application(event)
 
@@ -218,10 +217,10 @@ class MijnRoodEventApplicationService(StatefulService):
         return self._sync_division_to_chapter(new_data, event)
 
     def _apply_changed_membership_application(self, event) -> dict:
-        """Update a pending membership application from changed MijnRood data.
+        """Update a Pending Review application from changed MijnRood data.
 
-        Finds the linked Member (application) and updates fields that changed.
-        Handles preferred_division_id changes as chapter reassignment.
+        Finds the application (Membership Application Submission) and replaces its payload,
+        including a changed preferred_division_id as the application's chapter.
         """
         return get_application_sync_service().apply_changed_membership_application(event)
 
@@ -244,9 +243,9 @@ class MijnRoodEventApplicationService(StatefulService):
         """Apply an Approved event synthesized by the approval correlator.
 
         The event's old_data is the deleted application row; new_data is the
-        newly-created admin_member row. We locate the local Pending Member
-        that was created when the application first synced, then delegate to
-        _promote_application_member for the actual promotion.
+        newly-created admin_member row. We locate the local application (a Membership
+        Application Submission) staged when the application first synced and approve it
+        through approve_application, then apply MijnRood's member data (#1855).
         """
         return get_application_sync_service().apply_approved(event)
 

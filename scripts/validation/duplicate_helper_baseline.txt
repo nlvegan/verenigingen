@@ -78,15 +78,14 @@ _charge::2
 _clean_value::2
 _cleanup::3
 _cleanup_bank_transactions::5  # clone family, 6 near-identical pair(s)
-_cleanup_by_member_id::2
 _cleanup_chapter::3  # clone family, 1 near-identical pair(s)
 _cleanup_chapter_role::2
 _cleanup_customer_dependencies::2
 _cleanup_document_with_retry::2
-_cleanup_event::9  # clone family, 11 near-identical pair(s)
-_cleanup_member_and_customer::11  # clone family, 4 near-identical pair(s)
+_cleanup_event::3
+_cleanup_member_and_customer::7  # clone family, 3 near-identical pair(s)
 _cleanup_member_by_member_id::2  # clone family, 1 near-identical pair(s)
-_cleanup_status_mapping::7  # clone family, 21 near-identical pair(s)
+_cleanup_status_mapping::2  # clone family, 1 near-identical pair(s)
 _cleanup_test_cors::2  # clone family, 1 near-identical pair(s)
 _cleanup_test_data::2
 _cleanup_thread_context::2  # clone family, 1 near-identical pair(s)
@@ -131,7 +130,6 @@ _create_own_address::2  # clone family, 1 near-identical pair(s)
 _create_party::2
 _create_payment_entry::4
 _create_payment_entry_for_dues::2
-_create_pending_member::2
 _create_permissions_test_donor::3  # clone family, 3 near-identical pair(s)
 _create_plan::5  # clone family, 6 near-identical pair(s)
 _create_purposeless_mandate::2
@@ -356,7 +354,7 @@ _make_employee::12  # clone family, 7 near-identical pair(s)
 _make_empty_role_profile::2  # clone family, 1 near-identical pair(s)
 _make_error_log::2
 _make_eur_invoice::2
-_make_event::7  # clone family, 1 near-identical pair(s)
+_make_event::6  # clone family, 1 near-identical pair(s)
 _make_expense_claim::4
 _make_failed_acr::2
 _make_forward_payment_entry::2

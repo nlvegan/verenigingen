@@ -382,54 +382,8 @@ class TestApplyDeleted(TestDispatcherBase):
 
 
 class TestApplyApproved(TestDispatcherBase):
-    """Correlator-synthesized Approved promotion path."""
-
-    def _create_pending_application(self, app_id, email):
-        """Create a Pending Member as the application sync would."""
-        ev = self._make_event(
-            "New",
-            "admin_membership_application",
-            new_data={
-                "id": app_id,
-                "first_name": "Pending",
-                "last_name": "Applicant",
-                "email": email,
-                "current_membership_status_id": 1,
-            },
-        )
-        result = self._apply(ev)
-        self.assertTrue(result["success"], result)
-        return ev.linked_member
-
-    def test_approved_promotes_linked_pending_member(self):
-        app_id = _next_id()
-        new_member_id = _next_id()
-        email = f"promote.{app_id}@example.com"
-        member_name = self._create_pending_application(app_id, email)
-        self.assertEqual(frappe.db.get_value("Member", member_name, "application_status"), "Pending")
-
-        approved = self._make_event(
-            "Approved",
-            "admin_member",
-            old_data={"id": app_id, "email": email},
-            new_data={
-                "id": new_member_id,
-                "first_name": "Pending",
-                "last_name": "Applicant",
-                "email": email,
-                "current_membership_status_id": 1,
-            },
-            linked_member=member_name,
-        )
-        result = self._apply(approved)
-        self.assertTrue(result["success"], result)
-        self.assertIn("promoted", result["message"])
-
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.application_status, "Approved")
-        self.assertEqual(member.status, "Active")
-        # member_id updated to the new admin_member id.
-        self.assertEqual(str(member.member_id), str(new_member_id))
+    """Correlator-synthesized Approved promotion path (the promotion itself is covered end to end in
+    tests/services/event_application/test_application_sync_service.py)."""
 
     def test_approved_no_new_data_fails(self):
         ev = self._make_event(

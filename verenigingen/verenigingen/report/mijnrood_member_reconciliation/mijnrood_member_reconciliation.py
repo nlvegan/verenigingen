@@ -3,7 +3,8 @@
 Compares the membership rosters on both sides and surfaces discrepancies.
 Joins on ``Member.member_id`` (str) == ``admin_member.id`` (int) for full
 members, and against ``admin_membership_application.id`` for pending
-applications (Member.status == 'Pending').
+applications (Pending Review Membership Application Submissions from MijnRood,
+plus any legacy Member.status == 'Pending').
 
 Classifications:
 - OK                 — both sides agree on state
@@ -16,8 +17,9 @@ Active definition (per operator guidance):
   AND Verenigingen Member.status == 'Active'.
 - Suspended (MijnRood geschorst, id=6) maps to our Member.status='Suspended'.
 - Pending applications live in admin_membership_application on MijnRood (a
-  separate table from admin_member). Our Members with status='Pending' are
-  reconciled against that table. Once an application is approved on MijnRood
+  separate table from admin_member). Our MijnRood applications (Membership
+  Application Submissions, #1855, and legacy Members with status='Pending')
+  are reconciled against that table. Once an application is approved on MijnRood
   it moves to admin_member with a new id; our side updates Member.member_id
   during promotion, so post-approval rows reconcile against admin_member.
 
@@ -157,11 +159,11 @@ def _fetch_our_members() -> tuple[dict[int, dict], dict[int, dict]]:
     Returns:
         (members_by_id, applicants_by_id) keyed by int(member_id).
 
-    Status='Pending' on the Member is the signal for "this is currently an
-    application on our side". Pending Members carry their MijnRood
-    application_id in member_id (set during _apply_new_membership_application);
-    once the application is promoted on MijnRood the id flips to the
-    admin_member id, which is when status moves off "Pending" too.
+    "This is currently an application on our side" is a Pending Review
+    Membership Application Submission from MijnRood, whose application_id is
+    ``MR-APP-<id>`` (#1855), or a legacy Member with status='Pending' that
+    carries the application id in member_id. Once the application is promoted
+    on MijnRood the id flips to the admin_member id.
     """
     rows = frappe.get_all(
         "Member",
@@ -183,6 +185,23 @@ def _fetch_our_members() -> tuple[dict[int, dict], dict[int, dict]]:
             "last_name": (r.get("last_name") or "").strip(),
             "email": (r.get("email") or "").strip().lower(),
             "our_status": r.get("status") or "",
+        }
+    for application in frappe.get_all(
+        "Membership Application Submission",
+        filters={"source": "MijnRood", "status": "Pending Review"},
+        fields=["application_id", "applicant_name", "email"],
+    ):
+        try:
+            mid = int(application.application_id.removeprefix("MR-APP-"))
+        except (AttributeError, ValueError):
+            continue
+        applicants[mid] = {
+            "mijnrood_id": mid,
+            "member_name": None,
+            "first_name": (application.applicant_name or "").strip(),
+            "last_name": "",
+            "email": (application.email or "").strip().lower(),
+            "our_status": "Pending",
         }
     return members, applicants
 
