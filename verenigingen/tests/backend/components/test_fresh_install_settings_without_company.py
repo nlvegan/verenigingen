@@ -10,27 +10,12 @@
 
 import contextlib
 import io
-import json
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from verenigingen import setup as setup_mod
-from verenigingen.tests.utils.paths import APP_ROOT
-
-MEMBER_PROFILE = "Verenigingen Member"
-DEFAULT_TYPES = ["Lid", "Huisgenootlid", "Aspirant", "Erelid", "Donateur"]
-
-
-class _RolledBackCase(FrappeTestCase):
-    def setUp(self):
-        super().setUp()
-        patcher = mock.patch.object(frappe.db, "commit")
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.addCleanup(frappe.db.rollback)
-        self.addCleanup(frappe.clear_cache)
+from verenigingen.tests.backend.components.test_fresh_install_fixture_ordering import _RolledBackCase
 
 
 class TestSettingsWithAStraySinglesRowAndNoCompany(_RolledBackCase):
@@ -93,3 +78,23 @@ class TestSettingsWithAStraySinglesRowAndNoCompany(_RolledBackCase):
         with mock.patch.object(setup_mod, "create_default_verenigingen_settings") as create:
             setup_mod.ensure_default_verenigingen_settings()
         create.assert_not_called()
+
+    def test_a_row_without_company_is_completed_not_overwritten(self):
+        """Opposite harm: Document.insert on a Single deletes its rows first, so creating over a
+        partial row wiped the admin's values (support_email went to '')."""
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        get_eur_test_company()
+        frappe.db.sql(
+            "insert into `tabSingles` (doctype, field, value) values (%s, %s, %s)",
+            ("Verenigingen Settings", "support_email", "keep@example.org"),
+        )
+        frappe.clear_cache(doctype="Verenigingen Settings")
+        with contextlib.redirect_stdout(io.StringIO()):
+            setup_mod.ensure_default_verenigingen_settings()
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "support_email"), "keep@example.org"
+        )
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        self.assertTrue(company)
+        self.assertTrue(frappe.db.exists("Company", company))

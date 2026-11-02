@@ -467,6 +467,12 @@ def create_default_verenigingen_settings():
                 )
                 return None
 
+            if frappe.db.get_singles_dict("Verenigingen Settings"):
+                # A row without a company (#1957): Document.insert on a Single deletes every
+                # existing row first, so completing it must go through the existing doc.
+                _complete_partial_settings(default_company)
+                return frappe.get_doc("Verenigingen Settings")
+
             settings = frappe.get_doc(
                 {
                     "doctype": "Verenigingen Settings",
@@ -514,6 +520,21 @@ def create_default_verenigingen_settings():
         print(f"⚠️ Failed to create Verenigingen Settings: {str(e)}")
         # Don't fail installation if settings creation fails
         return None
+
+
+def _complete_partial_settings(company):
+    """Fill only the mandatory `company` (and `creation_user` when empty) on a Settings Single
+    that already has rows, keeping every value it holds."""
+    settings = frappe.get_doc("Verenigingen Settings")
+    settings.company = company
+    if not settings.company_name:
+        settings.company_name = company
+    if not settings.creation_user:
+        settings.creation_user = frappe.session.user or "Administrator"
+    _seed_default_document_categories(settings)
+    settings.save(ignore_permissions=True)
+    frappe.db.commit()
+    print("✅ Completed Verenigingen Settings (company was missing)")
 
 
 def _resolve_install_company():
