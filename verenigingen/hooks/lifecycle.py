@@ -23,6 +23,9 @@ after_install = [
     # creates them; a fresh site (every CI shard) never runs patches.txt or a
     # bare `bench migrate`, but does run after_install via `install-app`.
     "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
+    # A notification key with no Email Configuration row counts as disabled, and a fresh site never
+    # runs the per-key patches, so every alert would be skipped silently -- see #1959.
+    "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
 ]
 
 # Run at the end of `install-app`, AFTER sync_fixtures (frappe/installer.py: after_install hooks
