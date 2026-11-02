@@ -236,6 +236,13 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "chapter_membership_approved": {
+        "label": "Chapter Membership Approved",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to the member when their request to join a chapter is approved.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
     # =========================================================================
@@ -244,6 +251,48 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_PAYMENT,
         "description": "Confirmation sent when a payment is successfully processed.",
         "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "payment_failure_first": {
+        "label": "Payment Failed (First)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after the first failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "payment_failure_second": {
+        "label": "Payment Failed (Second)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after a second failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "payment_failure": {
+        "label": "Payment Failure (Chapter Board)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to a chapter's board when a member of the chapter has overdue payments. Not part of the member dunning series (payment_failure_first, _second, _final).",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_reminder_friendly": {
+        "label": "Payment Reminder (Friendly)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Friendly reminder sent to a member about an upcoming or overdue payment.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "subscription_cancelled": {
+        "label": "Subscription Cancelled",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is cancelled.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "subscription_suspended": {
+        "label": "Subscription Suspended",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is suspended.",
+        "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
     "payment_failure_final": {

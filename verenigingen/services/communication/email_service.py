@@ -742,8 +742,8 @@ class EmailService(StatelessService):
         """Validate that a notification_key exists in the registry.
 
         Logs a warning if the key is not found but does not raise an exception.
-        This allows emails to still be sent while alerting developers to add
-        missing keys to the registry.
+        The caller then drops the mail, because a key with no registry entry has no
+        Verenigingen Email Configuration row and so counts as disabled (#1999).
 
         Args:
             notification_key: The notification type key to validate.
@@ -757,8 +757,8 @@ class EmailService(StatelessService):
             if notification_key not in NOTIFICATION_KEYS:
                 self.logger.warning(
                     f"notification_key '{notification_key}' not found in NOTIFICATION_KEYS registry. "
-                    f"Add it to verenigingen/notification_registry.py for proper configuration control. "
-                    f"Email will still be sent."
+                    f"Add it to verenigingen/notification_registry.py. "
+                    f"The email is skipped as disabled unless a configuration row for this key was added by hand."
                 )
                 return False
             return True
