@@ -21,7 +21,7 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.response_guard import guard_local_response
 
 
-def _pollute():
+def _pollute_response():
     frappe.local.response = frappe._dict()
 
 
@@ -40,7 +40,7 @@ def _run_doc_method_victim(test):
 
 class TestVereningingenBaseKeepsResponseUsable(VereningingenTestCase):
     def test_1_polluter(self):
-        _pollute()
+        _pollute_response()
         self.assertIsNone(frappe.local.response.get("docs"), "control: the polluter must drop docs")
 
     def test_2_run_doc_method_after_a_polluter(self):
@@ -50,7 +50,7 @@ class TestVereningingenBaseKeepsResponseUsable(VereningingenTestCase):
 
 class TestEnhancedBaseKeepsResponseUsable(EnhancedTestCase):
     def test_1_polluter(self):
-        _pollute()
+        _pollute_response()
         self.assertIsNone(frappe.local.response.get("docs"), "control: the polluter must drop docs")
 
     def test_2_run_doc_method_after_a_polluter(self):
@@ -76,13 +76,13 @@ class TestGuardOnAPlainTestCase(unittest.TestCase):
     def test_a_response_left_bare_by_a_guardless_polluter_is_normalised_at_setup(self):
         original = frappe.local.response
         self.addCleanup(setattr, frappe.local, "response", original)
-        _pollute()  # what a plain FrappeTestCase polluter leaves behind, no guard involved
+        _pollute_response()  # what a plain FrappeTestCase polluter leaves behind, no guard involved
         seen = {}
         self._run_probe(lambda probe: seen.update(docs=frappe.local.response.get("docs")))
         self.assertEqual(seen["docs"], [])
 
     def test_cleanup_restores_the_original_object_and_its_contents(self):
-        original = frappe._dict(docs=["kept"], marker="before")
+        original = frappe._dict(docs=["kept"], marker="before", headers={"Pragma": "kept"})
         self.addCleanup(setattr, frappe.local, "response", frappe.local.response)
         frappe.local.response = original
 
@@ -90,7 +90,8 @@ class TestGuardOnAPlainTestCase(unittest.TestCase):
             frappe.local.response = frappe._dict()  # replaced wholesale ...
             original["http_status_code"] = 500  # ... and mutated in place
             original["docs"].append("appended by run_doc_method")
+            original["headers"]["Cache-Control"] = "leaked"  # brand_css pages write here
 
         self._run_probe(body)
         self.assertIs(frappe.local.response, original)
-        self.assertEqual(dict(original), {"docs": ["kept"], "marker": "before"})
+        self.assertEqual(dict(original), {"docs": ["kept"], "marker": "before", "headers": {"Pragma": "kept"}})

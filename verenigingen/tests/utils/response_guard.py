@@ -19,11 +19,14 @@ The guard does two things, both called from the shared bases' ``setUp``:
   (left by a polluter that registers no guard, e.g. a plain ``FrappeTestCase``) is replaced by
   what ``frappe.init`` would have bound. Without this a victim is protected only from
   polluters that use the harness.
-* **Restore** via ``addCleanup``: the response object bound when the test started is re-bound
-  afterwards with its contents (including a copy of ``docs``) as they were, so the LAST polluter
+* **Restore** via ``addCleanup``: the response object bound when the test started (for a
+  guardless polluter that was normalised above, that is the NORMALISED object, i.e. the bare
+  response is healed permanently, not put back) is re-bound afterwards with its contents (including a copy of ``docs``) as they were, so the LAST polluter
   in a class cannot leak into the next class, and neither can an in-place
   ``response["http_status_code"] = ...`` or a doc appended by ``run_doc_method``.
 """
+
+import copy
 
 import frappe
 
@@ -32,8 +35,11 @@ def _is_well_formed(response):
     return isinstance(response, dict) and isinstance(response.get("docs"), list)
 
 
-def _snapshot(response):
-    return {k: (list(v) if isinstance(v, list) else v) for k, v in response.items()}
+def _snapshot_response(response):
+    """Copy one level of nested lists/dicts (`docs`, `headers`): the containers frappe and this
+    app mutate in place. Not a deepcopy on purpose: `docs` holds live Documents and a response
+    may hold a werkzeug Response, neither of which is safe or useful to copy."""
+    return {k: (copy.copy(v) if isinstance(v, (list, dict)) else v) for k, v in response.items()}
 
 
 def guard_local_response(test):
@@ -43,7 +49,7 @@ def guard_local_response(test):
         response = frappe._dict(docs=[])
         frappe.local.response = response
 
-    snapshot = _snapshot(response)
+    snapshot = _snapshot_response(response)
 
     def _restore():
         response.clear()
