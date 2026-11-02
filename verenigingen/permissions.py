@@ -340,12 +340,15 @@ def _is_member_in_chapters(member_name, chapter_names, include_pending=False):
         chapter_names: List of chapter names to check against
         include_pending: Also match a Chapter Member row with status='Pending',
             but ONLY when `member_name` is ITSELF an unapproved application
-            (Member.application_status == 'Pending'). #1518: a membership
-            application's Chapter Member row is written with status="Pending"
-            (application_helpers.create_pending_chapter_membership) and only
-            flips to "Active" on approval, so an Active-only check here
-            refused a board member's write (e.g. member.save() during
-            approve/reject) on their own chapter's still-pending applicant.
+            (Member.application_status == 'Pending'). #1518, still needed after #1765:
+            approve_application's materialise_member writes the applicant's Chapter Member
+            row with status="Pending" (application_helpers.create_pending_chapter_membership)
+            and approval flips it to "Active" at its end, so while the approval core runs
+            as the reviewer, an Active-only check here refuses the reviewer's own
+            member.save() on their own chapter's applicant. Measured (#1765, task 9): with
+            include_pending ignored, TestApproveApplicationBoard.
+            test_board_member_approves_own_chapter_application goes from OK to a
+            PermissionError. Rejecting touches no Member and no Chapter Member row.
 
             The extra application_status condition closes an escalation found
             in review of #1518's first fix round: a Chapter Member row can ALSO
@@ -694,7 +697,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
             ``_is_member_in_chapters`` for the has_permission half only (the
             permission_query half -- list views -- is untouched and stays
             Active-only; see that function's own docstring). #1518: Membership
-            passes True because a board member's approve_membership_application
+            passes True because a board member's approve_application
             creates the applicant's Membership record BEFORE their Chapter
             Member row is activated from "Pending" to "Active"
             (activate_pending_chapter_memberships runs after
@@ -893,10 +896,10 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 # Indexed rather than unpacked into `_`: this module does not import frappe's translation
 # function today, but binding `_` at module scope would silently shadow it if anyone does.
 #
-# include_pending=True (#1518): approve_membership_application creates this very
+# include_pending=True (#1518): approve_application creates this very
 # Membership record BEFORE activate_pending_chapter_memberships flips the applicant's
 # Chapter Member row from "Pending" to "Active", so an Active-only check here refused
-# the insert -- the board member had already cleared can_user_manage_application and
+# the insert -- the board member had already cleared the approval permission check and
 # Member.save() by that point, and the create failed one step later on Membership
 # itself for the identical underlying reason.
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
@@ -2302,3 +2305,52 @@ APPS_SCREEN_ROLES = frozenset(
 def check_app_permission():
     """`has_permission` for the `add_to_apps_screen` hook: whether this user sees the tile."""
     return bool(APPS_SCREEN_ROLES.intersection(frappe.get_roles()))
+
+
+# --- Membership Application Submission (#1765) ---------------------------------------------
+# Read follows ANY active board seat on the application's chapter, exactly as reading a pending
+# applicant's Member does (has_member_permission -> get_user_chapter_memberships_cached).
+# Approving or rejecting needs an Admin-level seat and is decided by chapter_security
+# (can_user_manage_application_record), not here: this hook only scopes who SEES a row.
+
+
+def _seat_chapters_for_application_read(user):
+    """ "all" for admin/staff/national board and for a seat in the configured national board chapter
+    (#1868: that seat read every pending application before applications became their own record),
+    else the chapters of every active seat."""
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    if get_user_manageable_chapters(user) == "all":
+        return "all"
+    chapters = get_user_chapter_memberships_cached(user, get_cache_key())
+    national = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+    if national and national in chapters:
+        return "all"
+    return chapters
+
+
+def get_application_permission_query(user):
+    """List scope: all applications for admins, those of the seat chapters for a board member,
+    nothing for anyone else (a MAS with no chapter is therefore admin-only)."""
+    if not user:
+        user = frappe.session.user
+    chapters = _seat_chapters_for_application_read(user)
+    if chapters == "all":
+        return ""
+    if not chapters:
+        return "1=0"
+    quoted = ", ".join(frappe.db.escape(chapter) for chapter in chapters)
+    return f"`tabMembership Application Submission`.`chapter` IN ({quoted})"
+
+
+def has_application_permission(doc, user=None, ptype=None):
+    """Document scope, read-only for board members; the list query above and this agree."""
+    if not user:
+        user = frappe.session.user
+    chapters = _seat_chapters_for_application_read(user)
+    if chapters == "all":
+        return True
+    if ptype not in ("read", "select"):
+        return False
+    chapter = frappe.db.get_value("Membership Application Submission", doc.name, "chapter")
+    return bool(chapter) and chapter in chapters

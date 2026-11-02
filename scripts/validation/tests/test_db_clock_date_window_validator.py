@@ -253,8 +253,10 @@ class BaselineIsSelfConsistentTest(unittest.TestCase):
     def test_baseline_total_matches_the_documented_count(self):
         """Pinned so a silent change to either the tree OR the detection rules
         is visible in a diff, not just in the baseline file."""
-        self.assertEqual(sum(self.counts.values()), 90)
-        self.assertEqual(len(self.counts), 45)
+        # 89 / 44, was 90 / 45: #1765 rewrote the pending-applications report onto
+        # pending_review_applications, so pending_membership_applications.py::get_data left the baseline.
+        self.assertEqual(sum(self.counts.values()), 89)
+        self.assertEqual(len(self.counts), 44)
 
     def test_the_validators_own_file_is_never_a_finding(self):
         """The self-exclusion this file's docstrings need (they quote the bad

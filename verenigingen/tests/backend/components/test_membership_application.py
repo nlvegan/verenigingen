@@ -4,22 +4,10 @@ import unittest
 import frappe
 from frappe.utils import add_days, now_datetime, today
 
-from verenigingen.api.member_management import add_member_to_chapter_roster
-
-# Note: approve_membership_application / reject_membership_application
-# imported here are the DEPRECATED shims in api.membership_application.
-# They emit DeprecationWarning and delegate to the canonical
-# api.membership_application_review functions. T4.1 kept the shims alive
-# (they correctly delegate) to avoid breaking the many call sites in this
-# test file; future cleanup is tracked as a follow-up.
-from verenigingen.api.membership_application import (
-    approve_membership_application,
-    reject_membership_application,
-    submit_application,
-)
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.api.membership_application import submit_application
+from verenigingen.services.member.application.application_materialiser import materialise_member
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.validation.application_validators import (
     validate_birth_date as validate_birth_date_util,
@@ -43,6 +31,47 @@ def _ensure_region(region_name: str, region_code: str) -> str:
             or region_name.lower().replace(" ", "-")
 
 
+class ApplicationFlowCase(ApprovalCase):
+    """ApprovalCase plus the four real-flow calls this module's tests are built from.
+
+    Submitting an application stages a Membership Application Submission; approval creates the Member
+    (#1765). So a test either looks at the application flow (`_submit`, `_confirmed`), at the Member
+    BEFORE approval (`_materialised`: the step approve_application runs first, on a confirmed
+    application), or at the whole thing (`_approved`: submit -> confirm -> approve_application).
+    Every one of them goes through the real endpoints; the form is posted as a Guest from a fresh address.
+    """
+
+    def _post_application_form(self, form=None, **kwargs):
+        """The real submit endpoint's response; nothing is confirmed."""
+        self._request_from_fresh_ip()
+        previous = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            return submit_application(**(form or {}), **kwargs)
+        finally:
+            frappe.set_user(previous)
+
+    def _confirmed(self, form):
+        """Submit and follow the emailed link; returns the application's name. A form that names no chapter
+        has none (the default form of ApprovalCase picks one)."""
+        return self._stage_and_confirm(**{"selected_chapter": "", **form})
+
+    def _materialised(self, form):
+        """The name of the Pending Member for a confirmed application (created or updated by
+        materialise_member, which approve_application runs first)."""
+        return materialise_member(frappe.get_doc(SUBMISSION, self._confirmed(form))).name
+
+    def _approved_application(self, form, notes=None, create_invoice=True):
+        """Submit, confirm and approve; returns approve_application's response, whose
+        "member" is the Member it created."""
+        # As Administrator, as these tests always approved: a staff user's session cannot insert the Sales
+        # Invoice in this bare environment (ApprovalCase's tests therefore never assert an invoice).
+        frappe.get_doc("Membership Type", form["selected_membership_type"]).get_or_create_membership_item()
+        return self._approve_as(
+            self._confirmed(form), user="Administrator", notes=notes, create_invoice=create_invoice
+        )
+
+
 def get_member_primary_chapter(member_name):
     """Helper function to get member's primary chapter from Chapter Member table"""
     try:
@@ -58,7 +87,7 @@ def get_member_primary_chapter(member_name):
         return None
 
 
-class TestMembershipApplication(VereningingenTestCase):
+class TestMembershipApplication(ApplicationFlowCase):
     """Test membership application workflow"""
 
     @classmethod
@@ -172,22 +201,26 @@ class TestMembershipApplication(VereningingenTestCase):
 
     def test_submit_application(self):
         """Test application submission"""
-        result = submit_application(**self.application_data)
+        result = self._post_application_form(self.application_data)
 
         self.assertTrue(result["success"])
-        self.assertIn("member_record", result["data"])
-        self.assertIn("application_id", result["data"])
+        self.assertEqual(result["data"]["status"], "confirmation_sent")
+        # Submitting only stages an application (#1765): no Member exists until it is approved.
+        self.assertEqual(frappe.db.count("Member", {"email": self.test_email}), 0)
 
-        # Verify member created
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        # Confirming the emailed link and materialising the Member (what approval does first)
+        member = frappe.get_doc("Member", self._materialised(self.application_data))
         self.assertEqual(member.application_status, "Pending")
         self.assertEqual(member.status, "Pending")
         self.assertEqual(member.email, self.test_email)
         self.assertEqual(member.interested_in_volunteering, 1)
 
-        # Verify application ID is set
-        self.assertIsNotNone(result["data"]["application_id"])
-        self.assertEqual(member.application_id, result["data"]["application_id"])
+        # Verify application ID is set, and is the application's own
+        self.assertIsNotNone(member.application_id)
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, {"email": self.test_email, "status": "Pending Review"}, "application_id"),
+            member.application_id,
+        )
 
     def test_age_validation(self):
         """An under-age applicant must be rejected by the eligibility gate.
@@ -210,7 +243,7 @@ class TestMembershipApplication(VereningingenTestCase):
 
         # The eligibility gate deliberately log_error()s the failure detail.
         self.expectErrorLog("Application Eligibility Failed")
-        result = submit_application(**young_data)
+        result = self._post_application_form(young_data)
 
         self.assertFalse(result["success"], "a 10-year-old must not be accepted")
         # Message-pinned: assert the AGE rule rejected it, not some unrelated
@@ -227,8 +260,7 @@ class TestMembershipApplication(VereningingenTestCase):
 
     def test_chapter_suggestion(self):
         """Test automatic chapter suggestion"""
-        result = submit_application(**self.application_data)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(self.application_data))
 
         # Should suggest Test Chapter based on postal code
         # Note: suggested_chapter field may not exist, check current_chapter_display instead
@@ -237,67 +269,28 @@ class TestMembershipApplication(VereningingenTestCase):
         elif hasattr(member, 'current_chapter_display') and member.current_chapter_display:
             self.assertIn(self.test_chapter.chapter_name, member.current_chapter_display)
 
-    @unittest.skip("Dues schedule creation timing issues - needs investigation")
-    def test_approve_application(self):
-        """Test application approval workflow"""
-        # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name, "Approved for testing")
-
-        self.assertTrue(approval_result["success"])
-        self.assertIn("invoice", approval_result["data"])
-
-        # Verify member status
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.application_status, "Approved")
-        self.assertEqual(member.review_notes, "Approved for testing")
-
-        # Verify membership created
-        membership = frappe.get_doc("Membership", {"member": member_name})
-        self.assertIn(membership.status, ["Draft", "Pending", "Active"])  # May be activated after approval
-        self.assertEqual(membership.membership_type, "Test Membership")
-
-        # Verify dues schedule created
-        self.assertIsNotNone(
-            membership.dues_schedule, "Dues schedule should be created for approved membership"
-        )
-        dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
-        self.assertEqual(dues_schedule.status, "Active", "Dues schedule should be active")
-        self.assertEqual(
-            float(dues_schedule.monthly_amount), 15.0, "Dues schedule amount should match membership type minimum_amount"
-        )
 
     def test_reject_application(self):
         """Test application rejection"""
-        # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
+        # Submit and confirm the application (no Member exists yet)
+        name = self._confirmed(self.application_data)
 
-        # Reject application
-        # VereningingenTestCase handles Administrator context appropriately
-        rejection_result = reject_membership_application(member_name, "Does not meet requirements")
+        # Reject the application: only the application changes, no Member is created (#1765)
+        rejection_result = self._reject_as(name, reason="Does not meet requirements")
 
         self.assertTrue(rejection_result["success"])
 
-        # Verify member status
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.review_notes, "Does not meet requirements")
+        application = frappe.get_doc(SUBMISSION, name)
+        self.assertEqual(application.status, "Rejected")
+        self.assertIn("Does not meet requirements", application.review_notes)
+        self.assertEqual(frappe.db.count("Member", {"email": self.test_email}), 0)
 
     def test_payment_processing(self):
         """Test that an approved application reaches the Approved state and
         provisions the related volunteer record."""
         # Submit and approve application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approve_membership_application(member_name)
+        approval_result = self._approved_application(self.application_data)
+        member_name = approval_result["member"]
 
         # Verify approval worked
         member = frappe.get_doc("Member", member_name)
@@ -311,18 +304,18 @@ class TestMembershipApplication(VereningingenTestCase):
     def test_duplicate_email_prevention(self):
         """Test that duplicate emails are prevented"""
         # Submit first application
-        first_result = submit_application(**self.application_data)
+        first_result = self._post_application_form(self.application_data)
         self.assertTrue(first_result["success"])
 
         # Try to submit with same email - should fail or handle reapplication
-        second_result = submit_application(**self.application_data)
+        second_result = self._post_application_form(self.application_data)
         # Either fails with error, or handles reapplication scenario
         if not second_result["success"]:
             error = second_result.get("error", {})
             error_message = error.get("message", "") if isinstance(error, dict) else str(error)
             self.assertIn("already", error_message.lower())
         else:
-            # Reapplication scenario - same member record updated
+            # Reapplication scenario - the earlier unconfirmed application is replaced
             self.assertTrue(second_result["success"])
 
     def test_overdue_detection(self):
@@ -330,17 +323,17 @@ class TestMembershipApplication(VereningingenTestCase):
         # Create an old application
         old_data = self.application_data.copy()
         old_data["email"] = f"old_{self.test_email}"
-        result = submit_application(**old_data)
+        member_name = self._materialised(old_data)
 
         # Manually set the application date to 3 weeks ago
-        frappe.db.set_value("Member", result["data"]["member_record"], "application_date", add_days(now_datetime(), -21))
+        frappe.db.set_value("Member", member_name, "application_date", add_days(now_datetime(), -21))
 
         # Overdue check function was removed with application_notifications.py
         # The functionality now lives in api/overdue_application_notifications.py
         self.assertTrue(True)
 
 
-class TestMembershipApplicationLoad(EnhancedTestCase):
+class TestMembershipApplicationLoad(ApplicationFlowCase):
     """Load testing for membership applications"""
 
     @classmethod
@@ -480,52 +473,6 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             except Exception:
                 pass
 
-    @unittest.skip("Concurrent tests have threading/infrastructure issues")
-    def test_concurrent_applications(self):
-        """Test handling of multiple concurrent applications"""
-        import threading
-
-        results = []
-        errors = []
-
-        def submit_test_application(index):
-            try:
-                data = {
-                    "first_name": f"Test{index}",
-                    "last_name": "Concurrent",
-                    "email": f"concurrent{index}@test.com",
-                    "birth_date": "1990-01-01",
-                    "address_line1": "123 Test Street",
-                    "city": "Amsterdam",
-                    "postal_code": "1234AB",
-                    "country": "Netherlands",
-                    "selected_membership_type": "Test Membership"}
-                result = submit_application(data)
-                results.append(result)
-            except Exception as e:
-                errors.append(str(e))
-
-        # Create 10 concurrent applications
-        threads = []
-        for i in range(10):
-            t = threading.Thread(target=submit_test_application, args=(i,))
-            threads.append(t)
-            t.start()
-
-        # Wait for all threads
-        for t in threads:
-            t.join()
-
-        # Verify results
-        self.assertEqual(len(errors), 0)
-        self.assertEqual(len(results), 10)
-
-        # Clean up
-        for result in results:
-            if isinstance(result, dict) and result.get("data") and "member_record" in result.get("data", {}):
-                frappe.delete_doc("Member", result["data"]["member_record"])
-            elif isinstance(result, dict) and "member_id" in result:
-                frappe.delete_doc("Member", result["member_id"])
 
     def test_custom_fee_application_no_change_tracking(self):
         """Test that applications with custom fees don't trigger fee change tracking"""
@@ -539,14 +486,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         custom_fee_data["email"] = f"customfee_{self.test_email}"
 
         # Submit application with custom fee
-        result = submit_application(**custom_fee_data)
-
-        # Verify submission successful
-        self.assertTrue(result["success"])
-        self.assertIn("member_record", result["data"])
-
-        # Get created member
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(custom_fee_data))
 
         # Verify custom fee was set correctly
         self.assertEqual(member.dues_rate, 75.0)
@@ -574,8 +514,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         print("\n🧪 Testing application_id generation...")
 
         # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(self.application_data)
 
         # Get member and verify application_id exists
         member = frappe.get_doc("Member", member_name)
@@ -584,16 +523,14 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         self.assertIsNotNone(member.application_id, "Member should have application_id")
         self.assertTrue(member.application_id.startswith("APP-"), "Application ID should start with APP-")
 
-        # The response should include applicant_id (which maps to application_id)
-        self.assertIn("applicant_id", result["data"], "Response should include applicant_id")
+        # The application carries the same id (the response no longer does: it only asks to confirm)
         self.assertEqual(
-            result["data"]["applicant_id"],
+            frappe.db.get_value(SUBMISSION, {"email": self.test_email, "status": "Pending Review"}, "application_id"),
             member.application_id,
-            "Response applicant_id should match member application_id",
+            "The application's application_id should be the Member's application_id",
         )
 
         print(f"✅ Application ID generated: {member.application_id}")
-        print(f"   Response includes applicant_id: {result['data'].get('applicant_id')}")
 
         # Clean up
         if member.customer:
@@ -615,8 +552,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             {"name": "Public Speaking", "category": "Communication", "level": "5 - Expert"},
         ]
 
-        result = submit_application(**skills_data)
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(skills_data)
         self.track_doc("Member", member_name)
 
         volunteers = frappe.get_all("Volunteer", filters={"member": member_name}, pluck="name")
@@ -646,8 +582,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         skills_data["email"] = f"emptyskills_{self.test_email}"
 
         # Submit application
-        result = submit_application(**skills_data)
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(skills_data)
 
         # Verify member was created
         member = frappe.get_doc("Member", member_name)
@@ -683,14 +618,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         iban_data["email"] = f"iban_{self.test_email}"
 
         # Submit application
-        result = submit_application(**iban_data)
-
-        # Verify submission successful
-        self.assertTrue(result["success"])
-        self.assertIn("member_record", result["data"])
-
-        # Get created member
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(iban_data))
 
         # Verify IBAN data was preserved
         self.assertEqual(member.iban, "NL02 ABNA 0123 4567 89")  # Should be formatted
@@ -740,8 +668,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         data["transfer_iban"] = "NL91ABNA0417164300"
         data["transfer_account_name"] = "Transfer Holder"
 
-        result = submit_application(**data)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(data))
         self.track_doc("Member", member.name)
 
         stored = frappe.db.get_value("Member", member.name, "*")
@@ -772,8 +699,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         data["address_line2"] = "Tweede regel 4B"
         data["state"] = "Noord-Holland"
 
-        result = submit_application(**data)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(data))
         self.track_doc("Member", member.name)
 
         self.assertTrue(member.primary_address, "the application created no Address")
@@ -784,10 +710,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_contact_number_field_usage(self):
         """Test that contact_number is used instead of mobile_no"""
         # Submit application with contact number
-        result = submit_application(**self.application_data)
-
-        # Get created member
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(self.application_data))
 
         # Verify contact_number field is used
         self.assertEqual(member.contact_number, "+31612345678")
@@ -800,12 +723,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_membership_submission_after_approval(self):
         """Test that membership is properly submitted after approval"""
         # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name, "Approved for testing")
+        approval_result = self._approved_application(self.application_data, notes="Approved for testing")
+        member_name = approval_result["member"]
 
         self.assertTrue(approval_result["success"])
 
@@ -828,17 +747,13 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_invoice_period_dates(self):
         """Test that invoices have proper billing period dates"""
         # Submit and approve application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
+        approval_result = self._approved_application(self.application_data)
 
         self.assertTrue(approval_result["success"])
-        self.assertIn("invoice", approval_result["data"])
+        self.assertIn("invoice", approval_result)
 
         # Get the invoice
-        invoice = frappe.get_doc("Sales Invoice", approval_result["data"]["invoice"])
+        invoice = frappe.get_doc("Sales Invoice", approval_result["invoice"])
 
         # Verify invoice has basic fields (billing_period fields may not exist)
         self.assertTrue(invoice.posting_date, "Invoice should have posting date")
@@ -852,12 +767,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def test_no_duplicate_invoices(self):
         """Test that approval doesn't create duplicate invoices"""
         # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
+        approval_result = self._approved_application(self.application_data)
+        member_name = approval_result["member"]
 
         self.assertTrue(approval_result["success"])
 
@@ -869,242 +780,6 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         print(f"✅ No duplicate invoices created for {member_name}")
 
-    @unittest.skip("Custom amount billing integration needs separate investigation - test setup/isolation issues")
-    def test_no_duplicate_invoices_with_custom_amount(self):
-        """Test that approval with custom amount doesn't create duplicate invoices"""
-        print("\n🧪 Testing duplicate invoice prevention with custom amount...")
-
-        # Submit application with custom amount
-        custom_amount_data = self.application_data.copy()
-        custom_amount_data["custom_contribution_fee"] = 45.0
-        custom_amount_data["uses_custom_amount"] = True
-        custom_amount_data["custom_amount_reason"] = "Higher contribution level"
-        custom_amount_data["email"] = f"customdup_{self.test_email}"
-
-        result = submit_application(**custom_amount_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Get member and verify setup
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.status, "Active")
-        self.assertEqual(member.application_status, "Active")
-
-        # Check invoices - should be exactly one with custom amount
-        if member.customer:
-            invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"customer": member.customer, "docstatus": ["!=", 2]},
-                fields=["name", "grand_total", "status"],
-            )
-
-            # Should have exactly one invoice
-            self.assertEqual(
-                len(invoices),
-                1,
-                f"Should have exactly one invoice, found {len(invoices)}: {[inv.name for inv in invoices]}",
-            )
-
-            # Invoice should have the custom amount
-            invoice = invoices[0]
-            self.assertEqual(
-                float(invoice.grand_total),
-                45.0,
-                f"Invoice amount should be €45.00, got €{invoice.grand_total}",
-            )
-
-            # Invoice should be linked to the membership
-            self.assertIsNotNone(invoice.membership, "Invoice should be linked to membership")
-
-            # Check membership record
-            memberships = frappe.get_all("Membership", filters={"member": member_name})
-            self.assertEqual(len(memberships), 1, "Should have exactly one membership")
-
-            membership = frappe.get_doc("Membership", memberships[0].name)
-            self.assertTrue(membership.uses_custom_amount, "Membership should use custom amount")
-            self.assertEqual(
-                float(membership.custom_amount), 45.0, "Membership custom amount should be €45.00"
-            )
-
-            # Check dues schedule was created and uses correct custom amount
-            dues_schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": member_name, "membership": membership.name},
-                fields=["name", "dues_rate", "status", "contribution_mode"]
-            )
-
-            if dues_schedules:
-                dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-                # CRITICAL TEST: Dues schedule should use the custom amount (€45.00)
-                self.assertEqual(
-                    float(dues_schedule.dues_rate),
-                    45.0,
-                    f"Dues schedule amount should be €45.00 (custom amount), got €{dues_schedule.dues_rate}",
-                )
-
-                self.assertEqual(dues_schedule.contribution_mode, "Custom", "Should use custom contribution mode")
-                self.assertTrue(dues_schedule.uses_custom_amount, "Should be marked as using custom amount")
-
-                # Dues schedule should be configured properly
-                print(f"   Dues schedule effective date: {dues_schedule.effective_date}")
-                print(f"   Dues schedule status: {dues_schedule.status}")
-                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
-            else:
-                print("   ⚠️  No dues schedule found - may be using legacy override system")
-
-            print(f"✅ Custom amount approval successful for {member_name}")
-            print(f"   Single invoice created: {invoice.name} (€{invoice.grand_total})")
-            print(f"   Membership custom amount: €{membership.custom_amount}")
-            if dues_schedules:
-                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
-            print("   No duplicate invoices created")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-    @unittest.skip("Complex billing coordination needs separate investigation")
-    def test_invoice_dues_schedule_coordination(self):
-        """Test that invoice creation and dues schedule creation are properly coordinated"""
-        print("\n🧪 Testing invoice-dues schedule coordination...")
-
-        # Submit application
-        result = submit_application(**self.application_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Get member and verify the coordination
-        member = frappe.get_doc("Member", member_name)
-
-        if member.customer:
-            # Get all invoices
-            invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"customer": member.customer, "docstatus": ["!=", 2]},
-                fields=["name", "grand_total", "posting_date"],
-            )
-
-            # Get membership
-            memberships = frappe.get_all("Membership", filters={"member": member_name})
-            self.assertEqual(len(memberships), 1, "Should have exactly one membership")
-
-            membership = frappe.get_doc("Membership", memberships[0].name)
-
-            # Verify invoice is linked to membership
-            application_invoices = [inv for inv in invoices if inv.membership == membership.name]
-            self.assertEqual(
-                len(application_invoices), 1, "Should have exactly one invoice linked to membership"
-            )
-
-            # Verify dues schedule exists and is properly configured
-            dues_schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": member_name, "membership": membership.name},
-                fields=["name", "status", "dues_rate", "effective_date"]
-            )
-
-            if dues_schedules:
-                dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-                # Dues schedule should be properly configured
-                from frappe.utils import getdate
-
-                if dues_schedule.effective_date >= getdate(membership.start_date):
-                    print(f"   ✅ Dues schedule effective from {dues_schedule.effective_date}")
-                else:
-                    print("   ✅ Dues schedule configured for immediate billing")
-
-            print(f"✅ Invoice-dues schedule coordination working for {member_name}")
-            print(f"   Application invoice: {application_invoices[0].name}")
-            print(f"   Membership: {membership.name}")
-            print(f"   Dues schedules: {len(dues_schedules)}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_dues_schedule_creation(self):
-        """Test that custom amounts create proper dues schedules with correct costs"""
-        print("\n🧪 Testing custom amount dues schedule creation...")
-
-        # Test multiple custom amounts to ensure each creates the right plan
-        test_amounts = [25.0, 50.0, 75.0]
-
-        for custom_amount in test_amounts:
-            print(f"\n  Testing custom amount: €{custom_amount}")
-
-            # Submit application with custom amount
-            custom_data = self.application_data.copy()
-            custom_data["custom_contribution_fee"] = custom_amount
-            custom_data["uses_custom_amount"] = True
-            custom_data["custom_amount_reason"] = f"Custom contribution of €{custom_amount}"
-            custom_data["email"] = f"custom{int(custom_amount)}_{self.test_email}"
-
-            result = submit_application(**custom_data)
-            member_name = result["data"]["member_record"]
-
-            # Approve application
-            # VereningingenTestCase handles Administrator context appropriately
-            approval_result = approve_membership_application(member_name)
-
-            self.assertTrue(approval_result["success"])
-
-            # Get member and check membership
-            member = frappe.get_doc("Member", member_name)
-            memberships = frappe.get_all("Membership", filters={"member": member_name})
-            self.assertEqual(len(memberships), 1, f"Should have exactly one membership for €{custom_amount}")
-
-            membership = frappe.get_doc("Membership", memberships[0].name)
-
-            # Verify membership billing amount
-            billing_amount = membership.get_billing_amount()
-            self.assertEqual(
-                float(billing_amount),
-                custom_amount,
-                f"Membership billing amount should be €{custom_amount}, got €{billing_amount}",
-            )
-
-            # Verify dues schedule
-            dues_schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": member_name, "membership": membership.name},
-                fields=["name", "dues_rate", "status", "contribution_mode"]
-            )
-            self.assertTrue(len(dues_schedules) > 0, f"Dues schedule should exist for €{custom_amount}")
-
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-            # CRITICAL ASSERTIONS: Dues schedule amount must match custom amount
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                custom_amount,
-                f"Dues schedule amount should be €{custom_amount}, got €{dues_schedule.dues_rate}",
-            )
-
-            # Clean up
-            if member.customer:
-                frappe.delete_doc("Customer", member.customer, force=True)
-            frappe.delete_doc("Member", member_name, force=True)
-
-            # Clean up custom dues schedule
-            if 'dues_schedule' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-
-        print("✅ All custom amount dues schedules created correctly")
 
     def test_standard_amount_uses_original_dues_schedule(self):
         """Test that standard amounts use the membership type configuration"""
@@ -1117,17 +792,12 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         standard_data.pop("custom_contribution_fee", None)
         standard_data.pop("uses_custom_amount", None)
 
-        result = submit_application(**standard_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
+        approval_result = self._approved_application(standard_data)
+        member_name = approval_result["member"]
 
         self.assertTrue(approval_result["success"])
 
-        # Get member and check membership
-        member = frappe.get_doc("Member", member_name)
+        # Check the membership
         memberships = frappe.get_all("Membership", filters={"member": member_name})
         self.assertEqual(len(memberships), 1, "Should have exactly one membership")
 
@@ -1170,216 +840,9 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # Clean up
         self._cleanup_member_completely(member_name)
 
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_billing_amount_method(self):
-        """Test that get_billing_amount() returns correct amounts for both custom and standard memberships"""
-        print("\n🧪 Testing get_billing_amount() method...")
-
-        # Test custom amount
-        custom_data = self.application_data.copy()
-        custom_data["custom_contribution_fee"] = 35.0
-        custom_data["uses_custom_amount"] = True
-        custom_data["email"] = f"billing_custom_{self.test_email}"
-
-        result = submit_application(**custom_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approve_membership_application(member_name)
-
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        # Test get_billing_amount() for custom amount
-        billing_amount = membership.get_billing_amount()
-        self.assertEqual(
-            float(billing_amount),
-            35.0,
-            f"Custom membership billing amount should be €35.00, got €{billing_amount}",
-        )
-
-        # Test that dues schedule creation uses this amount
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate", "contribution_mode"]
-        )
-
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                35.0,
-                f"Generated dues schedule should cost €35.00, got €{dues_schedule.dues_rate}",
-            )
-            print(f"✅ Dues schedule amount correct: €{dues_schedule.dues_rate}")
-        else:
-            print("ℹ️  No dues schedule found - using legacy override system")
-
-        print(f"✅ Custom billing amount method works: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-        if 'dues_schedule' in locals():
-            frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-
-        # Test standard amount
-        standard_data = self.application_data.copy()
-        standard_data["email"] = f"billing_standard_{self.test_email}"
-        standard_data.pop("custom_contribution_fee", None)
-        standard_data.pop("uses_custom_amount", None)
-
-        result = submit_application(**standard_data)
-        member_name = result["data"]["member_record"]
-
-        approve_membership_application(member_name)
-
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        # Test get_billing_amount() for standard amount
-        billing_amount = membership.get_billing_amount()
-        membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-
-        self.assertEqual(
-            float(billing_amount),
-            float(membership_type.minimum_amount),
-            f"Standard membership billing amount should match membership type €{membership_type.minimum_amount}, got €{billing_amount}",
-        )
-
-        # Test that dues schedule uses membership type configuration
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate"]
-        )
-
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                float(membership_type.minimum_amount),
-                "Standard membership should use membership type amount",
-            )
-            print(f"✅ Uses membership type amount: €{dues_schedule.dues_rate}")
-        else:
-            print("ℹ️  No dues schedule found - using legacy system")
-
-        print(f"✅ Standard billing amount method works: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
 
     # Test removed - dues schedule system handles amount changes automatically
 
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_dues_schedule_integration_end_to_end(self):
-        """End-to-end integration test for custom amount dues schedule flow"""
-        print("\n🧪 Testing complete custom amount dues schedule integration...")
-
-        custom_amount = 42.50
-
-        # 1. Submit application with custom amount
-        custom_data = self.application_data.copy()
-        custom_data["custom_contribution_fee"] = custom_amount
-        custom_data["uses_custom_amount"] = True
-        custom_data["custom_amount_reason"] = "Integration test custom amount"
-        custom_data["email"] = f"integration_{self.test_email}"
-
-        result = submit_application(**custom_data)
-        member_name = result["data"]["member_record"]
-
-        # 2. Verify member has custom amount data in fee override field
-        member = frappe.get_doc("Member", member_name)
-        self.assertIsNotNone(member.dues_rate, "Member should have fee override set")
-        self.assertEqual(
-            float(member.dues_rate),
-            custom_amount,
-            "Fee override should match submitted amount",
-        )
-
-        print(f"✅ Custom amount data stored and extracted: €{member.dues_rate}")
-
-        # 3. Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-        self.assertTrue(approval_result["success"], "Application approval should succeed")
-
-        # 4. Verify complete flow
-        member.reload()
-
-        # Check invoice
-        if member.customer:
-            invoices = frappe.get_all(
-                "Sales Invoice", filters={"customer": member.customer, "docstatus": ["!=", 2]}
-            )
-            self.assertEqual(len(invoices), 1, "Should have exactly one invoice")
-
-            invoice = frappe.get_doc("Sales Invoice", invoices[0].name)
-            self.assertEqual(
-                float(invoice.grand_total),
-                custom_amount,
-                f"Invoice should have custom amount €{custom_amount}, got €{invoice.grand_total}",
-            )
-
-            print(f"✅ Invoice created with correct amount: €{invoice.grand_total}")
-
-        # Check membership
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        self.assertEqual(len(memberships), 1, "Should have exactly one membership")
-
-        membership = frappe.get_doc("Membership", memberships[0].name)
-        self.assertTrue(membership.uses_custom_amount, "Membership should use custom amount")
-        self.assertEqual(
-            float(membership.custom_amount), custom_amount, "Membership custom amount should match"
-        )
-        self.assertEqual(float(membership.get_billing_amount()), custom_amount, "Billing amount should match")
-
-        print(f"✅ Membership configured correctly: €{membership.custom_amount}")
-
-        # Check dues schedule (THE CRITICAL TEST)
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate", "status", "contribution_mode"]
-        )
-        self.assertTrue(len(dues_schedules) > 0, "Dues schedule should be created")
-
-        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-        # THIS IS THE KEY ASSERTION THAT WOULD HAVE CAUGHT THE ORIGINAL BUG
-        self.assertEqual(
-            float(dues_schedule.dues_rate),
-            custom_amount,
-            f"CRITICAL: Dues schedule amount MUST be €{custom_amount}, got €{dues_schedule.dues_rate}",
-        )
-
-        self.assertEqual(dues_schedule.contribution_mode, "Custom", f"Contribution mode should be Custom")
-        self.assertTrue(dues_schedule.uses_custom_amount, "Should use custom amount")
-
-        print(f"🎯 CRITICAL TEST PASSED: Dues schedule amount = €{dues_schedule.dues_rate}")
-        print(f"🎯 Custom dues schedule: {dues_schedule.name}")
-
-        # The critical dues-schedule amount assertion above already verifies that
-        # future invoice generation will use the correct custom amount.
-        print("🎉 END-TO-END INTEGRATION TEST PASSED - Custom amount flows correctly through entire system!")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-        # Clean up custom dues schedule
-        try:
-            frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-        except Exception:
-            pass
 
     def test_volunteer_application_processing(self):
         """Test that volunteer applications are properly processed"""
@@ -1391,11 +854,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_skills"] = "Event coordination, Public speaking, IT support"
         volunteer_data["email"] = f"volunteer_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
-
-        # Verify submission successful
-        self.assertTrue(result["success"])
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(volunteer_data))
 
         # Verify volunteer data was stored
         self.assertEqual(member.interested_in_volunteering, 1)
@@ -1420,11 +879,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["email"] = f"volpay_{self.test_email}"
 
         # Submit and approve application
-        result = submit_application(**volunteer_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approve_membership_application(member_name)
+        approval_result = self._approved_application(volunteer_data)
+        member_name = approval_result["member"]
 
         # Verify volunteer record was created
         volunteer_exists = frappe.db.exists("Volunteer", {"member": member_name})
@@ -1448,11 +904,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         non_volunteer_data["email"] = f"nonvol_{self.test_email}"
 
         # Submit and approve application
-        result = submit_application(**non_volunteer_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approve_membership_application(member_name)
+        approval_result = self._approved_application(non_volunteer_data)
+        member_name = approval_result["member"]
 
         # Verify NO volunteer record was created
         volunteer_exists = frappe.db.exists("Volunteer", {"member": member_name})
@@ -1471,10 +924,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         valid_volunteer_data["volunteer_interests"] = ["Event Planning", "Technical Support"]
         valid_volunteer_data["email"] = f"validvol_{self.test_email}"
 
-        result = submit_application(**valid_volunteer_data)
-        self.assertTrue(result["success"])
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(valid_volunteer_data))
         # Should store the interests properly
         self.assertTrue(member.interested_in_volunteering)
 
@@ -1504,9 +954,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_interests"] = ["fundraising", "outreach"]
         volunteer_data["email"] = f"interestarea_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         self.assertTrue(volunteer_name, "Volunteer record should be created for a volunteering applicant")
@@ -1529,9 +977,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_interests"] = "fundraising"
         volunteer_data["email"] = f"stringinterest_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
@@ -1553,9 +999,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         self.assertFalse(frappe.db.exists("Volunteer Interest Category", "Totally Made Up Category"))
 
-        result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
@@ -1601,9 +1045,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_experience_level"] = "Experienced"
         volunteer_data["email"] = f"availability_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         self.assertTrue(volunteer_name, "Volunteer record should be created for a volunteering applicant")
@@ -1624,9 +1066,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         volunteer_data["volunteer_availability"] = "Monthly"
         volunteer_data["email"] = f"monthly_{self.test_email}"
 
-        result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+        member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
@@ -1655,9 +1095,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # fallback. The pre-existing "Volunteer - JSON Parsing Error" this fixture's
         # volunteer_skills string produces is unrelated to this fix and expected.
         with self.assertNoErrorLog(ignore=["Volunteer - JSON Parsing Error"]):
-            result = submit_application(**volunteer_data)
-        self.assertTrue(result["success"])
-        member_name = result["data"]["member_record"]
+            member_name = self._materialised(volunteer_data)
 
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
@@ -1665,48 +1103,6 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         self._cleanup_member_completely(member_name)
 
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_edge_case_zero_custom_amount(self):
-        """Test that zero custom amount defaults to standard amount"""
-        print("\n🧪 Testing zero custom amount edge case...")
-
-        # Submit application with zero custom amount
-        zero_data = self.application_data.copy()
-        zero_data["custom_contribution_fee"] = 0.0
-        zero_data["uses_custom_amount"] = True
-        zero_data["email"] = f"zero_{self.test_email}"
-
-        result = submit_application(**zero_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Check membership - should fall back to standard amount
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        # Should not use custom amount if amount is zero
-        billing_amount = membership.get_billing_amount()
-        membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-
-        # Should use standard amount, not zero
-        self.assertEqual(
-            float(billing_amount),
-            float(membership_type.minimum_amount),
-            f"Zero custom amount should fall back to standard amount €{membership_type.minimum_amount}",
-        )
-
-        print(f"✅ Zero custom amount correctly handled: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
 
     def test_negative_custom_amount_validation(self):
         """Test that negative custom amounts are rejected"""
@@ -1720,13 +1116,13 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         # This should either fail during submission or be corrected
         try:
-            result = submit_application(**negative_data)
+            result = self._post_application_form(negative_data)
             # Check if result indicates failure
             if not result.get("success", False):
                 print(f"✅ Negative amount rejected during submission: {result.get('error', '')}")
                 return
 
-            member_name = result["data"]["member_record"]
+            member_name = self._materialised(negative_data)
 
             # If submission succeeds, check that amount was corrected
             member = frappe.get_doc("Member", member_name)
@@ -1748,456 +1144,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             print(f"✅ Negative amount rejected during submission: {str(e)}")
             # Accept any exception as the test is checking validation works
 
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_very_large_custom_amount(self):
-        """Test handling of very large custom amounts"""
-        print("\n🧪 Testing very large custom amount...")
 
-        large_amount = 999999.99
-
-        # Submit application with very large custom amount
-        large_data = self.application_data.copy()
-        large_data["custom_contribution_fee"] = large_amount
-        large_data["uses_custom_amount"] = True
-        large_data["email"] = f"large_{self.test_email}"
-
-        result = submit_application(**large_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Check that system handles large amounts correctly
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        billing_amount = membership.get_billing_amount()
-        self.assertEqual(
-            float(billing_amount), large_amount, f"Large custom amount should be preserved: €{large_amount}"
-        )
-
-        # Check dues schedule handles large amounts
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate"]
-        )
-
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                large_amount,
-                f"Dues schedule should handle large amount: €{large_amount}",
-            )
-
-        print(f"✅ Large amount handled correctly: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-        # Clean up custom dues schedule
-        try:
-            if 'dues_schedule' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-        except Exception:
-            pass
-
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_decimal_precision_custom_amount(self):
-        """Test custom amounts with decimal precision"""
-        print("\n🧪 Testing decimal precision in custom amounts...")
-
-        # Test with 3 decimal places
-        precise_amount = 42.567
-
-        # Submit application with precise decimal amount
-        decimal_data = self.application_data.copy()
-        decimal_data["custom_contribution_fee"] = precise_amount
-        decimal_data["uses_custom_amount"] = True
-        decimal_data["email"] = f"decimal_{self.test_email}"
-
-        result = submit_application(**decimal_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Check decimal precision handling
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        billing_amount = membership.get_billing_amount()
-
-        # Should preserve precision to 2 decimal places (standard currency precision)
-        expected_amount = round(precise_amount, 2)
-        self.assertEqual(
-            float(billing_amount),
-            expected_amount,
-            f"Decimal precision should be handled correctly: €{expected_amount}",
-        )
-
-        # Check dues schedule precision
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate"]
-        )
-
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                expected_amount,
-                f"Dues schedule should maintain precision: €{expected_amount}",
-            )
-
-        print(f"✅ Decimal precision handled correctly: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-        # Clean up custom dues schedule
-        try:
-            if 'dues_schedule' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-        except Exception:
-            pass
-
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_dues_schedule_functionality(self):
-        """Test that custom amounts work properly with dues schedule system"""
-        print("\n🧪 Testing custom amount functionality with dues schedule system...")
-
-        custom_amount = 55.0
-
-        # Create first member with custom amount
-        first_data = self.application_data.copy()
-        first_data["custom_contribution_fee"] = custom_amount
-        first_data["uses_custom_amount"] = True
-        first_data["email"] = f"first_reuse_{self.test_email}"
-
-        result1 = submit_application(**first_data)
-        member1_name = result1["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approve_membership_application(member1_name)
-
-        # Get first dues schedule
-        memberships1 = frappe.get_all("Membership", filters={"member": member1_name})
-        membership1 = frappe.get_doc("Membership", memberships1[0].name)
-        dues_schedules1 = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member1_name, "membership": membership1.name},
-            fields=["name", "dues_rate"]
-        )
-        dues_schedule1 = frappe.get_doc("Membership Dues Schedule", dues_schedules1[0].name) if dues_schedules1 else None
-
-        # Create second member with same custom amount
-        second_data = self.application_data.copy()
-        second_data["custom_contribution_fee"] = custom_amount
-        second_data["uses_custom_amount"] = True
-        second_data["email"] = f"second_reuse_{self.test_email}"
-
-        result2 = submit_application(**second_data)
-        member2_name = result2["data"]["member_record"]
-
-        approve_membership_application(member2_name)
-
-        # Get second dues schedule
-        memberships2 = frappe.get_all("Membership", filters={"member": member2_name})
-        membership2 = frappe.get_doc("Membership", memberships2[0].name)
-        dues_schedules2 = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member2_name, "membership": membership2.name},
-            fields=["name", "dues_rate"]
-        )
-        dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name) if dues_schedules2 else None
-
-        # Both should have the same custom amount configuration
-        if dues_schedule1 and dues_schedule2:
-            self.assertEqual(
-                float(dues_schedule1.amount),
-                float(dues_schedule2.amount),
-                f"Identical custom amounts should have same dues schedule amounts"
-            )
-
-            # Verify both schedules have correct cost
-            self.assertEqual(
-                float(dues_schedule1.amount), custom_amount, f"First schedule should have correct cost: €{custom_amount}"
-            )
-            self.assertEqual(
-                float(dues_schedule2.amount), custom_amount, f"Second schedule should have correct cost: €{custom_amount}"
-            )
-
-        print(f"✅ Dues schedule amounts consistent for identical custom amounts")
-        if dues_schedule1:
-            print(f"   Both memberships use same amount: €{dues_schedule1.amount}")
-
-        # Clean up
-        member1 = frappe.get_doc("Member", member1_name)
-        member2 = frappe.get_doc("Member", member2_name)
-
-        if member1.customer:
-            frappe.delete_doc("Customer", member1.customer, force=True)
-        if member2.customer:
-            frappe.delete_doc("Customer", member2.customer, force=True)
-
-        frappe.delete_doc("Member", member1_name, force=True)
-        frappe.delete_doc("Member", member2_name, force=True)
-
-        # Clean up dues schedules
-        try:
-            if dues_schedule1:
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule1.name, force=True)
-            if dues_schedule2:
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule2.name, force=True)
-        except Exception:
-            pass
-
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_with_different_membership_types(self):
-        """Test custom amounts work with different membership types"""
-        print("\n🧪 Testing custom amounts with different membership types...")
-
-        # Create a second membership type for testing
-        if not frappe.db.exists("Membership Type", "Premium Test Membership"):
-            premium_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Premium Test Membership",
-                    "minimum_amount": 200,
-                    "role_profile": "Verenigingen Member",
-                }
-            )
-            premium_type.insert()
-
-        custom_amount = 150.0
-
-        # Test with premium membership type
-        premium_data = self.application_data.copy()
-        premium_data["selected_membership_type"] = "Premium Test Membership"
-        premium_data["custom_contribution_fee"] = custom_amount
-        premium_data["uses_custom_amount"] = True
-        premium_data["email"] = f"premium_{self.test_email}"
-
-        result = submit_application(**premium_data)
-        member_name = result["data"]["member_record"]
-
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Check that custom amount works with different membership type
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        # Should use custom amount, not the membership type amount (€200)
-        billing_amount = membership.get_billing_amount()
-        self.assertEqual(
-            float(billing_amount),
-            custom_amount,
-            f"Custom amount should override membership type amount: €{custom_amount} not €200",
-        )
-
-        # Check dues schedule
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate", "contribution_mode"]
-        )
-
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                custom_amount,
-                f"Dues schedule should use custom amount: €{custom_amount}",
-            )
-
-            # Should be marked as custom contribution mode
-            self.assertEqual(
-                dues_schedule.contribution_mode, "Custom", f"Should use custom contribution mode"
-            )
-
-        print(f"✅ Custom amount works with premium membership type: €{billing_amount}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-        # Clean up custom dues schedule
-        try:
-            if 'dues_schedule' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-        except Exception:
-            pass
-
-        # Clean up premium membership type
-        try:
-            frappe.delete_doc("Membership Type", "Premium Test Membership", force=True)
-        except Exception:
-            pass
-
-    @unittest.skip("Custom amount billing integration needs separate investigation")
-    def test_custom_amount_invoice_and_dues_schedule_coordination_edge_cases(self):
-        """Test edge cases in invoice-dues schedule coordination with custom amounts"""
-        print("\n🧪 Testing custom amount invoice-dues schedule coordination edge cases...")
-
-        custom_amount = 37.50
-
-        # Submit application with custom amount
-        edge_data = self.application_data.copy()
-        edge_data["custom_contribution_fee"] = custom_amount
-        edge_data["uses_custom_amount"] = True
-        edge_data["email"] = f"edge_{self.test_email}"
-
-        result = submit_application(**edge_data)
-        member_name = result["data"]["member_record"]
-
-        # Approve application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name)
-
-        self.assertTrue(approval_result["success"])
-
-        # Get member and membership
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        # Test multiple edge cases
-        edge_cases_passed = 0
-
-        # Edge case 1: Application invoice exists and has correct amount
-        if member.customer:
-            invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"customer": member.customer, "docstatus": ["!=", 2]},
-                fields=["name", "grand_total"],
-            )
-
-            application_invoices = [inv for inv in invoices if inv.membership == membership.name]
-            if application_invoices:
-                app_invoice = application_invoices[0]
-                self.assertEqual(
-                    float(app_invoice.grand_total),
-                    custom_amount,
-                    f"Application invoice should have custom amount: €{custom_amount}",
-                )
-                edge_cases_passed += 1
-                print("   ✅ Edge case 1: Application invoice amount correct")
-
-        # Edge case 2: Dues schedule exists and uses correct amount
-        dues_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "membership": membership.name},
-            fields=["name", "dues_rate", "status"]
-        )
-        if dues_schedules:
-            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
-
-            self.assertEqual(
-                float(dues_schedule.dues_rate),
-                custom_amount,
-                f"Dues schedule amount should match custom amount: €{custom_amount}",
-            )
-            edge_cases_passed += 1
-            print("   ✅ Edge case 2: Dues schedule amount correct")
-
-        # Edge case 3: get_billing_amount() returns custom amount
-        billing_amount = membership.get_billing_amount()
-        self.assertEqual(
-            float(billing_amount),
-            custom_amount,
-            f"get_billing_amount() should return custom amount: €{custom_amount}",
-        )
-        edge_cases_passed += 1
-        print("   ✅ Edge case 3: get_billing_amount() correct")
-
-        # Edge case 4: Custom amount flags are set correctly
-        self.assertTrue(membership.uses_custom_amount, "uses_custom_amount should be True")
-        self.assertEqual(
-            float(membership.custom_amount),
-            custom_amount,
-            f"custom_amount field should be set: €{custom_amount}",
-        )
-        edge_cases_passed += 1
-        print("   ✅ Edge case 4: Custom amount flags correct")
-
-        # Edge case 5: Consistent dues schedule handling for same amount
-        # (This tests the reuse functionality)
-        second_member_data = self.application_data.copy()
-        second_member_data["custom_contribution_fee"] = custom_amount  # Same amount
-        second_member_data["uses_custom_amount"] = True
-        second_member_data["email"] = f"edge2_{self.test_email}"
-
-        result2 = submit_application(**second_member_data)
-        member2_name = result2["data"]["member_record"]
-        approve_membership_application(member2_name)
-
-        memberships2 = frappe.get_all("Membership", filters={"member": member2_name})
-        membership2 = frappe.get_doc("Membership", memberships2[0].name)
-
-        dues_schedules2 = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member2_name, "membership": membership2.name},
-            fields=["name", "dues_rate"]
-        )
-        if dues_schedules2:
-            dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name)
-
-            # Should have same amount configuration
-            self.assertEqual(
-                float(dues_schedule2.amount),
-                custom_amount,
-                "Should have same dues schedule amount for same custom amount"
-            )
-            edge_cases_passed += 1
-            print("   ✅ Edge case 5: Dues schedule amount consistency correct")
-
-        print(f"✅ All {edge_cases_passed} edge cases passed for custom amount coordination")
-
-        # Clean up
-        member2 = frappe.get_doc("Member", member2_name)
-
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        if member2.customer:
-            frappe.delete_doc("Customer", member2.customer, force=True)
-
-        frappe.delete_doc("Member", member_name, force=True)
-        frappe.delete_doc("Member", member2_name, force=True)
-
-        # Clean up dues schedules
-        try:
-            if 'dues_schedule' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
-            if 'dues_schedule2' in locals():
-                frappe.delete_doc("Membership Dues Schedule", dues_schedule2.name, force=True)
-        except Exception:
-            pass
-
-
-class TestChapterSelection(EnhancedTestCase):
+class TestChapterSelection(ApplicationFlowCase):
     """Test chapter selection functionality in membership applications"""
 
     @classmethod
@@ -2342,12 +1290,11 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Utrecht"
 
-        result = submit_application(**application_data)
+        member_name = self._materialised(application_data)
 
-        self.assertTrue(result["success"], "Application with chapter selection should succeed")
 
         # Verify chapter was assigned to member
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", member_name)
         primary_chapter = get_member_primary_chapter(member.name)
         self.assertEqual(
             primary_chapter, "Test Chapter Utrecht", "Selected chapter should be assigned to member"
@@ -2364,12 +1311,11 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["city"] = "Nowheresville"  # City that won't match any chapter
         # No selected_chapter field
 
-        result = submit_application(**application_data)
+        member_name = self._materialised(application_data)
 
-        self.assertTrue(result["success"], "Application without chapter should succeed")
 
         # Verify member was created without chapter (no postal code or city match)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", member_name)
         primary_chapter = get_member_primary_chapter(member.name)
         self.assertFalse(primary_chapter, "Member should have no chapter assigned when location doesn't match")
 
@@ -2381,11 +1327,11 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Non-Existent Chapter"
 
-        result = submit_application(**application_data)
+        result = self._post_application_form(application_data)
 
         # Should either succeed (ignoring invalid chapter) or fail gracefully
         if result["success"]:
-            member = frappe.get_doc("Member", result["data"]["member_record"])
+            member = frappe.get_doc("Member", self._materialised(application_data))
             # Invalid chapter should not be assigned
             primary_chapter = get_member_primary_chapter(member.name)
             self.assertNotEqual(
@@ -2397,46 +1343,6 @@ class TestChapterSelection(EnhancedTestCase):
 
         print("✅ Invalid chapter selection handled gracefully")
 
-    @unittest.skip("Current behavior allows unpublished chapter assignment - needs business rule review")
-    def test_unpublished_chapter_selection(self):
-        """Test application with unpublished chapter selection"""
-        # Submit application with unpublished chapter
-        application_data = self.base_application_data.copy()
-        application_data["selected_chapter"] = "Unpublished Chapter"
-
-        result = submit_application(**application_data)
-
-        # Should succeed but unpublished chapter should not be assigned
-        self.assertTrue(result["success"], "Application should succeed")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertNotEqual(
-            primary_chapter, "Unpublished Chapter", "Unpublished chapter should not be assigned"
-        )
-
-        print("✅ Unpublished chapter selection handled correctly")
-
-    @unittest.skip("Chapter matching returns different chapter - test setup mismatch")
-    def test_chapter_suggestion_by_postal_code(self):
-        """Test automatic chapter suggestion based on postal code"""
-        from verenigingen.utils.application_helpers import determine_chapter_from_application
-
-        # Test postal code that should match Amsterdam chapter (1000-1199)
-        test_data = {"postal_code": "1050", "city": "Amsterdam", "state": "Noord-Holland"}
-
-        suggested_chapter = determine_chapter_from_application(test_data)
-
-        # Should suggest Amsterdam chapter based on postal code
-        if suggested_chapter:
-            self.assertEqual(
-                suggested_chapter,
-                "Test Chapter Amsterdam",
-                "Should suggest correct chapter based on postal code",
-            )
-            print(f"✅ Chapter suggestion works: {suggested_chapter} for postal code 1050")
-        else:
-            print("ℹ️ Chapter suggestion returned None (might need postal code matching logic)")
 
     def test_form_data_api_endpoint(self):
         """Test the API endpoint for form data returns chapters"""
@@ -2485,31 +1391,6 @@ class TestChapterSelection(EnhancedTestCase):
         except Exception as e:
             self.fail(f"Database error when loading chapters: {str(e)}")
 
-    @unittest.skip("Chapter assignment test has test setup issues")
-    def test_member_form_chapter_assignment_simplification(self):
-        """Test that member form chapter assignment is simplified"""
-        # Create a member without a chapter - use postal code and city outside any chapter range
-        application_data = self.base_application_data.copy()
-        application_data["postal_code"] = "9999ZZ"  # Outside any chapter postal range
-        application_data["city"] = "Nowheresville"  # City that won't match any chapter
-        result = submit_application(**application_data)
-        member_name = result["data"]["member_record"]
-
-        member = frappe.get_doc("Member", member_name)
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertFalse(primary_chapter, "Member should start without chapter when location doesn't match")
-
-        # Test direct chapter assignment (simulating the simplified form)
-        # Assign member to chapter via Chapter Member table
-        # Note: add_member_to_chapter_roster handles all DB updates internally
-        add_member_to_chapter_roster(member.name, "Test Chapter Utrecht")
-
-        # Verify assignment worked
-        member.reload()
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, "Test Chapter Utrecht", "Direct chapter assignment should work")
-
-        print("✅ Simplified chapter assignment works")
 
     def test_chapter_selection_with_custom_amount(self):
         """Test chapter selection works with custom membership amounts"""
@@ -2520,11 +1401,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["uses_custom_amount"] = True
         application_data["custom_amount_reason"] = "Test custom with chapter"
 
-        result = submit_application(**application_data)
-
-        self.assertTrue(result["success"], "Application with chapter and custom amount should succeed")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(application_data))
 
         # Verify both chapter and custom amount were processed
         primary_chapter = get_member_primary_chapter(member.name)
@@ -2539,8 +1416,8 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Amsterdam"
 
-        result = submit_application(**application_data)
-        member_name = result["data"]["member_record"]
+        application = self._confirmed(application_data)
+        member_name = materialise_member(frappe.get_doc(SUBMISSION, application)).name
 
         # Verify initial assignment
         member = frappe.get_doc("Member", member_name)
@@ -2548,8 +1425,7 @@ class TestChapterSelection(EnhancedTestCase):
         self.assertEqual(primary_chapter, "Test Chapter Amsterdam")
 
         # Approve the application
-        # VereningingenTestCase handles Administrator context appropriately
-        approval_result = approve_membership_application(member_name, "Test approval")
+        approval_result = self._approve_as(application, notes="Test approval", create_invoice=True)
 
         self.assertTrue(approval_result["success"], "Approval should succeed")
 
@@ -2638,8 +1514,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = additional_chapter_name
 
-        result = submit_application(**application_data)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(application_data))
 
         primary_chapter = get_member_primary_chapter(member.name)
         self.assertEqual(
@@ -2665,11 +1540,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data["postal_code"] = "9999ZZ"  # Outside any chapter postal range
         application_data["city"] = "Nowheresville"  # City that won't match any chapter
 
-        result = submit_application(**application_data)
-
-        self.assertTrue(result["success"], "Application with empty chapter string should succeed")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(application_data))
         primary_chapter = get_member_primary_chapter(member.name)
         self.assertFalse(primary_chapter, "Empty chapter string with non-matching location should result in no chapter")
 
@@ -2681,11 +1552,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "   "
 
-        result = submit_application(**application_data)
-
-        self.assertTrue(result["success"], "Application with whitespace chapter should succeed")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(application_data))
         # Should either be empty or trimmed, but not contain whitespace
         chapter = get_member_primary_chapter(member.name) or ""
         self.assertEqual(chapter.strip(), chapter, "Chapter should not have leading/trailing whitespace")
@@ -2698,8 +1565,7 @@ class TestChapterSelection(EnhancedTestCase):
         application_data = self.base_application_data.copy()
         application_data["selected_chapter"] = "Test Chapter Utrecht"
 
-        result = submit_application(**application_data)
-        member = frappe.get_doc("Member", result["data"]["member_record"])
+        member = frappe.get_doc("Member", self._materialised(application_data))
 
         # Should be able to save with valid chapter
         try:
@@ -2763,45 +1629,8 @@ class TestChapterSelection(EnhancedTestCase):
             except Exception:
                 pass
 
-    @unittest.skip("Chapter validator only allows ASCII characters - internationalization not currently supported")
-    def test_chapter_selection_internationalization(self):
-        """Test chapter selection with international characters"""
-        # Create chapter with international characters
-        intl_chapter_name = "Test Chapter Ñieuwe Åmsterdam"
-        if not frappe.db.exists("Chapter", intl_chapter_name):
-            intl_chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": intl_chapter_name,
-                    "region": "Noord-Holland",  # Use existing region
-                    "postal_codes": "9000-9099",
-                    "published": 1,
-                    "introduction": "Test chapter for international character testing"}
-            )
-            intl_chapter.insert()
 
-        # Test selecting international chapter
-        application_data = self.base_application_data.copy()
-        application_data["selected_chapter"] = intl_chapter_name
-
-        result = submit_application(**application_data)
-
-        self.assertTrue(result["success"], "Should handle international chapter names")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, intl_chapter_name, "International chapter name should be preserved")
-
-        print(f"✅ International chapter names handled: {intl_chapter_name}")
-
-        # Clean up international chapter
-        try:
-            frappe.delete_doc("Chapter", intl_chapter_name, force=True)
-        except Exception:
-            pass
-
-
-class TestMembershipApplicationEdgeCases(EnhancedTestCase):
+class TestMembershipApplicationEdgeCases(ApplicationFlowCase):
     """Test edge cases and error conditions in membership application system"""
 
     def setUp(self):
@@ -2884,7 +1713,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         incomplete_data = self.base_data.copy()
         del incomplete_data["email"]
 
-        result = submit_application(**incomplete_data)
+        result = self._post_application_form(incomplete_data)
 
         self.assertFalse(result["success"], "Should fail when required field missing")
         self.assertTrue(result.get("error"), "Should have error message")
@@ -2900,7 +1729,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         malformed_data = "not valid json"
 
         try:
-            result = submit_application(data=malformed_data)
+            result = self._post_application_form(data=malformed_data)
             self.assertFalse(result["success"], "Should handle malformed data gracefully")
         except Exception as e:
             # Should not crash with unhandled exception
@@ -2917,11 +1746,11 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         long_data["first_name"] = "A" * 1000  # Very long name
         long_data["email"] = f"long_test_{frappe.generate_hash(length=8)}@example.com"
 
-        result = submit_application(**long_data)
+        result = self._post_application_form(long_data)
 
         # Should either succeed (with truncation) or fail gracefully
         if result["success"]:
-            member = frappe.get_doc("Member", result["data"]["member_record"])
+            member = frappe.get_doc("Member", self._materialised(long_data))
             # Should be truncated to reasonable length
             self.assertLessEqual(len(member.first_name), 255, "Long field should be truncated")
         else:
@@ -2930,106 +1759,6 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
 
         print("✅ Long field values handled appropriately")
 
-    @unittest.skip("Special characters test has submission issues")
-    def test_special_characters_in_fields(self):
-        """Test handling of special characters in form fields"""
-        # Test with special characters
-        special_data = self.base_data.copy()
-        special_data["first_name"] = "José-María"
-        special_data["last_name"] = "O'Connor-Smith"
-        special_data["email"] = f"special_test_{frappe.generate_hash(length=8)}@example.com"
-        special_data["address_line1"] = "123 Château de Versailles Straße"
-
-        result = submit_application(**special_data)
-
-        self.assertTrue(result["success"], "Should handle special characters")
-
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        self.assertEqual(member.first_name, "José-María", "Special characters should be preserved")
-
-        print("✅ Special characters handled correctly")
-
-    @unittest.skip("Concurrent tests have threading/infrastructure issues")
-    def test_concurrent_application_submissions(self):
-        """Test handling of concurrent submissions with same email"""
-        import threading
-
-        results = []
-        results_lock = threading.Lock()
-
-        def submit_concurrent_application(email_suffix):
-            # Initialize Frappe context for this thread
-            try:
-                # Set up thread-local frappe context
-                frappe.init(site=frappe.local.site)
-                frappe.connect()
-                frappe.set_user(frappe.session.user)
-
-                # Copy test flags from main thread
-                if not hasattr(frappe, 'flags'):
-                    frappe.flags = frappe._dict()
-                frappe.flags.in_test = True
-                frappe.flags.mute_emails = True
-
-                data = self.base_data.copy()
-                data["email"] = f"concurrent_{email_suffix}@example.com"
-                result = submit_application(data)
-
-                with results_lock:
-                    results.append(result)
-            except Exception as e:
-                # Log error but don't fail the thread
-                with results_lock:
-                    results.append({"success": False, "error": str(e)})
-            finally:
-                # Clean up thread-local context
-                frappe.destroy()
-
-        # Submit multiple applications concurrently
-        threads = []
-        for i in range(3):
-            t = threading.Thread(target=submit_concurrent_application, args=(i,))
-            threads.append(t)
-            t.start()
-
-        # Wait for all threads
-        for t in threads:
-            t.join()
-
-        # All should succeed since they have different emails
-        successful_results = [r for r in results if r.get("success")]
-        self.assertEqual(len(successful_results), 3, "All concurrent applications should succeed")
-
-        print("✅ Concurrent submissions handled correctly")
-
-        # Clean up
-        for result in successful_results:
-            member_record = result.get("data", {}).get("member_record") or result.get("member_record")
-            if member_record:
-                try:
-                    member = frappe.get_doc("Member", member_record)
-                    if member.customer:
-                        frappe.delete_doc("Customer", member.customer, force=True)
-                    frappe.delete_doc("Member", member_record, force=True)
-                except Exception:
-                    pass
-
-    @unittest.skip("Rate limiting test has infrastructure issues")
-    def test_api_rate_limiting_edge_case(self):
-        """Test API behavior under high load"""
-        from verenigingen.api.membership_application import validate_email
-
-        # Submit many validation requests rapidly
-        results = []
-        for i in range(10):
-            result = validate_email(f"test{i}@example.com")
-            results.append(result)
-
-        # Most should succeed, rate limiting should be graceful
-        successful_validations = [r for r in results if r.get("valid") is not None]
-        self.assertGreater(len(successful_validations), 5, "Should handle multiple validation requests")
-
-        print(f"✅ API handled {len(successful_validations)}/10 validation requests")
 
     def test_memory_usage_with_large_application_data(self):
         """Test memory usage with large volunteer skills data"""
@@ -3050,7 +1779,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         process = psutil.Process(os.getpid())
         memory_before = process.memory_info().rss
 
-        result = submit_application(**large_data)
+        result = self._post_application_form(large_data)
 
         # Measure memory after
         memory_after = process.memory_info().rss
@@ -3066,7 +1795,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         """Test recovery from database connection issues"""
         # This is a simulation - in practice, database issues are handled by Frappe
         try:
-            result = submit_application(**self.base_data)
+            result = self._post_application_form(self.base_data)
             self.assertTrue(result["success"], "Should handle database operations normally")
             print("✅ Database connection stable")
         except Exception as e:
@@ -3083,7 +1812,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         invalid_data["selected_membership_type"] = "Non-Existent Membership Type"
         invalid_data["email"] = f"invalid_type_{frappe.generate_hash(length=8)}@example.com"
 
-        result = submit_application(**invalid_data)
+        result = self._post_application_form(invalid_data)
 
         # Should fail gracefully with appropriate error
         self.assertFalse(result["success"], "Should fail for invalid membership type")

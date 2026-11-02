@@ -161,7 +161,6 @@ verenigingen/services/member/approval/application_helpers.py::create_active_chap
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_volunteer_record::1
 verenigingen/services/member/approval/application_helpers.py::get_form_data::1
-verenigingen/services/member/approval/application_helpers.py::remove_pending_chapter_membership::1
 verenigingen/services/member/approval/application_payments.py::create_contact_for_customer::1
 verenigingen/services/member/approval/membership_creation_service.py::MembershipCreationService._create_membership_invoice::1
 verenigingen/services/member/core/member_address_service.py::MemberAddressService._enrich_member_data::1
@@ -209,7 +208,7 @@ verenigingen/setup/security_setup.py::setup_password_policy::1
 verenigingen/setup/workflow_setup.py::create_appeals_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
 verenigingen/templates/pages/chapter_dashboard.py::get_context::1
-verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::2
+verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::1
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
 verenigingen/templates/pages/chapter_dashboard.py::get_recent_activity::1

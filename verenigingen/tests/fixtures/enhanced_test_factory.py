@@ -4829,7 +4829,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # The roles alone are not enough. APISecurityFramework authorizes on Frappe ROLE
         # PROFILES, not roles (authorization_policy.ROLE_PROFILE_SECURITY_MAPPING), and
-        # approve_membership_application is @high_security_api. Without the profile the
+        # approve_application is @high_security_api. Without the profile the
         # user is capped below HIGH and denied at the tier gate -- so a chapter-scope
         # test would be denied before the chapter check ever ran, and a denial test
         # would pass for entirely the wrong reason.
@@ -4848,10 +4848,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     def add_member_to_test_chapter(self, member_name, chapter_name):
         """Give `member_name` an ACTIVE Chapter Member row on `chapter_name`.
 
-        can_user_manage_application() matches manageable chapters against
-        `tabChapter Member` rows with enabled=1 AND status='Active'. A member
-        without one belongs to no chapter as far as the approval gate is
-        concerned, so a board-member permission test would be unreachable.
+        A member without an enabled Active row belongs to no chapter as far as a
+        chapter-board permission check is concerned, so a board-member permission
+        test would be unreachable.
         """
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         for row in chapter_doc.get("members", []):
@@ -7066,157 +7065,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "security_results": security_results,
             "test_signature": signature,
             "payload_hash": hashlib.sha256(payload_json.encode()).hexdigest(),
-        }
-
-    def create_member_with_background_approval(self, **kwargs):
-        """
-        Create member using the new background approval system.
-
-        This method creates a member in 'Pending' status and then uses the background
-        approval API to approve it, testing the new event-driven architecture.
-
-        Args:
-            wait_for_background_jobs: If True, waits for background jobs to complete
-            **kwargs: Member creation parameters
-
-        Returns:
-            Dict with member, approval_result, and background job status
-        """
-        wait_for_background_jobs = kwargs.pop("wait_for_background_jobs", True)
-
-        # Create member in pending status (simulating application flow)
-        defaults = {
-            "application_status": "Pending",
-            "status": "Pending",
-            # Don't set member_id yet - that's done during approval
-        }
-
-        # Remove member_id from kwargs if present - approval will set it
-        kwargs.pop("member_id", None)
-
-        data = {**defaults, **kwargs}
-        member = self.factory.create_member(**data)
-
-        # Use the background approval API
-        try:
-            from verenigingen.api.background_approval_api import approve_membership_application_background
-
-            approval_result = approve_membership_application_background(
-                member_name=member.name,
-                membership_type=kwargs.get("selected_membership_type", "Monthly Membership"),
-                chapter=kwargs.get("chapter"),
-                notes="Test approval via background system",
-                create_invoice=True,
-            )
-
-            # Reload member to get updated status
-            member.reload()
-
-            background_status = None
-            if wait_for_background_jobs:
-                background_status = self._wait_for_background_jobs(member.name)
-
-            return {
-                "member": member,
-                "approval_result": approval_result,
-                "background_status": background_status,
-                "success": approval_result.get("success", False),
-            }
-
-        except Exception as e:
-            frappe.log_error(f"Background approval test failed: {str(e)}", "Test Factory Error")
-            return {
-                "member": member,
-                "approval_result": {"success": False, "error": str(e)},
-                "background_status": None,
-                "success": False,
-            }
-
-    def _wait_for_background_jobs(self, member_name, timeout_seconds=30):
-        """
-        Wait for background approval jobs to complete.
-
-        Args:
-            member_name: Name of member to check jobs for
-            timeout_seconds: Maximum time to wait
-
-        Returns:
-            Dict with final job status
-        """
-        import time
-
-        start_time = time.time()
-
-        while time.time() - start_time < timeout_seconds:
-            try:
-                from verenigingen.api.background_approval_api import get_approval_progress
-
-                progress = get_approval_progress(member_name)
-
-                # Check if all jobs are complete
-                active_jobs = progress.get("active_jobs", 0)
-                failed_jobs = progress.get("failed_jobs", 0)
-
-                if active_jobs == 0:
-                    # All jobs finished (successfully or failed)
-                    return {
-                        "completed": True,
-                        "failed_jobs": failed_jobs,
-                        "progress": progress,
-                        "wait_time": time.time() - start_time,
-                    }
-
-                # Wait a bit before checking again
-                time.sleep(1)
-
-            except Exception as e:
-                frappe.log_error(f"Error checking background job progress: {str(e)}", "Test Factory")
-                break
-
-        # Timeout reached
-        return {"completed": False, "timeout": True, "wait_time": timeout_seconds}
-
-    def validate_background_approval_system(self):
-        """
-        Validate the background approval system end-to-end.
-
-        This helper method validates that the background processing
-        system works correctly in test scenarios. NOT a test itself -
-        call this from actual test methods when needed.
-
-        Returns:
-            Dict with test results and performance metrics
-        """
-        import time
-
-        test_start = time.time()
-
-        # Test 1: Basic background approval
-        result1 = self.create_member_with_background_approval(
-            first_name="Background", last_name="Test1", email="bgtest1@test.invalid", birth_date="1990-01-01"
-        )
-
-        # Test 2: Background approval with chapter
-        result2 = self.create_member_with_background_approval(
-            first_name="Background",
-            last_name="Test2",
-            email="bgtest2@test.invalid",
-            birth_date="1985-06-15",
-            chapter="Test Chapter",  # If chapter exists
-            wait_for_background_jobs=False,  # Don't wait for this one
-        )
-
-        test_end = time.time()
-
-        return {
-            "test_duration": test_end - test_start,
-            "basic_approval": result1,
-            "chapter_approval": result2,
-            "overall_success": result1["success"] and result2["success"],
-            "background_processing_working": (
-                result1.get("approval_result", {}).get("background_processing", {}).get("status")
-                == "initiated"
-            ),
         }
 
     def _ensure_test_customer(self):

@@ -57,15 +57,15 @@ class TestCriticalBusinessLogic(VereningingenTestCase):
     def test_membership_application_review_has_required_methods(self):
         """Test that membership application review API has required methods"""
         try:
-            from verenigingen.api.membership_application_review import approve_membership_application
+            from verenigingen.api.membership_application_review import approve_application
             
             # Verify the function exists and is callable
-            self.assertTrue(callable(approve_membership_application),
-                           "approve_membership_application must be callable")
+            self.assertTrue(callable(approve_application),
+                           "approve_application must be callable")
             
             # Verify it has the whitelisted decorator
-            self.assertTrue(hasattr(approve_membership_application, '__wrapped__'),
-                           "approve_membership_application must be whitelisted")
+            self.assertTrue(hasattr(approve_application, '__wrapped__'),
+                           "approve_application must be whitelisted")
             
         except ImportError as e:
             self.fail(f"Failed to import required module: {e}")
@@ -101,7 +101,7 @@ class TestCriticalBusinessLogic(VereningingenTestCase):
     def test_critical_api_endpoints_exist(self):
         """Test that critical API endpoints exist and are whitelisted"""
         critical_apis = [
-            'verenigingen.api.membership_application_review.approve_membership_application',
+            'verenigingen.api.membership_application_review.approve_application',
         ]
         
         for api_path in critical_apis:

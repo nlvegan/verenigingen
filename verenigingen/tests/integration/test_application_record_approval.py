@@ -1,0 +1,1727 @@
+"""#1765 task 4: approving an application creates (or updates) the Member.
+
+Everything is driven through the real flow: submit_application as Guest -> the emailed confirm link
+(POST) -> approve_application as a staff user. Probe shortcuts, stated: test_member_became_active_meanwhile
+sets the Member Active with a db write to stand in for "became Active by some other path", so that test
+proves the refusal, not that the state is reachable that way; the oracle test seeds a board seat through
+the harness's create_test_board_member.
+"""
+
+import json
+import os
+import secrets
+from unittest.mock import patch
+
+import frappe
+from frappe.utils import add_days, now_datetime, today
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
+
+from verenigingen.api import short_application as sa
+from verenigingen.api.membership_application import submit_application
+from verenigingen.api.membership_application_review import (
+    approve_application,
+    get_application_changes,
+    reject_application,
+    request_more_info,
+)
+from verenigingen.services.member.application.application_record import (
+    confirm_application,
+    expire_and_purge_applications,
+)
+from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
+from verenigingen.services.member.lifecycle.member_status_notification_service import (
+    MemberStatusNotificationService,
+)
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.termination_request import execute_real_termination
+from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+SUBMISSION = "Membership Application Submission"
+EMISSION = (
+    "verenigingen.services.member.lifecycle.member_event_emission_service.MemberEventEmissionService"
+)
+IBAN = "NL91ABNA0417164300"
+OTHER_IBAN = "NL02ABNA0123456789"
+
+
+class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
+    def setUp(self):
+        super().setUp()
+        run = frappe.generate_hash(length=6)
+        self.chapter = self.factory.ensure_test_chapter(
+            f"Test Chapter {run}", {"short_name": "TST", "country": "Netherlands"}
+        )
+        self.membership_type = self.factory.ensure_membership_type(
+            f"Approval Type {run}", {"amount": 25.00, "billing_period": "Monthly"}
+        )
+        self._prepare_approval_environment()
+        self.email = self._fresh_applicant_email()
+        self._previous_request = getattr(frappe.local, "request", None)
+        self._previous_ip = getattr(frappe.local, "request_ip", None)
+
+    def tearDown(self):
+        frappe.local.request = self._previous_request
+        frappe.local.request_ip = self._previous_ip
+        super().tearDown()
+
+    def _prepare_approval_environment(self):
+        if not frappe.db.exists("Item Group", "Memberships"):
+            frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": "Memberships",
+                    "parent_item_group": "All Item Groups",
+                    "is_group": 0,
+                }
+            ).insert()
+        self.membership_type.get_or_create_membership_item()
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        self.admin_user = self.create_test_user_with_roles(
+            email=f"appr.admin.{frappe.generate_hash(length=6)}@example.com",
+            roles=["System Manager", "Verenigingen Administrator"],
+        )
+        grant_matching_role_profiles(self.admin_user.email, "Verenigingen Administrator")
+
+    def _fresh_applicant_email(self):
+        return f"appr.{frappe.generate_hash(length=8).lower()}@example.org"
+
+    def _full_form_data(self, **overrides):
+        data = {
+            "first_name": "Appr",
+            "last_name": f"Applicant{frappe.generate_hash(length=6)}",
+            "email": self.email,
+            "birth_date": add_days(today(), -365 * 30),
+            "contact_number": "+31612345678",
+            "address_line1": "123 Test Street",
+            "city": "Amsterdam",
+            "postal_code": "1234AB",
+            "country": "Netherlands",
+            "selected_membership_type": self.membership_type.name,
+            "selected_chapter": self.chapter.name,
+        }
+        data.update(overrides)
+        return data
+
+    def _request_from_fresh_ip(self, method="POST"):
+        """A request from a fresh address: the guest endpoints' limiters key on the client IP, and their
+        counters outlive a test run (an hour), so a fixed address would be refused after a few runs."""
+        ip = f"10.{secrets.randbelow(256)}.{secrets.randbelow(256)}.{1 + secrets.randbelow(254)}"  # not `random`: the runner seeds it
+        frappe.local.request_ip = ip
+        frappe.local.request = Request(EnvironBuilder(method=method, environ_overrides={"REMOTE_ADDR": ip}).get_environ())
+
+    def _stage_and_confirm(self, **overrides) -> str:
+        """Submit the full form as Guest, then follow the emailed link as a POST."""
+        data = self._full_form_data(**overrides)
+        email = data["email"].strip().lower()
+        previous = frappe.session.user
+        self._request_from_fresh_ip()
+        frappe.set_user("Guest")
+        try:
+            response = submit_application(**data)
+        finally:
+            frappe.set_user(previous)
+        self.assertTrue(response["success"], response)
+        name = frappe.get_all(SUBMISSION, {"email": email, "status": "Unconfirmed"}, pluck="name")[0]
+        self.track_doc(SUBMISSION, name)
+        token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, name)
+        self._request_from_fresh_ip()
+        frappe.set_user("Guest")
+        try:
+            confirmed = confirm_application(name, token)
+        finally:
+            frappe.set_user(previous)
+        self.assertTrue(confirmed["success"], confirmed)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        return name
+
+    def _stage_without_chapter(self):
+        """An applicant who names no chapter. A city and postal code no chapter can match, so none is
+        SUGGESTED either: suggest_chapter_for_member also matches on the CITY, and CI shards carry shared
+        chapters such as "Test Amsterdam Chapter" (the old test used "Amsterdam" and went red in CI)."""
+        application = self._stage_and_confirm(
+            selected_chapter="",
+            city=f"Nergenshuizen-{frappe.generate_hash(length=6)}",
+            postal_code="9999ZZ",
+        )
+        # Check the precondition rather than trusting it.
+        self.assertFalse(frappe.db.get_value(SUBMISSION, application, "chapter"))
+        return application
+
+    def _stage_short_and_confirm(self, **overrides) -> str:
+        """The short form: it never asks birth date or (optionally) a mobile number."""
+        template = frappe.db.get_value(
+            "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
+        )
+        frappe.db.set_value("Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"})
+        door = self._door(monthly_dues_template=template)
+        data = {
+            "first_name": "Anna", "last_name": "Berg", "email": self.email, "address_line1": "Kerkstraat",
+            "postal_code": "1234AB", "house_number": "12", "city": "Utrecht", "country": "Netherlands",
+            "frequency": "Monthly", "amount": "7.50", "iban": IBAN, "bank_account_name": "A. Berg",
+            "consent": "1", "leave_this_empty": "",
+        }
+        data.update(overrides)
+        previous = frappe.session.user
+        self._request_from_fresh_ip()
+        frappe.set_user("Guest")
+        try:
+            response = sa.submit_short_application(door.name, **data)
+        finally:
+            frappe.set_user(previous)
+        self.assertTrue(response["success"], response)
+        name = frappe.get_all(SUBMISSION, {"email": self.email, "status": "Unconfirmed"}, pluck="name")[0]
+        self.track_doc(SUBMISSION, name)
+        token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, name)
+        self._request_from_fresh_ip()
+        frappe.set_user("Guest")
+        try:
+            confirmed = sa.confirm_short_application(name, token)
+        finally:
+            frappe.set_user(previous)
+        self.assertTrue(confirmed["success"], confirmed)
+        return name
+
+    def _approve_as(self, name, user=None, send_mail=False, **kwargs):
+        kwargs.setdefault("create_invoice", False)
+        if send_mail:  # let the mail reach the Email Queue so a test can read it
+            with self.as_user(user or self.admin_user.email):
+                return approve_application(name, **kwargs)
+        with self.as_user(user or self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                return approve_application(name, **kwargs)
+
+    def _reject_as(self, name, user=None, send_mail=False, **kwargs):
+        kwargs.setdefault("reason", "Does not fit our association")
+        if send_mail:  # let the mail reach the Email Queue so a test can read it
+            with self.as_user(user or self.admin_user.email):
+                return reject_application(name, **kwargs)
+        with self.as_user(user or self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail"):
+                return reject_application(name, **kwargs)
+
+    def _voluntarily_quit_member_with_iban(self, **fields):
+        """A voluntarily-Quit member through the real termination service."""
+        member = self.create_test_member(email=self.email, iban=IBAN, **fields)
+        execute_real_termination(self, member.name, today())
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        return member
+
+
+class TestApproveApplication(ApprovalCase):
+    def test_approve_new_applicant_creates_active_member(self):
+        name = self._stage_and_confirm()
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+
+        result = self._approve_as(name, create_invoice=True)
+
+        self.assertTrue(result["success"], result)
+        members = frappe.get_all(
+            "Member", {"email": self.email}, ["name", "status", "application_status", "application_id"]
+        )
+        self.assertEqual(len(members), 1)
+        member = members[0]
+        self.assertEqual((member.status, member.application_status), ("Active", "Approved"))
+        application = frappe.db.get_value(
+            SUBMISSION, name, ["application_id", "status", "member"], as_dict=True
+        )
+        self.assertTrue(application.application_id)
+        self.assertEqual(member.application_id, application.application_id)
+        self.assertEqual((application.status, application.member), ("Approved", member.name))
+        self.assertEqual(
+            frappe.db.count("Membership", {"member": member.name, "docstatus": 1}), 1, "one submitted Membership"
+        )
+        self.assertEqual(
+            frappe.db.get_value(
+                "Chapter Member", {"parent": self.chapter.name, "member": member.name}, "status"
+            ),
+            "Active",
+        )
+
+    def test_approve_reapplication_applies_supplied_fields(self):
+        member = self.create_test_member(email=self.email, iban=IBAN)
+        member.reload()
+        # What the member's own first approval left behind: an active history row for IBAN A.
+        member.append("iban_history", {"iban": member.iban, "bank_account_name": "Old Holder", "from_date": today(), "is_active": 1})
+        member.save()
+        member.reload()
+        execute_real_termination(self, member.name, today())
+        member.reload()
+        new_last_name = f"Renamed{frappe.generate_hash(length=5)}"
+        name = self._stage_and_confirm(last_name=new_last_name, iban=OTHER_IBAN, bank_account_name="Renamed Holder", payment_method="SEPA Direct Debit")
+
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.iban.replace(" ", ""), OTHER_IBAN)  # Member formats it in groups
+        self.assertEqual(member.last_name, new_last_name)
+        rows = {row.iban.replace(" ", ""): row for row in member.iban_history}
+        self.assertEqual(rows[IBAN].is_active, 0)
+        self.assertTrue(rows[IBAN].to_date)
+        self.assertEqual(rows[OTHER_IBAN].is_active, 1)
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 1)
+
+    def test_blank_field_keeps_member_value(self):
+        birth_date = add_days(today(), -365 * 41)
+        member = self._voluntarily_quit_member_with_iban(contact_number="+31699999999", birth_date=birth_date)
+        name = self._stage_short_and_confirm()  # sends no birth_date, no mobile_no
+
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.contact_number, "+31699999999")
+        self.assertEqual(str(member.birth_date), str(birth_date))
+
+    def _quit_member_with_answers(self):
+        """PROBE SHORTCUT, stated: the answers are written straight onto the Member (and the join reasons
+        through a plain save) to stand in for an earlier short-form application; the Member's termination,
+        the reapplication and the approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        self.reasons = [self._join_reason(), self._join_reason()]
+        member.reload()
+        member.set("join_reasons", [{"join_reason": self.reasons[0]}])
+        member.save()
+        member.db_set(
+            {
+                "birth_year": 1980,
+                "housemate_of_name": "Old Housemate",
+                "referral_source_other": "Old Referral",
+                "join_reason_other": "Old Reason",
+            }
+        )
+        return member
+
+    def _join_reason(self):
+        reason = f"Reason {frappe.generate_hash(length=6)}"
+        doc = frappe.get_doc({"doctype": "Membership Join Reason", "reason": reason, "enabled": 1}).insert()
+        self.track_doc("Membership Join Reason", doc.name)
+        return doc.name
+
+    def _preview_fields(self, name):
+        from verenigingen.api.membership_application_review import get_application_changes
+
+        with self.as_user(self.admin_user.email):
+            return {row["field"] for row in get_application_changes(name)}
+
+    def test_blank_answers_keep_the_existing_members_answers(self):
+        """Maintainer rule 4 (#1765): an absent or blank field never clears an existing value, answers
+        included (Ruling AQ). The preview must agree with what approval writes."""
+        member = self._quit_member_with_answers()
+        name = self._stage_short_and_confirm(
+            housemate_of_name="", referral_source_other="", join_reason_other="", birth_year=""
+        )
+
+        listed = self._preview_fields(name)
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.birth_year, 1980)
+        self.assertEqual(member.housemate_of_name, "Old Housemate")
+        self.assertEqual(member.referral_source_other, "Old Referral")
+        self.assertEqual(member.join_reason_other, "Old Reason")
+        self.assertEqual([row.join_reason for row in member.join_reasons], [self.reasons[0]])
+        # magazine_delivery is not here: the short form always supplies one (it defaults to "Geen"), so it is
+        # never blank, and a supplied delivery choice overwrites.
+        for field in ("birth_year", "housemate_of_name", "referral_source_other", "join_reason_other",
+                      "join_reasons"):
+            self.assertNotIn(field, listed, f"{field}: a blank answer is not a change")
+
+    def test_a_supplied_answer_overwrites_and_is_listed(self):
+        """Control for the test above: the same flow with non-blank answers does replace them, and the
+        preview lists exactly those."""
+        member = self._quit_member_with_answers()
+        name = self._stage_short_and_confirm(
+            birth_year="1990", join_reasons=[self.reasons[1]], join_reason_other="New Reason",
+            magazine_delivery="Digitaal",
+        )
+
+        listed = self._preview_fields(name)
+        self._approve_as(name)
+
+        member.reload()
+        self.assertEqual(member.birth_year, 1990)
+        self.assertEqual(member.join_reason_other, "New Reason")
+        self.assertEqual(member.magazine_delivery, "Digitaal")
+        self.assertEqual([row.join_reason for row in member.join_reasons], [self.reasons[1]])
+        self.assertEqual(member.referral_source_other, "Old Referral", "a blank one beside it is kept")
+        self.assertEqual(member.housemate_of_name, "Old Housemate", "an absent one beside it is kept")
+        self.assertLessEqual({"birth_year", "join_reason_other", "magazine_delivery", "join_reasons"}, listed)
+        self.assertNotIn("referral_source_other", listed)
+
+    def test_protected_fields_not_written(self):
+        """Every protected key is IN the stored payload (fixture: the payload is edited after staging, as a
+        tampered guest request would carry them), and every assertion is on a value the write could change."""
+        member = self.create_test_member(email=self.email, iban=IBAN)
+        member.reload()
+        execute_real_termination(self, member.name, today())
+        name = self._stage_and_confirm()
+        hostile = {
+            "email": "other@example.org",
+            "status": "Banned",
+            "application_status": "Rejected",
+            "user": "Administrator",
+            "customer": "Somebody Else",
+            "member_id": "FORGED-ID",
+            "payment_reference": "FORGED-REF",
+            "dues_rate": 9999,
+            "fee_override_reason": "forged",
+        }
+        payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        payload.update(hostile)
+        frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))  # fixture: payload as staged
+        before = frappe.db.get_value("Member", member.name, ["user", "customer", "member_id", "payment_reference"], as_dict=True)
+
+        self._approve_as(name)
+
+        after = frappe.db.get_value(
+            "Member",
+            member.name,
+            ["email", "status", "application_status", "user", "customer", "member_id", "payment_reference", "dues_rate"],
+            as_dict=True,
+        )
+        self.assertEqual(after.email, self.email)
+        self.assertEqual((after.status, after.application_status), ("Active", "Approved"))
+        for field in ("user", "customer", "member_id", "payment_reference"):
+            self.assertEqual(after[field], before[field], field)
+            self.assertNotEqual(after[field], hostile[field], field)
+        self.assertNotEqual(after.dues_rate, 9999)
+
+    def test_member_became_active_meanwhile_refused(self):
+        member = self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm()
+        # Probe shortcut: a db write stands in for "some other path made the Member Active".
+        frappe.db.set_value("Member", member.name, {"status": "Active", "application_status": "Approved"})
+
+        with self.assertRaises(frappe.ValidationError):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_failure_leaves_nothing(self):
+        """_create_membership_invoice raises frappe.ValidationError. Read of the call path: it is called from
+        MembershipCreationService.create_membership_on_approval (step 5), whose `except Exception` re-throws
+        as ValidationError; _approve_membership_application_locked calls it with no try, and nothing between
+        there and approve_application's savepoint swallows. No nested commit sits on that path (the
+        savepoint rollback would otherwise return False and fall back to a full rollback)."""
+        name = self._stage_and_confirm()
+        before = {dt: frappe.db.count(dt) for dt in ("Member", "Address", "Customer", "Contact")}
+        target = "verenigingen.services.member.approval.membership_creation_service.MembershipCreationService._create_membership_invoice"
+
+        # Mock justified: injected failure at the invoice step, below the code under test
+        with patch(target, side_effect=frappe.ValidationError("invoice boom")):
+            with self.assertRaises(frappe.ValidationError):
+                self._approve_as(name, create_invoice=True)
+
+        self.assertEqual(before, {dt: frappe.db.count(dt) for dt in before})
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        self.assertEqual(frappe.db.count("Address", {"email_id": self.email}), 0)
+        self.assertEqual(frappe.db.count("Customer", {"email_id": self.email}), 0)
+        self.assertEqual(frappe.db.count("Contact", {"email_id": self.email}), 0)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_failed_approval_of_a_reapplicant_restores_the_member(self):
+        """Same injection point as test_failure_leaves_nothing (below _approve_membership_application_locked,
+        nothing between it and the savepoint swallows). The Quit member must come back as it was."""
+        member = self._voluntarily_quit_member_with_iban()
+        old_last_name = frappe.db.get_value("Member", member.name, "last_name")
+        name = self._stage_and_confirm(last_name=f"Renamed{frappe.generate_hash(length=5)}", iban=OTHER_IBAN, bank_account_name="Other Holder", payment_method="SEPA Direct Debit")
+        target = "verenigingen.services.member.approval.membership_creation_service.MembershipCreationService._create_membership_invoice"
+
+        # Mock justified: injected failure at the invoice step, below the code under test
+        with patch(target, side_effect=frappe.ValidationError("invoice boom")):
+            with self.assertRaises(frappe.ValidationError):
+                self._approve_as(name, create_invoice=True)
+
+        after = frappe.db.get_value("Member", member.name, ["status", "iban", "last_name", "application_status"], as_dict=True)
+        self.assertEqual(after.status, "Quit")
+        self.assertEqual(after.iban.replace(" ", ""), IBAN)
+        self.assertEqual(after.last_name, old_last_name)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, ["status", "member"], as_dict=True), {"status": "Pending Review", "member": None})
+
+    def test_banned_member_with_rejected_application_refused_at_approval(self):
+        """Fixture shortcut, stated: the Banned+Rejected state is a db write (which real path produces it is
+        not established). The application is confirmed while the Member is only Rejected, which is allowed."""
+        member = self.create_test_member(email=self.email)
+        frappe.db.set_value("Member", member.name, {"status": "Rejected", "application_status": "Rejected"})
+        name = self._stage_and_confirm()
+        frappe.db.set_value("Member", member.name, "status", "Banned")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_expulsion_between_confirm_and_approval_refused(self):
+        """A Pending applicant may reapply; an expulsion (real termination service) executed after the
+        application was confirmed makes the Member Banned, and approval must not reactivate it."""
+        member = self.create_test_member(email=self.email)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        name = self._stage_and_confirm()  # control: staged, so this Member could reapply before the expulsion
+        execute_real_termination(self, member.name, today(), termination_type="Expulsion")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def _quit_member_with_pending_application_status(self):
+        """PROBE SHORTCUT, stated: the factory's Pending Member (application_status Pending) stands in for a
+        MijnRood-synced Pending Member (#1855); the termination itself is the real service."""
+        member = self.create_test_member(email=self.email)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        return member
+
+    def test_involuntarily_quit_member_with_pending_status_refused_at_approval(self):
+        """Ruling V: a Quit member whose application_status still reads Pending is refused when the termination
+        was not voluntary. Confirmed while still Pending (allowed), terminated afterwards."""
+        member = self._quit_member_with_pending_application_status()
+        name = self._stage_and_confirm()
+        execute_real_termination(self, member.name, today(), termination_type="Disciplinary Action")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_involuntarily_quit_member_with_pending_status_refused_at_submit(self):
+        member = self._quit_member_with_pending_application_status()
+        execute_real_termination(self, member.name, today(), termination_type="Disciplinary Action")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+        rows = frappe.db.count(SUBMISSION, {"email": self.email})
+        self._request_from_fresh_ip()
+        previous = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            response = submit_application(**self._full_form_data())
+        finally:
+            frappe.set_user(previous)
+
+        self.assertTrue(response["success"], response)  # the same answer a Guest gets for any email
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), rows, "nothing staged")
+
+    def test_voluntarily_quit_member_with_pending_status_still_approves(self):
+        """Control: the same Pending application_status after a VOLUNTARY quit is a rejoiner, not a refusal."""
+        member = self._quit_member_with_pending_application_status()
+        name = self._stage_and_confirm()
+        execute_real_termination(self, member.name, today(), termination_type="Voluntary")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit", "precondition")
+
+        result = self._approve_as(name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Active")
+
+    def test_banned_member_with_rejected_application_refused_at_submit(self):
+        member = self.create_test_member(email=self.email)
+        frappe.db.set_value("Member", member.name, {"status": "Banned", "application_status": "Rejected"})
+        rows = frappe.db.count(SUBMISSION, {"email": self.email})
+        self._request_from_fresh_ip()
+        previous = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            response = submit_application(**self._full_form_data())
+        finally:
+            frappe.set_user(previous)
+
+        self.assertTrue(response["success"], response)  # the same answer a Guest gets for any email
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), rows, "nothing staged for a Banned member")
+
+    def test_superseded_application_refused(self):
+        older = self._stage_and_confirm()
+        newer = self._stage_and_confirm()
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded")
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be approved in its current state"):
+            self._approve_as(older)
+
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, newer, "status"), "Pending Review")
+
+    def _approve_watching_status_mail(self, reapplication):
+        """The Member's status-change notification skips itself under frappe.flags.in_test, so that skip rule
+        is replaced by the same rule minus in_test; otherwise a Pending mail could never be observed here.
+        The notification service is spied (wraps: it still runs), not stubbed: this bare environment cannot
+        create an invoice, so the approval mail itself never goes out, and the Email Queue stays empty."""
+        if reapplication:  # the Quit -> Pending save is what emits a Pending mail (an insert emits none: measured)
+            self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm()
+        seen = []
+        real_send = MemberStatusNotificationService.send_status_change_notification
+
+        def spy(service, member_doc, old_status, new_status):
+            seen.append((member_doc.email, new_status))
+            return real_send(service, member_doc, old_status, new_status)
+
+        def skip_unless_bulk(_service):
+            return bool(frappe.flags.get("bulk_member_operations") or frappe.flags.get("in_bulk_import"))
+
+        # Mock justified: Environment flag - frappe.flags.in_test is the only part of the rule replaced
+        with patch(f"{EMISSION}.should_skip_event_emission", skip_unless_bulk):
+            with patch.object(MemberStatusNotificationService, "send_status_change_notification", spy):
+                self._approve_as(name)
+
+        mine = [status for email, status in seen if email == self.email]
+        self.assertIn("Active", mine, "control: the notification path ran, so a Pending one could have")
+        self.assertNotIn("Pending", mine)
+
+    def test_single_applicant_email_on_approval(self):
+        self._approve_watching_status_mail(reapplication=False)
+
+    def test_reapplicant_gets_no_pending_status_mail(self):
+        self._approve_watching_status_mail(reapplication=True)
+
+    def test_unknown_volunteer_email_is_relinked_not_doubled(self):
+        """An email that already has an unlinked Volunteer gets that Volunteer, not a second one (T2 concern)."""
+        with self.as_user(self.admin_user.email):
+            volunteer = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": "Earlier Volunteer",
+                    "email": self.email,
+                    "status": "New",
+                    "start_date": today(),
+                }
+            ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+        name = self._stage_and_confirm(interested_in_volunteering=1)
+
+        result = self._approve_as(name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.count("Volunteer", {"email": self.email}), 1)
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "member"),
+            frappe.db.get_value("Member", {"email": self.email}),
+        )
+
+
+class TestRejectApplication(ApprovalCase):
+    """Rejection writes the application and nothing else (#1765 task 5). Driven through the real flow:
+    submit_application as Guest -> confirm link -> reject_application as staff. No probe shortcuts except
+    the Approved state in test_approved_application_cannot_be_rejected, which is reached by the real approve."""
+
+    def test_rejected_application_status_page_shows_only_the_reason(self):
+        """Through the real reject endpoint: review_notes also holds the category, the template name and the
+        reviewer's internal notes, and only the reason may reach the applicant's status page."""
+        from verenigingen.templates.pages.application_status import (
+            APPLICATION_STATUS_TOKEN_PURPOSE,
+            _application_for,
+        )
+
+        name = self._stage_and_confirm()
+        result = self._reject_as(
+            name, reason="Buiten ons werkgebied", rejection_category="Other", internal_notes="staff only: dubious"
+        )
+        self.assertTrue(result["success"], result)
+        self.assertIn("staff only: dubious", frappe.db.get_value(SUBMISSION, name, "review_notes"))
+
+        token = generate_guest_return_token(APPLICATION_STATUS_TOKEN_PURPOSE, name)
+        application = _application_for(name, token)
+
+        self.assertEqual(application.status, "Rejected")
+        self.assertEqual(application.reason, "Buiten ons werkgebied")
+
+    def test_reject_new_applicant_creates_nothing(self):
+        name = self._stage_and_confirm()
+        doctypes = ("Member", "Address", "Customer", "Contact", "Volunteer", "Chapter Member", "Chapter Membership History")
+        before = {dt: frappe.db.count(dt) for dt in doctypes}
+
+        result = self._reject_as(name, rejection_category="Other", internal_notes="staff only")
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(before, {dt: frappe.db.count(dt) for dt in before})
+        self.assertEqual(frappe.db.count("Volunteer", {"email": self.email}), 0)
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        row = frappe.db.get_value(
+            SUBMISSION, name, ["status", "reviewed_by", "review_date", "review_notes", "rejection_category"], as_dict=True
+        )
+        self.assertEqual(row.status, "Rejected")
+        self.assertEqual(row.reviewed_by, self.admin_user.email)
+        self.assertTrue(row.review_date)
+        self.assertEqual(row.rejection_category, "Other")
+        self.assertIn("Does not fit our association", row.review_notes)
+        self.assertIn("staff only", row.review_notes)
+
+    def test_reject_reapplication_leaves_member_untouched(self):
+        member = self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm(last_name=f"Renamed{frappe.generate_hash(length=5)}", iban=OTHER_IBAN, bank_account_name="Other Holder", payment_method="SEPA Direct Debit")
+        fields = ["modified", "iban", "status", "application_status", "last_name", "user", "customer"]
+        before = frappe.db.get_value("Member", member.name, fields, as_dict=True)
+        self.assertEqual(before.status, "Quit", "control: the Member this application would update exists and is Quit")
+
+        self._reject_as(name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, ["status", "member"], as_dict=True), {"status": "Rejected", "member": None})
+
+    def test_rejected_application_can_reapply(self):
+        first = self._stage_and_confirm()
+        self._reject_as(first)
+
+        second = self._stage_and_confirm()
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, first, "status"), "Rejected")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, second, "status"), "Pending Review")
+
+    def test_non_pending_review_application_refused_and_unchanged(self):
+        approved = self._stage_and_confirm()
+        self._approve_as(approved)
+        self.email = self._fresh_applicant_email()
+        older = self._stage_and_confirm()
+        self._stage_and_confirm()
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded", "precondition")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, approved, "status"), "Approved", "precondition")
+        fields = ["status", "member", "reviewed_by", "review_date", "review_notes", "rejection_category"]
+
+        for name in (approved, older):
+            before = frappe.db.get_value(SUBMISSION, name, fields, as_dict=True)
+            with self.assertRaisesRegex(frappe.ValidationError, "cannot be rejected in its current state"):
+                self._reject_as(name)
+            self.assertEqual(frappe.db.get_value(SUBMISSION, name, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value("Member", {"email": self.email}), None)
+
+    def test_rejection_mail_goes_to_the_applicant_and_references_the_application(self):
+        """Spied, not stubbed (the real service still runs): this bare environment has no active email account,
+        so a mail never reaches the Email Queue here and the queue cannot be read."""
+        from verenigingen.services.communication.email_service import EmailService
+
+        name = self._stage_and_confirm()
+        real_send = EmailService.send_templated_email
+        calls = []
+
+        def spy(service, *args, **kwargs):
+            calls.append(kwargs)
+            return real_send(service, *args, **kwargs)
+
+        # Mock justified: spy on the mail boundary; the real service still runs
+        with patch.object(EmailService, "send_templated_email", spy):
+            self._reject_as(name, rejection_category="Other")
+
+        self.assertEqual(len(calls), 1, "exactly one rejection mail")
+        self.assertEqual(calls[0]["recipients"], [self.email])
+        self.assertEqual((calls[0]["reference_doctype"], calls[0]["reference_name"]), (SUBMISSION, name))
+        self.assertEqual(calls[0]["context"]["rejection_category"], "Other")
+        self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
+
+    def _reject_with_mail_service(self, name, **service):
+        from verenigingen.services.communication.email_service import EmailService
+
+        # Mock justified: External Service - the mail service's outcome is the input under test
+        with patch.object(EmailService, "send_templated_email", **service):
+            return self._reject_as(name)
+
+    def test_mail_failure_is_reported_logged_and_keeps_the_rejection(self):
+        from verenigingen.utils.operation_result import OperationResult
+
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Rejection mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]})
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+
+        result = self._reject_with_mail_service(name, return_value=OperationResult.fail("smtp boom"))
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]}), errors + 1)
+        self.assertIn("smtp boom", frappe.get_all("Error Log", {"method": ["like", "Rejection mail failed%"]}, "error", order_by="creation desc", limit=1)[0].error)
+
+    def test_mail_service_raising_is_reported_logged_and_keeps_the_rejection(self):
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Rejection mail raised")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail raised%"]})
+
+        result = self._reject_with_mail_service(name, side_effect=RuntimeError("service down"))
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+        self.assertFalse(result["mail_sent"])
+        self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail raised%"]}), errors + 1)
+
+    def test_invalid_email_template_refused_before_anything_is_written(self):
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Invalid email template"):
+            self._reject_as(name, email_template="No Such Template")
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+
+def _message_log_without_exc_id(log):
+    out = []
+    for entry in log:
+        entry = json.loads(entry) if isinstance(entry, str) else dict(entry)
+        entry.pop("__frappe_exc_id", None)
+        out.append(entry)
+    return out
+
+
+class TestApproveApplicationBoard(ApprovalCase):
+    def setUp(self):
+        super().setUp()
+        self.other_chapter = self.factory.ensure_test_chapter(
+            f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
+        )
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def _foreign_application(self):
+        """A confirmed application whose chapter this board member holds no seat in."""
+        self.email = self._fresh_applicant_email()
+        return self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+
+    def _reject_as_board_probe(self, name):
+        """(type, message, message_log delta, Error Log delta, query count) of reject_application as the board user."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(self.board.user):
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
+                try:
+                    reject_application(name, reason="No")
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def _approve_as_board_probe(self, name):
+        """(type, message, message_log delta, Error Log delta, query count) of approve_application as the board user."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(self.board.user):
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
+                try:
+                    approve_application(name, create_invoice=False)
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def test_foreign_and_unknown_application_refused_identically(self):
+        foreign = self._foreign_application()
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        self._approve_as_board_probe(unknown)  # warm the role/permission caches: the first call of a process reads cold
+        foreign_result = self._approve_as_board_probe(foreign)
+        unknown_result = self._approve_as_board_probe(unknown)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, foreign, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+
+    def test_board_member_approves_own_chapter_application(self):
+        name = self._stage_and_confirm()  # chapter: the one this board member holds an Admin seat in
+
+        result = self._approve_as(name, user=self.board.user)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
+
+    def test_board_member_cannot_place_member_in_a_chapter_they_do_not_manage(self):
+        """Ruling AR / #1908: refused for an unmanaged chapter, with the shared helper's message (it used
+        to be a PermissionError from the branch's own "another chapter" guard)."""
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "cannot be assigned"):
+            self._approve_as(name, user=self.board.user, chapter=self.other_chapter.name)
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+
+    def test_foreign_and_unknown_application_reject_refused_identically(self):
+        foreign = self._foreign_application()
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        self._reject_as_board_probe(unknown)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._reject_as_board_probe(foreign)
+        unknown_result = self._reject_as_board_probe(unknown)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, foreign, "status"), "Pending Review")
+
+    def test_board_member_rejects_own_chapter_application(self):
+        name = self._stage_and_confirm()
+
+        result = self._reject_as(name, user=self.board.user)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+
+
+class TestApplicationChanges(ApprovalCase):
+    """#1765 task 6: the change preview a reviewer sees before approving.
+
+    Driven through the real flow (submit -> confirm -> preview / approve). Fixture shortcuts, stated: the
+    Member's address and (for the answers test) application_custom_fee are db writes standing in for "the
+    state an earlier approval left", so those tests prove the preview, not that the state is reachable so."""
+
+    def setUp(self):
+        super().setUp()
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def _quit_member_matching_form(self, **fields):
+        """A voluntarily-Quit Member whose every application-writable field already equals what
+        _full_form_data supplies, except the ones passed in `fields`."""
+        values = {
+            "first_name": "Appr",
+            "iban": IBAN,
+            "contact_number": "+31612345678",
+            "birth_date": add_days(today(), -365 * 30),
+            "selected_membership_type": self.membership_type.name,
+        }
+        values.update(fields)
+        member = self._voluntarily_quit_member_with_iban_values(values)
+        with self.as_user(self.admin_user.email):
+            address = frappe.get_doc(
+                {
+                    "doctype": "Address",
+                    "address_title": "Appr Applicant",
+                    "address_type": "Personal",
+                    "address_line1": "123 Test Street",
+                    "city": "Amsterdam",
+                    "country": "Netherlands",
+                    "pincode": "1234AB",
+                    "email_id": self.email,
+                    "is_primary_address": 1,
+                }
+            ).insert()
+        self.track_doc("Address", address.name)
+        frappe.db.set_value("Member", member.name, "primary_address", address.name)  # fixture shortcut
+        return member
+
+    def _voluntarily_quit_member_with_iban_values(self, values):
+        member = self.create_test_member(email=self.email, **values)
+        execute_real_termination(self, member.name, today())
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+        return member
+
+    def _changes_as(self, name, user=None):
+        with self.as_user(user or self.admin_user.email):
+            return get_application_changes(name)
+
+    def _rows(self, name, user=None):
+        return {row["field"]: row for row in self._changes_as(name, user)}
+
+    def test_changes_list_only_differing_supplied_fields(self):
+        member = self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN, last_name="Renamed")  # phone not changed: same as the Member's
+        control = frappe.db.get_value("Member", member.name, "contact_number")
+        self.assertEqual(control, "+31612345678", "control: the Member has a phone the application also supplies")
+
+        rows = self._rows(name)
+
+        self.assertEqual(set(rows), {"iban", "last_name"}, rows)
+        self.assertEqual(rows["last_name"]["proposed"], "Renamed")
+        self.assertNotEqual(rows["last_name"]["current"], "Renamed")
+        self.assertEqual(rows["iban"]["proposed"], OTHER_IBAN)
+        self.assertEqual(rows["iban"]["current"].replace(" ", ""), IBAN)
+        self.assertTrue(rows["iban"]["label"] and rows["last_name"]["label"])
+
+    def test_new_applicant_has_no_changes(self):
+        name = self._stage_and_confirm()
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0, "precondition: no Member exists")
+
+        self.assertEqual(self._changes_as(name), [])
+
+    def test_preview_matches_write(self):
+        """Snapshot every Member field before and after the real approval. Every previewed field must have
+        changed to exactly the previewed value, and every other change must be one the approval itself
+        makes (lifecycle and the approval core's own writes), named below."""
+        member = self._quit_member_matching_form(last_name="Before")
+        name = self._stage_and_confirm(
+            iban=OTHER_IBAN,
+            last_name="Renamed",
+            bank_account_name="New Holder",
+            payment_method="SEPA Direct Debit",
+            city="Utrecht",
+            address_line2="2 hoog",
+        )
+        preview = self._rows(name)
+        self.assertTrue(preview, "control: the preview has rows to match")
+        self.assertIn("address", preview, "control: this application changes the address")
+        before = frappe.get_doc("Member", member.name).as_dict(no_default_fields=False)
+
+        self._approve_as(name)
+
+        after = frappe.get_doc("Member", member.name).as_dict(no_default_fields=False)
+        changed = {
+            field
+            for field in set(before) | set(after)
+            if not isinstance(before.get(field), list) and _norm(before.get(field)) != _norm(after.get(field))
+        }
+        for field, row in preview.items():
+            if field == "address":  # not a Member field: asserted against the new Address below
+                continue
+            self.assertIn(field, changed, f"{field} previewed but approval did not change it")
+            self.assertEqual(_norm(after[field]), _norm(row["proposed"]), field)
+        self.assertNotEqual(after.primary_address, before.primary_address, "approval re-points the address")
+        written = frappe.db.get_value("Address", after.primary_address, ["address_line1", "address_line2", "city", "pincode"], as_dict=True)
+        self.assertEqual((written.city, written.address_line2), ("Utrecht", "2 hoog"))
+        for part in (written.address_line1, written.address_line2, written.pincode, written.city):
+            self.assertIn(part, preview["address"]["proposed"], "the previewed address is the one written")
+        self.assertIn("Amsterdam", preview["address"]["current"])
+        unexplained = changed - set(preview) - _APPROVAL_OWN_WRITES
+        self.assertEqual(unexplained, set(), "approval changed fields the preview did not show")
+
+    def test_preview_includes_answers_and_dues_choice(self):
+        """A short-form reapplication also replaces the answers and the dues choice: both are in the preview."""
+        member = self._voluntarily_quit_member_with_iban_values({"iban": IBAN})
+        frappe.db.set_value("Member", member.name, "application_custom_fee", 5)  # fixture shortcut: an earlier application's fee
+        name = self._stage_short_and_confirm()
+
+        rows = self._rows(name)
+
+        self.assertIn("application_door", rows, "an answer the short form replaces")
+        self.assertEqual(rows["application_door"]["proposed"], frappe.db.get_value(SUBMISSION, name, "door"))
+        self.assertIn("application_custom_fee", rows, "the dues choice the short form sets (7.50)")
+        self.assertEqual((rows["application_custom_fee"]["current"], rows["application_custom_fee"]["proposed"]), (5, 7.5))
+
+    def test_blank_supplied_field_is_not_listed(self):
+        """The short form sends no birth date and no mobile number; the Member keeps its own (approval
+        writes nothing there), so they are not rows."""
+        member = self._voluntarily_quit_member_with_iban_values(
+            {"iban": IBAN, "contact_number": "+31699999999", "birth_date": add_days(today(), -365 * 41)}
+        )
+        self.assertTrue(frappe.db.get_value("Member", member.name, "contact_number"), "control: the Member has a phone")
+        name = self._stage_short_and_confirm()
+
+        rows = self._rows(name)
+
+        self.assertIn("application_door", rows, "control: the preview ran and has rows")
+        self.assertNotIn("contact_number", rows)
+        self.assertNotIn("birth_date", rows)
+
+    def test_address_is_one_row_only_when_it_differs(self):
+        self._quit_member_matching_form()
+        same = self._stage_and_confirm()
+        self.assertNotIn("address", self._rows(same), "the application supplies the address the Member has")
+
+        moved = self._stage_and_confirm(address_line1="9 Other Road", city="Utrecht")
+        rows = self._rows(moved)
+
+        self.assertIn("address", rows)
+        self.assertIn("123 Test Street", rows["address"]["current"])
+        self.assertIn("9 Other Road", rows["address"]["proposed"])
+        self.assertIn("Utrecht", rows["address"]["proposed"])
+
+    def _address_rows(self, **form):
+        member = self._quit_member_matching_form()
+        last_name = frappe.db.get_value("Member", member.name, "last_name")  # the factory decorates the name
+        return self._rows(self._stage_and_confirm(last_name=last_name, **form))
+
+    def test_address_line2_alone_is_a_change(self):
+        rows = self._address_rows(address_line2="2 hoog")
+
+        self.assertEqual(set(rows), {"address"}, rows)
+        self.assertIn("2 hoog", rows["address"]["proposed"])
+        self.assertNotIn("2 hoog", rows["address"]["current"])
+
+    def test_state_alone_is_a_change(self):
+        rows = self._address_rows(state="Utrecht")
+
+        self.assertEqual(set(rows), {"address"}, rows)
+        self.assertIn("Utrecht", rows["address"]["proposed"])
+
+    def test_postcode_spacing_and_case_are_not_a_change(self):
+        rows = self._address_rows(postal_code="1234 ab")
+
+        self.assertEqual(rows, {}, "1234AB and '1234 ab' are the same postcode")
+
+    def _stage_with_fee(self, fee):
+        """Fixture shortcut, stated: the payload is edited after staging to carry a custom fee (the form
+        validates the amount, and a malformed one cannot be submitted through it)."""
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm()
+        payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        payload.update({"custom_contribution_fee": fee, "uses_custom_amount": 1})
+        frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
+        return name
+
+    def test_preview_does_not_name_the_previewer_as_fee_approver(self):
+        name = self._stage_with_fee("12.5")
+
+        rows = self._rows(name)
+
+        self.assertEqual(rows["dues_rate"]["proposed"], 12.5, "control: the custom fee is previewed")
+        self.assertIn("fee_override_reason", rows)
+        self.assertNotIn("fee_override_by", rows)
+        self.assertNotIn("fee_override_date", rows)
+        self.assertNotIn(self.admin_user.email, json.dumps(rows, default=str))
+
+    def test_approval_still_stamps_the_approver_on_a_custom_fee(self):
+        name = self._stage_with_fee("12.5")
+        member = frappe.db.get_value("Member", {"email": self.email})
+
+        self._approve_as(name)
+
+        stamped = frappe.db.get_value("Member", member, ["fee_override_by", "fee_override_date", "application_custom_fee"], as_dict=True)
+        self.assertEqual(stamped.application_custom_fee, 12.5, "control: the fee was applied")
+        self.assertEqual(stamped.fee_override_by, self.admin_user.email)
+        self.assertEqual(str(stamped.fee_override_date), today())
+
+    def test_preview_of_a_malformed_fee_writes_no_error_log(self):
+        from verenigingen.services.member.approval.application_helpers import _apply_custom_contribution_fee
+
+        name = self._stage_with_fee("not-a-number")
+        # Control: the helper does log this input when it is not a preview, so a zero delta below is the
+        # preview's doing, not an input that never reaches the log.
+        # (the helper passes message and title swapped, so the text is in `method`)
+        logged = {"method": ["like", "Error converting custom_contribution_fee%"]}
+        self.expectErrorLog("Error converting custom_contribution_fee")
+        errors = frappe.db.count("Error Log", logged)
+        _apply_custom_contribution_fee(frappe._dict(), {"custom_contribution_fee": "not-a-number"})
+        self.assertEqual(frappe.db.count("Error Log", logged), errors + 1)
+        before = frappe.db.count("Error Log")
+
+        self._rows(name)
+
+        self.assertEqual(frappe.db.count("Error Log"), before)
+
+    def test_iban_is_masked_for_a_board_member_and_full_for_an_administrator(self):
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+
+        board_row = self._rows(name, self.board.user)["iban"]
+        admin_row = self._rows(name)["iban"]
+
+        self.assertEqual(admin_row["proposed"], OTHER_IBAN)
+        self.assertEqual(admin_row["current"].replace(" ", ""), IBAN)
+        for side, full in (("current", IBAN), ("proposed", OTHER_IBAN)):
+            shown = board_row[side]
+            self.assertNotEqual(shown.replace(" ", ""), full, side)
+            self.assertTrue(shown.endswith(full[-4:]), f"{side}: the last 4 characters stay visible")
+            self.assertNotIn(full[4:-4], shown.replace(" ", ""), side)
+        self.assertNotIn(OTHER_IBAN[2:-4], json.dumps(self._changes_as(name, self.board.user)))
+
+    def test_system_manager_alone_sees_the_full_iban(self):
+        """Ruling: Verenigingen Administrator AND System Manager. A System Manager without the other role."""
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+        sysman = self.create_test_user_with_roles(
+            email=f"appr.sysman.{frappe.generate_hash(length=6)}@example.com", roles=["System Manager"]
+        )
+
+        self.assertEqual(self._rows(name, sysman.email)["iban"]["proposed"], OTHER_IBAN)
+
+    def test_a_basic_seat_may_read(self):
+        """Ruling N: any active seat in the application's chapter reads (the IBAN is masked)."""
+        basic = self.create_test_board_member(self.chapter.name, permissions_level="Basic")
+        self._quit_member_matching_form()
+        name = self._stage_and_confirm(iban=OTHER_IBAN)
+
+        rows = self._rows(name, basic.user)
+
+        self.assertIn("iban", rows)
+        self.assertNotEqual(rows["iban"]["proposed"], OTHER_IBAN)
+
+    def _preview_probe(self, name, user):
+        """(type, message, message_log delta, Error Log delta, query count) of get_application_changes."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(user):
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
+                try:
+                    get_application_changes(name)
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def test_foreign_and_unknown_application_refused_identically(self):
+        other_chapter = self.factory.ensure_test_chapter(
+            f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
+        )
+        self._quit_member_matching_form()
+        foreign = self._stage_and_confirm(selected_chapter=other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        user = self.board.user  # clears the API's security tier, so the application check is what refuses
+        self._preview_probe(unknown, user)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._preview_probe(foreign, user)
+        unknown_result = self._preview_probe(unknown, user)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertEqual(foreign_result, unknown_result)
+
+
+REFERENCE_COLUMNS = (
+    "reference_name",
+    "link_name",
+    "docname",
+    "ref_docname",
+    "attached_to_name",
+    "document_name",
+    "reference_docname",
+    "share_name",
+    "timeline_name",
+    "parent",
+)
+
+
+def rows_referencing(name):
+    """{table: count} of every row in every table whose reference-like column holds `name`.
+
+    Found by asking information_schema, not by listing the doctypes we expect: a dependent we did not
+    think of (Version, ToDo, Email Queue, ...) shows up here too."""
+    found = {}
+    columns = frappe.db.sql(
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = DATABASE() "
+        "AND column_name IN %(cols)s AND table_name LIKE 'tab%%'",
+        {"cols": REFERENCE_COLUMNS},
+    )
+    for table, column in columns:
+        if table == f"tab{SUBMISSION}":
+            continue
+        count = frappe.db.sql(f"SELECT COUNT(*) FROM `{table}` WHERE `{column}` = %s", name)[0][0]
+        if count:
+            found[f"{table[3:]}.{column}"] = count
+    return found
+
+
+class TestRequestMoreInfo(ApprovalCase):
+    """#1765 task 7b / #1874: a reviewer asks an applicant for more information. Driven through the real flow
+    (submit -> confirm -> request_more_info -> approve). SMTP delivery is the only stub: the Communication
+    is inserted by the real `_make`, so the rows these tests read are the ones production writes."""
+
+    def setUp(self):
+        super().setUp()
+        self.other_chapter = self.factory.ensure_test_chapter(
+            f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
+        )
+        self.board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+    def _ask_as(self, name, user=None, info="Please send a copy of your ID", **service):
+        from frappe.core.doctype.communication.communication import Communication
+
+        with self.as_user(user or self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery (and the site's outgoing account) are not the logic under test
+            with patch.object(Communication, "get_outgoing_email_account", return_value=True):
+                with patch.object(Communication, "send_email", **service):
+                    return request_more_info(name, info)
+
+    def _threads(self, doctype, name):
+        return frappe.get_all(
+            "Communication",
+            {"reference_doctype": doctype, "reference_name": name},
+            ["name", "recipients", "subject", "content", "sent_or_received"],
+        )
+
+    def _notes(self, name):
+        return frappe.get_all(
+            "Comment",
+            {"reference_doctype": SUBMISSION, "reference_name": name, "comment_type": "Info"},
+            ["content", "owner", "comment_email"],
+        )
+
+    def test_request_mails_the_applicant_through_the_application_and_records_the_asker(self):
+        name = self._stage_and_confirm()
+        before = frappe.db.get_value(SUBMISSION, name, ["status", "reviewed_by", "review_date"], as_dict=True)
+
+        result = self._ask_as(name, info="Please send a copy of your ID")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["mail_sent"])
+        threads = self._threads(SUBMISSION, name)
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(threads[0].recipients, self.email)
+        self.assertEqual(threads[0].sent_or_received, "Sent")
+        self.assertIn("Please send a copy of your ID", threads[0].content)
+        notes = self._notes(name)
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].owner, self.admin_user.email)
+        self.assertIn(self.admin_user.email, notes[0].content)
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, name, ["status", "reviewed_by", "review_date"], as_dict=True), before
+        )
+
+    def test_the_application_can_still_be_approved_afterwards(self):
+        name = self._stage_and_confirm()
+        self._ask_as(name)
+
+        approved = self._approve_as(name)
+
+        self.assertTrue(approved["success"], approved)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
+
+    def test_the_applicant_name_and_the_request_are_escaped_in_the_mail(self):
+        name = self._stage_and_confirm()
+        # Probe shortcut: the form refuses markup in a name, so the stored name is set directly. This proves the
+        # mail escapes whatever the record holds, not that a name with markup is reachable through the form.
+        frappe.db.set_value(SUBMISSION, name, "applicant_name", "<b>Bold</b>")
+
+        self._ask_as(name, info="<script>alert(1)</script> & more\nsecond line")
+
+        content = self._threads(SUBMISSION, name)[0].content
+        self.assertNotIn("<script>", content)
+        self.assertNotIn("<b>Bold</b>", content)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more<br>second line", content)
+        self.assertIn("&lt;b&gt;Bold&lt;/b&gt;", content)
+
+    def test_an_empty_request_is_refused_and_writes_nothing(self):
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Describe the information"):
+            self._ask_as(name, info="   ")
+
+        self.assertEqual(self._threads(SUBMISSION, name), [])
+        self.assertEqual(self._notes(name), [])
+
+    def test_non_pending_review_application_refused_and_unchanged(self):
+        approved = self._stage_and_confirm()
+        self._approve_as(approved)
+        self.email = self._fresh_applicant_email()
+        older = self._stage_and_confirm()
+        self._stage_and_confirm()
+        self.email = self._fresh_applicant_email()
+        rejected = self._stage_and_confirm()
+        self._reject_as(rejected)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, older, "status"), "Superseded", "precondition")
+        fields = ["status", "member", "reviewed_by", "review_date", "review_notes", "modified"]
+
+        for name in (approved, older, rejected):
+            before = frappe.db.get_value(SUBMISSION, name, fields, as_dict=True)
+            threads = len(self._threads(SUBMISSION, name))
+            with self.assertRaisesRegex(frappe.ValidationError, "cannot be asked for more information"):
+                self._ask_as(name)
+            self.assertEqual(frappe.db.get_value(SUBMISSION, name, fields, as_dict=True), before)
+            self.assertEqual(len(self._threads(SUBMISSION, name)), threads, "no mail for a closed application")
+            self.assertEqual(self._notes(name), [])
+
+    def test_a_member_is_never_written_or_mailed(self):
+        member = self._voluntarily_quit_member_with_iban()
+        name = self._stage_and_confirm()
+        snapshot = frappe.db.get_value("Member", member.name, ["modified", "status", "application_status"])
+        threads = len(self._threads("Member", member.name))
+
+        self._ask_as(name)
+
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["modified", "status", "application_status"]), snapshot
+        )
+        self.assertEqual(len(self._threads("Member", member.name)), threads)
+        self.assertEqual(len(self._threads(SUBMISSION, name)), 1)
+
+    def test_mail_failure_is_reported_logged_and_keeps_the_request(self):
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Information request mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]})
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+
+        result = self._ask_as(name, side_effect=frappe.OutgoingEmailError("smtp boom"))
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]}), errors + 1
+        )
+        self.assertEqual(len(self._notes(name)), 1, "the request is still recorded")
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no phantom Sent communication")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_a_basic_seat_on_the_same_chapter_may_not_ask(self):
+        """Asking is a manage action (Admin seat). A Basic seat clears the security-tier decorator, so the
+        application check is the only guard."""
+        basic = self.create_test_board_member(self.chapter.name, permissions_level="Basic", first_name="Basic")
+        name = self._stage_and_confirm()
+
+        with self.assertRaisesRegex(frappe.PermissionError, "permission to manage this application"):
+            self._ask_as(name, user=basic.user)
+
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no mail")
+        self.assertEqual(self._notes(name), [], "no record")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
+    def test_no_outgoing_email_account_is_reported_logged_and_keeps_the_request(self):
+        """The likely real failure: `_make` throws OutgoingEmailError (and adds a Frappe message) after
+        inserting the Communication. The account lookup is the only thing stubbed, to None."""
+        from frappe.core.doctype.communication.communication import Communication
+
+        name = self._stage_and_confirm()
+        self.expectErrorLog("Information request mail failed")
+        errors = frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]})
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - the site's outgoing Email Account is the input under test
+            with patch.object(Communication, "get_outgoing_email_account", return_value=None):
+                result = request_more_info(name, "Please send a copy of your ID")
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["mail_sent"])
+        self.assertIn("could not be sent", result["message"])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Information request mail failed%"]}), errors + 1
+        )
+        self.assertIn(
+            "missing email account",
+            frappe.get_all(
+                "Error Log",
+                {"method": ["like", "Information request mail failed%"]},
+                "error",
+                order_by="creation desc",
+                limit=1,
+            )[0].error,
+        )
+        self.assertEqual(len(self._notes(name)), 1, "the request is still recorded")
+        self.assertEqual(self._threads(SUBMISSION, name), [], "no phantom Sent communication")
+
+    def _ask_as_board_probe(self, name):
+        """(type, message, message_log delta, Error Log delta, query count) of request_more_info as the board user."""
+        from verenigingen.tests.utils.query_counter import count_queries
+
+        errors = frappe.db.count("Error Log")
+        frappe.clear_messages()
+        before = len(frappe.local.message_log)
+        kind = message = None
+        with self.as_user(self.board.user):
+            # Mock justified: Infrastructure - the RQ push. The security event of a refusal is a job a worker
+            # runs outside the request; inline under test its rows would count toward the query total.
+            with patch("frappe.enqueue"), count_queries() as counter:
+                try:
+                    request_more_info(name, "Anything")
+                except Exception as error:
+                    kind, message = type(error), str(error)
+        log = _message_log_without_exc_id(list(frappe.local.message_log)[before:])
+        queries = len([q for q in counter.queries if "Error Log" not in q])
+        return kind, message, log, frappe.db.count("Error Log") - errors, queries
+
+    def test_foreign_and_unknown_application_refused_identically(self):
+        self.email = self._fresh_applicant_email()
+        foreign = self._stage_and_confirm(selected_chapter=self.other_chapter.name)
+        unknown = f"nonexistent-{frappe.generate_hash(length=8)}"
+
+        self._ask_as_board_probe(unknown)  # warm the caches: the first call of a process reads cold
+        foreign_result = self._ask_as_board_probe(foreign)
+        unknown_result = self._ask_as_board_probe(unknown)
+
+        self.assertEqual(foreign_result[0], frappe.PermissionError, foreign_result)
+        self.assertIn("permission to manage this application", foreign_result[1])
+        self.assertEqual(foreign_result, unknown_result)
+        self.assertEqual(self._threads(SUBMISSION, foreign), [])
+        self.assertEqual(self._notes(foreign), [])
+
+    def test_board_member_asks_about_own_chapter_application(self):
+        name = self._stage_and_confirm()
+
+        result = self._ask_as(name, user=self.board.user)
+
+        self.assertTrue(result["mail_sent"], result)
+        self.assertEqual(self._notes(name)[0].owner, self.board.user)
+
+    def _age_past_the_purge(self, name):
+        """Probe shortcut, stated: `modified` is backdated with db.set_value(update_modified=False), which
+        stands in for 31 days passing; nothing else can age a row. The job is called directly: its daily registration is
+        pinned in test_short_application_cleanup, and frappe.get_hooks answers differently after some earlier tests
+        in this module's process."""
+        frappe.db.set_value(SUBMISSION, name, "modified", add_days(now_datetime(), -31), update_modified=False)
+        expire_and_purge_applications()
+
+    def test_purging_a_rejected_application_removes_what_the_information_request_attached(self):
+        """A real request_more_info leaves a timeline Comment and a Communication (the applicant's email and the
+        request text) on the application. Retention must remove them with it, not strand them on a dangling name."""
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        attached = rows_referencing(name)
+        self.assertIn("Comment.reference_name", attached)  # not vacuous: the real flow wrote them
+        self.assertIn("Communication.reference_name", attached)
+        self.assertTrue(self._reject_as(name)["success"])
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists(SUBMISSION, name))
+        self.assertEqual(rows_referencing(name), {})
+
+    def _rejected_application_with_a_request(self):
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        self.assertTrue(self._reject_as(name)["success"])
+        communication = frappe.get_all(
+            "Communication", {"reference_doctype": SUBMISSION, "reference_name": name}, pluck="name"
+        )[0]
+        return name, communication
+
+    def _raw_row(self, doctype, **values):
+        """Probe shortcut, stated: a row inserted without validation or hooks, standing in for what a real flow
+        would write. The claim made with it is "the purge removes / keeps this KIND", not "this flow writes it"."""
+        if doctype == "Error Log":
+            self.expectErrorLog("probe")  # the row is the fixture, not a failure
+        doc = frappe.get_doc({"doctype": doctype, **values})
+        doc.name = frappe.generate_hash(length=10)
+        doc.db_insert()
+        self.track_doc(doctype, doc.name)
+        return doc.name
+
+    def _file_on_disk(self, **attached):
+        file = frappe.get_doc(
+            {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "passport",
+             "is_private": 1, **attached}
+        ).insert()
+        return file.name, frappe.get_site_path(file.file_url.lstrip("/"))
+
+    def test_purging_sweeps_every_kind_of_dependent(self):
+        """Probe shortcut, stated: the dependents a real flow does not write today are inserted by hand (File, ToDo,
+        Email Queue, Version, Activity Log, DocShare, Document Follow, Notification Log, View Log, Email Unsubscribe,
+        a Communication timeline link), so the claim is that the sweep removes each KIND. rows_referencing asks
+        information_schema, so a kind missing from this list still fails the final assertion. Error Log is the
+        one reference that is KEPT: it is operator evidence with its own retention."""
+        name, communication = self._rejected_application_with_a_request()
+        self._raw_row("Communication Link", parent=communication, parenttype="Communication",
+                      parentfield="timeline_links", link_doctype=SUBMISSION, link_name=name)
+        self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        self._raw_row("ToDo", description="call the applicant", reference_type=SUBMISSION, reference_name=name)
+        self._raw_row("Activity Log", subject="probe", reference_doctype=SUBMISSION, reference_name=name)
+        self._raw_row("Version", ref_doctype=SUBMISSION, docname=name, data="{}")
+        self._raw_row("DocShare", user="Administrator", share_doctype=SUBMISSION, share_name=name, read=1)
+        self._raw_row("Document Follow", ref_doctype=SUBMISSION, ref_docname=name, user="Administrator")
+        self._raw_row("Notification Log", subject="probe", document_type=SUBMISSION, document_name=name,
+                      for_user="Administrator")
+        self._raw_row("View Log", reference_doctype=SUBMISSION, reference_name=name, viewed_by="Administrator")
+        self._raw_row("Email Unsubscribe", email="x@example.org", reference_doctype=SUBMISSION,
+                      reference_name=name, global_unsubscribe=0)
+        self._raw_row("Error Log", method="probe", error="probe", reference_doctype=SUBMISSION, reference_name=name)
+        queue = self._raw_row("Email Queue", sender="a@example.org", message="x", reference_doctype=SUBMISSION,
+                              reference_name=name)
+        self._raw_row("Email Queue Recipient", parent=queue, parenttype="Email Queue", parentfield="recipients",
+                      recipient="b@example.org")
+        attached = rows_referencing(name)
+        for kind in ("File.attached_to_name", "ToDo.reference_name", "Email Queue.reference_name", "Version.docname",
+                     "Activity Log.reference_name", "Communication Link.link_name", "Communication.reference_name",
+                     "Comment.reference_name", "DocShare.share_name", "Document Follow.ref_docname",
+                     "Notification Log.document_name", "View Log.reference_name", "Email Unsubscribe.reference_name"):
+            self.assertIn(kind, attached)  # not vacuous: each kind is really there to be removed
+
+        self._age_past_the_purge(name)
+
+        self.assertEqual(rows_referencing(name), {"Error Log.reference_name": 1})
+        self.assertFalse(frappe.db.exists("Email Queue Recipient", {"parent": queue}))
+        self.assertFalse(frappe.db.exists("Deleted Document", {"deleted_doctype": SUBMISSION, "deleted_name": name}))
+
+    def test_purging_removes_files_attached_to_the_communications_rows_and_disk(self):
+        """A reply's attachment sits on the Communication, not on the application. Probe shortcut, stated: the File is
+        attached by hand (no inbound mail is processed here). The disk file goes only after commit, so a rollback
+        cannot leave a row pointing at a deleted file; frappe.db.after_commit.run() stands in for the commit."""
+        name, communication = self._rejected_application_with_a_request()
+        file_name, path = self._file_on_disk(attached_to_doctype="Communication", attached_to_name=communication)
+        self.assertTrue(os.path.exists(path))
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("File", file_name))
+        self.assertFalse(frappe.db.exists("Communication", communication))
+        self.assertTrue(os.path.exists(path), "the disk file went before the commit")
+        frappe.db.after_commit.run()
+        self.assertFalse(os.path.exists(path))
+
+    def test_purging_does_not_remove_a_disk_file_another_file_row_still_uses(self):
+        """Control with a real row: a File of a kept application shares the content (same file_url), so the disk
+        file stays when only the purged application's row goes."""
+        name, _communication = self._rejected_application_with_a_request()
+        file_name, path = self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        kept = frappe.get_doc("File", file_name)
+        twin = frappe.copy_doc(kept)
+        twin.attached_to_name = self._stage_and_confirm()  # a Pending Review application: kept
+        twin.insert()
+
+        self._age_past_the_purge(name)
+        frappe.db.after_commit.run()
+
+        self.assertFalse(frappe.db.exists("File", file_name))
+        self.assertTrue(frappe.db.exists("File", twin.name))
+        self.assertTrue(os.path.exists(path))
+
+    def test_purging_never_deletes_a_private_file_through_an_external_url_basename(self):
+        """Frappe's delete_file keeps only the BASENAME of a url and maps anything not under /files/ to
+        private/files/<basename>. A File attached to the application with an external url must therefore never
+        reach it: it would remove an unrelated private file of the same name. Control: a local attachment of the
+        same application is still removed from disk. Probe shortcuts, stated: the Files are attached by hand
+        (no real flow attaches an external url today) and frappe.db.after_commit.run() stands in for the commit."""
+        name, _communication = self._rejected_application_with_a_request()
+        basename = f"report_{frappe.generate_hash(length=8)}.txt"  # .pdf would make File parse the content as a PDF
+        unrelated = frappe.get_doc(
+            {"doctype": "File", "file_name": basename, "content": "unrelated", "is_private": 1}
+        ).insert()
+        unrelated_path = frappe.get_site_path(unrelated.file_url.lstrip("/"))
+        self.assertTrue(unrelated_path.endswith(f"private/files/{basename}"), unrelated_path)
+        external = frappe.get_doc(
+            {"doctype": "File", "file_url": f"https://files.example.org/docs/{basename}",
+             "thumbnail_url": f"https://files.example.org/thumbs/{basename}",
+             "attached_to_doctype": SUBMISSION, "attached_to_name": name}
+        ).insert()
+        local_name, local_path = self._file_on_disk(attached_to_doctype=SUBMISSION, attached_to_name=name)
+        self.assertTrue(os.path.exists(unrelated_path) and os.path.exists(local_path))
+
+        self._age_past_the_purge(name)
+        frappe.db.after_commit.run()
+
+        self.assertFalse(frappe.db.exists("File", external.name), "the purge removed the external-url row")
+        self.assertFalse(frappe.db.exists("File", local_name))
+        self.assertFalse(os.path.exists(local_path), "control: a local attachment is removed from disk")
+        self.assertTrue(os.path.exists(unrelated_path), "an unrelated private file was deleted by basename")
+
+    def test_purging_keeps_a_global_unsubscribe_and_error_log_that_name_the_application(self):
+        name, _communication = self._rejected_application_with_a_request()
+        email = f"optout.{frappe.generate_hash(length=6)}@example.org"
+        local = self._raw_row("Email Unsubscribe", email=email, reference_doctype=SUBMISSION,
+                              reference_name=name, global_unsubscribe=0)
+        opt_out = self._raw_row("Email Unsubscribe", email=email, reference_doctype=SUBMISSION,
+                                reference_name=name, global_unsubscribe=1)
+        error = self._raw_row("Error Log", method="probe", error="probe", reference_doctype=SUBMISSION,
+                              reference_name=name)
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("Email Unsubscribe", local))
+        self.assertTrue(frappe.db.exists("Email Unsubscribe", opt_out), "a global opt-out was re-subscribed")
+        self.assertTrue(frappe.db.exists("Error Log", error), "operator evidence was deleted")
+
+    def test_purging_clears_an_activity_log_timeline_link_instead_of_deleting_the_row(self):
+        name, _communication = self._rejected_application_with_a_request()
+        own = self._raw_row("Activity Log", subject="about the application", reference_doctype=SUBMISSION,
+                            reference_name=name)
+        other = self._raw_row("Activity Log", subject="about a member", reference_doctype="Member",
+                              reference_name="some-member", timeline_doctype=SUBMISSION, timeline_name=name)
+
+        self._age_past_the_purge(name)
+
+        self.assertFalse(frappe.db.exists("Activity Log", own))
+        row = frappe.db.get_value("Activity Log", other, ["reference_name", "timeline_doctype", "timeline_name"], as_dict=True)
+        self.assertEqual(row.reference_name, "some-member")  # the other document's log row survives
+        self.assertFalse(row.timeline_doctype or row.timeline_name)
+
+    def test_purging_touches_only_rows_of_this_doctype_with_the_same_name(self):
+        """Decoys with a real row: for every table the sweep deletes from, a row of ANOTHER doctype that happens to
+        carry the application's name. A sweep that matches on the name alone deletes them. Hand-inserted (probe
+        shortcut): the claim is the doctype half of each filter."""
+        name, communication = self._rejected_application_with_a_request()
+        decoys = {
+            ("Comment", "reference_doctype", "reference_name"): {"comment_type": "Info", "content": "decoy"},
+            ("Version", "ref_doctype", "docname"): {"data": "{}"},
+            ("ToDo", "reference_type", "reference_name"): {"description": "decoy"},
+            ("DocShare", "share_doctype", "share_name"): {"user": "Administrator", "read": 1},
+            ("Document Follow", "ref_doctype", "ref_docname"): {"user": "Administrator"},
+            ("Notification Log", "document_type", "document_name"): {"subject": "decoy", "for_user": "Administrator"},
+            ("View Log", "reference_doctype", "reference_name"): {"viewed_by": "Administrator"},
+            ("Activity Log", "reference_doctype", "reference_name"): {"subject": "decoy"},
+            ("Email Unsubscribe", "reference_doctype", "reference_name"): {"email": "d@example.org", "global_unsubscribe": 0},
+            ("Communication", "reference_doctype", "reference_name"): {"subject": "decoy", "communication_type": "Communication"},
+            ("Email Queue", "reference_doctype", "reference_name"): {"sender": "a@example.org", "message": "x"},
+        }
+        rows = {
+            (doctype, doctype_field): self._raw_row(doctype, **{doctype_field: "Member", name_field: name}, **extra)
+            for (doctype, doctype_field, name_field), extra in decoys.items()
+        }
+        decoy_communication = rows[("Communication", "reference_doctype")]
+        rows[("Communication Link", "link_doctype")] = self._raw_row(  # parented by the decoy, not by the purged mail
+            "Communication Link", parent=decoy_communication, parenttype="Communication",
+            parentfield="timeline_links", link_doctype="Member", link_name=name,
+        )
+        file_name, _path = self._file_on_disk(attached_to_doctype="Member", attached_to_name=name)
+
+        self._age_past_the_purge(name)
+
+        for (doctype, doctype_field), row in rows.items():
+            self.assertTrue(frappe.db.exists(doctype, row), f"a {doctype} row of another doctype was deleted")
+        self.assertTrue(frappe.db.exists("File", file_name), "a File of another doctype was deleted")
+        self.assertFalse(frappe.db.exists(SUBMISSION, name))
+
+    def test_purge_keeps_everything_attached_to_an_approved_application(self):
+        """Control with a real row: the Approved twin, with its own request Comment and Communication, is kept whole."""
+        name = self._stage_and_confirm()
+        self.assertTrue(self._ask_as(name)["success"])
+        self.assertTrue(self._approve_as(name)["success"])
+        before = rows_referencing(name)
+        self.assertIn("Comment.reference_name", before)
+        self.assertIn("Communication.reference_name", before)
+
+        self._age_past_the_purge(name)
+
+        self.assertTrue(frappe.db.exists(SUBMISSION, name))
+        self.assertEqual(rows_referencing(name), before)
+
+
+def _norm(value):
+    """Compare Member values across the formats a save rewrites (IBAN groups, dates as str)."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value.replace(" ", "")
+    return str(value) if not isinstance(value, (int, float)) else value
+
+
+# Fields the approval changes on its own, whatever the application carries. Measured from a real run; a
+# new unexplained change fails test_preview_matches_write. Grouped by why they are not preview rows.
+_APPROVAL_OWN_WRITES = {
+    # audit columns
+    "modified",
+    "modified_by",
+    # lifecycle: Quit -> Active and the application stamp
+    "status",
+    "application_status",
+    "application_date",
+    "application_id",
+    "membership_status",
+    "member_since",
+    "member_end_date",
+    # derived from a previewed name, or the Address the approval re-creates (same text unless "address" is a row)
+    "full_name",
+    "primary_address",
+    "address_fingerprint",
+    "normalized_address_line",
+    "normalized_city",
+    "address_last_updated",
+    # the chapter note the approval appends
+    "notes",
+    # the approval core: membership, schedule, billing, review stamp
+    "current_membership_type",
+    "current_membership_plan",
+    "current_dues_schedule",
+    "dues_rate",
+    "next_invoice_date",
+    "reviewed_by",
+    "review_date",
+    # stamped with the approver and the day (the preview omits them: it would only name the previewer)
+    "fee_override_by",
+    "fee_override_date",
+}

@@ -41,9 +41,6 @@ verenigingen/api/anbi_operations.py::send_consent_requests::2
 verenigingen/api/anbi_operations.py::update_anbi_consent::1
 verenigingen/api/anbi_operations.py::update_donor_tax_identifiers::1
 verenigingen/api/anbi_operations.py::validate_bsn::1
-verenigingen/api/background_approval_api.py::approve_membership_application_background::3
-verenigingen/api/background_approval_api.py::get_approval_progress::1
-verenigingen/api/chapter_dashboard_api.py::quick_approve_member::1
 verenigingen/api/chapter_dashboard_api.py::reprocess_mt940_import::1
 verenigingen/api/chapter_join.py::get_chapter_join_context::2
 verenigingen/api/chapter_join.py::get_user_chapter_requests::1
@@ -80,13 +77,10 @@ verenigingen/api/member_management.py::_sanitize_member_filters::1
 verenigingen/api/member_management.py::add_member_to_chapter_roster::1
 verenigingen/api/member_management.py::bulk_assign_members_to_chapters::1
 verenigingen/api/member_management.py::get_members_without_chapter::1
-verenigingen/api/membership_application.py::_create_pending_chapter_membership_safe::1
-verenigingen/api/membership_application.py::_handle_existing_member::1
 verenigingen/api/membership_application.py::_validate_membership_amount::2
 verenigingen/api/membership_application.py::check_application_eligibility_endpoint::1
 verenigingen/api/membership_application.py::get_application_form_data::1
-verenigingen/api/membership_application.py::reject_membership_application::1
-verenigingen/api/membership_application.py::submit_application::3
+verenigingen/api/membership_application.py::submit_application::1
 verenigingen/api/membership_application.py::suggest_chapters_for_postal_code::1
 verenigingen/api/membership_application.py::validate_postal_code::2
 verenigingen/api/membership_application_review.py::_send_approval_email_safe::2
@@ -140,8 +134,6 @@ verenigingen/email/email_group_sync.py::sync_member_on_change::1
 verenigingen/email/newsletter_templates.py::send_templated_email::1
 verenigingen/email/simplified_email_manager.py::SimplifiedEmailManager.send_organization_wide::1
 verenigingen/email/simplified_email_manager.py::SimplifiedEmailManager.send_to_chapter_segment::1
-verenigingen/events/approval_events.py::emit_member_approval_completed::1
-verenigingen/events/approval_events.py::emit_member_approval_initiated::1
 verenigingen/events/chapter_events.py::emit_chapter_board_changed::1
 verenigingen/events/chapter_events.py::emit_chapter_membership_changed::1
 verenigingen/events/chapter_events.py::emit_chapter_settings_changed::1
@@ -160,7 +152,6 @@ verenigingen/events/invoice_events.py::emit_invoice_updated_after_submit::1
 verenigingen/events/member_events.py::emit_member_lifecycle_changed::1
 verenigingen/events/member_events.py::emit_member_status_changed::1
 verenigingen/events/migration_helper.py::ensure_payment_history_current::2
-verenigingen/events/subscribers/approval_subscribers.py::handle_chapter_assignment::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_board_notifications::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_board_role_assignments::1
 verenigingen/events/subscribers/chapter_subscribers.py::handle_cache_invalidation::1
@@ -312,7 +303,6 @@ verenigingen/tasks/address_optimization.py::refresh_member_address_displays::2
 verenigingen/tasks/address_optimization.py::update_all_member_address_fingerprints::2
 verenigingen/templates/pages/admin_tools.py::execute_admin_tool::4
 verenigingen/templates/pages/brand_css.py::serve_brand_css::1
-verenigingen/templates/pages/chapter_dashboard.py::get_context::1
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/contact_request.py::submit_contact_request::1
 verenigingen/templates/pages/manage_donations.py::cancel_recurring_donation::2

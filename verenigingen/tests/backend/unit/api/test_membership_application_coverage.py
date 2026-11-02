@@ -11,8 +11,6 @@ suites (test_validation_endpoint_wrappers, test_membership_application):
 - _handle_existing_member reapplication scenarios (Rejected/Active/Quit/unknown)
   via the public submit_application entry point.
 - suggest_chapters_for_postal_code + the pure _match_chapter_* matchers.
-- The deprecated reject_membership_application / approve_membership_application
-  redirect endpoints in this module.
 - validate_email / validate_postal_code response shaping.
 - get_application_form_data success path.
 
@@ -30,9 +28,7 @@ from verenigingen.api.membership_application import (
     _handle_existing_member,
     _match_chapter_postal_codes,
     _match_chapter_region_heuristic,
-    approve_membership_application as deprecated_approve,
     get_application_form_data,
-    reject_membership_application as deprecated_reject,
     submit_application,
     suggest_chapters_for_postal_code,
     validate_email,
@@ -292,7 +288,6 @@ class TestHandleExistingMember(EnhancedTestCase):
         """Quit status but no Executed termination request -> data-integrity block."""
         member = self._make_member(status="Quit", application_status="Approved")
         # No Membership Termination Request exists for this member.
-        self.expectErrorLog("Termination Data Integrity")
         action, error = _handle_existing_member(self._existing(member), {})
         self.assertIsNone(action)
         self.assertFalse(error.success)
@@ -398,94 +393,56 @@ class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
             "selected_membership_type": self.membership_type,
         }
 
-    def test_rejected_email_reapplication_now_succeeds(self):
-        """Rejected applicant reapplies with same email -> reaches reapplication path."""
-        email, member = self._make_existing(status="Rejected", application_status="Rejected")
-        result = submit_application(**self._reapply_data(email))
-        # No longer blocked at the gate: the application succeeds and reuses the
-        # existing member record (no duplicate Member created).
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(result["data"]["member_record"], member.name)
-        # Exactly one Member with this email (no duplicate hijack/creation).
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+    def _staged_for(self, email):
+        rows = frappe.get_all("Membership Application Submission", {"email": email}, pluck="name")
+        for name in rows:
+            self.track_doc("Membership Application Submission", name)
+        return rows
 
-    def test_pending_email_reapplication_now_succeeds(self):
-        """Pending applicant reapplies with same email -> reaches reapplication path."""
-        email, member = self._make_existing(status="Pending", application_status="Pending")
-        result = submit_application(**self._reapply_data(email))
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(result["data"]["member_record"], member.name)
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+    def _assert_reapplication_is_staged_and_member_untouched(self, status, application_status):
+        email, member = self._make_existing(status=status, application_status=application_status)
+        before = frappe.db.get_value("Member", member.name, ["first_name", "last_name", "modified"], as_dict=True)
+        data = self._reapply_data(email)
 
-    def test_active_member_email_still_blocked(self):
-        """Active member's email is still blocked (no reapplication/hijack)."""
+        result = submit_application(**data)
+
+        self.assertTrue(result["success"], msg=json.dumps(result))
+        self.assertEqual(result["data"], {"status": "confirmation_sent"})
+        self.assertEqual(len(self._staged_for(email)), 1)
+        # #1765/#1740: the submitted names do not reach the existing Member.
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["first_name", "last_name", "modified"], as_dict=True),
+            before,
+        )
+        self.assertNotEqual(before.last_name, data["last_name"], "control: the submitted name differs")
+
+    def test_rejected_email_reapplication_is_staged(self):
+        """Rejected applicant reapplies with the same email: the application is staged."""
+        self._assert_reapplication_is_staged_and_member_untouched("Rejected", "Rejected")
+
+    def test_pending_email_reapplication_is_staged(self):
+        self._assert_reapplication_is_staged_and_member_untouched("Pending", "Pending")
+
+    def test_active_member_email_gets_the_response_of_a_new_email(self):
+        """An Active member's email is not refused any more (that reply told an anonymous caller the
+        email is a member): same response as a new email, nothing staged, the owner is mailed instead."""
         email, member = self._make_existing(status="Active", application_status="Approved")
+        new_email = f"fresh-{frappe.generate_hash(length=8)}@example.com"
+        fresh = submit_application(**self._reapply_data(new_email))
+        self._staged_for(new_email)
+
         result = submit_application(**self._reapply_data(email))
-        self.assertFalse(result["success"], msg=json.dumps(result))
-        self.assertIn("already_active_member", json.dumps(result))
-        # The existing active member is untouched - still exactly one record.
+
+        for response in (fresh, result):
+            response.pop("timestamp", None)
+        self.assertEqual(result, fresh)
+        self.assertEqual(self._staged_for(email), [])
         self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
 
-    def test_brand_new_email_still_works(self):
-        """A brand-new (unused) email still submits successfully."""
+    def test_brand_new_email_is_staged_without_a_member(self):
         email = f"fresh-{frappe.generate_hash(length=8)}@example.com"
         result = submit_application(**self._reapply_data(email))
         self.assertTrue(result["success"], msg=json.dumps(result))
-        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
-        self.track_doc("Member", result["data"]["member_record"])
-
-
-# ---------------------------------------------------------------------------
-# Deprecated redirect endpoints in this module
-# ---------------------------------------------------------------------------
-
-
-class TestDeprecatedRejectEndpoint(EnhancedTestCase):
-    """membership_application.reject_membership_application (deprecated path)."""
-
-    def _pending_member(self):
-        member = self.create_test_member(
-            first_name="DepReject",
-            last_name=f"Member{frappe.generate_hash(length=6)}",
-            email=f"depreject-{frappe.generate_hash(length=8)}@example.com",
-            birth_date=add_days(today(), -365 * 30),
-        )
-        member.db_set("status", "Pending", update_modified=False)
-        member.db_set("application_status", "Pending", update_modified=False)
-        member.reload()
-        return member
-
-    def test_reject_pending_member_sets_rejected(self):
-        member = self._pending_member()
-        # send_rejection_notification renders an email template; in the test bench
-        # (no SMTP / template config) it may log. Allow those expected titles.
-        self.expectErrorLog(
-            "Email", "Notification", "Template", "rejection", "membership_application_rejected"
-        )
-        result = deprecated_reject(member.name, "Incomplete application")
-
-        self.assertTrue(result["success"], msg=json.dumps(result))
-        member.reload()
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.review_notes, "Incomplete application")
-
-    def test_reject_already_approved_member_fails(self):
-        member = self._pending_member()
-        member.db_set("application_status", "Approved", update_modified=False)
-
-        result = deprecated_reject(member.name, "too late")
-        self.assertFalse(result["success"])
-        self.assertIn("invalid_application_status", json.dumps(result))
-
-
-class TestDeprecatedApproveRedirect(EnhancedTestCase):
-    """membership_application.approve_membership_application redirects to canonical."""
-
-    def test_approve_nonexistent_member_returns_failure_dict(self):
-        # The canonical implementation throws for a non-existent member; the
-        # @high_security_api wrapper serialises that into a failure dict.
-        self.expectErrorLog("Invalid member", "member access", "approval", "Member", "security")
-        result = deprecated_approve("NONEXISTENT-MEMBER-COV-12345")
-        self.assertIsInstance(result, dict)
-        self.assertFalse(result["success"])
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 0)
+        self.assertEqual(len(self._staged_for(email)), 1)

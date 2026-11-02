@@ -51,10 +51,24 @@
 			result.textContent = response.message;
 			if (response.success) {
 				confirmForm.style.display = 'none';
+				showStatusLink(result, response.status_url);
 			} else {
 				button.disabled = false;
 			}
 		});
+	}
+
+	function showStatusLink(result, statusUrl) {
+		// Only our own status page: the value comes from the server, but a link is never built from
+		// anything that does not start with its path.
+		if (typeof statusUrl !== 'string' || !statusUrl.startsWith('/application_status?')) {
+			return;
+		}
+		const link = document.createElement('a');
+		link.href = statusUrl;
+		link.textContent = __('Bekijk de status van je aanmelding');
+		result.appendChild(document.createElement('br'));
+		result.appendChild(link);
 	}
 
 	function initApplicationForm(form) {

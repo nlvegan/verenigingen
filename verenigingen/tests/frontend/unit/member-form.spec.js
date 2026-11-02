@@ -382,60 +382,6 @@ describe('Member Form', () => {
 		});
 	});
 
-	describe('Membership Application Review', () => {
-		it('should handle application approval', async () => {
-			frappe.confirm.mockImplementation((msg, callback) => callback());
-			frappe.call.mockResolvedValue({ message: { success: true } });
-
-			const approveApplication = async (memberName) => {
-				await frappe.confirm('Approve this application?', async () => {
-					await frappe.call({
-						method: 'verenigingen.api.membership_application_review.approve_membership_application',
-						args: { member_name: memberName }
-					});
-				});
-			};
-
-			await approveApplication('MEM-001');
-			expect(frappe.call).toHaveBeenCalledWith(
-				expect.objectContaining({
-					method: 'verenigingen.api.membership_application_review.approve_membership_application'
-				})
-			);
-		});
-
-		it('should handle application rejection with reason', async () => {
-			frappe.prompt.mockImplementation((fields, callback) => {
-				callback({ rejection_reason: 'Incomplete documentation' });
-			});
-
-			frappe.call.mockResolvedValue({ message: { success: true } });
-
-			const rejectApplication = async (memberName) => {
-				await frappe.prompt([{ fieldname: 'rejection_reason', fieldtype: 'Text' }], async (values) => {
-					await frappe.call({
-						method: 'verenigingen.api.membership_application_review.reject_membership_application',
-						args: {
-							member_name: memberName,
-							reason: values.rejection_reason
-						}
-					});
-				});
-			};
-
-			await rejectApplication('MEM-001');
-			expect(frappe.call).toHaveBeenCalledWith(
-				expect.objectContaining({
-					method: 'verenigingen.api.membership_application_review.reject_membership_application',
-					args: expect.objectContaining({
-						member_name: 'MEM-001',
-						reason: 'Incomplete documentation'
-					})
-				})
-			);
-		});
-	});
-
 	describe('Termination Workflow', () => {
 		it('should check termination status and show appropriate buttons', async () => {
 			frappe.call.mockResolvedValue({

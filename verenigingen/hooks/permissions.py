@@ -29,6 +29,7 @@ permission_query_conditions = {
     "Project": "verenigingen.utils.project_permissions.get_project_permission_query_conditions",
     "Expense Claim": "verenigingen.permissions.get_expense_claim_permission_query",
     "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.get_permission_query_conditions",
+    "Membership Application Submission": "verenigingen.permissions.get_application_permission_query",
 }
 
 # Document-level permission checkers
@@ -50,4 +51,5 @@ has_permission = {
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
     "Expense Claim": "verenigingen.permissions.has_expense_claim_permission",
     "Event Contact Campaign": "verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.has_permission",
+    "Membership Application Submission": "verenigingen.permissions.has_application_permission",
 }

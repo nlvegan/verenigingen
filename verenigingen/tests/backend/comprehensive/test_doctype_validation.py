@@ -210,68 +210,6 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
             frappe.db.commit()
         return name
 
-    def test_complete_application_submission_with_volunteer(self):
-        """Test complete application submission that includes volunteer creation"""
-
-        membership_type = self._ensure_membership_type("Maandlid")
-
-        # Test data that would create both member and volunteer
-        test_data = {
-            "first_name": "Complete",
-            "last_name": "Test Application",
-            "email": "complete.test.application@example.com",
-            "birth_date": "1990-01-01",
-            "address_line1": "Test Street 123",
-            "city": "Amsterdam",
-            "postal_code": "1000AA",
-            "country": "Netherlands",
-            "selected_membership_type": membership_type,  # Self-seeded above
-            "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer"}
-
-        # Import application submission function
-        from verenigingen.api.membership_application import submit_application
-
-        try:
-            result = submit_application(data=test_data)
-
-            # Application should succeed
-            self.assertTrue(result.get("success"), f"Application should succeed: {result.get('message')}")
-
-            if result.get("success"):
-                # submit_application returns a nested envelope: the member name
-                # lives under result["data"]["member_record"].
-                member_record = result.get("data", {}).get("member_record") or result.get("member_record")
-                self.assertIsNotNone(member_record, "Member record should be created")
-
-                # Check if volunteer was created
-                volunteer_records = frappe.get_all(
-                    "Volunteer", filters={"member": member_record}, fields=["name", "status"]
-                )
-
-                if volunteer_records:
-                    self.assertEqual(
-                        len(volunteer_records), 1, "Exactly one volunteer record should be created"
-                    )
-                    self.assertEqual(
-                        volunteer_records[0]["status"], "New", "Volunteer should have 'New' status"
-                    )
-
-                    # Clean up volunteer (unlink from member first to avoid LinkExistsError)
-                    frappe.db.set_value(
-                        "Member", member_record, "volunteer_record", None, update_modified=False
-                    )
-                    frappe.delete_doc("Volunteer", volunteer_records[0]["name"], force=True)
-
-                # Clean up member and address
-                member = frappe.get_doc("Member", member_record)
-                if member.primary_address:
-                    frappe.delete_doc("Address", member.primary_address, force=True)
-                frappe.delete_doc("Member", member_record, force=True)
-
-        except Exception as e:
-            self.fail(f"Complete application submission with volunteer should not fail: {str(e)}")
-
     def test_doctype_select_field_validations(self):
         """Test that all select fields in key doctypes have proper validation"""
 

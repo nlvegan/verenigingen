@@ -2,12 +2,16 @@
 
 {% block title %}{{ _("Application Status") }}{% endblock %}
 
+{% block head_include %}
+<meta name="referrer" content="no-referrer">
+{% endblock %}
+
 {% block page_content %}
 <div class="application-status-page">
     <div class="container">
         <h1>{{ _("Membership Application Status") }}</h1>
 
-        {% if not member %}
+        {% if not application %}
         <div class="alert alert-warning">
             <p>{{ _("No application found. Please check your email or contact support.") }}</p>
         </div>
@@ -21,96 +25,54 @@
                         <table class="table table-borderless">
                             <tr>
                                 <td><strong>{{ _("Application ID") }}:</strong></td>
-                                <td class="text-primary">{{ member.application_id|e }}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{{ _("Member ID") }}:</strong></td>
-                                <td>{{ member.name|e }}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{{ _("Name") }}:</strong></td>
-                                <td>{{ member.full_name|e }}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{{ _("Email") }}:</strong></td>
-                                <td>{{ member.email|e }}</td>
+                                <td class="text-primary">{{ application.application_id | e }}</td>
                             </tr>
                             <tr>
                                 <td><strong>{{ _("Applied On") }}:</strong></td>
-                                <td>{{ frappe.utils.format_datetime(member.application_date)|e }}</td>
+                                <td>{{ application.applied_on | e }}</td>
                             </tr>
                         </table>
                     </div>
                     <div class="col-md-6">
                         <h4>{{ _("Status") }}</h4>
                         <div class="status-display">
-                            {% if member.application_status == "Pending" %}
+                            {% if application.status == "Unconfirmed" %}
+                            <div class="alert alert-warning">
+                                <h5><i class="fa fa-envelope-o"></i> {{ _("Waiting for confirmation") }}</h5>
+                                <p>{{ _("Confirm your email address with the link we sent you to complete your application.") }}</p>
+                            </div>
+                            {% elif application.status == "Pending Review" %}
                             <div class="alert alert-info">
                                 <h5><i class="fa fa-clock-o"></i> {{ _("Pending Review") }}</h5>
                                 <p>{{ _("Your application is being reviewed. You will receive an email once it's processed.") }}</p>
                             </div>
-                            {% elif member.application_status == "Under Review" %}
-                            <div class="alert alert-info">
-                                <h5><i class="fa fa-search"></i> {{ _("Under Review") }}</h5>
-                                <p>{{ _("Your application is currently being reviewed by our team.") }}</p>
-                            </div>
-                            {% elif member.application_status == "Approved" %}
-                            <div class="alert alert-warning">
-                                <h5><i class="fa fa-check"></i> {{ _("Approved - Payment Required") }}</h5>
-                                <p>{{ _("Your application has been approved! Please complete payment to activate your membership.") }}</p>
-                                <a href="/payment/complete/{{ member.name|e }}" class="btn btn-primary">{{ _("Complete Payment") }}</a>
-                            </div>
-                            {% elif member.application_status == "Payment Pending" %}
-                            <div class="alert alert-warning">
-                                <h5><i class="fa fa-credit-card"></i> {{ _("Payment Pending") }}</h5>
-                                <p>{{ _("Your payment is being processed or requires retry.") }}</p>
-                                <a href="/payment/retry/{{ member.name|e }}" class="btn btn-primary">{{ _("Retry Payment") }}</a>
-                            </div>
-                            {% elif member.application_status == "Active" %}
+                            {% elif application.status == "Approved" %}
                             <div class="alert alert-success">
-                                <h5><i class="fa fa-check-circle"></i> {{ _("Active Member") }}</h5>
-                                <p>{{ _("Congratulations! You are now an active member.") }}</p>
-                                {% if member_chapters %}
-                                <p>{{ _("Chapter(s)") }}:
-                                    {% for chapter in member_chapters %}
-                                        {{ chapter|e }}{% if not loop.last %}, {% endif %}
-                                    {% endfor %}
-                                </p>
-                                {% endif %}
-                                <a href="/members/{{ member.name|e }}" class="btn btn-success">{{ _("Go to Member Portal") }}</a>
+                                <h5><i class="fa fa-check-circle"></i> {{ _("Approved") }}</h5>
+                                <p>{{ _("Your application has been approved. You will receive an email with the next steps.") }}</p>
                             </div>
-                            {% elif member.application_status == "Rejected" %}
+                            {% elif application.status == "Rejected" %}
                             <div class="alert alert-danger">
                                 <h5><i class="fa fa-times-circle"></i> {{ _("Application Rejected") }}</h5>
                                 <p>{{ _("Unfortunately, your application was not approved.") }}</p>
-                                {% if member.review_notes %}
-                                <p><strong>{{ _("Reason") }}:</strong> {{ member.review_notes|e }}</p>
+                                {% if application.reason %}
+                                <p><strong>{{ _("Reason") }}:</strong> {{ application.reason | e }}</p>
                                 {% endif %}
+                            </div>
+                            {% elif application.status == "Superseded" %}
+                            <div class="alert alert-info">
+                                <h5><i class="fa fa-refresh"></i> {{ _("Replaced") }}</h5>
+                                <p>{{ _("You applied again, so this application was replaced by your newer one.") }}</p>
+                            </div>
+                            {% elif application.status == "Expired" %}
+                            <div class="alert alert-warning">
+                                <h5><i class="fa fa-hourglass-end"></i> {{ _("Expired") }}</h5>
+                                <p>{{ _("This application was not confirmed in time. You can apply again.") }}</p>
                             </div>
                             {% endif %}
                         </div>
-
-                        {% if member.selected_membership_type %}
-                        <p><strong>{{ _("Membership Type") }}:</strong> {{ member.selected_membership_type|e }}</p>
-                        {% endif %}
-
-                        {% if member.reviewed_by %}
-                        <div class="mt-3 text-muted">
-                            <small>{{ _("Reviewed by") }}: {{ frappe.get_value("User", member.reviewed_by, "full_name")|e }}
-                            on {{ frappe.utils.format_datetime(member.review_date)|e }}</small>
-                        </div>
-                        {% endif %}
                     </div>
                 </div>
-
-                {% if member.interested_in_volunteering %}
-                <div class="mt-4">
-                    <div class="alert alert-info">
-                        <h5>{{ _("Volunteer Interest") }}</h5>
-                        <p>{{ _("Thank you for your interest in volunteering! Our volunteer coordinator will contact you soon.") }}</p>
-                    </div>
-                </div>
-                {% endif %}
             </div>
         </div>
 

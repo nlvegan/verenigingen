@@ -5,8 +5,11 @@
 """
 Tests for extracted approval helper functions in membership_application_review.py
 
-Tests the 7 helpers extracted during CC decomposition of approve_membership_application
-(CC 50 -> 11), plus integration tests for the refactored main function.
+Tests the 7 helpers extracted during CC decomposition of the approval core (CC 50 -> 11), plus
+integration tests for the core itself. The member-keyed entry point that used to wrap the core was
+removed in #1765; approve_application is the entry point now and calls the core, so the tests of the
+core call it directly on a Pending Member made by the factory (a stand-in for the Member
+materialise_member creates; the entry point's own flow is covered by test_application_record_approval).
 """
 
 import time
@@ -20,10 +23,23 @@ from verenigingen.api.membership_application_review import (
     _build_approval_response,
     _calculate_billing_amount,
     _handle_idempotent_approval,
+    _approve_membership_application_locked,
     _prepare_approval_fields,
-    approve_membership_application,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+def approve_core(
+    member_name,
+    membership_type=None,
+    chapter=None,
+    notes=None,
+    create_invoice=True,
+    activate_as_volunteer=False,
+):
+    return _approve_membership_application_locked(
+        member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+    )
 
 
 class TestHandleIdempotentApproval(EnhancedTestCase):
@@ -270,7 +286,7 @@ class TestBuildApprovalResponse(EnhancedTestCase):
 
 
 class TestApproveMainFunction(EnhancedTestCase):
-    """Integration tests for the refactored approve_membership_application main function."""
+    """Integration tests for the approval core (_approve_membership_application_locked)."""
 
     def setUp(self):
         super().setUp()
@@ -336,7 +352,7 @@ class TestApproveMainFunction(EnhancedTestCase):
         """Approving a pending member should set status to Approved/Active."""
         member = self._create_pending_member()
 
-        result = approve_membership_application(
+        result = approve_core(
             member_name=member.name,
             membership_type=self.membership_type.name,
             notes="Test approval",
@@ -357,13 +373,13 @@ class TestApproveMainFunction(EnhancedTestCase):
         member = self._create_pending_member()
 
         # First approval
-        approve_membership_application(
+        approve_core(
             member_name=member.name,
             membership_type=self.membership_type.name,
         )
 
         # Second approval should be idempotent
-        result = approve_membership_application(
+        result = approve_core(
             member_name=member.name,
             membership_type=self.membership_type.name,
         )
@@ -378,7 +394,7 @@ class TestApproveMainFunction(EnhancedTestCase):
         member.db_set("status", "Rejected", update_modified=False)
 
         with self.assertRaises(frappe.exceptions.ValidationError):
-            approve_membership_application(
+            approve_core(
                 member_name=member.name,
                 membership_type=self.membership_type.name,
             )

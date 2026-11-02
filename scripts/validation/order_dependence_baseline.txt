@@ -75,13 +75,12 @@ COMMIT tests/backend/portal/test_portal_functions.py::1  # order-dependence
 COMMIT tests/backend/security/test_security_comprehensive.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 COMMIT tests/backend/unit/api/test_membership_application_coverage.py::2  # order-dependence
-COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::5  # order-dependence
+COMMIT tests/backend/unit/api/test_membership_application_review_coverage.py::3  # order-dependence
 COMMIT tests/backend/unit/api/test_payment_dashboard_api.py::2  # order-dependence
 COMMIT tests/backend/unit/api/test_suspension_api_extended.py::2  # order-dependence
 COMMIT tests/backend/unit/controllers/test_membership_controller.py::1  # order-dependence
 COMMIT tests/backend/unit/services/test_approval_notifications.py::1  # order-dependence
 COMMIT tests/backend/unit/services/test_chapter_management_service.py::3  # order-dependence
-COMMIT tests/backend/unit/utils/test_application_helpers_reapplication.py::2  # order-dependence
 COMMIT tests/backend/unit/utils/test_import_helpers.py::1  # order-dependence
 COMMIT tests/backend/unit/utils/test_truncating_cleanup_endpoints.py::1  # order-dependence
 COMMIT tests/backend/validation/test_approval_helpers.py::1  # order-dependence
@@ -153,7 +152,7 @@ COMMIT tests/integration/services/test_invoice_generator_branches.py::15  # orde
 COMMIT tests/integration/test_api_authentication_decorators_integration.py::1  # order-dependence
 COMMIT tests/integration/test_authentication_flows.py::1  # order-dependence
 COMMIT tests/integration/test_canonical_approval_chapter_activation.py::2  # order-dependence
-COMMIT tests/integration/test_chapter_membership_approval_integration.py::3  # order-dependence
+COMMIT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dependence
 COMMIT tests/integration/test_employee_user_link_security.py::1  # order-dependence
 COMMIT tests/integration/test_membership_approval.py::2  # order-dependence
 COMMIT tests/integration/test_monitoring_system.py::3  # order-dependence
@@ -455,7 +454,6 @@ COMMIT_EXEMPT verenigingen_payments/tests/utils_shared/test_db_helpers.py::1  # 
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::1  # order-dependence
 REUSE mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings_remote.py::1  # order-dependence
 REUSE services/csv_import/test_member_import_service.py::1  # order-dependence
-REUSE tests/backend/components/test_application_submission.py::1  # order-dependence
 REUSE tests/backend/components/test_termination_display.py::1  # order-dependence
 REUSE tests/backend/comprehensive/test_financial_integration_edge_cases.py::1  # order-dependence
 REUSE tests/backend/comprehensive/test_termination_workflow_edge_cases.py::1  # order-dependence
@@ -468,10 +466,10 @@ REUSE tests/backend/security/test_security_core.py::2  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_member_management_mt940_and_emails.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::2  # order-dependence
+REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_validation_endpoint_wrappers.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::4  # order-dependence
+REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_fee_query_consolidation.py::5  # order-dependence
 REUSE tests/backend/workflows/test_chapter_membership_workflow.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle.py::1  # order-dependence

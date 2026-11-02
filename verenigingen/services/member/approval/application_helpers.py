@@ -442,6 +442,27 @@ def determine_chapter_from_application(data):
     return suggested_chapter
 
 
+# Address field -> application key: the one list of what approval writes into an Address from an
+# application. The reviewers' preview compares exactly these (application_materialiser._address_change).
+ADDRESS_FIELD_KEYS = {
+    "address_line1": "address_line1",
+    "address_line2": "address_line2",
+    "city": "city",
+    "state": "state",
+    "country": "country",
+    "pincode": "postal_code",
+}
+
+
+def address_values_from_application(data):
+    """{Address fieldname: value} an application writes (line2 and state default to "")."""
+    blank_default = {"address_line2", "state"}
+    return {
+        field: data.get(key, "" if field in blank_default else None)
+        for field, key in ADDRESS_FIELD_KEYS.items()
+    }
+
+
 def create_address_from_application(data):
     """Create address record from application data"""
     if not (data.get("address_line1") and data.get("city")):
@@ -476,12 +497,7 @@ def create_address_from_application(data):
                 "doctype": "Address",
                 "address_title": f"{first_name} {last_name}",
                 "address_type": "Personal",
-                "address_line1": data.get("address_line1"),
-                "address_line2": data.get("address_line2", ""),
-                "city": data.get("city"),
-                "state": data.get("state", ""),
-                "country": data.get("country"),
-                "pincode": data.get("postal_code"),
+                **address_values_from_application(data),
                 "email_id": data.get("email"),
                 "phone": data.get("phone", ""),
                 "is_primary_address": 1,
@@ -517,7 +533,11 @@ def _sanitize_application_names(data):
     return names["first_name"], names["middle_name"], names["tussenvoegsel"], names["last_name"]
 
 
-def _apply_custom_contribution_fee(member, data, context_label="application"):
+def _no_log(*args, **kwargs):
+    """Stands in for frappe.log_error where a preview must not write an Error Log row."""
+
+
+def _apply_custom_contribution_fee(member, data, context_label="application", quiet=False):
     """
     Apply custom contribution fee override fields to a member.
 
@@ -525,7 +545,9 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
         member: Member document (modified in place)
         data: Application data dict with custom_contribution_fee, uses_custom_amount, custom_amount_reason
         context_label: Used in fee_override_reason (e.g. "application" or "reapplication")
+        quiet: True for a read-only preview: nothing is written to the Error Log
     """
+    log_error = _no_log if quiet else frappe.log_error
     if not (data.get("custom_contribution_fee") or data.get("uses_custom_amount")):
         return
 
@@ -535,7 +557,7 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
             try:
                 custom_contribution_fee = float(data.get("custom_contribution_fee"))
             except (ValueError, TypeError) as e:
-                frappe.log_error(
+                log_error(
                     f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}",
                     "Custom Amount Conversion Error",
                 )
@@ -565,13 +587,13 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
             if override_user:
                 member.fee_override_by = override_user
             else:
-                frappe.log_error(
+                log_error(
                     "No valid user found for fee_override_by field - custom amount preserved without approver",
                     "Fee Override User Warning",
                 )
 
     except Exception as e:
-        frappe.log_error(
+        log_error(
             f"Error storing custom amount data: {str(e)}",
             "Custom Amount Storage Error",
         )
@@ -759,101 +781,6 @@ def _reset_application_dues_choice(member, data):
         for fieldname in _OVERRIDE_FIELDS:
             member.set(fieldname, None)
     member.application_custom_fee = None
-
-
-def update_member_from_reapplication(member_name, data, application_id, address=None):
-    """
-    Update existing member record from reapplication data.
-
-    Used for:
-    - Rejected applications reapplying
-    - Pending applications being updated
-    - Voluntary terminations rejoining
-    """
-    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
-
-    # Get existing member
-    member = frappe.get_doc("Member", member_name)
-
-    # Sanitize names before updating
-    first_name, middle_name, tussenvoegsel, last_name = _sanitize_application_names(data)
-
-    # Update member fields with new application data
-    member.first_name = first_name
-    member.middle_name = middle_name
-    member.tussenvoegsel = tussenvoegsel
-    member.last_name = last_name
-    member.contact_number = data.get("contact_number", "")
-    member.birth_date = data.get("birth_date")
-    member.pronouns = data.get("pronouns", "")
-
-    # Update address if provided
-    if address:
-        member.primary_address = address.name
-
-    # Reset to pending status for reapplication
-    member.status = "Pending"
-    member.application_status = "Pending"
-    member.application_date = now_datetime()
-    member.application_id = application_id
-
-    # Update application-specific fields
-    member.selected_membership_type = data.get("selected_membership_type")
-    member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
-    # Convert opt-out preference to opt-in field (inverted logic)
-    member.accepts_optional_communications = 0 if data.get("opt_out_optional_emails") else 1
-    # No default -- see create_member_from_application.
-    member.application_source = data.get("application_source")
-    member.payment_method = map_payment_method(data.get("payment_method", ""))
-    member.current_chapter_display = data.get("selected_chapter", "")
-
-    # Update bank details
-    member.iban = data.get("iban", "")
-    member.bic = data.get("bic", "")
-    member.bank_account_name = data.get("bank_account_name", "")
-
-    # Transfer volunteer skills (consistency with new applications)
-    volunteer_skills = data.get("volunteer_skills", [])
-    if volunteer_skills:
-        member.volunteer_skills = volunteer_skills
-
-    # Transfer volunteer areas of interest (consistency with new applications)
-    volunteer_interests = data.get("volunteer_interests", [])
-    if volunteer_interests:
-        member.volunteer_interests = volunteer_interests
-
-    # Transfer volunteer availability/experience level (consistency with new
-    # applications, #821)
-    volunteer_availability = data.get("volunteer_availability", "")
-    if volunteer_availability:
-        member.volunteer_availability = volunteer_availability
-
-    volunteer_experience_level = data.get("volunteer_experience_level", "")
-    if volunteer_experience_level:
-        member.volunteer_experience_level = volunteer_experience_level
-
-    # Add chapter information to notes for approver visibility
-    _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
-
-    # Add reapplication timestamp note
-    from verenigingen.utils import append_to_text_field
-
-    reapp_note = f"Reapplication submitted: {now_datetime()}"
-    append_to_text_field(member, "notes", reapp_note, separator="\n")
-
-    # Suppress customer creation messages during reapplication processing
-    member._suppress_customer_messages = True
-
-    # Handle custom membership amount (after the reset: it only ever sets fields)
-    _reset_application_dues_choice(member, data)
-    _apply_custom_contribution_fee(member, data, context_label="reapplication")
-
-    # Save with proper permissions
-    system_user = get_system_user_for_operation("member_reapplication_update")
-    with secure_user_context(system_user, f"Update member {member_name} from reapplication {application_id}"):
-        member.save()
-
-    return member
 
 
 # Wire-level codes the public application form's `volunteer_areas[]`
@@ -1700,239 +1627,3 @@ def create_active_chapter_membership(member, chapter_name):
             "Chapter Creation Error",
         )
         return None
-
-
-def remove_pending_chapter_membership(member, chapter_name=None, elevated=False):
-    """Remove pending Chapter Member record when application is rejected
-
-    Args:
-        member: Member document (the applicant, already resolved by the caller).
-        chapter_name: Chapter to remove the applicant's own Pending row from. If
-            the Chapter no longer exists (an orphaned row), the row is deleted
-            directly and this still counts as removed -- see #1573 round 3.
-        elevated: When True, the underlying Chapter save runs as a
-            `system_operation` (see secure_operations.secure_document_operation) --
-            it skips the ACTOR's own Chapter:write DocPerm check but nothing else
-            (business-rule validation, the member-name/status scoping of which row
-            gets removed below, and this function's own chapter-existence check all
-            still apply). Only pass True from a caller that has ALREADY
-            independently authorized the acting user for this specific
-            application (#1573 maintainer ruling) -- this parameter widens WHO may
-            write, not WHAT may be written, and only for this one applicant's own
-            Pending row. Has no bearing on the orphaned-row path above, which
-            never goes through secure_document_operation at all (there is no
-            Chapter document to check permissions against).
-    """
-    if not member:
-        return False
-
-    try:
-        # If no specific chapter provided, look at member's suggested chapter or current chapter display
-        if not chapter_name:
-            if hasattr(member, "suggested_chapter") and member.suggested_chapter:
-                chapter_name = member.suggested_chapter
-            elif hasattr(member, "current_chapter_display") and member.current_chapter_display:
-                chapter_name = member.current_chapter_display
-            else:
-                # No chapter to remove from
-                return True
-
-        # Check if chapter exists
-        if not frappe.db.exists("Chapter", chapter_name):
-            # Orphaned row: the parent Chapter no longer exists (e.g. deleted
-            # directly, outside this member's own chapter-membership lifecycle).
-            # There is no document to save into consistency here -- a Chapter
-            # that doesn't exist can never be resaved -- so treating this as a
-            # retryable failure would mean nobody could EVER finish rejecting
-            # this applicant (#1573 round 3: the same "opposite harm" as round
-            # 1/2, reached through orphaned data instead of a permission gap).
-            # Delete the dangling row directly, scoped tightly to THIS member's
-            # OWN Pending row on THIS missing chapter -- never any other row --
-            # and count it as removed. Visible in the Error Log, not a failure.
-            frappe.db.delete(
-                "Chapter Member",
-                {
-                    "parenttype": "Chapter",
-                    "parent": chapter_name,
-                    "member": member.name,
-                    "status": "Pending",
-                },
-            )
-            frappe.log_error(
-                title="Orphaned pending chapter membership removed",
-                message=(
-                    f"Chapter {chapter_name} does not exist, but member {member.name} "
-                    f"held a Pending Chapter Member row pointing at it. Deleted the "
-                    f"orphaned row directly during cleanup rather than leaving it "
-                    f"permanently unremovable."
-                ),
-            )
-
-            # Update history entry to Terminated -- same as the normal (non-
-            # orphan) removal path below. Keyed by the chapter_name STRING, not
-            # a live Chapter document (#1573 round 5), so it works here too:
-            # without this, the orphaned chapter's history entry stayed
-            # "Pending" forever even though the applicant was successfully
-            # rejected. Same non-fatal handling as the normal path -- a history
-            # write failure must not re-strand a row this branch just cleaned up.
-            try:
-                from verenigingen.utils.chapter_membership_history_manager import (
-                    ChapterMembershipHistoryManager,
-                )
-
-                ChapterMembershipHistoryManager.terminate_chapter_membership(
-                    member_id=member.name,
-                    chapter_name=chapter_name,
-                    assignment_type="Member",
-                    end_date=today(),
-                    reason="Membership application rejected",
-                )
-            except Exception as e:
-                frappe.logger().warning(
-                    f"Failed to update chapter membership history for {member.name} in {chapter_name}: {e}"
-                )
-
-            return True
-
-        # Get the chapter document
-        chapter_doc = frappe.get_doc("Chapter", chapter_name)
-
-        # Find and remove the pending Chapter Member record
-        members_to_remove = []
-        for i, cm in enumerate(chapter_doc.members):
-            if cm.member == member.name and cm.status == "Pending":
-                members_to_remove.append(i)
-
-        # Remove in reverse order to maintain correct indices
-        for i in reversed(members_to_remove):
-            chapter_doc.remove(chapter_doc.members[i])
-
-        if members_to_remove:
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            remove_result = secure_document_operation(
-                operation="save",
-                doc=chapter_doc,
-                justification=(
-                    f"Remove pending chapter member {member.name} from {chapter_name} "
-                    f"(reviewer pre-authorized for this application, #1573)"
-                    if elevated
-                    else f"Remove pending chapter member {member.name} from {chapter_name}"
-                ),
-                required_permissions=["Chapter:write"],
-                system_operation=elevated,
-            )
-
-            if not remove_result.success:
-                frappe.logger().error(
-                    f"Failed to remove pending chapter member: {'; '.join(remove_result.errors)}"
-                )
-                frappe.throw(
-                    _("Failed to remove pending chapter member: {0}").format("; ".join(remove_result.errors))
-                )
-
-            # Update history entry to Terminated
-            try:
-                from verenigingen.utils.chapter_membership_history_manager import (
-                    ChapterMembershipHistoryManager,
-                )
-
-                ChapterMembershipHistoryManager.terminate_chapter_membership(
-                    member_id=member.name,
-                    chapter_name=chapter_name,
-                    assignment_type="Member",
-                    end_date=today(),
-                    reason="Membership application rejected",
-                )
-            except Exception as e:
-                frappe.logger().warning(
-                    f"Failed to update chapter membership history for {member.name} in {chapter_name}: {e}"
-                )
-
-            frappe.logger().info(
-                f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
-            )
-            return True
-        else:
-            frappe.logger().info(
-                f"No pending Chapter Member record found for {member.name} in {chapter_name}"
-            )
-            return True
-
-    except Exception as e:
-        frappe.log_error(
-            title="Chapter Removal Error",
-            message=f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
-        )
-        return False
-
-
-def remove_all_pending_chapter_memberships(member, elevated=False):
-    """Find and remove ALL pending chapter memberships for a member.
-
-    Queries the Chapter Member child table directly to find all chapters where
-    this member has a Pending record, then removes each one (including history update).
-
-    Args:
-        member: Member document
-        elevated: Passed through to remove_pending_chapter_membership -- see its
-            docstring. Only a caller that has ALREADY authorized the acting user
-            for THIS member's application should pass True (#1573 maintainer
-            ruling: reject_membership_application does, having just called
-            validate_chapter_permission_or_throw; nothing else in this codebase
-            calls this function).
-
-    Returns:
-        list: Chapter names where pending memberships were removed
-
-    Raises:
-        frappe.ValidationError: if any chapter's cleanup save still failed after
-            the elevation above (#1573) -- e.g. the chapter no longer exists, or
-            a genuine validation error inside Chapter.save(). The caller-facing
-            message is DELIBERATELY GENERIC and names no chapter (a permission-
-            scoped caller could otherwise use chapter names in the error to infer
-            which chapters the applicant is Pending in, including ones the caller
-            cannot otherwise see); the chapter names are still recorded in the
-            Error Log via remove_pending_chapter_membership's own logging and the
-            log_error call just below. Raising at all (rather than reporting
-            partial success) lets the caller's own transaction fail atomically --
-            reject_membership_application does not commit before this cleanup
-            runs.
-    """
-    if not member:
-        return []
-
-    pending_chapters = frappe.db.sql(
-        """SELECT DISTINCT parent as chapter
-           FROM `tabChapter Member`
-           WHERE member = %s AND status = 'Pending'""",
-        (member.name,),
-        as_dict=True,
-    )
-
-    removed = []
-    failed = []
-    for record in pending_chapters:
-        if remove_pending_chapter_membership(member, record.chapter, elevated=elevated):
-            removed.append(record.chapter)
-        else:
-            failed.append(record.chapter)
-
-    if failed:
-        frappe.log_error(
-            title="Pending chapter cleanup incomplete",
-            message=(
-                f"remove_all_pending_chapter_memberships for member {member.name}: "
-                f"failed to remove the Pending Chapter Member row from "
-                f"{', '.join(failed)} (removed: {', '.join(removed) or 'none'})"
-            ),
-        )
-        frappe.throw(
-            _(
-                "The application rejection could not be completed due to an "
-                "internal error. Please contact an administrator and try again."
-            )
-        )
-
-    return removed

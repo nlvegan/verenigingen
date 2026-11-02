@@ -33,22 +33,23 @@ class TestTemplateEscaping(EnhancedTestCase):
         self.assertNotIn("<img src=x", html, "payload printed as live markup")
         self.assertIn(ESCAPED_MARKER, html, "payload not rendered (control): the value never reached the page")
 
-    def test_application_status_escapes_applicant_typed_name(self):
-        """An applicant types full_name as a Guest; a reviewer later reads this page."""
-        member = frappe._dict(
-            name="M-1",
-            application_id="APP-1",
-            full_name=PAYLOAD,
-            email=PAYLOAD,
-            application_date=now_datetime(),
-            application_status="Pending",
-            payment_status="Unpaid",
+    def test_application_status_escapes_the_text_it_prints(self):
+        """The status page reads the application record (#1765): it prints no name or email any more,
+        only the application id, the date and, for a rejection, the reviewer-typed reason, which a
+        Guest then reads. The context mirrors application_status.py::_application_for."""
+        application = frappe._dict(
+            application_id=PAYLOAD,
+            applied_on=now_datetime(),
+            status="Rejected",
+            reason=PAYLOAD,
         )
         html = render_block(
-            "verenigingen/templates/pages/application_status.html", "page_content", {"member": member}
+            "verenigingen/templates/pages/application_status.html",
+            "page_content",
+            {"application": application},
         )
         self.assert_escaped(html)
-        self.assertEqual(html.count(ESCAPED_MARKER), 2, "both name and email should render escaped")
+        self.assertEqual(html.count(ESCAPED_MARKER), 2, "both the id and the reason should render escaped")
 
     def test_team_members_escapes_member_and_team_text(self):
         team = frappe._dict(

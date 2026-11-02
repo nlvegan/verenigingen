@@ -89,7 +89,7 @@ def get_context(context):
         dashboard_data = _get_chapter_dashboard_data_internal(selected_chapter) if selected_chapter else None
         has_data = dashboard_data is not None
     except Exception as e:
-        frappe.log_error(f"Error loading dashboard data: {str(e)}", "Chapter Dashboard")
+        frappe.log_error(title="Chapter Dashboard", message=f"Error loading dashboard data: {str(e)}")
         dashboard_data = None
         has_data = False
 
@@ -127,7 +127,7 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
     # Resolve the member strictly (Member.user link ONLY). #1546 maintainer
     # ruling: board identity is Member.user only, full stop, for every board
     # permission check -- this function gates board mutations
-    # (quick_approve_member takes permissions.can_approve_members from it), so
+    # (quick_approve_application takes permissions.can_approve_members from it), so
     # it is squarely one of them. It previously fell back to Member.email,
     # which disagreed with permissions.assign_chapter_board_role() (which
     # decides who IS a board member) and get_user_board_chapters() (the
@@ -326,6 +326,26 @@ def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
     }
 
 
+def _applications_refusal() -> str:
+    """What the applications section says to a viewer who may not read applications (#1765, ruling AD)."""
+    return _("You do not have permission to view membership applications.")
+
+
+def _pending_application_count(chapter_name: str) -> Optional[int]:
+    """Pending Review applications for this chapter, as many as the session user may read (#1765).
+
+    None when the viewer may not read applications: the card shows "--" and says why, never a 0.
+    """
+    from verenigingen.services.member.application.pending_applications import (
+        count_pending_review_applications,
+    )
+
+    try:
+        return count_pending_review_applications(chapters=[chapter_name])
+    except frappe.PermissionError:
+        return None
+
+
 def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     """Get key metrics for dashboard cards"""
 
@@ -344,7 +364,7 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     # Calculate statistics in Python for better maintainability
     total_members = len(members)
     active_members = sum(1 for m in members if m.status == "Active" and m.enabled == 1)
-    pending_members = sum(1 for m in members if m.status == "Pending")
+    pending_members = _pending_application_count(chapter_name)
     inactive_members = sum(1 for m in members if m.enabled == 0)
     # Terminated members are those who left (enabled=0)
     terminated_members = inactive_members
@@ -370,9 +390,12 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     expense_stats = get_basic_expense_stats(chapter_name)
 
     return {
+        "applications_refusal": _applications_refusal() if pending_members is None else None,
         "members": {
             "active": int(member_stats["active_members"] or 0),
-            "pending": int(member_stats["pending_members"] or 0),
+            "pending": (
+                None if member_stats["pending_members"] is None else int(member_stats["pending_members"])
+            ),
             "inactive": int(member_stats["inactive_members"] or 0),
             "terminated": int(member_stats["terminated_members"] or 0),
             "new_this_month": int(member_stats["new_this_month"] or 0),
@@ -523,76 +546,89 @@ def get_member_overview(chapter_name: str) -> Dict[str, Any]:
         frappe.log_error(f"Error fetching recent members for {chapter_name}: {str(e)}")
         recent_members = []
 
-    # Get pending applications - modernized with efficient ORM queries
-    try:
-        # Get pending chapter members
-        pending_chapter_members = frappe.get_all(
-            "Chapter Member",
-            filters={"parent": chapter_name, "status": "Pending"},
-            fields=["member", "chapter_join_date"],
-            order_by="chapter_join_date asc",
-            limit_page_length=0,
-        )
-
-        # Batch fetch member details
-        member_ids = [pcm.member for pcm in pending_chapter_members if pcm.member]
-        if member_ids:
-            members_data = frappe.get_all(
-                "Member",
-                filters={"name": ["in", member_ids]},
-                fields=["name", "full_name", "application_date"],
-                limit_page_length=0,
-            )
-            member_details = {m.name: m for m in members_data}
-        else:
-            member_details = {}
-
-        # Calculate days pending and combine data
-        from frappe.utils import date_diff, getdate
-
-        pending_applications = []
-        for pcm in pending_chapter_members:
-            member_data = member_details.get(pcm.member, {})
-
-            # Skip orphaned Chapter Member records (Member was deleted)
-            if not member_data:
-                frappe.logger().warning(
-                    f"Orphaned Chapter Member record found: {pcm.member} in chapter {chapter_name}. "
-                    f"The linked Member record no longer exists."
-                )
-                continue
-
-            # Calculate days pending using frappe utilities
-            reference_date = member_data.get("application_date") or pcm.chapter_join_date
-            days_pending = 0
-            if reference_date:
-                days_pending = date_diff(getdate(), getdate(reference_date))
-
-            pending_applications.append(
-                {
-                    "member": pcm.member,
-                    "full_name": member_data.get("full_name", "Unknown"),
-                    "chapter_join_date": pcm.chapter_join_date,
-                    "application_date": member_data.get("application_date"),
-                    "days_pending": days_pending,
-                }
-            )
-    except Exception as e:
-        frappe.log_error(f"Error fetching pending applications for {chapter_name}: {str(e)}")
-        pending_applications = []
+    # Pending applications are Membership Application Submissions, not Members (#1765). The list is
+    # the caller's own readable rows (MAS permission query), narrowed to this chapter.
+    pending_applications, applications_refusal = _pending_application_rows(chapter_name)
 
     return {
         "recent_members": recent_members,  # Return all members (no limit)
         "pending_applications": pending_applications,
+        "applications_refusal": applications_refusal,
         "total_pending": len(pending_applications),
     }
+
+
+def _pending_application_rows(chapter_name: str):
+    """(rows, refusal): the Pending Review applications for this chapter that the session user may read.
+
+    A viewer who may not read applications gets ([], message) so only the applications section reports it
+    and the rest of the dashboard renders (#1765, ruling AD); the message is never a silent empty list.
+    """
+    from verenigingen.services.member.application.pending_applications import pending_review_applications
+
+    try:
+        rows = pending_review_applications(chapters=[chapter_name])
+    except frappe.PermissionError:
+        return [], _applications_refusal()
+    return [
+        {
+            "application": row["name"],
+            "full_name": row["applicant_name"] or "Unknown",
+            "application_date": row["application_date"],
+            "days_pending": row["days_pending"],
+        }
+        for row in rows
+    ], None
+
+
+def get_pending_join_requests(chapter_name: str) -> List[Dict[str, Any]]:
+    """Chapter JOIN requests: Pending Chapter Member rows of members whose own application is not open.
+
+    A join request comes from an existing member (Chapter.join_chapter / request_to_join). A Pending Member's
+    own Pending row belongs to an application, which is approved from the application, so it is not listed:
+    approving it here would flip only the chapter row (#1765, #1867).
+    """
+    from frappe.utils import date_diff, getdate
+
+    rows = frappe.get_all(
+        "Chapter Member",
+        filters={"parent": chapter_name, "status": "Pending"},
+        fields=["member", "chapter_join_date"],
+        order_by="chapter_join_date asc",
+        limit_page_length=0,
+    )
+    members = {
+        m.name: m
+        for m in frappe.get_all(
+            "Member",
+            filters={
+                "name": ["in", [r.member for r in rows if r.member]],
+                "application_status": ["!=", "Pending"],
+            },
+            fields=["name", "full_name"],
+            limit_page_length=0,
+        )
+    }
+    return [
+        {
+            "member": row.member,
+            "full_name": members[row.member].full_name,
+            "chapter_join_date": row.chapter_join_date,
+            "days_pending": (
+                date_diff(getdate(), getdate(row.chapter_join_date)) if row.chapter_join_date else 0
+            ),
+        }
+        for row in rows
+        if row.member in members
+    ]
 
 
 def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     """Get items requiring board attention"""
 
     # Get pending membership applications
-    pending_apps = get_member_overview(chapter_name)["pending_applications"]
+    overview = get_member_overview(chapter_name)
+    pending_apps = overview["pending_applications"]
 
     # Mark overdue applications (more than threshold days)
     for app in pending_apps:
@@ -604,11 +640,15 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     # Get board tasks (placeholder)
     board_tasks = []  # Will be implemented with task management
 
+    join_requests = get_pending_join_requests(chapter_name)
+
     return {
         "membership_applications": pending_apps,
+        "applications_refusal": overview["applications_refusal"],
+        "join_requests": join_requests,
         "expense_approvals": pending_expenses,
         "board_tasks": board_tasks,
-        "total_pending": len(pending_apps) + len(pending_expenses) + len(board_tasks),
+        "total_pending": len(pending_apps) + len(join_requests) + len(pending_expenses) + len(board_tasks),
     }
 
 

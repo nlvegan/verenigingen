@@ -241,14 +241,19 @@ class TestLogSecurityEventTypesAreValidSelectOptions(unittest.TestCase):
         # Control: prove the scan is actually walking real files and matching
         # real calls, not silently finding nothing (see #1417's own
         # over-broad census for what an unanchored scan looks like). As of
-        # this fix there are at least 20 genuine call sites across
+        # this fix there were exactly 20 genuine call sites across
         # membership_application_review.py, background_approval_api.py,
         # member_duplicate_detection_service.py, security_setup.py,
         # personal_details.py, authorization.py and audit_logging.py itself.
+        # #1765 deleted 9 of them with the member-keyed approval code (11 remain), then
+        # restored two on the application-keyed path (the identifier sanitiser, and the job that
+        # stores the review path's security events; the latter takes its event type as a
+        # parameter, so the scan counts it as unresolved): 13. As before, the floor is the exact
+        # count, so losing one through a scanner blind spot fails here.
         self.assertGreaterEqual(
             total_calls,
-            20,
-            f"expected to find at least 20 real log_security_event() call sites, found "
+            13,
+            f"expected to find at least 13 real log_security_event() call sites, found "
             f"{total_calls} (unresolved: {unresolved}); the scan may no longer be matching "
             "real call sites",
         )

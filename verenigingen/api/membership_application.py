@@ -2,25 +2,17 @@
 Refactored membership application API with improved organization and error handling
 """
 
-import json
 import traceback
 from typing import Any, Dict
 
 import frappe
 from frappe import _
+from frappe.rate_limiter import rate_limit
 from frappe.utils import cint
 
-from verenigingen.api.membership_application_review import send_rejection_notification
 from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
-from verenigingen.templates.pages.application_status import APPLICATION_STATUS_TOKEN_PURPOSE
 from verenigingen.utils.application_helpers import (
     check_application_status as check_application_status_util,
-    create_address_from_application,
-    create_member_from_application,
-    create_pending_chapter_membership,
-    create_volunteer_record,
-    determine_chapter_from_application,
-    generate_application_id,
     get_form_data,
     get_member_field_info,
     get_membership_fee_info as get_membership_fee_info_util,
@@ -29,12 +21,10 @@ from verenigingen.utils.application_helpers import (
     parse_application_data,
     save_draft_application as save_draft_application_util,
     suggest_membership_amounts as suggest_membership_amounts_util,
-    update_member_from_reapplication,
 )
 from verenigingen.utils.application_payments import (
     get_payment_methods as get_payment_methods_util,
 )
-from verenigingen.utils.constants import Roles
 
 # Import enhanced utilities
 from verenigingen.utils.error_handling import ValidationError, handle_api_error, log_error
@@ -44,17 +34,11 @@ from verenigingen.utils.performance_utils import performance_monitor
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    high_security_api,
     public_api,
-    standard_api,
 )
 from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
-from verenigingen.utils.validation.api_validators import (
-    APIValidator,
-    require_roles,
-)
+from verenigingen.utils.validation.api_validators import APIValidator
 
 # Import our utility modules
 from verenigingen.utils.validation.application_validators import (
@@ -280,7 +264,11 @@ def validate_email(email: str) -> OperationResult[Dict[str, Any]]:
     # Use enhanced API validator
     try:
         validated_email = APIValidator.validate_email(email)
-        result = validate_email_util(validated_email)
+        # #1765: a Guest must not learn whether an email belongs to a member (the staged application
+        # is mailed to its owner instead), so existence never makes this check fail or show.
+        result = validate_email_util(validated_email, allow_existing=True)
+        if result.get("valid"):
+            result = {"valid": True, "message": _("Email is available")}
 
         # Ensure consistent response format
         if not isinstance(result, dict):
@@ -402,7 +390,8 @@ def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, An
     """Check if applicant is eligible for membership"""
     try:
         parsed_data = parse_application_data(data)
-        result = check_application_eligibility_util(parsed_data)
+        # #1765: existence of the email is not an eligibility answer a Guest may read.
+        result = check_application_eligibility_util(parsed_data, allow_existing_email=True)
         if result.get("eligible"):
             return OperationResult.ok(result, message=_("Applicant is eligible for membership"))
         else:
@@ -423,16 +412,16 @@ def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, An
 
 
 @frappe.whitelist(allow_guest=True)
+@rate_limit(limit=10, seconds=3600)  # it mails any address now, like the short form
 @public_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
 def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Process membership application submission - Main entry point
 
-    Delegates to private helpers:
-    - _handle_existing_member: reapplication scenario routing
+    Stages the application (#1765); nothing is written to a Member until it is approved.
     - _validate_membership_amount: custom amount validation
-    - _save_suggested_chapter: chapter save with timestamp retry
+    - application_record.stage_application: existing-member routing and the confirmation mail
     """
     try:
         # Parse and validate data
@@ -458,41 +447,11 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                 context={"operation": "submit_application", "type": "validation_error"},
             )
 
-        # Look up any existing member with this email up-front so the eligibility
-        # gate can stay consistent with the reapplication routing. The email gate
-        # must only hard-block when the existing member is in a status that
-        # _handle_existing_member does NOT allow to reapply (Active, involuntary
-        # termination, unknown). For reapplication-eligible statuses
-        # (Rejected/Pending, voluntary-quit) the gate must let the flow continue
-        # into _handle_existing_member. _handle_existing_member remains the single
-        # source of truth for "which statuses allow reapplication".
-        existing_member = frappe.db.get_value(
-            "Member",
-            {"email": data.get("email")},
-            ["name", "status", "application_status"],
-            as_dict=True,
-        )
-
-        if existing_member:
-            # Resolve the existing-member decision FIRST so BLOCKED statuses
-            # (Active, involuntary termination, unknown) return their specific,
-            # actionable message (e.g. "already_active_member") rather than the
-            # generic "email already exists" eligibility error. Reapplication-
-            # eligible statuses (Rejected/Pending, voluntary-quit) produce no
-            # error and fall through to reuse the existing record below.
-            _action, existing_member_error = _handle_existing_member(existing_member, data)
-            if existing_member_error:
-                return existing_member_error
-
-        # When the email belongs to an existing member, the routing above has
-        # already allowed reapplication, so the eligibility gate must NOT re-block
-        # on email existence. The email *format* check (and all other eligibility
-        # checks) still apply to both new and reapplying applicants; brand-new
-        # emails still go through the normal exists check.
-        allow_existing_email = bool(existing_member)
-
-        # Check eligibility
-        eligibility = check_application_eligibility_util(data, allow_existing_email=allow_existing_email)
+        # #1765: the application is staged, not turned into a Member. The email's owner (an Active or
+        # involuntarily terminated member included) must not change what an anonymous caller sees, so the
+        # eligibility gate never objects to an existing email: stage_application routes it and mails
+        # the owner. Input errors above and below do not depend on who owns the email.
+        eligibility = check_application_eligibility_util(data, allow_existing_email=True)
         if not eligibility["eligible"]:
             # Log detailed validation failure for debugging
             frappe.log_error(
@@ -509,91 +468,17 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
             )
 
         # Validate membership amount if custom amount is provided
-        amount_error = _validate_membership_amount(data)
+        amount_error = _validate_membership_amount(data) or _validate_selected_membership_type(data)
         if amount_error:
             return amount_error
 
-        # Generate application ID
-        application_id = generate_application_id()
+        from verenigingen.services.member.application.application_record import stage_application
 
-        # Create address
-        address = None
-        try:
-            address = create_address_from_application(data)
-        # #505: a 1205/1213 here must not be logged and shrugged off as "no address" --
-        # continuing would build the member against a transaction the server has
-        # already discarded. Re-raise and let @handle_api_error's own guard (#504)
-        # take it from here.
-        except NON_RESUMABLE_DB_ERRORS:
-            raise
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to create address for application {application_id}: {str(e)}\n{traceback.format_exc()}",
-                "Address Creation Error",
-            )
-            # Continue without address - not critical for member creation
-
-        # Create or update member
-        try:
-            # If we're reapplicating (existing_member set from earlier check), update existing record
-            if existing_member:
-                member = update_member_from_reapplication(existing_member.name, data, application_id, address)
-            else:
-                # New application - create fresh member record
-                member = create_member_from_application(data, application_id, address)
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to create/update member record for application {application_id}: {str(e)}\n{traceback.format_exc()}\nData: {json.dumps(data, default=str)}",
-                "Member Creation Error",
-            )
-            raise  # Re-raise since this is critical
-
-        # Determine suggested chapter
-        # #1731: a Guest cannot read chapters or save one, so the suggestion runs as the system user.
-        # The chapter name may come straight from the anonymous request, hence the selectable check.
-        with _as_application_system_user(f"Chapter suggestion for application {application_id}"):
-            suggested_chapter = _only_if_selectable_chapter(determine_chapter_from_application(data))
-        if suggested_chapter:
-            _save_suggested_chapter(member, suggested_chapter, application_id)
-
-        # Create volunteer record if interested
-        if data.get("interested_in_volunteering"):
-            create_volunteer_record(member)
-
-        # Commit member creation before creating chapter membership
-        frappe.db.commit()
-
-        # Create pending Chapter Member record after member is committed
-        if suggested_chapter:
-            # Saving the Chapter roster needs rights a Guest lacks. _save_suggested_chapter above opens
-            # its own context and contexts must not nest, so this one is a separate block.
-            with _as_application_system_user(f"Pending chapter membership for application {application_id}"):
-                _create_pending_chapter_membership_safe(member, suggested_chapter)
-
-        # Notifications are now handled via Frappe's native Notification system:
-        # - "New Membership Application Submitted" notifies administrators
-        # - "Member Application Approved/Rejected" notifies applicant on status change
-
-        # Proves to application_status.py's get_context that THIS browser is
-        # the one that just submitted this application (#1051) -- without
-        # it, the "Check Application Status" link's member_record id is a
-        # sequential, enumerable Member docname that would disclose the
-        # member's email, application status and admin review notes to
-        # anyone who guesses it. Same shape as donate.py (#1018) and
-        # payment_success.py/ponto_pay.py (#1053/#1055).
-        status_token = generate_guest_return_token(APPLICATION_STATUS_TOKEN_PURPOSE, member.name)
+        stage_application("Full Form", data["email"], data)
 
         return OperationResult.ok(
-            {
-                "application_id": application_id,
-                "applicant_id": getattr(member, "application_id", None),
-                "member_record": member.name,
-                "status_token": status_token,
-                "status": "pending_review",
-            },
-            message=_(
-                "Application submitted successfully! You will receive an email with your application ID."
-            ),
+            {"status": "confirmation_sent"},
+            message=_("Check your email to confirm your application."),
         )
 
     # #505: the broad handler below already calls frappe.db.rollback() for ordinary
@@ -626,6 +511,12 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
         )
 
 
+# Banned and Deceased are final. Suspended (a disciplinary hold) and Expired (lapsed, with its own renewal
+# path) were already refused when application_status was Approved; only the ordering let a stale
+# Rejected/Pending application_status through.
+NON_REAPPLICABLE_STATUSES = ("Banned", "Deceased", "Suspended", "Expired")
+
+
 def _handle_existing_member(existing_member, data):
     """Handle all existing-member reapplication scenarios.
 
@@ -637,25 +528,21 @@ def _handle_existing_member(existing_member, data):
     status = existing_member.status
     app_status = existing_member.application_status
 
-    # Scenario 1: Rejected application - allow reapplication
-    if app_status == "Rejected":
-        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
-        return "update", None
+    # Terminal statuses refuse whatever application_status says: a Banned, Deceased, Suspended or Expired
+    # member whose application_status is still Rejected/Pending must not be reactivated by a reapplication
+    # (#1837). Checked first so submit, confirm and approval, which all call this, agree.
+    if status in NON_REAPPLICABLE_STATUSES:
+        return None, _record_exists_failure()
 
-    # Scenario 2: Pending application - update existing pending application
-    if app_status == "Pending":
-        frappe.logger().info(f"Update to pending application {member_name}")
-        return "update", None
-
-    # Scenario 3: Terminated member - check termination type
+    # Scenario 3: Terminated member - check termination type. Ahead of the application_status branches: a
+    # Quit member's application_status can still read Rejected/Pending (e.g. a Pending Member synced from
+    # MijnRood, #1855), and an involuntarily terminated member must be refused whatever it says (Ruling V).
     if status == "Quit":
         termination_result = get_latest_executed_termination_type(member_name)
 
         if not termination_result:
-            frappe.log_error(
-                f"Member {member_name} has Terminated status but no executed termination request found",
-                "Termination Data Integrity",
-            )
+            # No Error Log row here: this runs for anonymous callers, and a row that only an existing
+            # Quit member's email produces would tell an operator, and anyone reading logs, whose it is.
             return None, OperationResult.fail(
                 _("Please contact us to clarify your membership status before reapplying."),
                 errors=["termination_status_unclear"],
@@ -682,6 +569,16 @@ def _handle_existing_member(existing_member, data):
             },
         )
 
+    # Scenario 1: Rejected application - allow reapplication
+    if app_status == "Rejected":
+        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
+        return "update", None
+
+    # Scenario 2: Pending application - update existing pending application
+    if app_status == "Pending":
+        frappe.logger().info(f"Update to pending application {member_name}")
+        return "update", None
+
     # Scenario 4: Active member - cannot reapply
     if status == "Active":
         return None, OperationResult.fail(
@@ -691,11 +588,27 @@ def _handle_existing_member(existing_member, data):
         )
 
     # Unknown status - block with contact message
-    return None, OperationResult.fail(
+    return None, _record_exists_failure()
+
+
+def _record_exists_failure():
+    return OperationResult.fail(
         _("A membership record with this email already exists. Please contact us for assistance."),
         errors=["membership_record_exists"],
         context={"operation": "submit_application"},
     )
+
+
+def _validate_selected_membership_type(data):
+    """Refuse a type that does not exist. Creating the Member used to fail on it; staging would not."""
+    chosen = data.get("selected_membership_type")
+    if chosen and not (isinstance(chosen, str) and frappe.db.exists("Membership Type", chosen)):
+        return OperationResult.fail(
+            _("The selected membership type is not available."),
+            errors=["invalid_membership_type"],
+            context={"type": "validation_error", "operation": "submit_application"},
+        )
+    return None
 
 
 def _validate_membership_amount(data):
@@ -756,12 +669,6 @@ def _validate_membership_amount(data):
     return None
 
 
-def _as_application_system_user(description):
-    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
-
-    return secure_user_context(get_system_user_for_operation("member_update_during_application"), description)
-
-
 def _only_if_selectable_chapter(chapter_name):
     """Return chapter_name only if the application form could have offered it, else None.
 
@@ -776,164 +683,6 @@ def _only_if_selectable_chapter(chapter_name):
     if chapter and chapter.published and chapter.status == "Active":
         return chapter_name
     return None
-
-
-def _save_suggested_chapter(member, suggested_chapter, application_id):
-    """Set suggested chapter on member and save with retry on timestamp mismatch.
-
-    Fire-and-forget: logs errors but does not raise.
-    """
-    if hasattr(member, "suggested_chapter"):
-        member.suggested_chapter = suggested_chapter
-    else:
-        member.current_chapter_display = suggested_chapter
-
-    from verenigingen.utils.secure_operations import (
-        get_system_user_for_operation,
-        secure_user_context,
-    )
-
-    system_user = get_system_user_for_operation("member_update_during_application")
-    with secure_user_context(system_user, f"Update suggested chapter for application {application_id}"):
-        try:
-            member.save()
-        except frappe.TimestampMismatchError:
-            member.reload()
-            if hasattr(member, "suggested_chapter"):
-                member.suggested_chapter = suggested_chapter
-            else:
-                member.current_chapter_display = suggested_chapter
-            member.save()
-
-
-def _create_pending_chapter_membership_safe(member, suggested_chapter):
-    """Create pending Chapter Member record after member commit.
-
-    Fire-and-forget: logs errors but never fails the application submission.
-    """
-    try:
-        chapter_member = create_pending_chapter_membership(member, suggested_chapter)
-        if chapter_member:
-            frappe.logger().info(
-                f"Created pending chapter membership for {member.name} in {suggested_chapter}"
-            )
-        else:
-            frappe.logger().warning(
-                f"Failed to create pending chapter membership for {member.name} in {suggested_chapter}"
-            )
-    except Exception as e:
-        try:
-            frappe.log_error(
-                f"Chapter membership creation failed for {member.name}: {str(e)[:200]}",
-                "Chapter Setup Error",
-            )
-        except Exception:
-            frappe.logger().error(f"Chapter membership creation failed for {member.name}")
-
-
-@frappe.whitelist()
-@high_security_api()  # Member application approval
-@handle_api_error
-@performance_monitor(threshold_ms=2000)
-@require_roles(list(Roles.ADMIN_ROLES))
-def approve_membership_application(member_name: str, notes=None) -> OperationResult[Dict[str, Any]]:
-    """
-    DEPRECATED: Use verenigingen.api.membership_application_review.approve_membership_application instead.
-
-    This function redirects to the canonical implementation for backward compatibility.
-    Will be removed in a future version.
-    """
-    frappe.logger("membership").warning(
-        "DEPRECATED: membership_application.approve_membership_application called. "
-        "Use membership_application_review.approve_membership_application instead."
-    )
-
-    # Redirect to canonical implementation
-    from verenigingen.api.membership_application_review import (
-        approve_membership_application as canonical_approve,
-    )
-
-    # Call canonical function with compatible parameters
-    # Note: This doesn't pass membership_type or chapter, assuming defaults
-    result = canonical_approve(member_name=member_name, notes=notes, create_invoice=True)
-
-    # If result is already OperationResult, return it directly
-    # If it's a dict (legacy format), wrap it
-    if isinstance(result, OperationResult):
-        return result
-    elif isinstance(result, dict):
-        if result.get("success"):
-            return OperationResult.ok(
-                result, message=_(result.get("message", "Application approved successfully"))
-            )
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Application approval failed")),
-                errors=[result.get("error", "approval_failed")],
-                context=result,
-            )
-    else:
-        return OperationResult.fail(
-            _("Unexpected response from approval function"),
-            errors=["unexpected_response"],
-            context={"operation": "approve_membership_application"},
-        )
-
-
-@frappe.whitelist()
-@high_security_api()  # Member application rejection
-def reject_membership_application(member_name: str, reason) -> OperationResult[Dict[str, Any]]:
-    """Reject a membership application — DEPRECATED, use membership_application_review version."""
-    frappe.logger("membership").warning(
-        "DEPRECATED: membership_application.reject_membership_application called. "
-        "Use membership_application_review.reject_membership_application instead."
-    )
-    try:
-        member = frappe.get_doc("Member", member_name)
-
-        if member.application_status not in ["Pending", "Under Review"]:
-            return OperationResult.fail(
-                _("This application cannot be rejected in its current state"),
-                errors=["invalid_application_status"],
-                context={
-                    "current_status": member.application_status,
-                    "operation": "reject_membership_application",
-                },
-            )
-
-        # Member.reject_application was removed in T4.1. Apply the rejection
-        # directly here (mirrors the canonical path in
-        # api.membership_application_review.reject_membership_application):
-        # mark the application rejected and record the reviewer + reason.
-        member.application_status = "Rejected"
-        member.status = "Rejected"
-        member.reviewed_by = frappe.session.user
-        member.review_date = frappe.utils.now_datetime()
-        member.review_notes = reason
-        member.flags.ignore_status_validation = True
-        member.save()
-
-        # Send rejection notification using modern EmailService
-        send_rejection_notification(member, reason)
-
-        return OperationResult.ok(
-            {
-                "member_id": member_name,
-                "status": "Rejected",
-            },
-            message=_("Application rejected and notification sent"),
-        )
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error rejecting application: {str(e)}\n{traceback.format_exc()}",
-            "Application Rejection Error",
-        )
-        return OperationResult.fail(
-            _("Error rejecting application"),
-            errors=[str(e)],
-            context={"operation": "reject_membership_application"},
-        )
 
 
 @frappe.whitelist(allow_guest=True)

@@ -39,6 +39,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.services.termination import TerminationExecutionService
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.tests.support.termination_request import create_termination_request
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -190,91 +191,51 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         after = zabbix_integration._count_recent_member_terminations()
         self.assertEqual(after, before)
 
+
+class TestRejoinedMemberIsNotCounted(ApprovalCase):
+    """A Quit member whose reapplication is materialised must not stay counted as churn."""
+
     def test_rejoined_member_is_not_counted(self):
         """A Quit member who reapplies and is reset to Pending must not stay counted.
 
         Mirrors api/membership_application.py::_handle_existing_member, which allows a
-        Voluntary-terminated ("Quit") member to reapply, and
-        application_helpers.update_member_from_reapplication, which is the function that
-        resets status back to "Pending".
+        Voluntary-terminated ("Quit") member to reapply, and materialise_member, which
+        resets status back to "Pending" when approval starts (the member-keyed
+        update_member_from_reapplication this test used to drive was removed in #1765).
+        The application is staged and confirmed through the real endpoints; materialise_member
+        is then called on its own because the subject is the Pending state BEFORE the approval
+        core runs (approve_application would carry the member on to Active).
 
-        Driving `update_member_from_reapplication` alone (no follow-up save) hits a
-        SEPARATE, pre-existing defect filed as #1548: Member's `before_save` hook
-        (`update_termination_status_display`) unconditionally re-derives `status` from
-        the member's most recent *Executed* Membership Termination Request, and nothing
-        in the reapplication path cancels or supersedes that row -- so the "Pending"
-        reset is silently overwritten back to "Quit" on the very save that set it.
-        Measured directly: without the workaround below, `member.status` reads back
-        "Quit", not "Pending", immediately after this call. That is #1548's bug, not
-        #1541's, so it is worked around here (superseding the stale Executed request,
-        which is what actually needs to happen for a rejoin to stick) rather than
-        silently accepted as this test's expected outcome -- an assertion of "still
-        Quit" here would bake #1548's defect into this suite as if it were correct.
+        Driving the reset alone hits a SEPARATE defect filed as #1548: Member's `before_save`
+        hook (`update_termination_status_display`) re-derives `status` from the member's most
+        recent *Executed* Membership Termination Request, so the "Pending" reset could be
+        overwritten back to "Quit" on the very save that set it. The Executed request is
+        superseded below (what a rejoin needs for the reset to stick) rather than letting this
+        test bake that defect in as an expectation.
 
-        What THIS test is actually establishing for #1541: once a member's status is
-        genuinely reset away from the churned set, the churn metric must reflect that
-        immediately, using the field it now keys on (`member_end_date`) which is left
-        untouched and still recent -- the status filter alone must be enough. That is
-        also why this test is kept rather than dropped: it is the only one in this
-        module that would catch a dropped or OR'd-wrong status filter (e.g. one that
-        stopped excluding "Pending"), which mutation testing confirmed.
-
-        Plainly: the state this test exercises -- "Pending" status with a recent
-        `member_end_date` still on the row -- is, right now, reachable ONLY through the
-        #1548 workaround above, not through the real, unmodified reapplication path
-        (which currently leaves the member stuck on "Quit"). #1548 is being fixed as
-        part of the #1544 PR, per the maintainer's #1544 ruling that a legitimately
-        rejoined member must not be treated as still terminated -- the same principle
-        this test is checking on the churn-metric side. Once that lands, the workaround
-        above becomes redundant (the real call will supersede the stale request itself)
-        but should still pass unchanged.
+        What THIS test establishes for #1541: once a member's status is genuinely reset away
+        from the churned set, the churn metric must reflect that immediately, using the field
+        it keys on (`member_end_date`), which is left untouched and still recent -- the status
+        filter alone must be enough. It is the only test in this module that would catch a
+        dropped or OR'd-wrong status filter (e.g. one that stopped excluding "Pending").
         """
-        from verenigingen.services.member.approval.application_helpers import (
-            update_member_from_reapplication,
-        )
-        from verenigingen.utils.secure_operations import get_system_user_for_operation
+        from verenigingen.services.member.application.application_materialiser import materialise_member
 
-        member = self.create_test_member()
+        member = self.create_test_member(email=self.email)
         request = run_real_termination(self, member.name, termination_type="Voluntary")
 
         member.reload()
         self.assertEqual(member.status, "Quit")
         after_termination = zabbix_integration._count_recent_member_terminations()
 
-        # Workaround for #1548 (see docstring): supersede the Executed request so
-        # update_termination_status_display's before_save hook no longer finds it and
-        # re-asserts "Quit".
+        name = self._stage_and_confirm(first_name=member.first_name, last_name=member.last_name)
+
+        # Supersede the Executed request (see docstring, #1548) only AFTER the application is
+        # confirmed: submit and confirm need the Executed Voluntary termination to admit a Quit member
+        # (a Quit member with none gets the "contact us" outcome, #1765 final review F2), so the
+        # workaround stands in for the #1548 overwrite at materialise, not for the admission check.
         frappe.db.set_value("Membership Termination Request", request.name, "status", "Cancelled")
-
-        # The background service user update_member_from_reapplication saves as needs the
-        # Staff role for the fee-override permission check on member.save(); grant it for
-        # the duration of this test only, matching
-        # tests/backend/unit/utils/test_application_helpers_reapplication.py.
-        system_user = get_system_user_for_operation("member_reapplication_update")
-        role_added = not frappe.db.exists(
-            "Has Role", {"parent": system_user, "role": "Verenigingen Staff"}
-        )
-        if role_added:
-            frappe.db.sql(
-                """INSERT INTO `tabHas Role` (name, parent, parenttype, parentfield, role)
-                VALUES (%s, %s, 'User', 'roles', 'Verenigingen Staff')""",
-                (frappe.generate_hash(length=10), system_user),
-            )
-            frappe.clear_cache(user=system_user)
-
-        try:
-            update_member_from_reapplication(
-                member.name,
-                {"first_name": member.first_name, "last_name": member.last_name},
-                application_id=f"REAPPLY-{member.name}",
-            )
-        finally:
-            if role_added:
-                frappe.db.sql(
-                    "DELETE FROM `tabHas Role` WHERE parent=%s AND role='Verenigingen Staff'",
-                    system_user,
-                )
-                frappe.clear_cache(user=system_user)
+        materialise_member(frappe.get_doc("Membership Application Submission", name))
 
         member.reload()
         self.assertEqual(member.status, "Pending")

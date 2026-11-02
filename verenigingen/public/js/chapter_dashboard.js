@@ -128,7 +128,18 @@ function addNewMember() {
 	window.location.href = '/app/member/new';
 }
 
-function approveMember(memberId) {
+// A refusal from a handle_api_error endpoint is a nested OperationResult: `error` is an object holding the
+// reason in `error.message`, not a string.
+function refusalText(payload, fallback) {
+	if (!payload) {
+		return fallback;
+	}
+	const error = payload.error;
+	const reason = error && typeof error === 'object' ? error.message : error;
+	return reason || payload.message || fallback;
+}
+
+function approveApplication(applicationName) {
 	if (!userPermissions.can_approve_members) {
 		frappe.msgprint(__('You do not have permission to approve members.'));
 		return;
@@ -138,10 +149,9 @@ function approveMember(memberId) {
 		showLoading();
 
 		frappe.call({
-			method: 'verenigingen.api.membership_application_review.approve_membership_application',
+			method: 'verenigingen.api.chapter_dashboard_api.quick_approve_application',
 			args: {
-				member_name: memberId,
-				chapter: selectedChapter
+				application_name: applicationName
 			},
 			callback(r) {
 				hideLoading();
@@ -165,7 +175,7 @@ function approveMember(memberId) {
 				} else {
 					frappe.msgprint({
 						title: __('Error'),
-						message: r.message ? r.message.error : __('Failed to approve member'),
+						message: frappe.utils.escape_html(refusalText(r.message, __('Failed to approve member'))),
 						indicator: 'red'
 					});
 				}
@@ -182,9 +192,53 @@ function approveMember(memberId) {
 	});
 }
 
-function reviewMember(memberId) {
-	// Open member record for review
-	window.location.href = `/app/member/${encodeURIComponent(memberId)}`;
+function approveJoinRequest(memberName) {
+	if (!userPermissions.can_approve_members) {
+		frappe.msgprint(__('You do not have permission to approve members.'));
+		return;
+	}
+
+	frappe.confirm(__('Are you sure you want to approve this chapter join request?'), () => {
+		showLoading();
+
+		frappe.call({
+			method: 'verenigingen.api.chapter_dashboard_api.quick_approve_join_request',
+			args: {
+				member_name: memberName,
+				chapter_name: selectedChapter
+			},
+			callback(r) {
+				hideLoading();
+
+				if (r.message && r.message.success) {
+					frappe.show_alert({
+						message: __('Join request approved'),
+						indicator: 'green'
+					});
+					refreshDashboardData();
+				} else {
+					frappe.msgprint({
+						title: __('Error'),
+						message: frappe.utils.escape_html(refusalText(r.message, __('Failed to approve join request'))),
+						indicator: 'red'
+					});
+				}
+			},
+			error(_r) {
+				hideLoading();
+				frappe.msgprint({
+					title: __('Error'),
+					message: __('An error occurred while approving the join request'),
+					indicator: 'red'
+				});
+			}
+		});
+	});
+}
+
+function reviewApplication(applicationName) {
+	// Open the review page focused on this application
+	window.location.href = `/app/membership-application-review?application=${encodeURIComponent(applicationName)}`;
 }
 
 function showPendingApplications() {
@@ -204,7 +258,7 @@ function showPendingApplications() {
 		apps.forEach((app) => {
 			html += `<div class="application-item ${app.is_overdue ? 'overdue' : ''}">`;
 			html += '<div class="app-info">';
-			html += `<strong>${app.full_name}</strong>`;
+			html += `<strong>${frappe.utils.escape_html(app.full_name)}</strong>`;
 			html += `<br><small>Applied ${app.days_pending} days ago</small>`;
 			if (app.is_overdue) {
 				html += '<span class="overdue-badge">OVERDUE</span>';
@@ -213,7 +267,8 @@ function showPendingApplications() {
 
 			if (userPermissions.can_approve_members) {
 				html += '<div class="app-actions">';
-				html += `<button class="btn btn-primary btn-sm" onclick="reviewMember('${app.member}')"><i class="fa fa-eye"></i> Review Application</button>`;
+				html += `<button class="btn btn-primary btn-sm" data-application="${frappe.utils.escape_html(app.application)}" onclick="reviewApplication(this.dataset.application)"><i class="fa fa-eye"></i> Review Application</button>`;
+				html += `<button class="btn btn-success btn-sm" data-application="${frappe.utils.escape_html(app.application)}" onclick="approveApplication(this.dataset.application)"><i class="fa fa-check"></i> Approve</button>`;
 				html += '</div>';
 			}
 			html += '</div>';
@@ -356,7 +411,7 @@ function updateMetricCards() {
 
 		// Update pending metric
 		if (metrics.members) {
-			$('.pending-card .metric-content h3').text(metrics.members.pending);
+			$('.pending-card .metric-content h3').text(metrics.members.pending ?? '--');
 		}
 
 		// Update expenses metric
@@ -473,8 +528,9 @@ function emailAllMembers() {
 window.chapterDashboard = {
 	viewAllMembers,
 	addNewMember,
-	approveMember,
-	reviewMember,
+	approveApplication,
+	approveJoinRequest,
+	reviewApplication,
 	showPendingApplications,
 	viewFinancialReports,
 	manageBoardMembers,
@@ -485,8 +541,9 @@ window.chapterDashboard = {
 // Make functions globally available for HTML onclick handlers
 window.viewAllMembers = viewAllMembers;
 window.addNewMember = addNewMember;
-window.approveMember = approveMember;
-window.reviewMember = reviewMember;
+window.approveApplication = approveApplication;
+window.approveJoinRequest = approveJoinRequest;
+window.reviewApplication = reviewApplication;
 window.viewFinancialReports = viewFinancialReports;
 window.manageBoardMembers = manageBoardMembers;
 window.refreshDashboardData = refreshDashboardData;
