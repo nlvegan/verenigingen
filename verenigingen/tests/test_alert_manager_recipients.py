@@ -16,7 +16,6 @@ from frappe.utils import now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.alert_manager import (
-    ALERT_GROUPS,
     BUSINESS_ALERT_TYPES,
     BUSINESS_GROUP,
     NO_RECIPIENTS_LOG_TITLE,
@@ -27,10 +26,11 @@ from verenigingen.utils.alert_manager import (
     alert_group_for,
 )
 
-SYSADMIN = ALERT_GROUPS[TECHNICAL_GROUP]["role_profile"]
-VADMIN = ALERT_GROUPS[BUSINESS_GROUP]["role_profile"]
-TECH_KEY = ALERT_GROUPS[TECHNICAL_GROUP]["notification_key"]
-BIZ_KEY = ALERT_GROUPS[BUSINESS_GROUP]["notification_key"]
+# Literals on purpose: deriving them from ALERT_GROUPS would let a swap in production code pass.
+SYSADMIN = "Verenigingen System Administrator"
+VADMIN = "Verenigingen Administrator"
+TECH_KEY = "system_alert"
+BIZ_KEY = "business_monitoring_alert"
 TECH_TYPE = "HIGH_ERROR_RATE"
 BIZ_TYPE = "SEPA_COMPLIANCE"
 
@@ -115,7 +115,7 @@ class TestAlertManagerRecipients(EnhancedTestCase):
             recipients.extend(mail["recipients"] or [])
         return recipients
 
-    def _error_logs(self, since, title, needle):
+    def _alert_error_logs(self, since, title, needle):
         return frappe.get_all(
             "Error Log",
             filters={"creation": [">=", since], "method": title, "error": ["like", f"%{needle}%"]},
@@ -238,8 +238,8 @@ class TestAlertManagerRecipients(EnhancedTestCase):
             manager.send_alert(BIZ_TYPE, "LOW", f"biz {self.uid}")
 
         self.assertEqual(self._sent_to(), [users["tech"]])
-        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
-        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 0)
+        self.assertEqual(len(self._alert_error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
+        self.assertEqual(len(self._alert_error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 0)
 
     def test_nobody_in_either_group_queues_nothing_and_logs_once_per_group(self):
         self._make_alert_user("plain")  # a user with neither profile
@@ -255,8 +255,8 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         manager.send_alert(BIZ_TYPE, "LOW", f"probe biz {self.uid}")
 
         self.assertEqual(self._sent_to(), [])
-        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 1)
-        self.assertEqual(len(self._error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
+        self.assertEqual(len(self._alert_error_logs(since, NO_RECIPIENTS_LOG_TITLE, SYSADMIN)), 1)
+        self.assertEqual(len(self._alert_error_logs(since, NO_RECIPIENTS_LOG_TITLE, VADMIN)), 1)
 
     def test_a_disabled_or_absent_key_stops_only_its_own_group(self):
         users = self._four_users()
@@ -276,6 +276,17 @@ class TestAlertManagerRecipients(EnhancedTestCase):
             self.assertEqual(
                 sorted(self._sent_to()), sorted([users["tech"], users["both"]]), f"enabled={enabled}"
             )
-            rows = self._error_logs(since, UNSENT_LOG_TITLE, "business group")
+            rows = self._alert_error_logs(since, UNSENT_LOG_TITLE, "business group")
             self.assertEqual(len(rows), 1, f"enabled={enabled}")
-            self.assertEqual(len(self._error_logs(since, UNSENT_LOG_TITLE, "technical group")), 0)
+            self.assertEqual(len(self._alert_error_logs(since, UNSENT_LOG_TITLE, "technical group")), 0)
+
+    def test_daily_report_follows_the_business_key_not_the_technical_one(self):
+        self._four_users()
+        self._set_alert_rows(BIZ_KEY, 0)  # business off, technical still on
+        self.expectErrorLog(UNSENT_LOG_TITLE)
+        since = now()
+
+        AlertManager().generate_daily_report()
+
+        self.assertEqual(self._sent_to(), [])
+        self.assertEqual(len(self._alert_error_logs(since, UNSENT_LOG_TITLE, "business group")), 1)
