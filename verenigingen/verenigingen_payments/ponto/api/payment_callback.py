@@ -77,9 +77,10 @@ def payment_callback():
     # The query string is attacker-controlled (this is an allow_guest GET), so no status comes
     # from it (#1815), with ONE ruled exception: `error=access_denied` plus a valid
     # `cancel_token` (HMAC of this request's name, minted when signing started) marks a
-    # Pending request Cancelled. Everything else asks Ponto, the authority, via
-    # `refresh_status()`. Requests created before the token existed carry none and so
-    # always take the Ponto path.
+    # Pending request Cancelled. Everything else CALLS `refresh_status()`, which is
+    # inert here: it is a high_security_api that the webhook user (or Guest) is refused, and
+    # `_refresh_from_ponto` swallows that into a log line. It stays until #1896 (#1834) removes it.
+    # Requests created before the token existed carry none and so take that same inert path.
     #
     # Known and unknown names must be indistinguishable to the caller, so both redirect to the
     # same document URL, and the messages `refresh_status()` raises are dropped from the

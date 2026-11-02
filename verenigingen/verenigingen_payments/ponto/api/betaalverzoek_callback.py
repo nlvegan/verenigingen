@@ -97,7 +97,8 @@ def payment_link_callback():
 
         # No status comes from the query string (#1815), with ONE ruled exception:
         # `error=access_denied` plus a valid `cancel_token` marks a Pending Authorization
-        # link Cancelled. Everything else asks Ponto, the authority, via refresh_status().
+        # link Cancelled. Everything else calls refresh_status(), which is inert here: a high_security_api the
+        # webhook user is refused, swallowed by _refresh_link_from_ponto. #1896 (#1834) removes it.
         # Links created before the token existed carry none and so take the Ponto path.
         # Messages raised by the refresh/save are dropped from the response, as in
         # payment_callback, so a known name does not answer differently from an unknown one.
