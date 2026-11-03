@@ -790,6 +790,9 @@ def send_chapter_notification(chapter, overdue_members):
             data=context,
             reference_doctype="Chapter",
             reference_name=chapter,
+            # One mail per chapter: a person on two boards gets each chapter's mail, and a
+            # re-run inside the cooldown window is throttled per chapter, not per person.
+            cooldown_scope=chapter,
         )
 
         # A skip (key disabled, cooldown, opt-out) is not a send (#2015)

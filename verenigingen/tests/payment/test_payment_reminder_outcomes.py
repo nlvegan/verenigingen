@@ -328,6 +328,26 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self.assertEqual(result.get("chapter_notifications"), {"sent": 1, "skipped": 0, "failed": 0}, result)
         self.assertEqual(result["chapters"][chapter.name]["status"], "sent")
 
+    def test_board_mail_cooldown_is_per_chapter_for_a_person_on_two_boards(self):
+        # Ruling: one mail per chapter per run, reaching each of its board members. A person on
+        # two boards must get BOTH mails (the payment_failure cooldown stays 60 min), and a re-run
+        # inside the window is throttled per chapter.
+        self._set_key("payment_failure", enabled=1, cooldown=60)
+        chapter_a, chapter_b = self._make_reminder_chapter(), self._make_reminder_chapter()
+        member_b = self._new_reminder_member("Other")
+        board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
+        rows = self._overdue_rows(chapter_a, [self.member]) + self._overdue_rows(chapter_b, [member_b])
+        # Mock justified: report data source (as above) and board resolution (same person on both boards).
+        with self._board_patch(board_email), patch(self.GET_DATA, return_value=rows):
+            first = send_overdue_payment_reminders(send_to_chapters=True)
+            second = send_overdue_payment_reminders(send_to_chapters=True)
+        for chapter in (chapter_a, chapter_b):
+            mails = self._mail_for(chapter, CHAPTER_MARKER)
+            self.assertEqual(len(mails), 1, f"one board mail for {chapter.name}, not throttled by the other chapter")
+            self.assertEqual(mails[0].recipients, [board_email])
+        self.assertEqual(first.get("chapter_notifications"), {"sent": 2, "skipped": 0, "failed": 0}, first)
+        self.assertEqual(second.get("chapter_notifications"), {"sent": 0, "skipped": 2, "failed": 0}, second)
+
     def test_chapter_mail_skipped_when_key_disabled_is_not_counted_as_sent(self):
         self._set_key("payment_failure", enabled=0, cooldown=0)
         chapter = self._make_reminder_chapter()
