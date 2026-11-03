@@ -60,6 +60,11 @@ POLICY_ROLE_BASED = "Role-Based"
 POLICY_FIXED = "Fixed"
 POLICY_CUSTOM = "Custom"
 
+# Minimum minutes between two sends of a key to the same recipient. An entry may set
+# "cooldown_minutes" (0 = no cooldown); both row creators (the install seeder and Sync Registry)
+# read it and fall back to this value.
+DEFAULT_COOLDOWN_MINUTES = 60
+
 
 NOTIFICATION_KEYS = {
     # =========================================================================
@@ -236,6 +241,13 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "chapter_membership_approved": {
+        "label": "Chapter Membership Approved",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to the member when their request to join a chapter is approved.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
     # =========================================================================
@@ -246,12 +258,60 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "payment_failure_first": {
+        "label": "Payment Failed (First)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after the first failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
+    },
+    "payment_failure_second": {
+        "label": "Payment Failed (Second)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after a second failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
+    },
+    "payment_failure": {
+        "label": "Payment Failure (Chapter Board)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to a chapter's board when a member of the chapter has overdue payments. Not part of the member dunning series (payment_failure_first, _second, _final).",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_reminder_friendly": {
+        "label": "Payment Reminder (Friendly)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Friendly reminder sent to a member about an upcoming or overdue payment.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 10080,
+    },
+    "subscription_cancelled": {
+        "label": "Subscription Cancelled",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is cancelled.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
+    },
+    "subscription_suspended": {
+        "label": "Subscription Suspended",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is suspended.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
+    },
     "payment_failure_final": {
         "label": "Payment Failed (Final)",
         "category": CATEGORY_PAYMENT,
         "description": "Sent after all retry attempts have failed for a payment.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "payment_reminder_urgent": {
         "label": "Payment Reminder (Urgent)",
@@ -259,6 +319,7 @@ NOTIFICATION_KEYS = {
         "description": "Urgent reminder for overdue payments requiring immediate attention.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 4320,
     },
     "payment_plan_request": {
         "label": "Payment Plan Requested",
@@ -666,7 +727,8 @@ def get_notification_meta(notification_key: str) -> dict:
         notification_key: The notification key to look up.
 
     Returns:
-        Dict with label, category, description, priority, recipient_policy.
+        Dict with label, category, description, priority, recipient_policy and,
+        optionally, cooldown_minutes (default DEFAULT_COOLDOWN_MINUTES).
         Returns empty dict if key not found.
     """
     return NOTIFICATION_KEYS.get(notification_key, {})

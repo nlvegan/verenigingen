@@ -77,8 +77,11 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         for key in notification_keys:
             if key in existing:
                 for nt in config.notification_types:
-                    if nt.notification_key == key and not nt.enabled:
+                    # #1999: a registered key is seeded with a real cooldown (payment_reminder_*
+                    # 10080/4320 min), which would throttle the repeat sends to this fixed member.
+                    if nt.notification_key == key and (not nt.enabled or nt.cooldown_minutes):
                         nt.enabled = 1
+                        nt.cooldown_minutes = 0
                         changed = True
             else:
                 config.append(
