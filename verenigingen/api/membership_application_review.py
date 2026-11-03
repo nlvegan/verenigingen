@@ -428,6 +428,11 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
             "Application approved, but the membership invoice could NOT be created, so no invoice "
             "was sent to the applicant. See the Error Log, then create the invoice manually."
         )
+    elif not invoice:
+        # create_invoice=False: nothing was invoiced, so the approval mail has no payment link (#1900)
+        message = _(
+            "Application approved. No invoice was created, so the approval email has no payment link."
+        )
     else:
         message = _("Application approved. Invoice sent to applicant.")
     user_account_status = "pending"
@@ -1003,9 +1008,17 @@ def get_user_chapter_access(**kwargs):
 
 
 def send_approval_notification(member, invoice, membership_type):
-    """Send approval notification with payment link - MIGRATED to unified EmailService"""
-    # Create payment link
-    payment_url = frappe.utils.get_url(f"/payment/membership/{member.name}/{invoice.name}")
+    """Send the approval notification - MIGRATED to unified EmailService.
+
+    With an invoice the mail carries the payment link and amount. Without one (create_invoice=False, or
+    the invoice failed) it is still sent, with neither: the template omits the payment section when
+    ``payment_url`` is empty (#1900, maintainer ruling 2026-11-03).
+    """
+    payment_url = None
+    payment_amount = None
+    if invoice:
+        payment_url = frappe.utils.get_url(f"/payment/membership/{member.name}/{invoice.name}")
+        payment_amount = frappe.format_value(invoice.grand_total, {"fieldtype": "Currency"})
 
     # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
     from verenigingen.services.communication.compatibility import send_member_notification
@@ -1016,7 +1029,7 @@ def send_approval_notification(member, invoice, membership_type):
         "invoice": invoice,
         "membership_type": membership_type,
         "payment_url": payment_url,
-        "payment_amount": frappe.format_value(invoice.grand_total, {"fieldtype": "Currency"}),
+        "payment_amount": payment_amount,
         "application_id": getattr(member, "application_id", member.name),
         "company": frappe.defaults.get_global_default("company"),
         "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")

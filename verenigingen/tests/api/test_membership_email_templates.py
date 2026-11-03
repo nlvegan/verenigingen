@@ -35,7 +35,7 @@ MANAGED_TEMPLATES = {
     "membership_rejection_ineligible": "Membership Application Update - {{ member_name }}",
     "membership_rejection_duplicate": "Membership Application - Duplicate Detected - {{ member_name }}",
     "membership_application_approved": (
-        "Membership Application Approved - Payment Required - {{ member_name }}"
+        "Membership Application Approved{% if payment_url %} - Payment Required{% endif %} - {{ member_name }}"
     ),
 }
 
@@ -129,6 +129,25 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
         self.assertNotIn("{{ membership_type.membership_type_name }}", approved.response)
         self.assertIn("{{ payment_amount }}", approved.response)
         self.assertIn("Congratulations", approved.response)
+
+    def test_approved_template_has_no_payment_section_without_a_payment_url(self):
+        """#1900: an approval without an invoice has no payment_url. The mail then carries no pay button
+        (it rendered href="None"), no fee row and no "Payment Required" subject. Control: with a
+        payment_url all three are there."""
+        create_default_email_templates()
+        self._track_all_created()
+        approved = frappe.get_doc("Email Template", "membership_application_approved")
+        base = {"first_name": "Ann", "member_name": "Ann B", "application_id": "APP-1", "company": "Co"}
+        with_link = {**base, "payment_url": "https://x.test/pay/1", "payment_amount": "EUR 25.00"}
+
+        render = frappe.render_template
+        bare = render(approved.subject, base) + render(approved.response, base)
+        full = render(approved.subject, with_link) + render(approved.response, with_link)
+        for absent in ("Pay Membership Fee", "Fee Amount", "Payment Required", "href"):
+            self.assertNotIn(absent, bare)
+        for present in ("Pay Membership Fee", "Fee Amount", "Payment Required", "https://x.test/pay/1"):
+            self.assertIn(present, full)
+        self.assertIn("Congratulations", bare)
 
     # ------------------------------------------------------------------
     # Idempotency
