@@ -20,6 +20,7 @@ from verenigingen.hooks.lifecycle import after_install
 from verenigingen.notification_registry import NOTIFICATION_KEYS
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+from verenigingen.tests.utils.v15_cooldowns import ruled_v15_cooldowns
 from verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration import (
     add_notification_types,
 )
@@ -60,14 +61,18 @@ class TestSeededCooldowns(FrappeTestCase):
             for key, minutes in RULED.items():
                 self.assertEqual(cint(rows[key].cooldown_minutes), minutes, key)
 
-    def test_every_other_key_keeps_the_default_of_60(self):
+    def test_every_key_outside_the_rulings_keeps_the_default_of_60(self):
+        # #2012 moved the keys the v15 patches hard-code (see test_notification_cooldown_v15_parity_2012),
+        # so "every other key is 60" now excludes them. The control below keeps the 60 set non-empty.
         with singleton_backup(DOCTYPE):
             _empty_notification_config_for_cooldowns()
             _run_install_seed_for_cooldowns()
             rows = _cooldown_rows_by_key()
-            others = [k for k in NOTIFICATION_KEYS if k not in RULED]
+            v15 = ruled_v15_cooldowns(NOTIFICATION_KEYS)
+            others = [k for k in NOTIFICATION_KEYS if k not in RULED and v15.get(k, 60) == 60]
             self.assertIn("member_activated", others, "control: an ordinary key is in the sample")
-            self.assertGreater(len(others), 60)
+            self.assertGreater(len(others), 20)
+            self.assertTrue([k for k in v15 if v15[k] != 60], "control: some keys are excluded")
             for key in others:
                 self.assertEqual(cint(rows[key].cooldown_minutes), 60, key)
 

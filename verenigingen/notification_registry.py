@@ -125,6 +125,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to applicants when their membership application is approved.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "member_application_overdue": {
         "label": "Application Overdue Alert",
@@ -139,6 +140,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent when a membership application is rejected, including the reason.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "membership_renewal_reminder": {
         "label": "Renewal Reminder",
@@ -146,6 +148,7 @@ NOTIFICATION_KEYS = {
         "description": "Periodic reminder sent to members whose membership is approaching expiration.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
     },
     "termination_overdue": {
         "label": "Termination Overdue",
@@ -153,6 +156,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a termination request has not been processed within the expected timeframe.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 1440,
     },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
@@ -327,6 +331,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin notification when a member requests a payment plan arrangement.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     "payment_plan_approved": {
         "label": "Payment Plan Approved",
@@ -334,6 +339,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to member when their payment plan request is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "payment_history_failure_alert": {
         "label": "Payment History Sync Failed",
@@ -348,6 +354,7 @@ NOTIFICATION_KEYS = {
         "description": "Critical system alert for severe payment history processing failures.",
         "priority": PRIORITY_CRITICAL,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # DONATION NOTIFICATIONS
@@ -372,6 +379,7 @@ NOTIFICATION_KEYS = {
         "description": "Confirmation sent when a recurring donation agreement is set up.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "periodic_donation_expiry": {
         "label": "Recurring Donation Expiring",
@@ -379,6 +387,7 @@ NOTIFICATION_KEYS = {
         "description": "Reminder sent before a recurring donation agreement expires.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
     },
     "periodic_donation_cancellation": {
         "label": "Recurring Donation Cancelled",
@@ -386,6 +395,7 @@ NOTIFICATION_KEYS = {
         "description": "Confirmation sent when a recurring donation agreement is cancelled.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # DUES & BILLING NOTIFICATIONS
@@ -403,6 +413,7 @@ NOTIFICATION_KEYS = {
         "description": "Notification when a dues schedule is manually created for a member.",
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "dues_amendment_approved": {
         "label": "Contribution Amendment Approved",
@@ -410,6 +421,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent when a request to change contribution amount is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "dues_amendment_rejected": {
         "label": "Contribution Amendment Rejected",
@@ -417,6 +429,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent when a request to change contribution amount is rejected.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # SEPA NOTIFICATIONS
@@ -434,6 +447,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a SEPA batch completes with warnings or partial failures.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 30,
     },
     "sepa_batch_error": {
         "label": "SEPA Batch Error",
@@ -441,6 +455,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a SEPA direct debit batch fails processing.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     "sepa_member_pre_notification": {
         "label": "SEPA Pre-Notification",
@@ -479,6 +494,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to member with a Ponto payment link for manual payment.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "ponto_executed_on_cancelled_row": {
         "label": "Ponto Payment Executed On Cancelled Row (Admin)",
@@ -539,6 +555,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to volunteer when their expense claim is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "expense_rejected": {
         "label": "Expense Rejected",
@@ -546,6 +563,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to volunteer when their expense claim is rejected.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # SYSTEM NOTIFICATIONS
@@ -556,6 +574,7 @@ NOTIFICATION_KEYS = {
         "description": "System alert when dues schedules are stuck in processing state.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 240,
     },
     "analytics_alert": {
         "label": "Analytics Alert",
@@ -625,6 +644,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to donors requesting consent for ANBI tax deduction reporting.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 43200,
     },
     "anbi_tax_receipt": {
         "label": "ANBI Tax Receipt",
