@@ -2,7 +2,8 @@
 
 The seeder (#1998) wrote a constant 60 for every key, so the dunning keys could re-send to the same
 member every hour instead of once a day or week. The maintainer's values (minutes) are pinned here
-by hand, NOT derived from the registry, so a wrong registry value is caught. Every other key keeps 60.
+by hand, NOT derived from the registry, so a wrong registry value is caught. Keys outside these
+rulings keep 60, except those #2012 moved to their v15 value.
 
 Probe shortcut: the "fresh install" state is built by emptying ``notification_types`` inside
 ``singleton_backup`` (as in the #1959 test); a real ``install-app`` was not run. Existing rows are

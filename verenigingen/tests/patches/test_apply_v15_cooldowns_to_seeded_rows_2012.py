@@ -103,6 +103,15 @@ class TestApplyV15Cooldowns(FrappeTestCase):
         _run_cooldown_patch()
         self.assertEqual({k: (cint(r.cooldown_minutes), r.modified) for k, r in _cooldown_rows().items()}, first)
 
+    def test_the_cached_config_doc_sees_the_new_value(self):
+        # The patch writes by SQL, so without clearing the document cache get_cached_doc keeps the 60.
+        _set_cooldown_rows({"termination_overdue": 60})
+        primed = frappe.get_cached_doc(DOCTYPE)
+        self.assertEqual(cint(primed.notification_types[0].cooldown_minutes), 60, "control: cache primed at 60")
+        _run_cooldown_patch()
+        cached = frappe.get_cached_doc(DOCTYPE)
+        self.assertEqual(cint(cached.notification_types[0].cooldown_minutes), self.changing["termination_overdue"])
+
     def test_a_missing_row_is_not_created(self):
         _set_cooldown_rows({"member_activated": 60})
         _run_cooldown_patch()
