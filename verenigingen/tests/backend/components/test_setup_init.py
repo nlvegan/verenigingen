@@ -280,6 +280,15 @@ class TestSetupSettings(FrappeTestCase):
 class TestSetupEmailTemplates(FrappeTestCase):
     """Email-template seed + verifier functions."""
 
+    @classmethod
+    def tearDownClass(cls):
+        # create_application_email_templates() commits, so the render test's delete +
+        # recreate would permanently replace the fixture-owned row with the setup copy.
+        from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
+
+        _cleanup_stock_email_templates(["membership_application_confirmation"])
+        super().tearDownClass()
+
     def test_create_application_email_templates(self):
         count = setup_mod.create_application_email_templates()
         self.assertIsInstance(count, int)
