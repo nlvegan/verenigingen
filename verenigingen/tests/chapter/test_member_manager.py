@@ -581,6 +581,31 @@ class TestMemberManager(VereningingenTestCase):
         self.assertTrue(any(self.member.full_name in m for m in mails))
         self.assertTrue(any(second.full_name in m for m in mails))
 
+    def test_rejoin_request_also_mails_the_board(self):
+        """The rejoin call site (an Inactive, still enabled row) notifies the board too.
+
+        Real writers only: add_member records a Suspended member Inactive/disabled, then
+        update_member_info(enabled=True) re-enables the row, leaving enabled=1 + Inactive.
+        (Reject deletes the row, so it cannot produce this state.)
+        """
+        self._own_join_key_row()
+        board_email = self._seat_active_board_member()
+        member = self._make_member(status="Suspended", first="Rejoin")
+        # #1582: the row is written, but the call reports added_disabled, not success.
+        self.assertEqual(self.manager.add_member(member.name, notify=False)["action"], "added_disabled")
+        self._reload_chapter()
+        self.assertTrue(self.manager.update_member_info(member.name, enabled=True)["success"])
+        self._reload_chapter()
+        row = self.manager._find_chapter_member(member.name)
+        self.assertEqual((row.status, row.enabled), ("Inactive", 1), "control: the rejoin state")
+
+        result = self.manager.request_to_join(member.name, notify=True)
+
+        self.assertEqual(result["action"], "rejoin_requested", result)
+        mails = self._join_mails_to(board_email)
+        self.assertEqual(len(mails), 1)
+        self.assertIn(member.full_name, mails[0])
+
     def test_join_mail_honours_the_disabled_key(self):
         """Control for the key: a disabled ``chapter_join_request_submitted`` row sends nothing.
 
