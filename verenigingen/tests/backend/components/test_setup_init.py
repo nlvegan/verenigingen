@@ -280,21 +280,63 @@ class TestSetupSettings(FrappeTestCase):
 class TestSetupEmailTemplates(FrappeTestCase):
     """Email-template seed + verifier functions."""
 
-    def test_setup_email_templates(self):
-        setup_mod.setup_email_templates()
-        self.assertTrue(frappe.db.exists("Email Template", "Termination Approval Required"))
+    @classmethod
+    def tearDownClass(cls):
+        # create_application_email_templates() commits, so the render test's delete +
+        # recreate would permanently replace the fixture-owned row with the setup copy.
+        from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 
-    def test_setup_email_templates_idempotent(self):
-        setup_mod.setup_email_templates()
-        before = frappe.db.count("Email Template")
-        setup_mod.setup_email_templates()
-        after = frappe.db.count("Email Template")
-        self.assertEqual(before, after)
+        _cleanup_stock_email_templates(["membership_application_confirmation"])
+        super().tearDownClass()
 
     def test_create_application_email_templates(self):
         count = setup_mod.create_application_email_templates()
         self.assertIsInstance(count, int)
         self.assertTrue(frappe.db.exists("Email Template", "membership_application_confirmation"))
+
+    def test_application_templates_render_non_empty_through_email_service(self):
+        """Regression test for #2009.
+
+        With use_html=1 both Frappe and EmailService._get_template read
+        ``response_html``. The setup function used to write the HTML only to
+        ``response``, so every template it created rendered an empty body and the
+        send failed with "Subject and content are required". The rows are deleted
+        first so the creating function really runs (it is create-only), and each
+        template is rendered through the real EmailService template path.
+        """
+        from verenigingen.services.communication.email_service import get_email_service
+
+        names = [
+            "membership_application_confirmation",
+            "membership_welcome",
+            "volunteer_welcome",
+            "membership_payment_failed",
+        ]
+        for name in names:
+            frappe.delete_doc("Email Template", name, force=True, ignore_permissions=True)
+            self.assertFalse(frappe.db.exists("Email Template", name))
+
+        setup_mod.create_application_email_templates()
+
+        context = {
+            "member": frappe._dict(first_name="Testy", name="TEST-MEMBER-001"),
+            "volunteer": frappe._dict(volunteer_name="Testy", email="testy@example.invalid"),
+            "company": "Test Association",
+            "membership_type": frappe._dict(membership_type_name="Lid"),
+            "membership": frappe._dict(start_date="2024-01-01", renewal_date="2025-01-01"),
+            "payment_amount": 25,
+            "payment_url": "https://example.invalid/pay",
+            "retry_url": "https://example.invalid/retry",
+            "member_portal_url": "https://example.invalid/portal",
+            "login_url": "https://example.invalid/login",
+        }
+        service = get_email_service()
+        for name in names:
+            template = service._get_template(name)
+            self.assertIsNotNone(template, f"{name} must be created")
+            content = service._render_template(template, context)["content"]
+            self.assertTrue(content.strip(), f"{name} rendered an empty body")
+            self.assertIn("Testy", content, f"{name} must render its own body, not a blank")
 
     def test_membership_welcome_template_shows_chapter(self):
         """Regression test for #1133.
@@ -327,7 +369,7 @@ class TestSetupEmailTemplates(FrappeTestCase):
             "member_portal_url": "https://example.invalid/portal",
             "login_url": "https://example.invalid/login",
         }
-        rendered = frappe.render_template(template.response, context)
+        rendered = frappe.render_template(template.response_html, context)
 
         self.assertIn(
             "Amsterdam Test Chapter",
