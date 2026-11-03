@@ -48,14 +48,10 @@ def get_financial_admin_emails(notification_key=None):
     4. enabled holders of the admin roles (Roles.ADMIN_PAIR)
 
     The Administrator user is never a recipient (it is not in active use), and there is no
-    literal fallback address (#2002). A disabled key returns [] silently (the send would be
-    skipped anyway). When nobody resolves, or the lookup fails, one Error Log row per key per
-    day is written and the caller gets [], which every caller treats as "send nothing".
+    literal fallback address (#2002). Recipients are resolved whatever the key's enabled state (EmailService skips a
+    disabled key itself). When nobody resolves, or the lookup fails, one Error Log row per key per
+    day is written (none for a disabled key) and the caller gets [], which every caller treats as "send nothing".
     """
-    config_service = _get_email_config_service()
-    if notification_key and config_service and not config_service.is_notification_enabled(notification_key):
-        return []
-
     try:
         recipients = resolve_admin_recipients(
             notification_key=notification_key,
@@ -68,9 +64,18 @@ def get_financial_admin_emails(notification_key=None):
         recipients = []
         reason = f"the recipient lookup failed: {e}\n{frappe.get_traceback(with_context=False)}"
 
-    if not recipients:
+    if not recipients and _is_enabled(notification_key):
         _log_no_recipients_once(notification_key, reason)
     return recipients
+
+
+def _is_enabled(notification_key):
+    """False for a disabled key: nothing is sent for it (EmailService skips it), so a gap in
+    its recipients is not worth an Error Log row. Recipients are resolved regardless."""
+    config_service = _get_email_config_service()
+    if not notification_key or not config_service:
+        return True
+    return config_service.is_notification_enabled(notification_key)
 
 
 def _payments_settings_recipients():

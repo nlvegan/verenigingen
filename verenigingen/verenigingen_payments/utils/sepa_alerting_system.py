@@ -43,6 +43,12 @@ AlertSeverity = Severity
 SEPA_ALERT_NOTIFICATION_KEY = "sepa_batch_scheduler_alert"
 
 
+def _cooldown_scope(alert_id, escalation_level):
+    """The key's per-recipient cooldown (60 min) is shared with the batch scheduler: scope it so each
+    alert, and each escalation level of it, has its own window and is not swallowed by another send."""
+    return f"{alert_id}:{escalation_level}"
+
+
 class AlertStatus(Enum):
     """Alert status types"""
 
@@ -701,6 +707,10 @@ Please investigate and acknowledge this alert when resolved.
                 reference_doctype="SEPA Alert",
                 reference_name=notification_data["alert_data"]["alert_id"],
                 notification_key=SEPA_ALERT_NOTIFICATION_KEY,
+                cooldown_scope=_cooldown_scope(
+                    notification_data["alert_data"]["alert_id"],
+                    notification_data["alert_data"]["escalation_level"],
+                ),
             )
 
         except Exception as e:
@@ -780,6 +790,7 @@ Please take immediate action to resolve this issue.
                     reference_doctype="SEPA Alert",
                     reference_name=alert.alert_id,
                     notification_key=SEPA_ALERT_NOTIFICATION_KEY,
+                    cooldown_scope=_cooldown_scope(alert.alert_id, alert.escalation_level),
                 )
             except Exception as e:
                 frappe.logger().error(f"Failed to send escalation email: {str(e)}")

@@ -107,6 +107,16 @@ class TestFinancialAdminResolver(EnhancedTestCase):
         self._set_payments_emails("treasurer-2002@example.org")
         self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["treasurer-2002@example.org"])
 
+    def test_a_key_with_no_row_has_no_recipients_of_its_own(self):
+        """An emptied registry (a polluting test, a fresh site) must not turn the key tier into the
+        System Manager fallback, which would also make recipients depend on which key was passed."""
+        config = frappe.get_single(CONFIG_DOCTYPE)
+        config.set("notification_types", [r for r in config.notification_types if r.notification_key != SEPA_KEY])
+        config.save()
+        self._set_payments_emails("treasurer-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["treasurer-2002@example.org"])
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), notif.get_financial_admin_emails())
+
     def test_duplicates_are_sent_once(self):
         _put_key_row(SEPA_KEY, "Role-Based")
         self._set_payments_emails("dup-2002@example.org, dup-2002@example.org")
@@ -127,9 +137,15 @@ class TestFinancialAdminResolver(EnhancedTestCase):
         self.assertNotIn(self.admin_email, recipients)
         self.assertEqual(len(recipients), len(set(recipients)))
 
-    def test_disabled_key_resolves_nothing_and_logs_nothing(self):
+    def test_disabled_key_still_resolves_its_recipients(self):
+        """EmailService skips a disabled key itself; the resolver must not make that decision (#2002 R2)."""
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org", enabled=0)
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["board-2002@example.org"])
+
+    def test_disabled_key_with_nobody_resolved_logs_nothing(self):
         _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org", enabled=0)
         before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
+        # Mock justified: "nobody" cannot be built from real rows on a site that has admin-role holders.
         with patch.object(notif, "resolve_admin_recipients", return_value=[]):
             self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), [])
         self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before)
@@ -282,3 +298,58 @@ class TestAlertingSystemRecipients(EnhancedTestCase):
         ):
             self.system._escalate_alert(self._alert(sas.AlertSeverity.CRITICAL))
         self.assertEqual(service.send_simple_email.call_count, 0)
+
+
+class TestAlertingSystemCooldown(EnhancedTestCase):
+    """The key's real per-recipient cooldown (60 min, shared with the batch scheduler) must not
+    swallow a second alert or an escalation. Real EmailService and cooldown rows; only the final
+    frappe.sendmail and the "is an outgoing account configured" probe are stubbed."""
+
+    def setUp(self):
+        super().setUp()
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        self.recipient = "ops-2002@example.org"
+        _put_key_row(sas.SEPA_ALERT_NOTIFICATION_KEY, "Fixed", fixed_recipients=self.recipient, cooldown_minutes=60)
+        self.system = sas.SEPAAlertingSystem()
+        self.system.notification_config["webhook_enabled"] = False
+        # Mock justified: External Service - the outgoing mail hand-off; cooldown and EmailService run for real.
+        sendmail = patch("frappe.sendmail")
+        account = patch(
+            "verenigingen.services.communication.email_service.EmailService._has_active_email_account",
+            return_value=True,
+        )
+        self.sendmail = sendmail.start()
+        account.start()
+        self.addCleanup(sendmail.stop)
+        self.addCleanup(account.stop)
+
+    def _alert(self, alert_id):
+        return sas.SEPAAlert(
+            alert_id=alert_id,
+            alert_type="t",
+            severity=sas.AlertSeverity.CRITICAL,
+            title="T",
+            message="m",
+            details={},
+            timestamp=datetime.now(),
+        )
+
+    def test_escalation_is_mailed_after_the_initial_alert(self):
+        alert = self._alert("A-2002-esc")
+        self.system._send_notification(alert)
+        self.assertEqual(self.sendmail.call_count, 1)
+        self.system._escalate_alert(alert)
+        self.assertEqual(self.sendmail.call_count, 2)
+
+    def test_a_second_distinct_alert_is_mailed(self):
+        self.system._send_notification(self._alert("A-2002-one"))
+        self.system._send_notification(self._alert("A-2002-two"))
+        self.assertEqual(self.sendmail.call_count, 2)
+
+    def test_the_same_alert_at_the_same_level_is_still_suppressed(self):
+        """Control: the cooldown still works; it is scoped, not removed."""
+        alert = self._alert("A-2002-same")
+        self.system._send_notification(alert)
+        self.system._send_notification(alert)
+        self.assertEqual(self.sendmail.call_count, 1)

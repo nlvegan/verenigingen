@@ -580,7 +580,7 @@ def resolve_admin_recipients(
     enabled holders of ``default_roles``. ``exclude_users`` is applied to the FINAL list only.
 
     ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
-    the key's own recipients, then the admin emails ONLY when actually configured (never the
+    the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
     category's role fallback), then ``extra_emails`` (the caller's explicit list), then enabled
     holders of ``default_roles`` (default Roles.ADMIN_PAIR). ``exclude_users`` is applied to every
     tier, so a tier holding only an excluded user falls through, and the result is deduplicated.
@@ -597,6 +597,15 @@ def resolve_admin_recipients(
             else None
         )
 
+    def own_key_tier():
+        # A key with no row has NO recipients of its own; get_recipients_for_notification would answer
+        # with the fallback role's holders, which is the category fallback again under another name.
+        if not (
+            config_service and notification_key and config_service.get_notification_config(notification_key)
+        ):
+            return None
+        return key_tier()
+
     def configured_admin_tier():
         config = config_service._get_config() if config_service else None
         emails = getattr(config, "admin_notification_emails", None) if config else None
@@ -612,7 +621,7 @@ def resolve_admin_recipients(
         )
 
     if key_first:
-        tiers = (key_tier, configured_admin_tier, extra_tier, legacy_tier)
+        tiers = (own_key_tier, configured_admin_tier, extra_tier, legacy_tier)
     else:
         tiers = (category_tier, key_tier, legacy_tier)
 
