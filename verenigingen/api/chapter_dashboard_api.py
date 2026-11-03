@@ -224,6 +224,11 @@ def quick_approve_join_request(member_name: str, chapter_name: str | None = None
                 pluck="parent",
             )
         )
+        # A Member that is not Active (never approved, suspended, quit, ...) has no join request to approve
+        # (#1964). Always read the status, so an unknown name costs the same queries as a refused one, and
+        # let it refuse through the same branch as "no pending row anywhere".
+        if frappe.db.get_value("Member", member_name, "status") != "Active":
+            pending_chapters = set()
         if len(pending_chapters) != 1:
             frappe.throw(_("You don't have access to this chapter"))
         chapter_name = pending_chapters.pop()
