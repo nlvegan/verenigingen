@@ -940,9 +940,19 @@ class TestApprovalDefaultsBlankAccountHolder(ApprovalCase):
         name = self._stage_short_and_confirm(bank_account_name="")
         self._assert_holder_defaulted(name)
 
-    def test_whitespace_holder_counts_as_blank(self):
-        name = self._stage_and_confirm(iban=IBAN, bank_account_name="   ")
-        self._assert_holder_defaulted(name)
+    def test_whitespace_holder_on_the_existing_member_counts_as_blank(self):
+        """The application's own whitespace is stripped upstream, so only a stored one reaches the helper's
+        strip. PROBE SHORTCUT, stated: the Member's whitespace holder is written straight to the database
+        (the forms cannot produce it); the termination, reapplication and approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        frappe.db.set_value("Member", member.name, "bank_account_name", "   ")
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
+        self.assertEqual(self._approval_errors(member.name), [])
 
     def test_supplied_holder_is_kept(self):
         name = self._stage_and_confirm(iban=IBAN, bank_account_name="J. Holder-Other")
@@ -965,7 +975,6 @@ class TestApprovalDefaultsBlankAccountHolder(ApprovalCase):
         self.assertEqual(member.bank_account_name, member.full_name)
         self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
         self.assertEqual(self._approval_errors(member.name), [])
-
 
     def test_reapplication_keeps_the_members_existing_holder(self):
         """Control: a holder already on the Member is a supplied one; a blank application must not replace it."""
