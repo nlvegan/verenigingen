@@ -628,6 +628,23 @@ def _append_chapter_notes(member, selected_chapter, label="Selected Chapter"):
         )
 
 
+def default_blank_account_holder(member):
+    """Fill a blank account holder name with the applicant's full name when the Member has an IBAN (#1988).
+
+    Maintainer ruling 2026-11-03: MijnRood and short-form applications carry an IBAN but often no holder,
+    and the holder is mandatory on the Member IBAN History row approval writes (and on a SEPA Direct Debit
+    Member). A holder that was supplied, on the application or already on the Member, is never touched.
+    Sets it in memory, so the save that follows persists it. Every application reaches approval through
+    materialise_member, so this is the one place the default is applied.
+    """
+    if not (member.get("iban") and not (member.get("bank_account_name") or "").strip()):
+        return
+    from verenigingen.utils.dutch_name_service import update_member_full_name
+
+    update_member_full_name(member)  # the stored full_name may be stale or not yet computed
+    member.bank_account_name = member.full_name
+
+
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
@@ -675,6 +692,9 @@ def create_member_from_application(data, application_id, address=None):
             "owner": get_system_user_for_operation("member_record_owner_assignment"),
         }
     )
+
+    # A SEPA Direct Debit Member refuses to save without a holder (#1988)
+    default_blank_account_holder(member)
 
     # Store volunteer skills data as a temporary attribute for volunteer record creation
     volunteer_skills = data.get("volunteer_skills", [])

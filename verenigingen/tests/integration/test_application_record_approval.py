@@ -900,6 +900,94 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
 
 
+class TestApprovalDefaultsBlankAccountHolder(ApprovalCase):
+    """#1988: an application with an IBAN and no account holder name. Approval fills the holder with the
+    applicant's full name (maintainer ruling 2026-11-03) and writes the IBAN history row as usual.
+
+    Driven through the real flow (submit_application / submit_short_application -> confirm ->
+    approve_application); no field is set directly to stand in for it."""
+
+    def _approval_errors(self, member_name):
+        """Error Log rows the approval's service layer wrote about this member (MyISAM: not rolled back)."""
+        return frappe.get_all(
+            "Error Log",
+            {"method": "MemberApprovalService Error", "error": ["like", f"%{member_name}%"]},
+            pluck="error",
+        )
+
+    def _assert_holder_defaulted(self, name, **approver):
+        result = self._approve_as(name, **approver)
+        self.assertTrue(result["success"], result)
+        member = frappe.get_doc("Member", frappe.db.get_value(SUBMISSION, name, "member"))
+        self.assertTrue(member.full_name)
+        self.assertEqual(member.bank_account_name, member.full_name)
+        rows = [row for row in member.iban_history if row.iban.replace(" ", "") == IBAN]
+        self.assertEqual(len(rows), 1, "one IBAN history row for the application's IBAN")
+        self.assertEqual((rows[0].bank_account_name, rows[0].is_active), (member.full_name, 1))
+        self.assertEqual(self._approval_errors(member.name), [])
+        return member
+
+    def test_full_form_blank_holder_defaults_to_full_name_as_admin(self):
+        name = self._stage_and_confirm(iban=IBAN)
+        self._assert_holder_defaulted(name)
+
+    def test_full_form_blank_holder_defaults_to_full_name_as_board_member(self):
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        name = self._stage_and_confirm(iban=IBAN)
+        self._assert_holder_defaulted(name, user=board.user)
+
+    def test_short_form_blank_holder_defaults_to_full_name(self):
+        name = self._stage_short_and_confirm(bank_account_name="")
+        self._assert_holder_defaulted(name)
+
+    def test_whitespace_holder_on_the_existing_member_counts_as_blank(self):
+        """The application's own whitespace is stripped upstream, so only a stored one reaches the helper's
+        strip. PROBE SHORTCUT, stated: the Member's whitespace holder is written straight to the database
+        (the forms cannot produce it); the termination, reapplication and approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        frappe.db.set_value("Member", member.name, "bank_account_name", "   ")
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
+        self.assertEqual(self._approval_errors(member.name), [])
+
+    def test_supplied_holder_is_kept(self):
+        name = self._stage_and_confirm(iban=IBAN, bank_account_name="J. Holder-Other")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member = frappe.get_doc("Member", frappe.db.get_value(SUBMISSION, name, "member"))
+        self.assertNotEqual(member.full_name, "J. Holder-Other")  # a real control: the default differs
+        self.assertEqual(member.bank_account_name, "J. Holder-Other")
+        rows = [row for row in member.iban_history if row.iban.replace(" ", "") == IBAN]
+        self.assertEqual([row.bank_account_name for row in rows], ["J. Holder-Other"])
+
+    def test_reapplication_of_quit_member_with_iban_and_no_holder(self):
+        """The fixture #1988's thread names: a Member with an IBAN and no holder who reapplies."""
+        member = self._voluntarily_quit_member_with_iban()
+        self.assertFalse(frappe.db.get_value("Member", member.name, "bank_account_name"))
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
+        self.assertEqual(self._approval_errors(member.name), [])
+
+    def test_reapplication_keeps_the_members_existing_holder(self):
+        """Control: a holder already on the Member is a supplied one; a blank application must not replace it."""
+        member = self._voluntarily_quit_member_with_iban(bank_account_name="Old Holder")
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertNotEqual(member.full_name, "Old Holder")
+        self.assertEqual(member.bank_account_name, "Old Holder")
+        self.assertEqual(self._approval_errors(member.name), [])
+
+
 class TestApplicationChanges(ApprovalCase):
     """#1765 task 6: the change preview a reviewer sees before approving.
 
