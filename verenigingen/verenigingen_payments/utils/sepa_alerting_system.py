@@ -39,6 +39,9 @@ from verenigingen.verenigingen_payments.utils.shared.severity import Severity
 # type identity for isinstance checks and ``AlertSeverity(value)`` round-trips.
 AlertSeverity = Severity
 
+# Registered key for these alerts' enable switch and cooldown (closest existing SEPA alert key).
+SEPA_ALERT_NOTIFICATION_KEY = "sepa_batch_scheduler_alert"
+
 
 class AlertStatus(Enum):
     """Alert status types"""
@@ -536,15 +539,16 @@ Please investigate and acknowledge this alert when resolved.
     def _get_notification_recipients(self, alert: SEPAAlert) -> List[str]:
         """Get notification recipients: the financial admins, whatever the severity.
 
-        No literal addresses (#2002): recipients come from Verenigingen Email Configuration
-        via the same resolver as the SEPA batch notifications; with nobody resolved it logs
-        an Error Log row and returns an empty list.
+        No literal addresses (#2002): recipients come from the same resolver as the SEPA batch
+        notifications, under a registered key (enable switch, cooldown); with nobody resolved
+        it logs an Error Log row (once a day) and returns an empty list. The old escalation
+        tier (manager@/director@) had no configured source, so escalation now re-mails this list.
         """
         from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
             get_financial_admin_emails,
         )
 
-        return get_financial_admin_emails()
+        return get_financial_admin_emails(SEPA_ALERT_NOTIFICATION_KEY)
 
     def check_security_incidents(self) -> List[SEPAAlert]:
         """
@@ -696,6 +700,7 @@ Please investigate and acknowledge this alert when resolved.
                 message=notification_data["message"],
                 reference_doctype="SEPA Alert",
                 reference_name=notification_data["alert_data"]["alert_id"],
+                notification_key=SEPA_ALERT_NOTIFICATION_KEY,
             )
 
         except Exception as e:
@@ -774,6 +779,7 @@ Please take immediate action to resolve this issue.
                     message=escalation_message,
                     reference_doctype="SEPA Alert",
                     reference_name=alert.alert_id,
+                    notification_key=SEPA_ALERT_NOTIFICATION_KEY,
                 )
             except Exception as e:
                 frappe.logger().error(f"Failed to send escalation email: {str(e)}")

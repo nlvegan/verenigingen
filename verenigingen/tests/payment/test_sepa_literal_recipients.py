@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.notification_helpers import notify_administrators, resolve_admin_recipients
 from verenigingen.verenigingen_payments.api import sepa_batch_notifications as notif
 from verenigingen.verenigingen_payments.monitoring.balance_monitor import AlertType, BalanceMonitor
 from verenigingen.verenigingen_payments.utils import sepa_alerting_system as sas
@@ -35,74 +36,147 @@ def _error_rows_titled(title):
     return frappe.db.count("Error Log", {"method": title})
 
 
-def _no_source_resolves():
-    """Blank all three recipient sources of get_financial_admin_emails."""
-    return (
-        patch.object(notif, "_get_email_config_service", return_value=None),
-        patch.object(notif, "get_payments_settings", return_value=frappe._dict(financial_admin_emails="")),
-        patch.object(notif, "_financial_role_recipients", return_value=[], create=True),
+CONFIG_DOCTYPE = "Verenigingen Email Configuration"
+SEPA_KEY = "sepa_batch_error"
+
+
+def _snapshot_rows():
+    """Plain copy of the child rows (singleton_backup does not restore child tables, #2029)."""
+    fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"]
+    return [{f: r.get(f) for f in fields} for r in frappe.get_single(CONFIG_DOCTYPE).notification_types]
+
+
+def _restore_rows(rows):
+    config = frappe.get_single(CONFIG_DOCTYPE)
+    config.set("notification_types", rows)
+    config.save()
+
+
+def _put_key_row(key, policy, **fields):
+    """Replace the key's row in Verenigingen Email Configuration with one in the given state."""
+    config = frappe.get_single(CONFIG_DOCTYPE)
+    config.set("notification_types", [r for r in config.notification_types if r.notification_key != key])
+    config.append(
+        "notification_types",
+        {"notification_key": key, "label": key, "category": "Payment", "recipient_policy": policy, "enabled": 1, **fields},
     )
-
-
-class _NoSources:
-    def __enter__(self):
-        self.patchers = _no_source_resolves()
-        for p in self.patchers:
-            p.start()
-
-    def __exit__(self, *exc):
-        for p in self.patchers:
-            p.stop()
+    config.save()
 
 
 class TestFinancialAdminResolver(EnhancedTestCase):
+    """Real resolver, real rows: only the Payments Settings list and Email Configuration are set up."""
+
     def setUp(self):
         super().setUp()
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        self.addCleanup(frappe.cache().delete_value, f"{notif.NO_RECIPIENTS_CACHE_PREFIX}:{SEPA_KEY}")
+        frappe.cache().delete_value(f"{notif.NO_RECIPIENTS_CACHE_PREFIX}:{SEPA_KEY}")
         self.admin_email = "administrator-2002@example.org"
         frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
+        frappe.db.set_single_value("Verenigingen Email Configuration", "admin_notification_emails", "")
+        self._set_payments_emails("")
 
-    def test_nobody_resolves_returns_nothing_and_logs(self):
+    def _set_payments_emails(self, value):
+        frappe.db.set_single_value("Verenigingen Payments Settings", "financial_admin_emails", value)
+        frappe.clear_cache(doctype="Verenigingen Payments Settings")
+
+    def test_configured_treasurer_is_reached_when_no_admin_emails_are_configured(self):
+        """The reviewer's probe (F1): the Admin category's System Manager fallback must not shadow it."""
+        _put_key_row(SEPA_KEY, "Role-Based")  # a row with no recipients of its own
+        self._set_payments_emails("treasurer-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["treasurer-2002@example.org"])
+
+    def test_the_keys_own_recipients_come_first(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org")
+        self._set_payments_emails("treasurer-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["board-2002@example.org"])
+
+    def test_configured_admin_emails_beat_the_payments_list(self):
+        _put_key_row(SEPA_KEY, "Role-Based")
+        frappe.db.set_single_value(CONFIG_DOCTYPE, "admin_notification_emails", "cfg-admin-2002@example.org")
+        self._set_payments_emails("treasurer-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["cfg-admin-2002@example.org"])
+
+    def test_administrator_is_never_a_recipient(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients=f"{self.admin_email}, board-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["board-2002@example.org"])
+
+    def test_administrator_only_tier_falls_through_to_the_next_tier(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients=self.admin_email)
+        self._set_payments_emails("treasurer-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["treasurer-2002@example.org"])
+
+    def test_duplicates_are_sent_once(self):
+        _put_key_row(SEPA_KEY, "Role-Based")
+        self._set_payments_emails("dup-2002@example.org, dup-2002@example.org")
+        self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), ["dup-2002@example.org"])
+
+    def test_role_fallback_holds_admin_roles_only_enabled_and_not_accounts_manager(self):
+        _put_key_row(SEPA_KEY, "Role-Based")
+        live = "va-live-2002@example.org"
+        gone = "va-disabled-2002@example.org"
+        accounts = "accounts-2002@example.org"
+        self.create_test_user(live, roles=["Verenigingen Administrator"])
+        self.create_test_user(gone, roles=["Verenigingen Administrator"], enabled=0)
+        self.create_test_user(accounts, roles=["Accounts Manager"])
+        recipients = notif.get_financial_admin_emails(SEPA_KEY)
+        self.assertIn(live, recipients)  # control: a real holder is found
+        self.assertNotIn(gone, recipients)
+        self.assertNotIn(accounts, recipients)
+        self.assertNotIn(self.admin_email, recipients)
+        self.assertEqual(len(recipients), len(set(recipients)))
+
+    def test_disabled_key_resolves_nothing_and_logs_nothing(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org", enabled=0)
         before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
-        with _NoSources():
-            recipients = notif.get_financial_admin_emails()
-        self.assertEqual(recipients, [])
+        with patch.object(notif, "resolve_admin_recipients", return_value=[]):
+            self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), [])
+        self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before)
+
+    def test_nobody_resolves_logs_once_a_day_per_key(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org")
+        self.expectErrorLog(NOTIF_ERROR_LOG_TITLE)
+        before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
+        # Mock justified: a test site always has other admin-role holders, so "nobody" cannot
+        # be built from real rows; the once-a-day logging around the resolver is what runs.
+        with patch.object(notif, "resolve_admin_recipients", return_value=[]):
+            with self.assertErrorLog(NOTIF_ERROR_LOG_TITLE):
+                self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), [])
+            self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), [])  # same day: no 2nd row
         self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before + 1)
 
     def test_lookup_error_returns_nothing_and_logs(self):
+        _put_key_row(SEPA_KEY, "Fixed", fixed_recipients="board-2002@example.org")
+        self.expectErrorLog(NOTIF_ERROR_LOG_TITLE)
         before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
-        with patch.object(notif, "_get_email_config_service", return_value=None), patch.object(
-            notif, "get_payments_settings", side_effect=RuntimeError("settings unavailable")
-        ):
-            recipients = notif.get_financial_admin_emails()
-        self.assertEqual(recipients, [])
+        with patch.object(notif, "get_payments_settings", side_effect=RuntimeError("settings unavailable")):
+            with self.assertErrorLog(NOTIF_ERROR_LOG_TITLE):
+                self.assertEqual(notif.get_financial_admin_emails(SEPA_KEY), [])
         self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before + 1)
 
-    def test_administrator_is_never_a_recipient_of_configured_list(self):
-        service = MagicMock()
-        service.get_category_recipients.return_value = [self.admin_email, "treasurer-2002@example.org"]
-        with patch.object(notif, "_get_email_config_service", return_value=service):
-            recipients = notif.get_financial_admin_emails()
-        self.assertEqual(recipients, ["treasurer-2002@example.org"])
 
-    def test_administrator_only_configured_list_falls_through_not_to_a_placeholder(self):
-        service = MagicMock()
-        service.get_category_recipients.return_value = [self.admin_email]
-        with patch.object(notif, "_get_email_config_service", return_value=service), patch.object(
-            notif, "get_payments_settings", return_value=frappe._dict(financial_admin_emails="")
-        ), patch.object(notif, "_financial_role_recipients", return_value=[], create=True):
-            self.assertEqual(notif.get_financial_admin_emails(), [])
+class TestNotifyAdministratorsOrderIsUnchanged(EnhancedTestCase):
+    """Pins today's order for a call passing BOTH a category and a key: the category wins (#2043).
 
-    def test_role_holders_exclude_administrator_but_include_real_staff(self):
-        email = "fin-admin-2002@example.org"
-        self.create_test_user(email, roles=["Accounts Manager"])
-        with patch.object(notif, "_get_email_config_service", return_value=None), patch.object(
-            notif, "get_payments_settings", return_value=frappe._dict(financial_admin_emails="")
-        ):
-            recipients = notif.get_financial_admin_emails()
-        self.assertIn(email, recipients)  # control: a real holder is still found
-        self.assertNotIn(self.admin_email, recipients)
-        for placeholder in PLACEHOLDERS:
-            self.assertFalse(any(placeholder in r for r in recipients))
+    A change to that order is a deliberate red here, not a side effect of #2002.
+    """
+
+    def test_category_recipients_beat_the_keys_own_recipients(self):
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        cat_user, key_user = "cat-user-2002@example.org", "key-user-2002@example.org"
+        self.create_test_user(cat_user, roles=["Verenigingen Administrator"])
+        self.create_test_user(key_user, roles=["Verenigingen Administrator"])
+        frappe.db.set_single_value(CONFIG_DOCTYPE, "admin_notification_emails", cat_user)
+        _put_key_row("termination_overdue", "Fixed", fixed_recipients=key_user)
+        self.assertEqual(
+            resolve_admin_recipients(notification_key="termination_overdue", category="Admin"), [cat_user]
+        )
+        self.assertEqual(resolve_admin_recipients(notification_key="termination_overdue"), [key_user])
+        subject = f"order-pin-2002-{frappe.generate_hash(length=6)}"
+        notify_administrators(subject=subject, message="m", notification_key="termination_overdue", category="Admin")
+        self.assertEqual(frappe.get_all("Notification Log", {"subject": subject}, pluck="for_user"), [cat_user])
 
 
 class TestBatchSendersSkipWithoutRecipients(EnhancedTestCase):

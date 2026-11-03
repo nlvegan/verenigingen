@@ -21,6 +21,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.utils.sepa_alerting_system import (
     AlertSeverity,
+    SEPA_ALERT_NOTIFICATION_KEY,
     SEPAAlertingSystem,
 )
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
@@ -213,4 +214,5 @@ class TestR5EmailDispatchParity(EnhancedTestCase):
             message="body",
             reference_doctype="SEPA Alert",
             reference_name="R5_ALERT_PARITY",
+            notification_key=SEPA_ALERT_NOTIFICATION_KEY,  # #2002: enable switch + cooldown apply
         )
