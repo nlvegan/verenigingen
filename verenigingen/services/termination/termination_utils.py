@@ -9,6 +9,12 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
+# Stable names of the two PROBLEMS the daily termination_overdue alerts report. Each alert lists a
+# changing set of requests, so no one document identifies it; these make a recurrence one Staff Alert
+# Event (one row per problem) instead of a new Open row every day (#1979).
+OVERDUE_ALERT_REFERENCE = "overdue-pending-requests"
+COMPLIANCE_ALERT_REFERENCE = "compliance-audit"
+
 # ===== Your existing functions from paste.txt go here =====
 
 
@@ -347,6 +353,8 @@ def process_overdue_termination_requests():
                 document_type="Membership Termination Request",
                 notification_key="termination_overdue",
                 category="Admin",
+                staff_alert=True,
+                event_reference=OVERDUE_ALERT_REFERENCE,
             )
 
             if result.get("success"):
@@ -693,6 +701,8 @@ def audit_termination_compliance():
                     document_type="Membership Termination Request",
                     notification_key="termination_overdue",
                     category="Admin",
+                    staff_alert=True,
+                    event_reference=COMPLIANCE_ALERT_REFERENCE,
                 )
         else:
             frappe.logger().info("Termination compliance audit completed - no issues found")

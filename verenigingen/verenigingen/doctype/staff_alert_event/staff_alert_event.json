@@ -1,0 +1,214 @@
+{
+ "actions": [],
+ "autoname": "field:dedupe_key",
+ "creation": "2026-11-03 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "System",
+ "engine": "MyISAM",
+ "field_order": [
+  "notification_key",
+  "source",
+  "subject",
+  "raised_at",
+  "column_break_ref",
+  "reference_doctype",
+  "reference_name",
+  "requires_action",
+  "section_outcome",
+  "outcome",
+  "recipient_count",
+  "attempts",
+  "column_break_outcome",
+  "last_attempt_at",
+  "delivered_at",
+  "detail",
+  "section_action",
+  "action_status",
+  "column_break_action",
+  "action_done_by",
+  "action_done_at",
+  "section_internal",
+  "dedupe_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "notification_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Notification Key",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "notify_administrators\nemail_service\ndirect",
+   "read_only": 1
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Subject",
+   "length": 255,
+   "read_only": 1
+  },
+  {
+   "fieldname": "raised_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Raised At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Not a Link: the subject document may be deleted later.",
+   "fieldname": "reference_doctype",
+   "fieldtype": "Data",
+   "label": "Reference DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Data",
+   "label": "Reference Name",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Snapshot taken when the alert was raised.",
+   "fieldname": "requires_action",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Requires Action",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_outcome",
+   "fieldtype": "Section Break",
+   "label": "Delivery"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "outcome",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Outcome",
+   "options": "Pending\nDelivered\nQueued\nSkipped - key not seeded\nSkipped - key not in registry\nSkipped - key disabled\nSkipped - email off\nSkipped - cooldown\nSkipped - all opted out\nSkipped - delegated to a Frappe Notification\nNo recipient\nNo counted recipient\nNo active Email Account\nTemplate failure\nFailed",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Distinct counted users with a Notification Log (or an Email Queue recipient) for this event.",
+   "fieldname": "recipient_count",
+   "fieldtype": "Int",
+   "label": "Recipients Reached",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_outcome",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_attempt_at",
+   "fieldtype": "Datetime",
+   "label": "Last Attempt At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "delivered_at",
+   "fieldtype": "Datetime",
+   "label": "Delivered At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "detail",
+   "fieldtype": "Small Text",
+   "label": "Detail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_action",
+   "fieldtype": "Section Break",
+   "label": "Follow-up"
+  },
+  {
+   "fieldname": "action_status",
+   "fieldtype": "Select",
+   "label": "Action Status",
+   "options": "\nOpen\nDone\nNot needed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_action",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "action_done_by",
+   "fieldtype": "Link",
+   "label": "Action Done By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action_done_at",
+   "fieldtype": "Datetime",
+   "label": "Action Done At",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_internal",
+   "fieldtype": "Section Break",
+   "label": "Internal"
+  },
+  {
+   "description": "The document name. sha1 of key|reference_doctype|reference_name, or a random hash when the alert has no reference: the primary key is what makes a duplicate event impossible.",
+   "fieldname": "dedupe_key",
+   "fieldtype": "Data",
+   "label": "Dedupe Key",
+   "no_copy": 1,
+   "read_only": 1,
+   "reqd": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Staff Alert Event",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator"
+  }
+ ],
+ "sort_field": "raised_at",
+ "sort_order": "DESC",
+ "states": []
+}

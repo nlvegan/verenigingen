@@ -730,6 +730,39 @@ NOTIFICATION_KEYS = {
 }
 
 
+# Staff alerts that ask a person to DO something (#1979 ruling 3): if nobody sees one, money stays
+# wrong, a deadline passes or a failure goes uninvestigated. This is only the DEFAULT; a call site may
+# override it with ``requires_action=``, because the same key can carry an informational send too
+# (``system_alert``). Kept as a set rather than a per-key field so the registry sync and the seeded
+# Email Notification Type rows are untouched. The four action-required keys no sender uses
+# (security_alert, member_application_overdue, payment_history_*) are deliberately absent.
+REQUIRES_ACTION_KEYS = frozenset(
+    {
+        "ponto_executed_on_cancelled_row",
+        "sepa_batch_error",
+        "sepa_batch_scheduler_alert",
+        "payment_failure_final",
+        "payment_alert_overpayment",
+        "payment_alert_failure",
+        "payment_alert_reconciliation",
+        "balance_monitor_alert",
+        "mollie_security_alert",
+        "audit_alert",
+        "auth_monitoring_alert",
+        "business_logic_alert",
+        "termination_overdue",
+        "termination_pending_approval",
+        "expense_approval_request",
+        "system_stuck_schedules",
+        "contribution_sync_failed",
+        "contact_request_escalated",
+        "expulsion_report_submitted",
+        "payment_plan_request",
+        "zabbix_system_alert",
+    }
+)
+
+
 def get_notification_meta(notification_key: str) -> dict:
     """Get metadata for a notification key.
 

@@ -642,6 +642,7 @@ class MijnRoodVolunteerSyncService:
                 category="Chapter",
                 document_type="MijnRood Sync Event",
                 document_name=event.name if event else None,
+                staff_alert=True,
             )
         except Exception as e:
             self.logger.warning("Failed to create notification: %s", e)
