@@ -161,7 +161,25 @@ function approveApplication(applicationName) {
 					frappe.msgprint({
 						title: __('Approved without invoice'),
 						message: frappe.utils.escape_html(r.message.message),
-						indicator: 'orange'
+						indicator: 'orange',
+						primary_action: {
+							label: __('Retry invoice'),
+							action: () => {
+								frappe.hide_msgprint();
+								frappe.call({
+									method: 'verenigingen.api.membership_application_review.retry_application_invoice',
+									args: { application_name: r.message.application },
+									callback(retry) {
+										frappe.msgprint({
+											title: __('Retry invoice'),
+											message: frappe.utils.escape_html((retry.message || {}).message || ''),
+											indicator: (retry.message || {}).invoice_failed ? 'orange' : 'green'
+										});
+										refreshDashboardData();
+									}
+								});
+							}
+						}
 					});
 					refreshDashboardData();
 				} else if (r.message && r.message.success) {

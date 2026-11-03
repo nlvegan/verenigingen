@@ -385,10 +385,12 @@ def _create_user_account_safe(member, should_activate_volunteer):
 
 
 def _send_approval_email_safe(member, invoice, membership_type_doc):
-    """Send approval email with nested error handling. Fire-and-forget."""
+    """Send approval email with nested error handling. Fire-and-forget; returns whether it was sent."""
+    sent = False
     try:
         email_result = send_approval_notification(member, invoice, membership_type_doc)
-        if not email_result or not email_result.success:
+        sent = bool(email_result and email_result.success)
+        if not sent:
             frappe.log_error(
                 f"Approval email failed for {member.name} ({member.email}): {'; '.join(email_result.errors or []) if email_result else 'No result returned'}",
                 "Approval Email Failed",
@@ -413,6 +415,7 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
             indicator="orange",
         )
         # Continue with approval - emails can be sent manually
+    return sent
 
 
 def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
@@ -1113,6 +1116,148 @@ def _send_rejection_email(
     )
 
     return result
+
+
+@frappe.whitelist()
+@high_security_api()  # Same authority as approving the application (#1900)
+def retry_application_invoice(application_name: str):
+    """Retry the invoice of an application that was approved while invoice creation failed (#1900).
+
+    An approval whose invoice could not be created holds the approval mail back (the mail carries the payment
+    link). This is the staff action that finishes it: it creates the invoice through the helper the approval
+    uses, and only then sends the held approval mail, with the link. (Member.application_invoice is not a
+    database field, only an in-memory attribute of the approval run, so "has an invoice" is read from the
+    member's Customer: any non-cancelled Sales Invoice counts, so a dues-schedule invoice blocks a retry too.)
+
+    Permission: exactly approve_application's (an Admin-level seat on the application's chapter, or an
+    administrator), checked first, so an unknown and a foreign application are refused identically (Ruling M).
+    Valid only for an Approved application whose Member has no invoice yet. The Member row is read FOR UPDATE
+    before anything is created, so a double click or two staff at once cannot create two invoices or send two
+    mails: the second waits for the first's commit and then finds application_invoice set. No commit is taken
+    here (the request's own commit releases the lock), and a failed attempt is rolled back to a savepoint so it
+    leaves nothing behind.
+    """
+    from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
+
+    application_name = _sanitize_application_name(application_name, "invoice retry")
+    validate_application_permission_or_throw(application_name, "approve")
+    member_name = _member_awaiting_invoice(application_name)
+    member = frappe.get_doc("Member", member_name)
+    membership = frappe.get_doc("Membership", member.current_membership_plan)
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+
+    savepoint = f"retry_invoice_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+    invoice = MembershipCreationService()._create_membership_invoice(member, membership, membership_type)
+    if not invoice:
+        rollback_to_savepoint(savepoint)
+        message = _(
+            "The membership invoice could NOT be created again, so no invoice and no approval email was "
+            "sent to the applicant. See the Error Log, fix the cause, then retry."
+        )
+        frappe.msgprint(message, indicator="orange")
+        return {
+            "success": True,
+            "invoice": None,
+            "invoice_failed": True,
+            "mail_sent": False,
+            "message": message,
+            "member": member.name,
+            "application": application_name,
+        }
+
+    mail_sent = _send_approval_email_safe(member, invoice, membership_type)
+    frappe.enqueue(
+        "verenigingen.api.membership_application_review.update_payment_history_for_invoice",
+        queue="default",
+        timeout=300,
+        member_name=member.name,
+        invoice_name=invoice.name,
+        enqueue_after_commit=True,
+    )
+    message = (
+        _("Invoice created and the approval email sent to the applicant.")
+        if mail_sent
+        else _("Invoice created, but the approval email could NOT be sent. See the Error Log.")
+    )
+    return {
+        "success": True,
+        "invoice": invoice.name,
+        "invoice_failed": False,
+        "mail_sent": mail_sent,
+        "message": message,
+        "member": member.name,
+        "application": application_name,
+    }
+
+
+def _member_awaiting_invoice(application_name):
+    """The Member of an Approved application that has no invoice, row-locked; refuse anything else clearly."""
+    application = frappe.db.get_value(
+        "Membership Application Submission", application_name, ["status", "member"], as_dict=True
+    )
+    if not application:
+        # Only an administrator reaches here for an unknown name (everyone else is refused by the permission
+        # check, identically to a foreign one), so this tells them nothing new.
+        frappe.throw(_("Application not found"), frappe.DoesNotExistError)
+    if application.status != "Approved":
+        frappe.throw(_("This application has not been approved, so there is no invoice to retry"))
+    row = application.member and frappe.db.get_value(
+        "Member",
+        application.member,
+        ["name", "customer", "current_membership_plan"],
+        as_dict=True,
+        for_update=True,
+    )
+    if not row:
+        frappe.throw(_("The member of this application no longer exists"))
+    if row.customer and frappe.db.exists("Sales Invoice", {"customer": row.customer, "docstatus": ["<", 2]}):
+        frappe.throw(_("This member already has an invoice"))
+    if not row.current_membership_plan:
+        frappe.throw(_("This member has no membership to invoice"))
+    return row.name
+
+
+@frappe.whitelist()
+@standard_api()  # Read-only list for the review page's retry section (#1900)
+def get_approved_applications_without_invoice():
+    """Approved applications whose Member has no invoice, for the applications the caller may approve
+    (the same chapter scope as approving). Newest first, capped at 100."""
+    from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+    chapters = get_user_manageable_chapters(frappe.session.user)
+    if not chapters:
+        return []
+    filters = {"status": "Approved", "member": ["is", "set"]}
+    if chapters != "all":
+        filters["chapter"] = ["in", chapters]
+    rows = frappe.get_all(
+        "Membership Application Submission",
+        filters=filters,
+        fields=["name", "applicant_name", "email", "chapter", "member", "review_date"],
+        order_by="review_date desc",
+        limit_page_length=300,
+    )
+    customers = dict(
+        frappe.get_all(
+            "Member", {"name": ["in", [r.member for r in rows]]}, ["name", "customer"], as_list=True
+        )
+        if rows
+        else []
+    )
+    invoiced = set(
+        frappe.get_all(
+            "Sales Invoice",
+            {"customer": ["in", [c for c in customers.values() if c]], "docstatus": ["<", 2]},
+            pluck="customer",
+        )
+        if any(customers.values())
+        else []
+    )
+    rows = [r for r in rows if customers.get(r.member) not in invoiced or not customers.get(r.member)]
+    return rows[:100]
 
 
 @frappe.whitelist()
