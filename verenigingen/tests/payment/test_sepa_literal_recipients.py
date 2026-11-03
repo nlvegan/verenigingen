@@ -31,7 +31,7 @@ BM_EMAIL_SERVICE = "verenigingen.verenigingen_payments.monitoring.balance_monito
 NOTIF_ERROR_LOG_TITLE = "SEPA notification recipients"
 
 
-def _error_log_count(title):
+def _error_rows_titled(title):
     return frappe.db.count("Error Log", {"method": title})
 
 
@@ -62,20 +62,20 @@ class TestFinancialAdminResolver(EnhancedTestCase):
         frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
 
     def test_nobody_resolves_returns_nothing_and_logs(self):
-        before = _error_log_count(NOTIF_ERROR_LOG_TITLE)
+        before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
         with _NoSources():
             recipients = notif.get_financial_admin_emails()
         self.assertEqual(recipients, [])
-        self.assertEqual(_error_log_count(NOTIF_ERROR_LOG_TITLE), before + 1)
+        self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before + 1)
 
     def test_lookup_error_returns_nothing_and_logs(self):
-        before = _error_log_count(NOTIF_ERROR_LOG_TITLE)
+        before = _error_rows_titled(NOTIF_ERROR_LOG_TITLE)
         with patch.object(notif, "_get_email_config_service", return_value=None), patch.object(
             notif, "get_payments_settings", side_effect=RuntimeError("settings unavailable")
         ):
             recipients = notif.get_financial_admin_emails()
         self.assertEqual(recipients, [])
-        self.assertEqual(_error_log_count(NOTIF_ERROR_LOG_TITLE), before + 1)
+        self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before + 1)
 
     def test_administrator_is_never_a_recipient_of_configured_list(self):
         service = MagicMock()
