@@ -18,10 +18,29 @@ import frappe
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 
+NOTIFICATION_KEY = "member_application_approved"
 APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approval Notification Failed"]
 
 
 class TestApprovalWithoutInvoice(ApprovalCase):
+    def setUp(self):
+        super().setUp()
+        self._require_approval_notification_enabled()
+
+    def _require_approval_notification_enabled(self):
+        """Precondition, stated rather than seeded: with no `notification_types` row the key counts as
+        DISABLED and every mail assertion below fails opaquely. CI seeds the row on install (#1998)."""
+        from verenigingen.services.communication.email_configuration_service import (
+            get_email_configuration_service,
+        )
+
+        if not get_email_configuration_service().is_notification_enabled(NOTIFICATION_KEY):
+            self.fail(
+                f"Verenigingen Email Configuration has no enabled '{NOTIFICATION_KEY}' row, so the approval "
+                "mail is skipped. Seed the missing notification_types rows (migrate/install does, #1998); "
+                "this test deliberately does not modify the singleton."
+            )
+
     def _approve_capturing_mail(self, application, user=None, **kwargs):
         """(response, mails the applicant was sent, outcome of each send, approval Error Log rows written)."""
         kwargs.setdefault("membership_type", self.membership_type.name)
