@@ -157,7 +157,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
     test_failed_invoice_sends_no_approval_mail_and_is_not_a_clean_approval = None
     test_invoiced_approval_keeps_the_payment_link_and_the_invoice_message = None
 
-    def _break_invoicing(self):
+    def _make_invoicing_fail(self):
         self._company = frappe.db.get_single_value("Verenigingen Settings", "company")
         frappe.db.set_single_value("Verenigingen Settings", "company", "No Such Company 1900")
         self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "company", self._company)
@@ -174,7 +174,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
     def _approved_with_failed_invoice(self, **stage):
         """(application, member) after an approval whose invoice could not be created."""
         application = self._stage_and_confirm(**stage)
-        self._break_invoicing()
+        self._make_invoicing_fail()
         response, mails, _outcomes, _errors = self._approve_capturing_mail(application, create_invoice=True)
         self.assertTrue(response["invoice_failed"], response)
         self.assertEqual(mails, [], "control: the failed approval sent no mail")
