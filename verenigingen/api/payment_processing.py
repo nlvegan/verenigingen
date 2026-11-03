@@ -93,6 +93,60 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
+class ReminderOutcome:
+    """What happened to one reminder: ``sent``, ``skipped`` or ``failed`` (#2015).
+
+    EmailService reports a skip (cooldown, disabled key, opt-out) as a *successful*
+    OperationResult carrying ``data["skipped"]``, so success alone cannot tell a send
+    from a skip. Truthiness stays "was it really sent", so callers written against the
+    old bool keep their meaning.
+    """
+
+    SENT = "sent"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+    def __init__(self, status, reason=None):
+        self.status = status
+        self.reason = reason
+
+    def __bool__(self):
+        return self.status == self.SENT
+
+    def __repr__(self):
+        return f"ReminderOutcome({self.status!r}, {self.reason!r})"
+
+    @classmethod
+    def from_result(cls, result):
+        if not result.success:
+            return cls(cls.FAILED, "; ".join(result.errors or []) or result.error_message)
+        if isinstance(result.data, dict) and result.data.get("skipped"):
+            return cls(cls.SKIPPED, result.data.get("reason") or "skipped")
+        return cls(cls.SENT)
+
+
+class _OutcomeTally:
+    """Counts outcomes of a bulk loop; only a real send counts as sent."""
+
+    def __init__(self):
+        self.sent = 0
+        self.skipped = 0
+        self.failed = 0
+        self.skipped_reasons = {}
+
+    def add(self, outcome):
+        if outcome.status == ReminderOutcome.SENT:
+            self.sent += 1
+        elif outcome.status == ReminderOutcome.SKIPPED:
+            self.skipped += 1
+            self.skipped_reasons[outcome.reason] = self.skipped_reasons.get(outcome.reason, 0) + 1
+        else:
+            self.failed += 1
+
+    def summary(self):
+        return {"sent": self.sent, "skipped": self.skipped, "failed": self.failed}
+
+
 def _flatten_api_response(result: Any) -> Any:
     """Flatten the nested OperationResult envelope into the flat shape callers read.
 
@@ -291,7 +345,8 @@ def send_overdue_payment_reminders(
         if not overdue_data:
             return OperationResult.ok(data={"count": 0}, message=_("No overdue payments found"))
 
-        sent_count = 0
+        tally = _OutcomeTally()
+        chapter_tally = _OutcomeTally()
         batch_size = ConfigManager.get("email_batch_size", 50)
 
         # Process in batches to avoid overwhelming the email system
@@ -301,23 +356,25 @@ def send_overdue_payment_reminders(
             for payment_info in batch:
                 try:
                     # Send reminder to member
-                    send_payment_reminder_email(
-                        member_name=payment_info.get("member_name"),
-                        reminder_type=reminder_type,
-                        include_payment_link=include_payment_link,
-                        custom_message=custom_message,
-                        payment_info=payment_info,
+                    tally.add(
+                        send_payment_reminder_email(
+                            member_name=payment_info.get("member_name"),
+                            reminder_type=reminder_type,
+                            include_payment_link=include_payment_link,
+                            custom_message=custom_message,
+                            payment_info=payment_info,
+                        )
                     )
 
                     # Optionally send to chapter board
                     if send_to_chapters and payment_info.get("chapter"):
-                        send_chapter_notification(
-                            chapter=payment_info.get("chapter"),
-                            member_name=payment_info.get("member_name"),
-                            payment_info=payment_info,
+                        chapter_tally.add(
+                            send_chapter_notification(
+                                chapter=payment_info.get("chapter"),
+                                member_name=payment_info.get("member_name"),
+                                payment_info=payment_info,
+                            )
                         )
-
-                    sent_count += 1
 
                 # #505: without this, a 1205/1213 sending one member's reminder is
                 # logged and the loop keeps sending further reminders on a
@@ -326,6 +383,7 @@ def send_overdue_payment_reminders(
                 except NON_RESUMABLE_DB_ERRORS:
                     raise
                 except Exception as e:
+                    tally.failed += 1
                     # log_error's second parameter is `context: dict`, not a title
                     # string: it does `(context or {}).get("trace_id")`, so a string
                     # here raises AttributeError *inside this handler* and the
@@ -342,9 +400,10 @@ def send_overdue_payment_reminders(
                     )
                     continue
 
-        return OperationResult.ok(
-            data={"count": sent_count}, message=_("Payment reminders sent successfully")
-        )
+        data = {"count": tally.sent, **tally.summary(), "skipped_reasons": tally.skipped_reasons}
+        if send_to_chapters:
+            data["chapter_notifications"] = chapter_tally.summary()
+        return OperationResult.ok(data=data, message=_reminder_run_message(tally))
 
     # #505: the guard above stops the loop; this frame's job is to let the class
     # keep going past this catch-all too, rather than being converted into an
@@ -512,15 +571,20 @@ def execute_bulk_payment_action(
             return OperationResult.ok(data={"count": 0}, message=_("No records found"))
 
         processed_count = 0
+        tally = _OutcomeTally()
 
         for payment_info in data:
             try:
                 if action == "Send Payment Reminders":
-                    send_payment_reminder_email(
+                    outcome = send_payment_reminder_email(
                         member_name=payment_info.get("member_name"),
                         reminder_type="Bulk Reminder",
                         payment_info=payment_info,
                     )
+                    tally.add(outcome)
+                    if not outcome:
+                        # skipped or failed: not processed (#2015)
+                        continue
 
                 elif action == "Suspend Memberships":
                     suspend_member_for_nonpayment(payment_info.get("member_name"))
@@ -543,6 +607,8 @@ def execute_bulk_payment_action(
             except NON_RESUMABLE_DB_ERRORS:
                 raise
             except Exception as e:
+                if action == "Send Payment Reminders":
+                    tally.failed += 1
                 # See the note in send_overdue_payment_reminders: a string second
                 # argument makes this handler raise, so the `continue` never runs
                 # and a bulk action stops partway with its progress unreported.
@@ -557,6 +623,11 @@ def execute_bulk_payment_action(
                 )
                 continue
 
+        if action == "Send Payment Reminders":
+            return OperationResult.ok(
+                data={"count": processed_count, **tally.summary(), "skipped_reasons": tally.skipped_reasons},
+                message=_reminder_run_message(tally),
+            )
         return OperationResult.ok(data={"count": processed_count}, message=_("Bulk action completed"))
 
     except NON_RESUMABLE_DB_ERRORS:
@@ -578,13 +649,17 @@ def send_payment_reminder_email(
     custom_message=None,
     payment_info=None,
 ):
-    """Send individual payment reminder email"""
+    """Send individual payment reminder email.
+
+    Returns a ReminderOutcome: sent, skipped (cooldown / disabled key / opt-out) or
+    failed. It is falsy unless the reminder was really sent.
+    """
 
     member = frappe.get_doc("Member", member_name)
 
     if not member.email:
         frappe.logger().warning(f"No email address for member {member_name}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, _("Member has no email address"))
 
     # Determine email template based on reminder type
     template_map = {
@@ -633,8 +708,9 @@ def send_payment_reminder_email(
 
         # If the template is missing, send with fallback HTML content. Detect this
         # via the structured error_code (NOT a substring of the message) so an
-        # unrelated failure can't wrongly trigger the fallback — the fallback path
-        # passes no notification_key and so bypasses cooldown/opt-out enforcement.
+        # unrelated failure can't wrongly trigger the fallback. The fallback must
+        # carry the notification_key too, or it bypasses the enable switch, cooldown
+        # and opt-out (#2008).
         if not result.success and result.error_code == "TEMPLATE_NOT_FOUND":
             fallback_content = generate_payment_reminder_html(
                 member, payment_info, reminder_type, custom_message
@@ -646,20 +722,24 @@ def send_payment_reminder_email(
                 content=fallback_content,
                 reference_doctype="Member",
                 reference_name=member_name,
+                notification_key=notification_key,
             )
 
-        # Check if email was sent successfully
-        if result.success:
-            # Log the reminder
+        outcome = ReminderOutcome.from_result(result)
+        # Only a real send is logged as sent (#2015).
+        if outcome.status == ReminderOutcome.SENT:
             create_payment_reminder_log(member_name, reminder_type, payment_info)
-            return True
-        else:
-            frappe.logger().error(f"Payment reminder email failed: {'; '.join(result.errors)}")
-            return False
+        elif outcome.status == ReminderOutcome.FAILED:
+            frappe.logger().error(f"Payment reminder email failed: {outcome.reason}")
+        return outcome
 
     except Exception as e:
         frappe.logger().error(f"Failed to send payment reminder to {member.email}: {str(e)}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, str(e))
+
+
+def _reminder_run_message(tally):
+    return _("{0} sent, {1} skipped, {2} failed").format(tally.sent, tally.skipped, tally.failed)
 
 
 def send_chapter_notification(chapter, member_name, payment_info):
@@ -670,7 +750,7 @@ def send_chapter_notification(chapter, member_name, payment_info):
         board_emails = chapter_doc.get_board_member_emails()
 
         if not board_emails:
-            return False
+            return ReminderOutcome(ReminderOutcome.SKIPPED, _("Chapter has no board member emails"))
 
         member = frappe.get_doc("Member", member_name)
 
@@ -700,12 +780,12 @@ def send_chapter_notification(chapter, member_name, payment_info):
             reference_name=member_name,
         )
 
-        # Return success status based on EmailService result
-        return result.success
+        # A skip (key disabled, cooldown, opt-out) is not a send (#2015)
+        return ReminderOutcome.from_result(result)
 
     except Exception as e:
         frappe.logger().error(f"Failed to send chapter notification: {str(e)}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, str(e))
 
 
 def generate_payment_link(member_name):

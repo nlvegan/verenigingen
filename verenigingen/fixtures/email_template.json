@@ -490,5 +490,53 @@
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Member left {{ chapter_name|e }}</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or company or \"Our Organization\")|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear Board Member,</p>\n        <p><strong>{{ member_name|e }}</strong> has left <strong>{{ chapter_name|e }}</strong>.</p>\n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\"><tbody>\n                <tr><td><strong>Member:</strong></td><td>{{ member_name|e }}</td></tr>\n                <tr><td><strong>Member ID:</strong></td><td><a href=\"{{ member_link|e }}\">{{ member_id|e }}</a></td></tr>\n                <tr><td><strong>Effective date:</strong></td><td>{{ effective_date|e }}</td></tr>\n                {% if leave_reason %}<tr><td><strong>Reason:</strong></td><td>{{ leave_reason|e }}</td></tr>{% endif %}\n            </tbody></table>\n        </div>\n        <hr><div class=\"email-footer\">Automated notification from the chapter management system.<br>{{ chapter_name|e }} \u00b7 {{ current_year }}</div>\n    </div>\n</div>",
     "subject": "Member left {{ chapter_name|e }}: {{ member_name|e }}",
     "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
+    "modified": "2026-11-03 12:00:00",
+    "name": "payment_reminder_final",
+    "reference_doctype": "Member",
+    "response": null,
+    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-danger\">\n        <h2 class=\"email-title\">Final Payment Notice</h2>\n        <p class=\"email-subtitle\">{{ (company or 'Our Organization')|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n        <p><strong>FINAL NOTICE:</strong> your membership payment is still outstanding. Please pay immediately to avoid suspension of your membership.</p>\n        <div class=\"email-content-box\">\n            <p><strong>Amount Due:</strong> {{ payment_info.total_overdue|e }}</p>\n            <p><strong>Days Overdue:</strong> {{ payment_info.days_overdue|e }} days</p>\n            <p><strong>Number of Invoices:</strong> {{ payment_info.overdue_count|e }}</p>\n        </div>\n        {% if custom_message %}\n        <div class=\"email-content-box\">\n            <p style=\"margin: 0;\">{{ custom_message|e }}</p>\n        </div>\n        {% endif %}\n        {% if payment_link %}\n        <div style=\"text-align: center; margin: 25px 0;\">\n            <a href=\"{{ payment_link }}\" class=\"email-btn-primary\">Pay Now - Final Notice</a>\n        </div>\n        {% endif %}\n        <p>If you are experiencing financial difficulties, please contact us immediately to discuss payment arrangements.</p>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Financial Department\n        </div>\n    </div>\n</div>",
+    "subject": "FINAL NOTICE: Payment Required - {{ member.full_name or member.first_name|e }}",
+    "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
+    "modified": "2026-11-03 12:00:00",
+    "name": "payment_reminder_bulk",
+    "reference_doctype": "Member",
+    "response": null,
+    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-info\">\n        <h2 class=\"email-title\">Payment Reminder</h2>\n        <p class=\"email-subtitle\">{{ (company or 'Our Organization')|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n        <p>You have outstanding membership payments with us. This is a reminder to settle them.</p>\n        <div class=\"email-content-box\">\n            <p><strong>Amount Due:</strong> {{ payment_info.total_overdue|e }}</p>\n            <p><strong>Days Overdue:</strong> {{ payment_info.days_overdue|e }} days</p>\n            <p><strong>Number of Invoices:</strong> {{ payment_info.overdue_count|e }}</p>\n        </div>\n        {% if custom_message %}\n        <div class=\"email-content-box\">\n            <p style=\"margin: 0;\">{{ custom_message|e }}</p>\n        </div>\n        {% endif %}\n        {% if payment_link %}\n        <div style=\"text-align: center; margin: 25px 0;\">\n            <a href=\"{{ payment_link }}\" class=\"email-btn-primary\">Make Payment Now</a>\n        </div>\n        {% endif %}\n        <p>If you have already paid, please disregard this message.</p>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Financial Department\n        </div>\n    </div>\n</div>",
+    "subject": "Payment Reminder - Outstanding Invoices - {{ member.full_name or member.first_name|e }}",
+    "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
+    "modified": "2026-11-03 12:00:00",
+    "name": "payment_failure_generic",
+    "reference_doctype": "Member",
+    "response": null,
+    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Payment Failed</h2>\n        <p class=\"email-subtitle\">{{ (company or 'Our Organization')|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n        <p>We could not process your membership payment (attempt {{ failure_count|e }}).</p>\n        <div class=\"email-content-box\">\n            <p><strong>Amount:</strong> {{ amount|e }}</p>\n            <p><strong>Status:</strong> {{ payment_status|e }}</p>\n            {% if next_payment_date %}<p><strong>Next payment date:</strong> {{ next_payment_date|e }}</p>{% endif %}\n        </div>\n        <div style=\"text-align: center; margin: 25px 0;\">\n            <a href=\"{{ base_url }}/members/bank-details\" class=\"email-btn-primary\">Update Payment Details</a>\n        </div>\n        <p>Please check your payment details or contact us if you need help.</p>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Financial Department\n        </div>\n    </div>\n</div>",
+    "subject": "Payment Failed - {{ member.first_name or 'Member'|e }}",
+    "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
+    "modified": "2026-11-03 12:00:00",
+    "name": "Payment Failure Notification",
+    "reference_doctype": "Member",
+    "response": null,
+    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Overdue Member Payment</h2>\n        <p class=\"email-subtitle\">{{ chapter.name|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>This is a notice for the board of {{ chapter.name|e }}.</p>\n        <p>Member <strong>{{ member.full_name|e }}</strong> has overdue membership payments.</p>\n        <div class=\"email-content-box\">\n            <p><strong>Total overdue:</strong> {{ total_overdue|e }}</p>\n            <p><strong>Days overdue:</strong> {{ days_overdue|e }}</p>\n            <p><strong>Overdue invoices:</strong> {{ overdue_count|e }}</p>\n        </div>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Chapter notification\n        </div>\n    </div>\n</div>",
+    "subject": "Overdue payment: {{ member.full_name|e }}",
+    "use_html": 1
   }
 ]
