@@ -9,7 +9,13 @@ Writer table (who leaves a Pending Chapter Member row, and which Member status i
   looks at the status). This is the reachable source for a Suspended (or Quit, ...) member.
 - Chapter Join Request: refuses a member that is not Active at validate, so it never writes this row.
 
-Probe shortcuts, stated: `Quit`/`Banned`/`Deceased`/`Rejected`/`Expired` are set with db_set (no real flow is
+The natural real flow the guard covers: an Active member requests to join, then is suspended (or leaves,
+is banned, ...) BEFORE a board member gets to the request. The test for it drives suspension with the default
+suspend_user=True.
+
+Probe shortcuts, stated: `join_chapter` is called as the test runner (Administrator), not as the member, which
+skips its member-identity check; the first Suspended test passes `suspend_user=False, suspend_teams=False`
+(the member has no User); `Quit`/`Banned`/`Deceased`/`Rejected`/`Expired` are set with db_set (no real flow is
 driven for each); `Suspended` is reached through the real suspension API; `Pending` through the real writer
 (create_pending_chapter_membership) on a Member created Pending. The caller is a real board seat built by
 create_test_board_member (a Chapter Head), not Administrator.
@@ -21,6 +27,7 @@ import frappe
 
 from verenigingen.api import chapter_dashboard_api
 from verenigingen.api.suspension_api import suspend_member
+from verenigingen.templates.pages.chapter_dashboard import get_pending_actions
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.application_helpers import create_pending_chapter_membership
 from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter
@@ -111,6 +118,51 @@ class TestQuickApproveJoinRequestMemberStatus(EnhancedTestCase):
                 outcome = self._approve_1964(member.name, chapter_name=self.chapter.name)
                 self.assertFalse(self._succeeded_1964(outcome), outcome)
                 self.assertEqual(self._row_1964(member.name).status, "Pending")
+
+    def test_request_made_while_active_then_suspended_is_refused(self):
+        """The natural flow: request as Active, suspend (default suspend_user=True), then approve."""
+        member = self._join_request_1964(status="Active")
+        with self.as_user("Administrator"):
+            self.expectErrorLog()
+            suspended = suspend_member(member.name, "test #1964")
+        self.assertTrue(suspended.get("success"), suspended)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Suspended")
+
+        outcome = self._approve_1964(member.name, chapter_name=self.chapter.name)
+
+        self.assertFalse(self._succeeded_1964(outcome), outcome)
+        self.assertEqual(self._row_1964(member.name).status, "Pending")
+
+    # --- the dashboard lists exactly the requests the approval accepts ---------------------------------
+
+    def _listed_1964(self):
+        with self.as_user(self.head.user):
+            actions = get_pending_actions(self.chapter.name)
+        return {r["member"] for r in actions["join_requests"]}, actions
+
+    def test_listing_shows_what_the_endpoint_accepts_and_hides_what_it_refuses(self):
+        default = self._join_request_1964(status="Active")  # application_status left at its default
+        frappe.db.set_value("Member", default.name, "application_status", "Pending")
+        suspended = self._join_request_1964(status="Active")
+        with self.as_user("Administrator"):
+            self.expectErrorLog()
+            self.assertTrue(suspend_member(suspended.name, "test #1964").get("success"))
+        quit_member = self._join_request_1964(status="Active")
+        quit_member.db_set("status", "Quit")  # shortcut, stated in the module docstring
+        applicant = self.create_test_member(first_name="Applicant1964", status="Pending")
+        applicant.db_set("application_status", "Pending")
+        create_pending_chapter_membership(applicant, self.chapter.name)
+
+        listed, actions = self._listed_1964()
+
+        self.assertIn(default.name, listed, "an Active member with the default application_status is a request")
+        self.assertFalse(listed & {suspended.name, quit_member.name, applicant.name}, listed)
+        self.assertEqual(actions["total_pending"], len(actions["join_requests"]) + len(actions["membership_applications"])
+                         + len(actions["expense_approvals"]) + len(actions["board_tasks"]))
+        for name in listed & {default.name}:
+            self.assertTrue(self._succeeded_1964(self._approve_1964(name, chapter_name=self.chapter.name)), name)
+        for name in (suspended.name, quit_member.name, applicant.name):
+            self.assertFalse(self._succeeded_1964(self._approve_1964(name, chapter_name=self.chapter.name)), name)
 
     # --- the refusal does not tell the caller the member's status -------------------------------------
 

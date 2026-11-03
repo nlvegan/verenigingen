@@ -582,11 +582,14 @@ def _pending_application_rows(chapter_name: str):
 
 
 def get_pending_join_requests(chapter_name: str) -> List[Dict[str, Any]]:
-    """Chapter JOIN requests: Pending Chapter Member rows of members whose own application is not open.
+    """Chapter JOIN requests: Pending Chapter Member rows of ACTIVE members, exactly the rows
+    quick_approve_join_request accepts (#1964).
 
     A join request comes from an existing member (Chapter.join_chapter / request_to_join). A Pending Member's
     own Pending row belongs to an application, which is approved from the application, so it is not listed:
-    approving it here would flip only the chapter row (#1765, #1867).
+    approving it here would flip only the chapter row (#1765, #1867). Nor is a Suspended/Quit/Banned
+    member's row: the approval refuses it, so an Approve button would only fail. The key is Member.status,
+    not application_status: a plainly created Active Member carries the default application_status "Pending".
     """
     from frappe.utils import date_diff, getdate
 
@@ -603,7 +606,7 @@ def get_pending_join_requests(chapter_name: str) -> List[Dict[str, Any]]:
             "Member",
             filters={
                 "name": ["in", [r.member for r in rows if r.member]],
-                "application_status": ["!=", "Pending"],
+                "status": "Active",
             },
             fields=["name", "full_name"],
             limit_page_length=0,
