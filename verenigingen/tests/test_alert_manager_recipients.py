@@ -35,6 +35,21 @@ TECH_TYPE = "HIGH_ERROR_RATE"
 BIZ_TYPE = "SEPA_COMPLIANCE"
 
 
+def _snapshot_rows():
+    """Plain copy of the Email Notification Type child rows (#2029)."""
+    fields = [
+        f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"
+    ]
+    config = frappe.get_single("Verenigingen Email Configuration")
+    return [{f: r.get(f) for f in fields} for r in config.notification_types]
+
+
+def _restore_rows(rows):
+    config = frappe.get_single("Verenigingen Email Configuration")
+    config.set("notification_types", rows)
+    config.save()
+
+
 class TestAlertManagerRecipients(EnhancedTestCase):
     def setUp(self):
         super().setUp()
@@ -54,6 +69,9 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         for title in (NO_RECIPIENTS_LOG_TITLE, UNSENT_LOG_TITLE):
             for scope in (SYSADMIN, VADMIN, TECHNICAL_GROUP, BUSINESS_GROUP):
                 frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{title}:{scope}")
+        # singleton_backup does not restore child tables (#2029): own the rows.
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
         self._set_alert_rows(TECH_KEY, 1)
         self._set_alert_rows(BIZ_KEY, 1)
         # Only the fixture users hold the profiles; the site may carry others.
@@ -224,6 +242,82 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         manager.send_alert(BIZ_TYPE, "LOW", f"low business again {self.uid}")
         self.assertFalse(any("low business again" in m["subject"] for m in self.captured_emails))
         self.assertEqual(self._sent_to().count(both), 2)
+
+    # --- HIGH and CRITICAL bypass the cooldown, LOW and MEDIUM do not (#2003 ruling) ---------
+
+    def _cooldown_fixture(self):
+        """One technical recipient, a 60-minute cooldown, and an empty cooldown cache."""
+        tech = self._make_alert_user("tech", [SYSADMIN])
+        self._set_alert_rows(TECH_KEY, 1, cooldown_minutes=60)
+        # delete_keys: get_keys + delete_value is a no-op on this cache wrapper.
+        frappe.cache().delete_keys("email_cooldown:*")
+        self.addCleanup(frappe.cache().delete_keys, "email_cooldown:*")
+        return tech
+
+    def _mailed(self, needle):
+        return [m["subject"] for m in self.captured_emails if needle in m["subject"]]
+
+    def test_critical_after_low_in_the_window_is_still_mailed(self):
+        self._cooldown_fixture()
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "LOW", f"low {self.uid}")
+        manager.send_alert(TECH_TYPE, "CRITICAL", f"critical {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"low {self.uid}")), 1)
+        self.assertEqual(len(self._mailed(f"critical {self.uid}")), 1)
+
+    def test_high_behaves_like_critical(self):
+        self._cooldown_fixture()
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "LOW", f"low {self.uid}")
+        manager.send_alert(TECH_TYPE, "HIGH", f"high {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"high {self.uid}")), 1)
+
+    def test_critical_after_critical_is_mailed_both_times(self):
+        self._cooldown_fixture()
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "CRITICAL", f"crit one {self.uid}")
+        manager.send_alert(TECH_TYPE, "CRITICAL", f"crit two {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"crit one {self.uid}")), 1)
+        self.assertEqual(len(self._mailed(f"crit two {self.uid}")), 1)
+
+    def test_low_and_medium_stay_rate_limited(self):
+        self._cooldown_fixture()
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "LOW", f"low one {self.uid}")
+        manager.send_alert(TECH_TYPE, "LOW", f"low two {self.uid}")
+        manager.send_alert(TECH_TYPE, "MEDIUM", f"medium {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"low one {self.uid}")), 1)
+        self.assertEqual(self._mailed(f"low two {self.uid}"), [])
+        self.assertEqual(self._mailed(f"medium {self.uid}"), [])
+
+    def test_a_bypassing_send_still_starts_the_window_for_low_alerts(self):
+        # Choice: a bypassed HIGH/CRITICAL mail is still a mail to the recipient, so it records the
+        # cooldown and a LOW alert right after it is rate-limited like any other.
+        self._cooldown_fixture()
+        manager = AlertManager()
+
+        manager.send_alert(TECH_TYPE, "CRITICAL", f"critical {self.uid}")
+        manager.send_alert(TECH_TYPE, "LOW", f"low after {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"critical {self.uid}")), 1)
+        self.assertEqual(self._mailed(f"low after {self.uid}"), [])
+
+    def test_critical_does_not_bypass_a_disabled_key(self):
+        self._cooldown_fixture()
+        self._set_alert_rows(TECH_KEY, 0, cooldown_minutes=60)
+        self.expectErrorLog(UNSENT_LOG_TITLE)
+
+        AlertManager().send_alert(TECH_TYPE, "CRITICAL", f"critical off {self.uid}")
+
+        self.assertEqual(self._mailed(f"critical off {self.uid}"), [])
 
     # --- nobody / not queued: visible, once a day, per group ------------------------------
 
