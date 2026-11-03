@@ -206,7 +206,7 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
         # this document (#1996). Sales Invoice has no payment_id field to compare, so
         # without it the page refuses the checkout's own redirect.
         result["returnToken"] = generate_guest_return_token(
-            "payment_success", f"{reference_doctype}:{reference_docname}"
+            "payment_success", f"{reference_doctype}:{doc.name}"
         )
 
         # Update payment status in database if status field exists

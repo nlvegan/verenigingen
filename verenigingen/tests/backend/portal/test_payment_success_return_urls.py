@@ -27,16 +27,6 @@ from verenigingen.utils.security.guest_return_tokens import verify_guest_return_
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import get_mollie_settings
 from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
-JS_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..",
-    "..",
-    "..",
-    "verenigingen_payments",
-    "templates",
-    "includes",
-    "mollie_checkout.js",
-)
 _GATEWAY_FACTORY_PATH = (
     "verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway"
 )
@@ -76,13 +66,18 @@ class TestMollieReturnUrl(ReturnUrlCase):
         gateway.settings = self._settings_with_redirect_override()
         gateway.client = MagicMock()
         gateway.client.payments.create.return_value = SimpleNamespace(
-            id="tr_stub", checkout_url="https://pay.mollie.test/x", status="open"
+            id="tr_stub",
+            checkout_url="https://pay.mollie.test/x",
+            status="open",
+            expires_at="2099-01-01T00:00:00+00:00",
         )
         doc = SimpleNamespace(
             doctype="Sales Invoice", name="SINV-X-2", amount=12.5, currency="EUR", contact_email=""
         )
-        gateway.process_payment(doc, {})
+        with self.assertNoErrorLog():
+            result = gateway.process_payment(doc, {})
 
+        self.assertEqual(result["status"], "redirect_required")
         sent = gateway.client.payments.create.call_args[0][0]["redirectUrl"]
         path, query = self._url_parts(sent)
         self.assertEqual(path, "/payment_success")
@@ -119,20 +114,12 @@ class TestIngReturnUrl(ReturnUrlCase):
 
 
 class TestCheckoutScriptReturnUrl(ReturnUrlCase):
-    def test_the_checkout_script_redirects_to_the_underscore_page(self):
-        with open(JS_PATH, encoding="utf-8") as handle:
-            source = handle.read()
-        self.assertNotIn("/payment-success", source)
-        self.assertIn("/payment_success?", source)
-        self.assertIn("returnToken", source)
+    # The checkout script's own redirect is covered behaviourally by
+    # tests/unit/mollie-checkout-return-url.test.js (jest), which runs the real script.
 
-    def test_make_payment_returns_a_token_the_underscore_page_accepts(self):
-        """A Sales Invoice carries no payment_id field, so payment_id alone is always refused there."""
-        from verenigingen.verenigingen_payments.templates.pages.mollie_checkout import make_payment
-
-        donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+    def _make_unpaid_mollie_donation(self, donor_email):
         donor = self.create_test_donor(donor_email=donor_email)
-        donation = frappe.get_doc(
+        return frappe.get_doc(
             {
                 "doctype": "Donation",
                 "donor": donor.name,
@@ -144,17 +131,66 @@ class TestCheckoutScriptReturnUrl(ReturnUrlCase):
                 "paid": 0,
             }
         ).insert(ignore_permissions=True)
-        data = json.dumps(
-            {"amount": 20.0, "title": "D", "description": "D", "payer_name": "S", "payer_email": donor_email,
+
+    def _checkout_payload_json(self, payer_email):
+        return json.dumps(
+            {"amount": 20.0, "title": "D", "description": "D", "payer_name": "S", "payer_email": payer_email,
              "order_id": "ORD-1", "currency": "EUR"}
         )
+
+    def test_make_payment_returns_a_token_the_underscore_page_accepts(self):
+        """A Sales Invoice carries no payment_id field, so payment_id alone is always refused there."""
+        from verenigingen.verenigingen_payments.templates.pages.mollie_checkout import make_payment
+
+        donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._make_unpaid_mollie_donation(donor_email)
         with self.as_user("Guest"), patch(_GATEWAY_FACTORY_PATH, return_value=stub_redirect_gateway()):
-            result = make_payment(data=data, reference_doctype="Donation", reference_docname=donation.name)
+            result = make_payment(
+                data=self._checkout_payload_json(donor_email),
+                reference_doctype="Donation",
+                reference_docname=donation.name,
+            )
 
         self.assertEqual(result["status"], "Open")
         self.assertTrue(
             verify_guest_return_token("payment_success", f"Donation:{donation.name}", result.get("returnToken"))
         )
+
+    def test_make_payment_mints_no_token_for_a_wrong_email_on_a_real_document(self):
+        """Control: the document exists, only the payer's email is wrong, so there must be no token."""
+        from verenigingen.verenigingen_payments.templates.pages.mollie_checkout import make_payment
+
+        self.expectErrorLog("Mollie Payment Error")
+        owner_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._make_unpaid_mollie_donation(owner_email)
+        data = self._checkout_payload_json(f"stranger-{frappe.generate_hash()[:8]}@example.com")
+        with self.as_user("Guest"), patch(_GATEWAY_FACTORY_PATH, return_value=stub_redirect_gateway()):
+            result = make_payment(data=data, reference_doctype="Donation", reference_docname=donation.name)
+
+        self.assertEqual(result["status"], "Error")
+        self.assertNotIn("returnToken", result)
+
+    def test_the_token_is_minted_for_the_verified_document_name(self):
+        """A case-variant docname resolves to the real document; the token must name the real one."""
+        from verenigingen.verenigingen_payments.templates.pages.mollie_checkout import make_payment
+
+        owner_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._make_unpaid_mollie_donation(owner_email)
+        with self.as_user("Guest"), patch(_GATEWAY_FACTORY_PATH, return_value=stub_redirect_gateway()):
+            result = make_payment(
+                data=self._checkout_payload_json(owner_email),
+                reference_doctype="Donation",
+                reference_docname=donation.name.lower(),
+            )
+        self.assertFalse(
+            verify_guest_return_token(
+                "payment_success", f"Donation:{donation.name.lower()}", result.get("returnToken")
+            )
+        )
+        self.assertTrue(
+            verify_guest_return_token("payment_success", f"Donation:{donation.name}", result.get("returnToken"))
+        )
+
 
 
 class TestReturnUrlOverWsgi(ReturnUrlCase):
@@ -172,8 +208,12 @@ class TestReturnUrlOverWsgi(ReturnUrlCase):
             frappe.connect()
             donor = donation = None
             try:
+                customers_before = frappe.db.count("Customer", {{"customer_name": ["like", "Return Probe%"]}})
                 donor = frappe.get_doc({{"doctype": "Donor", "donor_name": "Return Probe", "donor_type": "Individual",
-                    "donor_email": "ret." + uuid.uuid4().hex[:8] + "@example.com", "currency": "EUR"}}).insert()
+                    "donor_email": "ret." + uuid.uuid4().hex[:8] + "@example.com", "currency": "EUR"}})
+                # Donor.insert would otherwise create a committed Customer and Contact this script never deletes.
+                donor.flags.ignore_customer_sync = True
+                donor.insert()
                 donation = frappe.get_doc({{"doctype": "Donation", "donor": donor.name, "donation_date": frappe.utils.today(),
                     "amount": 10.0, "mode_of_payment": "Mollie", "status": "One-time", "donation_purpose_type": "General", "paid": 0}}).insert()
                 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import get_mollie_settings
@@ -203,6 +243,7 @@ class TestReturnUrlOverWsgi(ReturnUrlCase):
                 if donor:
                     frappe.delete_doc("Donor", donor.name, force=True)
                 frappe.db.commit()
+                print("LEFTOVER" + str(frappe.db.count("Customer", {{"customer_name": ["like", "Return Probe%"]}}) - customers_before))
                 frappe.destroy()
             """
         )
@@ -215,6 +256,9 @@ class TestReturnUrlOverWsgi(ReturnUrlCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
         out = json.loads(next(x for x in result.stdout.splitlines() if x.startswith("RESULT"))[len("RESULT"):])
+        leftover = next(x for x in result.stdout.splitlines() if x.startswith("LEFTOVER"))
+        # The subprocess commits its fixtures, so nothing the test drain can claim may remain.
+        self.assertEqual(leftover, "LEFTOVER0")
 
         self.assertEqual(out["given_path"], "/payment_success")
         # Not the payments app's unconditional banner, and a real status for the proven return.
