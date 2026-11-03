@@ -472,7 +472,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         # #1982: this class replaces/deletes fixture-shipped payment_reminder_*
-        # templates; restore the shipped rows (payment_reminder_final is not shipped).
+        # templates; restore the shipped rows (all three are shipped since #2008).
         _cleanup_stock_email_templates(
             ["payment_reminder_friendly", "payment_reminder_urgent", "payment_reminder_final"]
         )

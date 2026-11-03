@@ -502,9 +502,16 @@ class MemberManager(BaseManager):
         self.validate_chapter_doc()
 
         try:
+            # A Member that is not Active has no join request to approve (#1964): its Pending row is an
+            # application (approved from the application, which materialises and activates it) or a request
+            # that Chapter.join_chapter wrote without looking at the status. Answer exactly as for no
+            # request at all, so the caller learns nothing about the Member's status or existence, and read
+            # the status before the row so both cost the same queries.
+            member_is_active = frappe.db.get_value("Member", member_id, "status") == "Active"
+
             # Find pending member request
             existing_member = self._find_chapter_member(member_id)
-            if not existing_member:
+            if not existing_member or not member_is_active:
                 return {"success": False, "message": _("No membership request found")}
 
             if existing_member.status != "Pending":

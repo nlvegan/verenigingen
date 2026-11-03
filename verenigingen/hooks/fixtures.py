@@ -6,7 +6,10 @@ and imported when the app is installed on a new site.
 
 Note: Reference data (Membership Types, Email Templates, etc.) is
 created via execute_after_install() which only runs once on app install.
-This prevents migrations from overwriting user customizations.
+CAUTION: the JSON files under fixtures/ (including email_template.json) are NOT
+protected that way: Frappe's sync_fixtures re-imports every one of them on install
+and on each migrate, so a row of the same name edited by hand on a site is
+overwritten.
 
 Schema items (Property Setters, Custom Fields, etc.) are safe to
 include as fixtures since they define structure, not user data.
