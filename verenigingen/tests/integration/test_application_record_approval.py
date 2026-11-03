@@ -483,7 +483,14 @@ class TestApproveApplication(ApprovalCase):
         """A Pending applicant may reapply; an expulsion (real termination service) executed after the
         application was confirmed makes the Member Banned, and approval must not reactivate it."""
         member = self.create_test_member(email=self.email)
-        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        # Probe shortcut, stated: a db write makes the factory member a Pending-status Member, as a MijnRood
+        # sync with a Pending status mapping does. It was Active, which #1989 refuses to stage.
+        frappe.db.set_value("Member", member.name, "status", "Pending")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["status", "application_status"], as_dict=True),
+            {"status": "Pending", "application_status": "Pending"},
+            "precondition",
+        )
         name = self._stage_and_confirm()  # control: staged, so this Member could reapply before the expulsion
         execute_real_termination(self, member.name, today(), termination_type="Expulsion")
         self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
@@ -498,7 +505,14 @@ class TestApproveApplication(ApprovalCase):
         """PROBE SHORTCUT, stated: the factory's Pending Member (application_status Pending) stands in for a
         MijnRood-synced Pending Member (#1855); the termination itself is the real service."""
         member = self.create_test_member(email=self.email)
-        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        # Second shortcut: the factory member is Active, and an Active member may not reapply (#1989); a
+        # MijnRood-synced Pending Member has status Pending, so the db write sets that.
+        frappe.db.set_value("Member", member.name, "status", "Pending")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["status", "application_status"], as_dict=True),
+            {"status": "Pending", "application_status": "Pending"},
+            "precondition",
+        )
         return member
 
     def test_involuntarily_quit_member_with_pending_status_refused_at_approval(self):
