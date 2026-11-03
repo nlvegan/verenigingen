@@ -14,9 +14,9 @@ from verenigingen.setup.notification_registry_setup import ensure_notification_r
 
 
 def clear_email_cooldowns():
-    cache = frappe.cache()
-    for key in cache.get_keys("email_cooldown:*"):
-        cache.delete_value(key)
+    # get_keys() returns already-namespaced keys and delete_value() namespaces again, so
+    # get_keys + delete_value deletes nothing; delete_keys() is the pair that works.
+    frappe.cache().delete_keys("email_cooldown:*")
 
 
 def allow_reminder_sends(keys=("payment_reminder_friendly", "payment_reminder_urgent", "payment_failure")):

@@ -190,7 +190,9 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self.assertEqual(second.status, "skipped")
         self.assertEqual(len(self._logs(self.member)), 1)
 
-    def test_fallback_path_honours_opt_out(self):
+    def test_fallback_path_opt_out_control(self):
+        # CONTROL, not a #2008 discriminator: opt-out is enforced in _send_email_internal
+        # whether or not a notification_key is passed, so this passes without the fix too.
         frappe.delete_doc("Email Template", "payment_reminder_final", force=True)
         self._unsubscribe(self.member)
         outcome = self._send_reminder(self.member, "Final Notice")
@@ -289,27 +291,73 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
             return_value=[email],
         )
 
+    def _overdue_rows(self, chapter, members):
+        return [
+            {"member_name": m.name, "member_full_name": m.full_name, "chapter": chapter.name, **self.info}
+            for m in members
+        ]
+
+    def _run_with_chapter(self, chapter, members, board_email):
+        # Mock justified: the report's data source is imported locally per call; fixes the member set.
+        with self._board_patch(board_email), patch(self.GET_DATA, return_value=self._overdue_rows(chapter, members)):
+            return send_overdue_payment_reminders(send_to_chapters=True)
+
     def test_chapter_board_mail_is_queued_with_the_shipped_template(self):
         chapter = self._make_reminder_chapter()
         board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
         with self._board_patch(board_email):
-            outcome = send_chapter_notification(chapter.name, self.member.name, self.info)
-        rows = self._mail_for(self.member, CHAPTER_MARKER)
+            outcome = send_chapter_notification(chapter.name, self._overdue_rows(chapter, [self.member]))
+        rows = self._mail_for(chapter, CHAPTER_MARKER)
         self.assertEqual(len(rows), 1, "the board mail must be queued from the shipped template")
+        self.assertEqual(rows[0].recipients, [board_email])
         self.assertEqual(outcome.status, "sent")
+
+    def test_one_board_mail_per_chapter_lists_every_overdue_member(self):
+        # Maintainer ruling on #2006: ONE mail per chapter per run. The seeded payment_failure
+        # cooldown (per recipient) is kept on, so a per-member mail would reach the board once.
+        self._set_key("payment_failure", enabled=1, cooldown=60)
+        chapter = self._make_reminder_chapter()
+        members = [self.member, self._new_reminder_member("Second"), self._new_reminder_member("Third")]
+        board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
+        result = self._run_with_chapter(chapter, members, board_email)
+        mails = self._mail_for(chapter, CHAPTER_MARKER)
+        self.assertEqual(len(mails), 1, "exactly one board mail for the chapter")
+        for m in members:
+            self.assertIn(m.full_name, mails[0].message)
+        self.assertEqual(result.get("count"), 3, "each member still gets their own reminder")
+        self.assertEqual(result.get("chapter_notifications"), {"sent": 1, "skipped": 0, "failed": 0}, result)
+        self.assertEqual(result["chapters"][chapter.name]["status"], "sent")
+
+    def test_chapter_mail_skipped_when_key_disabled_is_not_counted_as_sent(self):
+        self._set_key("payment_failure", enabled=0, cooldown=0)
+        chapter = self._make_reminder_chapter()
+        board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
+        with self._board_patch(board_email):
+            outcome = send_chapter_notification(chapter.name, self._overdue_rows(chapter, [self.member]))
+        self.assertEqual(self._mail_for(chapter), [])
+        self.assertEqual(outcome.status, "skipped")
+        self.assertIn("payment_failure", outcome.reason)
+        result = self._run_with_chapter(chapter, [self.member], board_email)
+        self.assertEqual(result.get("chapter_notifications"), {"sent": 0, "skipped": 1, "failed": 0}, result)
+        self.assertEqual(result["chapters"][chapter.name]["status"], "skipped")
 
     def test_chapter_mail_failure_is_reported_not_counted(self):
         chapter = self._make_reminder_chapter()
         frappe.delete_doc("Email Template", "Payment Failure Notification", force=True)
         board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
-        with self._board_patch(board_email), patch(
-            self.GET_DATA, return_value=[{"member_name": self.member.name, "chapter": chapter.name, **self.info}]
-        ):
-            result = send_overdue_payment_reminders(send_to_chapters=True)
-        self.assertEqual(self._mail_for(self.member, CHAPTER_MARKER), [])
+        result = self._run_with_chapter(chapter, [self.member], board_email)
+        self.assertEqual(self._mail_for(chapter), [])
         self.assertEqual(result.get("count"), 1, "the member reminder itself was sent")
-        chapter_counts = result.get("chapter_notifications")
-        self.assertEqual(chapter_counts, {"sent": 0, "skipped": 0, "failed": 1}, result)
+        self.assertEqual(result.get("chapter_notifications"), {"sent": 0, "skipped": 0, "failed": 1}, result)
+
+    def test_clear_email_cooldowns_really_clears_a_real_cooldown(self):
+        # Control for the helper every cooldown-sensitive test relies on: a cooldown created
+        # by a real send must be gone afterwards (a get_keys + delete_value pair deletes nothing).
+        self._set_key("payment_reminder_friendly", enabled=1, cooldown=1440)
+        self.assertEqual(self._send_reminder(self.member, "Friendly Reminder").status, "sent")
+        self.assertEqual(self._send_reminder(self.member, "Friendly Reminder").status, "skipped")
+        clear_email_cooldowns()
+        self.assertEqual(self._send_reminder(self.member, "Friendly Reminder").status, "sent")
 
     # ---- fixtures -------------------------------------------------------
 
@@ -318,9 +366,9 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
             "member": self.member,
             "chapter": frappe._dict(name="Test Chapter"),
             "payment_info": self.info,
-            "total_overdue": "125", "days_overdue": 31, "overdue_count": 2,
+            "members": [{"full_name": "Pat Example", "total_overdue": "125", "days_overdue": 31, "overdue_count": 2}],
+            "member_count": 1, "total_overdue": "125", "days_overdue": 31, "overdue_count": 2,
             "failure_count": 1, "payment_status": "failed", "amount": 25, "next_payment_date": "2026-12-01",
-            "base_url": "https://example.org",
         }
         fixture = _load_fixture_rows()
         for name in NEW_TEMPLATES:
@@ -331,3 +379,8 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
             expected = "Test Chapter" if name == "Payment Failure Notification" else self.member.first_name
             self.assertIn(expected, body, name)
             self.assertGreater(len(body.strip()), 200, name)
+            # no dead call-to-action: an unresolved {{ base_url }} renders as a relative link
+            self.assertNotIn("bank-details", body, name)
+            self.assertNotIn('href="/', body, name)
+        board = frappe.render_template(fixture["Payment Failure Notification"]["response_html"], context)
+        self.assertIn("Pat Example", board)

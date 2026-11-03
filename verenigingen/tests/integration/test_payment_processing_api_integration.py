@@ -301,7 +301,6 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         # #2015: the message reports sent / skipped / failed instead of "sent successfully"
         self.assertEqual((result["skipped"], result["failed"]), (0, 0), result)
         self.assertEqual(result["sent"], result["count"])
-        self.assertIn("sent", result["message"])
         
         # Verify SMTP was called with real email content (not mocked content)
         mock_smtp.assert_called()

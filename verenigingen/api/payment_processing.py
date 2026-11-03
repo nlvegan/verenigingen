@@ -347,6 +347,7 @@ def send_overdue_payment_reminders(
 
         tally = _OutcomeTally()
         chapter_tally = _OutcomeTally()
+        chapter_overdue = {}  # chapter -> this run's overdue rows, mailed once per chapter
         batch_size = ConfigManager.get("email_batch_size", 50)
 
         # Process in batches to avoid overwhelming the email system
@@ -366,15 +367,9 @@ def send_overdue_payment_reminders(
                         )
                     )
 
-                    # Optionally send to chapter board
+                    # Optionally collect for the chapter board: one mail per chapter (#2006)
                     if send_to_chapters and payment_info.get("chapter"):
-                        chapter_tally.add(
-                            send_chapter_notification(
-                                chapter=payment_info.get("chapter"),
-                                member_name=payment_info.get("member_name"),
-                                payment_info=payment_info,
-                            )
-                        )
+                        chapter_overdue.setdefault(payment_info.get("chapter"), []).append(payment_info)
 
                 # #505: without this, a 1205/1213 sending one member's reminder is
                 # logged and the loop keeps sending further reminders on a
@@ -402,7 +397,13 @@ def send_overdue_payment_reminders(
 
         data = {"count": tally.sent, **tally.summary(), "skipped_reasons": tally.skipped_reasons}
         if send_to_chapters:
+            chapters = {}
+            for chapter, rows in chapter_overdue.items():
+                outcome = send_chapter_notification(chapter=chapter, overdue_members=rows)
+                chapter_tally.add(outcome)
+                chapters[chapter] = {"status": outcome.status, "reason": outcome.reason}
             data["chapter_notifications"] = chapter_tally.summary()
+            data["chapters"] = chapters
         return OperationResult.ok(data=data, message=_reminder_run_message(tally))
 
     # #505: the guard above stops the loop; this frame's job is to let the class
@@ -709,8 +710,8 @@ def send_payment_reminder_email(
         # If the template is missing, send with fallback HTML content. Detect this
         # via the structured error_code (NOT a substring of the message) so an
         # unrelated failure can't wrongly trigger the fallback. The fallback must
-        # carry the notification_key too, or it bypasses the enable switch, cooldown
-        # and opt-out (#2008).
+        # carry the notification_key too, or it bypasses the enable switch and the
+        # cooldown (#2008). Opt-out is enforced in _send_email_internal regardless.
         if not result.success and result.error_code == "TEMPLATE_NOT_FOUND":
             fallback_content = generate_payment_reminder_html(
                 member, payment_info, reminder_type, custom_message
@@ -742,8 +743,14 @@ def _reminder_run_message(tally):
     return _("{0} sent, {1} skipped, {2} failed").format(tally.sent, tally.skipped, tally.failed)
 
 
-def send_chapter_notification(chapter, member_name, payment_info):
-    """Send notification to chapter board about overdue payment"""
+def send_chapter_notification(chapter, overdue_members):
+    """Send the chapter board ONE mail listing the chapter's overdue members (#2006).
+
+    ``overdue_members`` is the list of report rows (member_name, member_full_name,
+    total_overdue, days_overdue, overdue_count) for this chapter in the current run.
+    One mail per chapter: sent per member, the payment_failure cooldown would let only
+    the first member through.
+    """
 
     try:
         chapter_doc = frappe.get_doc("Chapter", chapter)
@@ -752,23 +759,28 @@ def send_chapter_notification(chapter, member_name, payment_info):
         if not board_emails:
             return ReminderOutcome(ReminderOutcome.SKIPPED, _("Chapter has no board member emails"))
 
-        member = frappe.get_doc("Member", member_name)
-
         # MIGRATED: Use unified EmailService for chapter notifications
         from verenigingen.services.communication.email_service import get_email_service
 
         email_service = get_email_service()
 
-        # Prepare context for notification
+        members = [
+            {
+                "member_name": row.get("member_name"),
+                "full_name": row.get("member_full_name") or row.get("member_name"),
+                "total_overdue": frappe.format_value(row.get("total_overdue"), {"fieldtype": "Currency"}),
+                "days_overdue": row.get("days_overdue"),
+                "overdue_count": row.get("overdue_count"),
+            }
+            for row in overdue_members
+        ]
         context = {
-            "member": member,
             "chapter": chapter_doc,
-            "payment_info": payment_info,
+            "members": members,
+            "member_count": len(members),
             "total_overdue": frappe.format_value(
-                payment_info.get("total_overdue"), {"fieldtype": "Currency"}
+                sum(flt(row.get("total_overdue")) for row in overdue_members), {"fieldtype": "Currency"}
             ),
-            "days_overdue": payment_info.get("days_overdue"),
-            "overdue_count": payment_info.get("overdue_count"),
         }
 
         # Send notification using the payment_failure notification type
@@ -776,8 +788,8 @@ def send_chapter_notification(chapter, member_name, payment_info):
             notification_type="payment_failure",
             recipients=board_emails,
             data=context,
-            reference_doctype="Member",
-            reference_name=member_name,
+            reference_doctype="Chapter",
+            reference_name=chapter,
         )
 
         # A skip (key disabled, cooldown, opt-out) is not a send (#2015)
