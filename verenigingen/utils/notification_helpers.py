@@ -44,6 +44,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.staff_alert_events import begin_event, finish_event
 
 
 def _get_email_config_service():
@@ -280,6 +281,7 @@ def create_system_notification(
     document_name=None,
     from_user=None,
     notification_key=None,
+    source_event=None,
 ):
     """
     Create in-app notifications for specified recipients.
@@ -308,9 +310,12 @@ def create_system_notification(
         notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, checks if this notification type is enabled and
             respects cooldown settings.
+        source_event (str, optional): Name of the Staff Alert Event this delivery belongs to. Stored in
+            the Notification Log ``source_name`` so delivery can be joined back to the event exactly.
 
     Returns:
-        dict: Result with 'success' status and 'notifications_created' count
+        dict: Result with 'success' status and 'notifications_created' count. A skip or failure also
+        carries 'reason_code' (email_disabled, key_disabled, no_recipients, no_valid_recipients).
 
     Example:
         # Notify admins about a membership request
@@ -334,6 +339,8 @@ def create_system_notification(
                 "success": True,
                 "skipped": True,
                 "reason": "Notifications disabled",
+                "reason_code": "email_disabled",
+                "notification_key": notification_key,
                 "notifications_created": 0,
             }
 
@@ -346,6 +353,8 @@ def create_system_notification(
                 "success": True,
                 "skipped": True,
                 "reason": f"Notification '{notification_key}' disabled",
+                "reason_code": "key_disabled",
+                "notification_key": notification_key,
                 "notifications_created": 0,
             }
 
@@ -358,7 +367,12 @@ def create_system_notification(
     # Input validation
     if not recipients:
         frappe.logger().warning("create_system_notification called with no recipients")
-        return {"success": False, "error": "No recipients provided", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No recipients provided",
+            "reason_code": "no_recipients",
+            "notifications_created": 0,
+        }
 
     if isinstance(recipients, str):
         recipients = [recipients]
@@ -380,7 +394,12 @@ def create_system_notification(
     recipients = [r for r in recipients if r]
     if not recipients:
         frappe.logger().warning(f"No valid recipients provided for notification: {subject}")
-        return {"success": False, "error": "No recipients provided", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No recipients provided",
+            "reason_code": "no_recipients",
+            "notifications_created": 0,
+        }
 
     # Batch validate recipients with single query (optimized from N+1 queries)
     valid_users = frappe.get_all(
@@ -392,7 +411,12 @@ def create_system_notification(
 
     if not valid_users:
         frappe.logger().warning(f"No valid/enabled users found for notification: {subject}")
-        return {"success": False, "error": "No valid recipients found", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No valid recipients found",
+            "reason_code": "no_valid_recipients",
+            "notifications_created": 0,
+        }
 
     # Limit recipient count to prevent DoS
     if len(valid_users) > MAX_RECIPIENTS:
@@ -417,6 +441,10 @@ def create_system_notification(
                 notification.document_name = document_name
 
             notification.from_user = sender
+
+            if source_event:
+                notification.source_doctype = "Staff Alert Event"
+                notification.source_name = source_event
 
             # Notification Log is a Frappe system DocType — Frappe itself always
             # creates these with ignore_permissions. No user-data security concern here.
@@ -455,6 +483,8 @@ def notify_administrators(
     notification_key=None,
     category=None,
     exclude_users=None,
+    staff_alert=False,
+    requires_action=None,
 ):
     """
     Convenience function to notify system administrators.
@@ -478,6 +508,11 @@ def notify_administrators(
         exclude_users (list, optional): User names that must never be a recipient, applied to the
             FINAL recipient list (after the configured, category and role fallbacks). Matches the
             user's name or email.
+        staff_alert (bool): True at a call site whose alert is for staff. Only then is a Staff Alert
+            Event recorded (#1979): inserted as Pending BEFORE delivery, finished afterwards, so an
+            alert that raises or is dropped still leaves a row. Never changes the return value.
+        requires_action (bool, optional): Override the registry default (REQUIRES_ACTION_KEYS) for
+            this call, when the same key carries both action-required and informational sends.
 
     Returns:
         dict: Result with success status and notification count
@@ -492,6 +527,50 @@ def notify_administrators(
             document_type="Membership Termination Request"
         )
     """
+    event = None
+    if staff_alert:
+        event = begin_event(
+            notification_key,
+            subject,
+            "notify_administrators",
+            reference_doctype=document_type,
+            reference_name=document_name,
+            requires_action=requires_action,
+        )
+    try:
+        result = _notify_administrators(
+            subject,
+            message,
+            setting_field,
+            default_roles,
+            notification_type,
+            document_type,
+            document_name,
+            notification_key,
+            category,
+            exclude_users,
+            event,
+        )
+    except Exception as error:
+        finish_event(event, error=error)
+        raise
+    finish_event(event, result)
+    return result
+
+
+def _notify_administrators(
+    subject,
+    message,
+    setting_field,
+    default_roles,
+    notification_type,
+    document_type,
+    document_name,
+    notification_key,
+    category,
+    exclude_users,
+    source_event,
+):
     # Try Verenigingen Email Configuration first for recipients
     config_service = _get_email_config_service()
     recipients = None
@@ -523,6 +602,7 @@ def notify_administrators(
         document_type=document_type,
         document_name=document_name,
         notification_key=notification_key,
+        source_event=source_event,
     )
 
 

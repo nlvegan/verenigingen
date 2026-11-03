@@ -347,6 +347,7 @@ def process_overdue_termination_requests():
                 document_type="Membership Termination Request",
                 notification_key="termination_overdue",
                 category="Admin",
+                staff_alert=True,
             )
 
             if result.get("success"):
@@ -693,6 +694,7 @@ def audit_termination_compliance():
                     document_type="Membership Termination Request",
                     notification_key="termination_overdue",
                     category="Admin",
+                    staff_alert=True,
                 )
         else:
             frappe.logger().info("Termination compliance audit completed - no issues found")

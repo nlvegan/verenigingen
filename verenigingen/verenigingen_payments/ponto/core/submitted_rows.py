@@ -195,6 +195,7 @@ def alert_executed_on_cancelled_row(doc, ponto_id):
             document_type=doc.doctype,
             document_name=doc.name,
             exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
         )
         # No notification created: key unseeded or disabled (skipped), no recipient left, or failed.
         # Delivery is retried on every call (the key may be seeded later), but the loud row is
