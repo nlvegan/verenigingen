@@ -452,6 +452,7 @@ class EmailService(StatelessService):
         reference_name: str = None,
         create_communication: bool = True,  # Deprecated - kept for backward compatibility
         notification_key: str = None,
+        cooldown_scope: str = None,
         **options,
     ) -> OperationResult:
         """
@@ -467,6 +468,8 @@ class EmailService(StatelessService):
         Args:
             notification_key: Optional key for Verenigingen Email Configuration lookup. If provided,
                              checks per-notification-type settings and cooldown.
+            cooldown_scope: Optional. Narrows the per-recipient cooldown to this scope (e.g. a
+                            chapter), so one recipient can get the same notification once per scope.
         """
         try:
             # Check Verenigingen Email Configuration if available
@@ -506,7 +509,9 @@ class EmailService(StatelessService):
                     # Check cooldown for each recipient
                     recipients_to_send = []
                     for recipient in recipients:
-                        if config_service.check_cooldown(notification_key, recipient):
+                        if config_service.check_cooldown(
+                            notification_key, self._cooldown_id(recipient, cooldown_scope)
+                        ):
                             recipients_to_send.append(recipient)
                         else:
                             self.logger.debug(f"Skipping {recipient} for '{notification_key}' - in cooldown")
@@ -589,7 +594,7 @@ class EmailService(StatelessService):
 
             # Record cooldown for sent emails
             if notification_key:
-                self._record_cooldown(notification_key, recipients)
+                self._record_cooldown(notification_key, recipients, cooldown_scope)
 
             return OperationResult.ok(
                 {
@@ -723,7 +728,14 @@ class EmailService(StatelessService):
             self.logger.error(f"Frappe Notification delegation failed ({notification_name}): {str(e)}")
             return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
 
-    def _record_cooldown(self, notification_key: str, recipients: List[str]) -> None:
+    @staticmethod
+    def _cooldown_id(recipient: str, scope: str = None) -> str:
+        """The per-recipient cooldown identity: the address alone, or address + scope."""
+        return f"{recipient}|{scope}" if scope else recipient
+
+    def _record_cooldown(
+        self, notification_key: str, recipients: List[str], cooldown_scope: str = None
+    ) -> None:
         """Record send timestamp for cooldown tracking.
 
         Args:
@@ -734,7 +746,7 @@ class EmailService(StatelessService):
             config_service = self._get_config_service()
             if config_service and notification_key:
                 for recipient in recipients:
-                    config_service.record_send(notification_key, recipient)
+                    config_service.record_send(notification_key, self._cooldown_id(recipient, cooldown_scope))
         except Exception as e:
             self.logger.debug(f"Cooldown recording failed: {e}")
 
