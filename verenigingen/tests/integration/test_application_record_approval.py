@@ -482,16 +482,10 @@ class TestApproveApplication(ApprovalCase):
     def test_expulsion_between_confirm_and_approval_refused(self):
         """A Pending applicant may reapply; an expulsion (real termination service) executed after the
         application was confirmed makes the Member Banned, and approval must not reactivate it."""
+        # Real order (#1989): staged while no Member exists. An Active member with the default
+        # application_status may not be staged, so the Member arrives afterwards, as an import does.
+        name = self._stage_and_confirm()
         member = self.create_test_member(email=self.email)
-        # Probe shortcut, stated: a db write makes the factory member a Pending-status Member, as a MijnRood
-        # sync with a Pending status mapping does. It was Active, which #1989 refuses to stage.
-        frappe.db.set_value("Member", member.name, "status", "Pending")
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, ["status", "application_status"], as_dict=True),
-            {"status": "Pending", "application_status": "Pending"},
-            "precondition",
-        )
-        name = self._stage_and_confirm()  # control: staged, so this Member could reapply before the expulsion
         execute_real_termination(self, member.name, today(), termination_type="Expulsion")
         self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
 
@@ -502,11 +496,14 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
 
     def _quit_member_with_pending_application_status(self):
-        """PROBE SHORTCUT, stated: the factory's Pending Member (application_status Pending) stands in for a
-        MijnRood-synced Pending Member (#1855); the termination itself is the real service."""
+        """PROBE SHORTCUT, stated: a Pending-status factory Member stands in for a legacy or mid-approval
+        Pending Member; the termination itself is the real service."""
         member = self.create_test_member(email=self.email)
-        # Second shortcut: the factory member is Active, and an Active member may not reapply (#1989); a
-        # MijnRood-synced Pending Member has status Pending, so the db write sets that.
+        # Second shortcut, stated: the factory member is Active, and an Active member may not reapply (#1989).
+        # The db write stands in for a legacy or mid-approval Pending Member: create_member_from_application
+        # (application_helpers.py:651) and _update_member create Pending/Pending, and it persists only as
+        # legacy data. MijnRood-synced members are NOT Pending (STATUS_MAP has no Pending): they are the
+        # #1989 state itself.
         frappe.db.set_value("Member", member.name, "status", "Pending")
         self.assertEqual(
             frappe.db.get_value("Member", member.name, ["status", "application_status"], as_dict=True),

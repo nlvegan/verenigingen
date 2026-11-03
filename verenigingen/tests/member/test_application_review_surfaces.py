@@ -743,8 +743,10 @@ class TestDuplicateWarning(ApprovalCase):
         self.assertIn(visible.name, {m["member_name"] for m in data["duplicates"]})
 
     def test_the_applicants_own_member_is_not_a_duplicate_of_itself(self):
-        existing = self.create_test_member(first_name="Same", last_name="Person", email=self.email)
+        # Real order (#1989): the application is staged while no Member exists; an Active member with the
+        # default application_status may not be staged, so the Member arrives afterwards, as an import does.
         name = self._stage_and_confirm(first_name="Same", last_name="Person")
+        existing = self.create_test_member(first_name="Same", last_name="Person", email=self.email)
 
         data = self._check(name)
         data = data.to_dict() if hasattr(data, "to_dict") else data
