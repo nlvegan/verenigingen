@@ -102,8 +102,9 @@ class TestApprovalWithoutInvoice(ApprovalCase):
         self._assert_mail_without_payment_link(mails, outcomes)
         self.assertEqual(errors, [])
 
-    def test_failed_invoice_still_sends_mail_without_link_and_is_not_a_clean_approval(self):
-        """invoice_failed (#1774) stays distinct from 'no invoice requested': it is reported as a failure."""
+    def test_failed_invoice_sends_no_approval_mail_and_is_not_a_clean_approval(self):
+        """invoice_failed (#1774) is not "no invoice requested": the approval mail WAITS for the invoice
+        (maintainer ruling 2026-11-03, round 2), staff are told, and the response claims no email went out."""
         application = self._stage_and_confirm()
         original = frappe.db.get_single_value("Verenigingen Settings", "company")
         frappe.db.set_single_value("Verenigingen Settings", "company", "No Such Company 1900")
@@ -119,7 +120,9 @@ class TestApprovalWithoutInvoice(ApprovalCase):
         self._assert_no_invoice_claim(response)
         self.assertTrue(response["invoice_failed"], response)
         self.assertIn("NOT be created", response["message"])
-        self._assert_mail_without_payment_link(mails, outcomes)
+        self.assertIn("no approval email", response["message"])
+        self.assertNotIn("emailed", response["message"].lower())
+        self.assertEqual(mails, [], "no approval mail to the applicant until an invoice exists")
         self.assertEqual(errors, [], "the invoice failure is logged where it happens, not as a mail error")
 
     def test_invoiced_approval_keeps_the_payment_link_and_the_invoice_message(self):

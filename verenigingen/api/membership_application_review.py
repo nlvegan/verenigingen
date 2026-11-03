@@ -426,7 +426,8 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
     if invoice_failed:
         message = _(
             "Application approved, but the membership invoice could NOT be created, so no invoice "
-            "was sent to the applicant. See the Error Log, then create the invoice manually."
+            "and no approval email was sent to the applicant. See the Error Log, then create the "
+            "invoice manually."
         )
     elif not invoice:
         # create_invoice=False: nothing was invoiced, so the approval mail has no payment link (#1900)
@@ -606,7 +607,10 @@ def _approve_membership_application_locked(
     billing_amount = _calculate_billing_amount(member, invoice, membership_type_doc)
     should_activate_volunteer = _activate_volunteer_if_requested(member, activate_as_volunteer)
     user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
-    _send_approval_email_safe(member, invoice, membership_type_doc)
+    # The approval mail carries the payment link, so when an invoice was requested but could not be created
+    # it WAITS for the invoice (#1900, ruling 2026-11-03 round 2). Only create_invoice=False sends it without one.
+    if invoice or not create_invoice:
+        _send_approval_email_safe(member, invoice, membership_type_doc)
 
     # Queue background job to update payment history with initial invoice
     if invoice:
