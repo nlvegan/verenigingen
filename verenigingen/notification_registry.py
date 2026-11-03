@@ -606,6 +606,16 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "business_monitoring_alert": {
+        "label": "Business Monitoring Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": (
+            "Business and finance alerts from the monitoring job (SEPA compliance, member churn, "
+            "dues schedules, data quality, orphaned payments) and the daily monitoring report."
+        ),
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # ADMIN NOTIFICATIONS
     # =========================================================================
