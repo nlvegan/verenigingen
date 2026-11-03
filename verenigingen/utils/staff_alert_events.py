@@ -63,11 +63,19 @@ def begin_event(
 
 
 def finish_event(event, result=None, error=None):
-    """Classify the delivery outcome onto ``event``. ``error`` is an exception the send raised."""
+    """Classify the delivery outcome of the LATEST attempt onto ``event``.
+
+    ``outcome``, ``recipient_count`` and ``detail`` describe the attempt that just ran (Notification
+    Logs created since ``last_attempt_at``); ``delivered_at`` keeps the first delivery, so history is
+    not lost when a recurrence reaches nobody. ``error`` is an exception the send raised.
+    """
     if not event:
         return
     try:
-        reached = count_reached(event)
+        attempt_started, delivered_at = frappe.db.get_value(
+            DOCTYPE, event, ["last_attempt_at", "delivered_at"]
+        )
+        reached = count_reached(event, since=attempt_started)
         outcome, detail = _outcome_for(result, error, reached)
         values = {
             "outcome": outcome,
@@ -75,20 +83,22 @@ def finish_event(event, result=None, error=None):
             "detail": detail,
             "last_attempt_at": now_datetime(),
         }
-        if outcome == "Delivered" and not frappe.db.get_value(DOCTYPE, event, "delivered_at"):
+        if outcome == "Delivered" and not delivered_at:
             values["delivered_at"] = now_datetime()
         frappe.db.set_value(DOCTYPE, event, values, update_modified=False)
     except Exception:
         _log_recorder_failure("finish")
 
 
-def count_reached(event):
-    """Distinct counted users with a Notification Log for ``event`` (exact ``source_name`` join)."""
-    users = frappe.get_all(
-        "Notification Log",
-        filters={"source_doctype": DOCTYPE, "source_name": event},
-        pluck="for_user",
-    )
+def count_reached(event, since=None):
+    """Distinct counted users with a Notification Log for ``event`` (exact ``source_name`` join).
+
+    ``since``: only log rows created at or after this datetime (the latest attempt).
+    """
+    filters = {"source_doctype": DOCTYPE, "source_name": event}
+    if since:
+        filters["creation"] = [">=", since]
+    users = frappe.get_all("Notification Log", filters=filters, pluck="for_user")
     if not users:
         return 0
     uncounted = _uncounted_users()
@@ -103,9 +113,9 @@ def count_reached(event):
 
 
 def _outcome_for(result, error, reached):
-    """Return ``(outcome, detail)``. Reached users win: the record says whether the alert got to anyone."""
+    """Return ``(outcome, detail)`` for one attempt. ``reached`` counts this attempt's counted users."""
     if reached:
-        return "Delivered", (f"Last attempt raised: {error}" if error else "")[:1000]
+        return "Delivered", (f"Attempt raised after delivering: {error}" if error else "")[:1000]
     if error is not None:
         return "Failed", f"{type(error).__name__}: {error}"[:1000]
     result = result or {}
@@ -162,20 +172,28 @@ def _reattempt(dedupe_key, subject, now):
         .set(table.subject, (subject or "")[:255])
         .where(table.name == dedupe_key)
     ).run()
-    # A problem that came back after someone marked it done is open again.
+    # A problem that came back after someone marked it done is open again, and nobody "did" it any
+    # more. Only Done: a recurrence of a problem judged "Not needed" stays Not needed.
     (
         frappe.qb.update(table)
         .set(table.action_status, "Open")
+        .set(table.action_done_by, None)
+        .set(table.action_done_at, None)
         .where((table.name == dedupe_key) & (table.action_status == "Done"))
     ).run()
 
 
 def _uncounted_users():
+    """Built-in exclusions plus the configured list.
+
+    The not-yet-migrated case is checked on the meta, because ``get_single_value`` RAISES for a field
+    that does not exist (measured). Any other error propagates and fails CLOSED: ``finish_event`` logs
+    it and leaves the event Pending, instead of dropping the exclusions and reporting a false Delivered.
+    """
     names = set(ALWAYS_UNCOUNTED)
-    try:
+    configured = None
+    if frappe.get_meta(CONFIG_DOCTYPE).has_field("staff_alert_uncounted_users"):
         configured = frappe.db.get_single_value(CONFIG_DOCTYPE, "staff_alert_uncounted_users")
-    except Exception:
-        configured = None  # column not migrated yet: only the built-in exclusion applies
     for item in re.split(r"[,;\n]+", configured or ""):
         if item.strip():
             names.add(item.strip().lower())

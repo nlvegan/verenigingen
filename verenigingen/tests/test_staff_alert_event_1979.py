@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import cint
+from frappe.utils import cint, now_datetime
 
 from verenigingen.notification_registry import NOTIFICATION_KEYS, REQUIRES_ACTION_KEYS
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
@@ -77,6 +77,17 @@ class TestStaffAlertEvent(FrappeTestCase):
         frappe.set_user("Administrator")
         self._notes = []
         self._users = []
+        # Entered here and left LAST in tearDown: its restore commits, which is what makes the deletions
+        # below stick (a bare commit is gated). Without it each test leaks its Note and User.
+        self._config_backup = singleton_backup(CONFIG)
+        self._config_backup.__enter__()
+        # singleton_backup does NOT cover child tables (its docstring says so): the notification_types
+        # rows these tests write would survive it. Keep the originals and put them back in tearDown.
+        fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Column Break"]
+        self._original_rows = [
+            {k: v for k, v in row.as_dict().items() if k in fields}
+            for row in frappe.get_single(CONFIG).notification_types
+        ]
 
     def tearDown(self):
         for note in self._notes:
@@ -90,6 +101,8 @@ class TestStaffAlertEvent(FrappeTestCase):
             frappe.db.delete("Notification Log", {"for_user": user})
             frappe.delete_doc("User", user, force=True)
         frappe.db.delete("Error Log", {"method": ["like", "Staff Alert Event could not be recorded%"]})
+        _set_config_rows(self._original_rows)
+        self._config_backup.__exit__(None, None, None)
         super().tearDown()
 
     # ---- fixtures -------------------------------------------------------------------------------
@@ -308,14 +321,87 @@ class TestStaffAlertEvent(FrappeTestCase):
         self.assertEqual(frappe.db.count(EVENT, {"notification_key": NO_REFERENCE_KEY}), 2)
 
     def test_a_problem_marked_done_that_comes_back_is_open_again(self):
+        """Probe shortcut: ``action_status`` is set to Done with ``db.set_value``, because no UI or flow
+        sets it yet (the manual field and the Ponto resolver come in a later phase)."""
         note = self._note()
         with singleton_backup(CONFIG):
             _set_config_rows([])
             self._alert(SEEDED_KEY, note)
             event = self._only_event(note)
-            frappe.db.set_value(EVENT, event.name, "action_status", "Done", update_modified=False)
+            frappe.db.set_value(
+                EVENT,
+                event.name,
+                {"action_status": "Done", "action_done_by": "Administrator", "action_done_at": now_datetime()},
+                update_modified=False,
+            )
             self._alert(SEEDED_KEY, note)
-        self.assertEqual(frappe.db.get_value(EVENT, event.name, "action_status"), "Open")
+        row = frappe.db.get_value(
+            EVENT, event.name, ["action_status", "action_done_by", "action_done_at"], as_dict=True
+        )
+        self.assertEqual(row.action_status, "Open")
+        self.assertIsNone(row.action_done_by, "a reopened problem is not 'done by' anyone")
+        self.assertIsNone(row.action_done_at)
+
+    def test_a_problem_marked_not_needed_stays_not_needed_when_it_comes_back(self):
+        """Probe shortcut as above. Control for the reopen rule: only Done is reopened."""
+        note = self._note()
+        with singleton_backup(CONFIG):
+            _set_config_rows([])
+            self._alert(SEEDED_KEY, note)
+            event = self._only_event(note)
+            frappe.db.set_value(EVENT, event.name, "action_status", "Not needed", update_modified=False)
+            self._alert(SEEDED_KEY, note)
+        self.assertEqual(frappe.db.get_value(EVENT, event.name, "action_status"), "Not needed")
+        self.assertEqual(frappe.db.get_value(EVENT, event.name, "attempts"), 2, "control: it did recur")
+
+    # ---- the outcome is the LATEST attempt's (F1) ------------------------------------------------
+    def test_a_recurrence_that_reaches_nobody_is_not_reported_delivered(self):
+        note = self._note()
+        user = self._make_alert_recipient()
+        with singleton_backup(CONFIG):
+            _set_config_rows([_config_row(SEEDED_KEY, fixed=user)])
+            self._alert(SEEDED_KEY, note)
+            first = self._only_event(note)
+            self.assertEqual(first.outcome, "Delivered", "control: attempt 1 delivered")
+            _set_config_rows([_config_row(SEEDED_KEY, fixed=user, enabled=0)])
+            self._alert(SEEDED_KEY, note)
+        event = self._only_event(note)
+        detail = frappe.db.get_value(EVENT, event.name, "detail")
+        self.assertEqual(event.attempts, 2)
+        self.assertEqual(event.outcome, "Skipped - key disabled")
+        self.assertEqual(event.recipient_count, 0, "recipients reached by the LATEST attempt")
+        self.assertIn("disabled", detail)
+        self.assertEqual(event.delivered_at, first.delivered_at, "the history of the first delivery is kept")
+        self.assertEqual(len(_log_users(event.name)), 1, "control: the first attempt's log row still exists")
+
+    def test_a_recurrence_that_delivers_again_is_delivered(self):
+        note = self._note()
+        user = self._make_alert_recipient()
+        with singleton_backup(CONFIG):
+            _set_config_rows([_config_row(SEEDED_KEY, fixed=user)])
+            self._alert(SEEDED_KEY, note)
+            self._alert(SEEDED_KEY, note)
+        event = self._only_event(note)
+        self.assertEqual((event.outcome, event.attempts, event.recipient_count), ("Delivered", 2, 1))
+        self.assertEqual(len(_log_users(event.name)), 2, "control: two log rows, one per attempt")
+
+    def test_when_the_exclusion_list_cannot_be_read_the_event_is_not_reported_delivered(self):
+        """Fail closed: an error reading ``staff_alert_uncounted_users`` leaves the event Pending."""
+        note = self._note()
+        user = self._make_alert_recipient()
+        with singleton_backup(CONFIG):
+            _set_config_rows([_config_row(SEEDED_KEY, fixed=user)])
+            # Mock justified: failure injection for the config read.
+            with patch.object(frappe.db, "get_single_value", side_effect=OSError("boom-config")):
+                self._alert(SEEDED_KEY, note)
+        event = self._only_event(note)
+        self.assertEqual(len(_log_users(event.name)), 1, "control: the alert itself was delivered")
+        self.assertEqual(event.outcome, "Pending")
+        self.assertTrue(
+            frappe.get_all(
+                "Error Log", filters={"method": "Staff Alert Event could not be recorded (finish)"}, limit=1
+            )
+        )
 
     # ---- classification flags -------------------------------------------------------------------
     def test_an_informational_key_is_recorded_without_requiring_action_and_the_call_can_override(self):

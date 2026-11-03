@@ -485,6 +485,7 @@ def notify_administrators(
     exclude_users=None,
     staff_alert=False,
     requires_action=None,
+    event_reference=None,
 ):
     """
     Convenience function to notify system administrators.
@@ -513,6 +514,9 @@ def notify_administrators(
             alert that raises or is dropped still leaves a row. Never changes the return value.
         requires_action (bool, optional): Override the registry default (REQUIRES_ACTION_KEYS) for
             this call, when the same key carries both action-required and informational sends.
+        event_reference (str, optional): Stable name of the PROBLEM, for an alert about a class of
+            problem rather than one document (``document_name`` must be a real document, this need not
+            be). Used as the event's reference so a daily recurrence is one event, not a new row a day.
 
     Returns:
         dict: Result with success status and notification count
@@ -534,7 +538,7 @@ def notify_administrators(
             subject,
             "notify_administrators",
             reference_doctype=document_type,
-            reference_name=document_name,
+            reference_name=document_name or event_reference,
             requires_action=requires_action,
         )
     try:
