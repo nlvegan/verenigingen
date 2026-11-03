@@ -13,6 +13,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.setup.notification_registry_setup import default_role_based_roles
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -497,6 +498,8 @@ def add_notification_types(notification_types: str) -> dict:
         # Get metadata from registry (if available) and merge with provided data
         registry_meta = get_notification_meta(key)
 
+        policy = nt_data.get("recipient_policy") or registry_meta.get("recipient_policy") or "Document-Field"
+
         # Add new row to child table - prefer provided data, fall back to registry, then defaults
         config.append(
             "notification_types",
@@ -510,9 +513,9 @@ def add_notification_types(notification_types: str) -> dict:
                     "cooldown_minutes", registry_meta.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
                 ),
                 "enabled": 1,
-                "recipient_policy": nt_data.get("recipient_policy")
-                or registry_meta.get("recipient_policy")
-                or "Document-Field",
+                "recipient_policy": policy,
+                # An empty-roles Role-Based row reaches nobody (#1997); name the admin roles.
+                "recipient_roles": default_role_based_roles() if policy == "Role-Based" else None,
             },
         )
         existing_keys.add(key)
