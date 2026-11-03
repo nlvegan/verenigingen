@@ -298,17 +298,72 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         self.assertEqual(self._mailed(f"low two {self.uid}"), [])
         self.assertEqual(self._mailed(f"medium {self.uid}"), [])
 
-    def test_a_bypassing_send_still_starts_the_window_for_low_alerts(self):
-        # Choice: a bypassed HIGH/CRITICAL mail is still a mail to the recipient, so it records the
-        # cooldown and a LOW alert right after it is rate-limited like any other.
+    def test_a_bypassing_send_does_not_start_the_window_for_lower_alerts(self):
+        # Choice (coordinator, after review): LOW/MEDIUM are rate-limited among themselves, so a
+        # bypassing HIGH/CRITICAL mail must not use up their slot and silently lose them.
         self._cooldown_fixture()
         manager = AlertManager()
 
         manager.send_alert(TECH_TYPE, "CRITICAL", f"critical {self.uid}")
+        manager.send_alert(TECH_TYPE, "MEDIUM", f"medium after {self.uid}")
         manager.send_alert(TECH_TYPE, "LOW", f"low after {self.uid}")
 
         self.assertEqual(len(self._mailed(f"critical {self.uid}")), 1)
+        self.assertEqual(len(self._mailed(f"medium after {self.uid}")), 1)
+        # control: the slot the MEDIUM took does rate-limit the LOW behind it
         self.assertEqual(self._mailed(f"low after {self.uid}"), [])
+
+    def test_business_group_bypass_high_after_low_is_mailed(self):
+        self._cooldown_fixture()
+        self._make_alert_user("biz", [VADMIN])
+        self._set_alert_rows(BIZ_KEY, 1, cooldown_minutes=60)
+        manager = AlertManager()
+
+        manager.send_alert(BIZ_TYPE, "LOW", f"biz low {self.uid}")
+        manager.send_alert(BIZ_TYPE, "LOW", f"biz low again {self.uid}")
+        manager.send_alert(BIZ_TYPE, "HIGH", f"biz high {self.uid}")
+
+        self.assertEqual(len(self._mailed(f"biz low {self.uid}")), 1)
+        self.assertEqual(self._mailed(f"biz low again {self.uid}"), [])
+        self.assertEqual(len(self._mailed(f"biz high {self.uid}")), 1)
+
+    def test_daily_report_is_rate_limited_and_not_lost_after_a_bypassing_alert(self):
+        self._cooldown_fixture()
+        self._make_alert_user("biz", [VADMIN])
+        self._set_alert_rows(BIZ_KEY, 1, cooldown_minutes=60)
+        manager = AlertManager()
+
+        # a bypassing HIGH does not use up the report's slot ...
+        manager.send_alert(BIZ_TYPE, "HIGH", f"biz high {self.uid}")
+        manager.generate_daily_report()
+        self.assertEqual(len(self._mailed("Daily Monitoring Report")), 1)
+        # ... but the report itself is not a bypass: a second one in the window is held back
+        manager.generate_daily_report()
+        self.assertEqual(len(self._mailed("Daily Monitoring Report")), 1)
+        # and it holds back a LOW on the same key
+        manager.send_alert(BIZ_TYPE, "LOW", f"biz low {self.uid}")
+        self.assertEqual(self._mailed(f"biz low {self.uid}"), [])
+
+    def test_a_user_opt_out_still_applies_to_a_critical_alert(self):
+        # Shortcut: User.unsubscribed is set with db.set_value, and respect_user_preferences is
+        # switched on the same way (restored in cleanup); the opt-out filter itself is the real one.
+        opted_out = self._make_alert_user("out", [SYSADMIN])
+        staying = self._make_alert_user("in", [SYSADMIN])
+        self._set_alert_rows(TECH_KEY, 1, cooldown_minutes=60)
+        frappe.cache().delete_keys("email_cooldown:*")
+        self.addCleanup(frappe.cache().delete_keys, "email_cooldown:*")
+        previous = frappe.db.get_single_value("Verenigingen Email Configuration", "respect_user_preferences")
+        frappe.db.set_single_value("Verenigingen Email Configuration", "respect_user_preferences", 1)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Email Configuration", "respect_user_preferences", previous
+        )
+        frappe.db.set_value("User", opted_out, "unsubscribed", 1)
+
+        AlertManager().send_alert(TECH_TYPE, "CRITICAL", f"critical optout {self.uid}")
+
+        recipients = self._sent_to()
+        self.assertIn(staying, recipients)  # control: the filter removes one, not everyone
+        self.assertNotIn(opted_out, recipients)
 
     def test_critical_does_not_bypass_a_disabled_key(self):
         self._cooldown_fixture()

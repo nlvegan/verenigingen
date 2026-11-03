@@ -133,7 +133,7 @@ class AlertManager:
                 alert_group_for(alert_type),
                 subject=f"[{severity}] {alert_type}: {message}",
                 body=self.format_alert_email(alert_type, severity, message, details),
-                bypass_cooldown=severity in COOLDOWN_BYPASS_SEVERITIES,
+                bypass_cooldown=str(severity).upper() in COOLDOWN_BYPASS_SEVERITIES,
             )
 
             return alert_doc

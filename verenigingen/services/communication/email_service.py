@@ -472,8 +472,8 @@ class EmailService(StatelessService):
             cooldown_scope: Optional. Narrows the per-recipient cooldown to this scope (e.g. a
                             chapter), so one recipient can get the same notification once per scope.
             bypass_cooldown: Optional. Skips ONLY the cooldown check, for an urgent send. The enable
-                             switch and user opt-outs still apply, and the send still records the
-                             cooldown, so lower-priority sends after it stay rate-limited.
+                             switch and user opt-outs still apply. It does not record the cooldown
+                             either, so it never uses up a rate-limited sender's slot.
         """
         try:
             # Check Verenigingen Email Configuration if available
@@ -597,7 +597,8 @@ class EmailService(StatelessService):
             # For audit trails, use Email Queue reports instead of Communication records.
 
             # Record cooldown for sent emails
-            if notification_key:
+            # A bypassing send does not take the rate-limited sends' slot (#2003).
+            if notification_key and not bypass_cooldown:
                 self._record_cooldown(notification_key, recipients, cooldown_scope)
 
             return OperationResult.ok(
