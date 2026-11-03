@@ -464,6 +464,173 @@ class TestMemberManager(VereningingenTestCase):
         )
         self.assertEqual(len(errored), 0, "board notification must not error on a populated board")
 
+    def _seat_active_board_member(self):
+        """Seat one active board member with an email; return that email."""
+        board_member = self.create_test_member(
+            first_name="Board",
+            last_name="JoinMail",
+            email=f"board.joinmail.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+        volunteer = self.create_test_volunteer(member_name=board_member.name)
+        role_name = f"BoardJoinMail{frappe.generate_hash(length=6)}"
+        frappe.get_doc(
+            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}
+        ).insert()
+        self.add_board_member_to_chapter(self.chapter, volunteer, role_name, email=board_member.email)
+        self._reload_chapter()
+        # The row's email is fetched from the Volunteer on save, so read it back rather than
+        # assuming the address we passed in.
+        return [r.email for r in self.chapter.board_members if r.is_active and r.email][-1]
+
+    def _own_join_key_row(self, enabled=1):
+        """Give ``chapter_join_request_submitted`` exactly one config row with ``enabled``.
+
+        A key with no Verenigingen Email Configuration row counts as disabled (#1959), so the
+        send is skipped unless a row exists. Seed only this key (not the whole registry, which
+        leaked 88 rows, #2029) and restore the original rows afterwards.
+
+        request_to_join commits mid-test, so the seeded row is COMMITTED; an uncommitted restore
+        would then be rolled back by the class rollback. The restore therefore commits too.
+        """
+        from verenigingen.notification_registry import NOTIFICATION_KEYS
+        from verenigingen.setup.notification_registry_setup import _registry_row
+
+        key = "chapter_join_request_submitted"
+        fields = [
+            f.fieldname
+            for f in frappe.get_meta("Email Notification Type").fields
+            if f.fieldtype != "Section Break"
+        ]
+        config = frappe.get_single("Verenigingen Email Configuration")
+        original = [{f: r.get(f) for f in fields} for r in config.notification_types]
+        self.addCleanup(self._cleanup_config_rows, original)
+
+        rows = [r for r in original if r["notification_key"] != key]
+        rows.append({**_registry_row(key, NOTIFICATION_KEYS[key]), "enabled": enabled})
+        config.set("notification_types", rows)
+        config.save()
+
+    @staticmethod
+    def _cleanup_config_rows(rows):
+        config = frappe.get_single("Verenigingen Email Configuration")
+        config.set("notification_types", rows)
+        config.save()
+        # request_to_join committed the seeded row, so only a committed restore leaves the site
+        # as we found it (#2029). Named _cleanup_* so the order-dependence scan records it as exempt.
+        frappe.db.commit()
+
+    @staticmethod
+    def _join_mails_to(address):
+        """Decoded HTML bodies of the "New Chapter Join Request" mails queued for ``address``."""
+        import email
+
+        parents = frappe.get_all("Email Queue Recipient", filters={"recipient": address}, pluck="parent")
+        bodies = []
+        for q in frappe.get_all("Email Queue", filters={"name": ["in", parents or [""]]}, fields=["message"]):
+            msg = email.message_from_string(q.message)
+            if "New Chapter Join Request" not in str(msg["Subject"]):
+                continue  # the board member also gets an unrelated welcome mail when seated
+            html = [
+                part.get_payload(decode=True).decode("utf-8")
+                for part in msg.walk()
+                if part.get_content_type() == "text/html"
+            ]
+            bodies.append(html[0])
+        return bodies
+
+    def test_request_to_join_really_mails_the_board(self):
+        """#2007: the board must actually receive the join-request mail.
+
+        The old call used send_notification("chapter_assignment"), which is not in that
+        method's map, so it returned fail("Unknown notification type") and the caller
+        discarded it: no mail, no log. Drives the real request_to_join (a Pending Chapter
+        Member row is written by raw SQL, so no after_insert board mail exists on this path).
+        """
+        self._own_join_key_row()
+        board_email = self._seat_active_board_member()
+
+        result = self.manager.request_to_join(self.member.name, notify=True)
+
+        self.assertTrue(result["success"], result)
+        mails = self._join_mails_to(board_email)
+        self.assertEqual(len(mails), 1, f"board got {len(mails)} join mails")
+        self.assertIn(self.chapter.name, mails[0])
+        self.assertIn(self.member.full_name, mails[0])
+        self.assertNotIn("join_request", mails[0], "the raw request_type slug is shown to the board")
+        # The review button must point at this chapter on this site (the template needs base_url).
+        # (the mail inliner percent-encodes the href)
+        from urllib.parse import quote
+
+        self.assertIn(f"{frappe.utils.get_url()}/app/chapter/{quote(self.chapter.name)}", mails[0])
+
+    def test_two_applicants_each_reach_the_board(self):
+        """#2007 F1: the per-recipient cooldown on the key must not swallow a second applicant.
+
+        Without cooldown_scope the second request, inside the 60 minute window, is skipped.
+        """
+        self._own_join_key_row()
+        board_email = self._seat_active_board_member()
+        second = self._make_member(first="Second")
+
+        self.assertTrue(self.manager.request_to_join(self.member.name, notify=True)["success"])
+        self.assertTrue(self.manager.request_to_join(second.name, notify=True)["success"])
+
+        mails = self._join_mails_to(board_email)
+        self.assertEqual(len(mails), 2, f"board got {len(mails)} join mails for 2 applicants")
+        self.assertTrue(any(self.member.full_name in m for m in mails))
+        self.assertTrue(any(second.full_name in m for m in mails))
+
+    def test_join_mail_honours_the_disabled_key(self):
+        """Control for the key: a disabled ``chapter_join_request_submitted`` row sends nothing.
+
+        Catches a send with the notification_key dropped or a different key.
+        """
+        self._own_join_key_row(enabled=0)
+        board_email = self._seat_active_board_member()
+
+        self.assertTrue(self.manager.request_to_join(self.member.name, notify=True)["success"])
+
+        self.assertEqual(self._join_mails_to(board_email), [])
+
+    def test_join_mail_skips_inactive_board_rows(self):
+        """An inactive board seat gets nothing; the active one (control) does."""
+        self._own_join_key_row()
+        active_email = self._seat_active_board_member()
+        inactive_email = self._seat_active_board_member()
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        for row in chapter.board_members:
+            if row.email == inactive_email:
+                row.is_active = 0
+        chapter.save()
+        self._reload_chapter()
+
+        self.assertTrue(self.manager.request_to_join(self.member.name, notify=True)["success"])
+
+        self.assertEqual(len(self._join_mails_to(active_email)), 1)
+        self.assertEqual(self._join_mails_to(inactive_email), [])
+
+    def test_join_request_board_mail_failure_is_logged_not_swallowed(self):
+        """#2007: a failed send result must reach the Error Log, not vanish."""
+        from unittest.mock import patch
+
+        from verenigingen.services.communication.email_service import EmailService
+        from verenigingen.utils.operation_result import OperationResult
+
+        self._seat_active_board_member()
+        # Mock justified: External Service - forces the send to report failure
+        with patch.object(
+            EmailService, "send_templated_email", return_value=OperationResult.fail("boom-2007")
+        ):
+            self.expectErrorLog("boom-2007")  # only suppresses; the assertion is below
+            start = frappe.utils.now()
+            self.manager.request_to_join(self.member.name, notify=True)
+
+        logged = frappe.get_all(
+            "Error Log", filters={"creation": [">=", start], "error": ["like", "%boom-2007%"]}
+        )
+        self.assertEqual(len(logged), 1, "the failed send result was discarded")
+
     def test_request_to_join_nonexistent_member_returns_failure(self):
         # request_to_join wraps its body in try/except and returns a failure dict
         # rather than raising (the throw is caught and reported).
