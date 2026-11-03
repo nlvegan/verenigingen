@@ -273,8 +273,6 @@ class SEPAAlertingSystem:
             "email_enabled": True,
             "sms_enabled": False,
             "webhook_enabled": True,
-            "default_recipients": ["admin@vereniging.nl", "finance@vereniging.nl"],
-            "escalation_recipients": ["manager@vereniging.nl", "director@vereniging.nl"],
             "escalation_delay_minutes": 30,
             "max_escalation_level": 3,
             "webhook_urls": [
@@ -536,14 +534,17 @@ Please investigate and acknowledge this alert when resolved.
         return message
 
     def _get_notification_recipients(self, alert: SEPAAlert) -> List[str]:
-        """Get notification recipients based on alert severity"""
-        recipients = self.notification_config.get("default_recipients", [])
+        """Get notification recipients: the financial admins, whatever the severity.
 
-        if alert.severity in [AlertSeverity.CRITICAL, AlertSeverity.EMERGENCY]:
-            escalation_recipients = self.notification_config.get("escalation_recipients", [])
-            recipients.extend(escalation_recipients)
+        No literal addresses (#2002): recipients come from Verenigingen Email Configuration
+        via the same resolver as the SEPA batch notifications; with nobody resolved it logs
+        an Error Log row and returns an empty list.
+        """
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+            get_financial_admin_emails,
+        )
 
-        return list(set(recipients))  # Remove duplicates
+        return get_financial_admin_emails()
 
     def check_security_incidents(self) -> List[SEPAAlert]:
         """
@@ -765,8 +766,7 @@ Please take immediate action to resolve this issue.
 
         # Send escalation notification via the unified EmailService (same path as
         # _send_email_notification, for cluster consistency).
-        escalation_recipients = self.notification_config.get("escalation_recipients", [])
-        for recipient in escalation_recipients:
+        for recipient in self._get_notification_recipients(alert):
             try:
                 get_email_service().send_simple_email(
                     recipients=[recipient],

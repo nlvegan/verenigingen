@@ -17,6 +17,8 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
+NO_RECIPIENTS_LOG_TITLE = "SEPA notification recipients"
+
 
 def _get_email_config_service():
     """Get EmailConfigurationService if available.
@@ -34,56 +36,69 @@ def _get_email_config_service():
         return None
 
 
-def get_financial_admin_emails():
+def get_financial_admin_emails(notification_key=None):
     """Get email addresses for financial administrators
 
     Priority:
     1. Verenigingen Email Configuration (Admin category recipients)
     2. Verenigingen Payments Settings.financial_admin_emails
-    3. Users with Financial Admin roles
-    4. Administrator (final fallback)
+    3. Enabled users with Financial Admin roles
+
+    The Administrator user is never a recipient (it is not in active use), and there is no
+    literal fallback address (#2002): when nobody resolves, or the lookup fails, an Error Log
+    row is written and the caller gets an empty list, which every caller treats as "send
+    nothing". ``notification_key`` only labels that Error Log row.
     """
     try:
-        # Try Verenigingen Email Configuration first
-        config_service = _get_email_config_service()
-        if config_service:
-            recipients = config_service.get_category_recipients("Admin")
+        for source in (_email_config_recipients, _payments_settings_recipients, _financial_role_recipients):
+            recipients = _without_administrator(source())
             if recipients:
-                return recipients
-
-        payments_settings = get_payments_settings()
-
-        # Get from settings if available
-        if hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
-            return [email.strip() for email in payments_settings.financial_admin_emails.split(",")]
-
-        # Fallback: get users with Financial Admin roles
-        financial_admins = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Accounts Manager"]]},
-            fields=["parent"],
-        )
-
-        if financial_admins:
-            emails = []
-            for admin in financial_admins:
-                user_email = frappe.db.get_value("User", admin.parent, "email")
-                if user_email:
-                    emails.append(user_email)
-            return emails
-
-        # Final fallback: Administrator
-        return [frappe.db.get_value("User", "Administrator", "email") or "admin@example.com"]
-
+                return list(dict.fromkeys(recipients))
+        reason = "no recipient is configured and no enabled user holds a financial admin role"
     except Exception as e:
-        frappe.log_error(f"Error getting financial admin emails: {str(e)}", "Notification System")
-        return ["admin@example.com"]
+        reason = f"the recipient lookup failed: {e}\n{frappe.get_traceback(with_context=False)}"
+
+    frappe.log_error(
+        title=NO_RECIPIENTS_LOG_TITLE,
+        message=f"Not sent ({notification_key or 'SEPA notification'}): {reason}. "
+        "Set recipients in Verenigingen Email Configuration (Admin category).",
+    )
+    return []
+
+
+def _email_config_recipients():
+    config_service = _get_email_config_service()
+    return (config_service.get_category_recipients("Admin") if config_service else None) or []
+
+
+def _payments_settings_recipients():
+    emails = getattr(get_payments_settings(), "financial_admin_emails", None)
+    return [email.strip() for email in emails.split(",") if email.strip()] if emails else []
+
+
+def _financial_role_recipients():
+    return frappe.get_all(
+        "User",
+        filters=[
+            ["enabled", "=", 1],
+            ["Has Role", "role", "in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Accounts Manager"]],
+        ],
+        pluck="email",
+    )
+
+
+def _without_administrator(recipients):
+    from verenigingen.utils.notification_helpers import _without_users
+
+    return _without_users([r for r in recipients if r], ["Administrator"])
 
 
 def send_critical_batch_notification(batch, errors):
     """Send urgent notification for blocked batches"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_error")
+        if not recipients:
+            return
 
         subject = f"🚨 URGENT: SEPA Batch {batch.name} Blocked - Manual Intervention Required"
 
@@ -135,7 +150,9 @@ def send_critical_batch_notification(batch, errors):
 def send_batch_warning_notification(batch, warnings):
     """Send informational notification for processed batches with warnings"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_warning")
+        if not recipients:
+            return
 
         subject = f"ℹ️ SEPA Batch {batch.name} Processed with Warnings"
 
@@ -185,7 +202,9 @@ def send_batch_warning_notification(batch, warnings):
 def send_daily_batch_summary(validation_summary, batch_result):
     """Send daily summary of batch processing results"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_success")
+        if not recipients:
+            return
 
         total_batches = sum(validation_summary.values())
         if total_batches == 0:
@@ -235,7 +254,9 @@ def send_daily_batch_summary(validation_summary, batch_result):
 def send_system_error_notification(error_message):
     """Send notification for system-level errors"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_error")
+        if not recipients:
+            return
 
         subject = f"🔥 CRITICAL: SEPA Batch System Error - {today()}"
 
@@ -326,7 +347,9 @@ def test_notification_system():
     """Test the notification system - for development/testing only"""
     try:
         # Test email configuration
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("email_template_test")
+        if not recipients:
+            return {"success": False, "error": "No recipients resolved; nothing was sent"}
 
         subject = "🧪 SEPA Notification System Test"
 
