@@ -541,7 +541,6 @@ verenigingen/verenigingen_payments/api/dd_batch_workflow_controller.py::get_batc
 verenigingen/verenigingen_payments/api/dd_batch_workflow_controller.py::reject_batch::1
 verenigingen/verenigingen_payments/api/dd_batch_workflow_controller.py::trigger_sepa_generation::1
 verenigingen/verenigingen_payments/api/dd_batch_workflow_controller.py::validate_batch_for_approval::1
-verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::get_financial_admin_emails::1
 verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::handle_automated_batch_validation::1
 verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::send_batch_warning_notification::1
 verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::send_critical_batch_notification::1
