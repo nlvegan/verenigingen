@@ -569,6 +569,17 @@ def _handle_existing_member(existing_member, data):
             },
         )
 
+    # Scenario 4: Active member - cannot reapply. Ahead of the application_status branches: that field is a
+    # Select with no default, so Frappe fills "Pending" for every Member that never had it written (a
+    # MijnRood import, most fixtures). An Active member reading "Pending" would otherwise be staged as a
+    # new application, and approving it overwrites the member's data and resets member_since (#1989).
+    if status == "Active":
+        return None, OperationResult.fail(
+            _("You are already an active member. Please login to manage your membership."),
+            errors=["already_active_member"],
+            context={"member_exists": True, "operation": "submit_application"},
+        )
+
     # Scenario 1: Rejected application - allow reapplication
     if app_status == "Rejected":
         frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
@@ -578,14 +589,6 @@ def _handle_existing_member(existing_member, data):
     if app_status == "Pending":
         frappe.logger().info(f"Update to pending application {member_name}")
         return "update", None
-
-    # Scenario 4: Active member - cannot reapply
-    if status == "Active":
-        return None, OperationResult.fail(
-            _("You are already an active member. Please login to manage your membership."),
-            errors=["already_active_member"],
-            context={"member_exists": True, "operation": "submit_application"},
-        )
 
     # Unknown status - block with contact message
     return None, _record_exists_failure()
