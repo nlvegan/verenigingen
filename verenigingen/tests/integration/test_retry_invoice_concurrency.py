@@ -12,6 +12,9 @@ The data has to be COMMITTED for the workers' connections to see it, so the fixt
 ``_create_*`` / ``_cleanup_*`` helpers (the sanctioned shape for a fixture commit) and removes what it
 committed afterwards. PROBE SHORTCUT, stated: invoicing is broken for the approval by pointing Verenigingen
 Settings at a company that does not exist, as test_approval_invoice_period does.
+
+BENCH NOTE: the committed approval enqueues the applicant's account creation. On this bench the RQ workers
+then pick it up and may create a User after teardown; CI has no workers, so nothing of the kind happens there.
 """
 
 import threading

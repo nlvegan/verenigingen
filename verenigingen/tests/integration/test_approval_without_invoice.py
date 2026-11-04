@@ -423,48 +423,123 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         with self.as_user(self.admin_user.email):
             self.assertNotIn(application, [r.name for r in get_approved_applications_without_invoice()])
 
-    def test_a_submitted_membership_invoice_blocks_the_retry_but_other_invoices_do_not(self):
-        """The 'already invoiced' predicate is Customer + is_membership_invoice + submitted. PROBE SHORTCUT,
-        stated: the marker is written back by hand to ask the predicate, with a membership invoice present."""
+    def test_a_submitted_non_membership_invoice_does_not_count_as_the_membership_invoice(self):
         application, member = self._approved_with_failed_invoice()
         self._fix_invoicing()
-        customer = frappe.db.get_value("Member", member, "customer")
-        draft = self.create_test_sales_invoice(member)  # submitted by the helper; not a membership invoice
+        other = self.create_test_sales_invoice(member)  # submitted by the helper; not a membership invoice
         self.assertEqual(
-            frappe.db.get_value("Sales Invoice", draft.name, ["docstatus", "is_membership_invoice"], as_dict=True),
+            frappe.db.get_value("Sales Invoice", other.name, ["docstatus", "is_membership_invoice"], as_dict=True),
             {"docstatus": 1, "is_membership_invoice": 0},
             "control: a submitted invoice that is not a membership invoice",
         )
-        self.assertEqual(frappe.db.get_value("Sales Invoice", draft.name, "customer"), customer)
         response, _mails = self._retry(application)
-        self.assertTrue(response["invoice"], "a submitted non-membership invoice does not block")
-        frappe.db.set_value("Membership Application Submission", application, "invoice_failed_on", now_datetime())
+        self.assertNotIn(response["invoice"], (None, other.name), "a membership invoice was created")
+
+    def _approve_with_failing_submit(self, application):
+        """Approve with the invoice INSERT succeeding and the SUBMIT failing: a draft membership invoice
+        remains. The boundary is the secure-operation wrapper the invoice goes through; the insert still runs."""
+        from types import SimpleNamespace
+
+        from verenigingen.services.member.approval import application_payments
+
+        real = application_payments.secure_document_operation
+
+        def fail_submit(*args, **kwargs):
+            if kwargs.get("operation") == "submit":
+                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+            return real(*args, **kwargs)
+
+        self.expectErrorLog("Membership Invoice Creation Failed", "Membership Invoice Security")
+        # Mock justified: External Service boundary - the submit step is made to fail, nothing else
+        with patch.object(application_payments, "secure_document_operation", fail_submit):
+            return self._approve_capturing_mail(application, create_invoice=True)
+
+    def test_a_draft_left_by_a_failed_submit_is_refused_and_no_second_invoice_is_created(self):
+        application = self._stage_and_confirm()
+        response, mails, _outcomes, _errors = self._approve_with_failing_submit(application)
+        member = response["member"]
+        self.assertTrue(response["invoice_failed"], response)
+        self.assertEqual(mails, [])
+        self.assertTrue(self._marker(application))
+        drafts = frappe.get_all(
+            "Sales Invoice",
+            {"customer": frappe.db.get_value("Member", member, "customer"), "is_membership_invoice": 1, "docstatus": 0},
+            pluck="name",
+        )
+        self.assertEqual(len(drafts), 1, "control: the failed submit left a draft membership invoice")
+
         with self.assertRaises(frappe.ValidationError) as refused:
             self._retry(application)
-        self.assertIn("already has a membership invoice", str(refused.exception))
+
+        self.assertIn("draft membership invoice exists", str(refused.exception))
+        self.assertEqual(self._invoices_of(member), drafts, "no second invoice")
+        self.assertTrue(self._marker(application), "the marker is kept")
+
+    def test_a_submitted_invoice_created_another_way_is_mailed_not_duplicated(self):
+        """PROBE SHORTCUT, stated: the 'other route' (scheduler or manual) is stood in for by calling the
+        approval's own invoice helper directly. The held mail must carry THAT invoice's link, and nothing new
+        is created."""
+        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        doc = frappe.get_doc("Member", member)
+        membership = frappe.get_doc("Membership", doc.current_membership_plan)
+        existing = MembershipCreationService()._create_membership_invoice(
+            doc, membership, frappe.get_doc("Membership Type", membership.membership_type)
+        )
+        self.assertEqual(existing.docstatus, 1, "control: a submitted membership invoice")
+
+        response, mails = self._retry(application)
+
+        self.assertEqual(response["invoice"], existing.name)
+        self.assertEqual(self._invoices_of(member), [existing.name], "nothing new was created")
+        self.assertEqual(len(mails), 1)
+        self.assertIn(f"/payment/membership/{member}/{existing.name}", mails[0]["content"])
+        self.assertFalse(self._marker(application))
+
+    def test_a_failed_mail_keeps_the_marker_and_the_next_retry_resends_without_a_new_invoice(self):
+        from verenigingen.utils.operation_result import OperationResult
+
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        self.expectErrorLog("Approval Email Failed")
+        # Mock justified: External Service - SMTP delivery fails
+        with patch.object(EmailService, "_send_email_internal", return_value=OperationResult.fail("smtp down")):
+            response, _mails = self._retry(application)
+        self.assertTrue(response["invoice"])
+        self.assertFalse(response["mail_sent"])
+        self.assertTrue(self._marker(application), "no mail went out, so the marker stays")
+
+        second, mails = self._retry(application)
+
+        self.assertEqual(second["invoice"], response["invoice"])
+        self.assertEqual(self._invoices_of(member), [response["invoice"]], "no second invoice")
+        self.assertEqual(len(mails), 1)
+        self.assertTrue(second["mail_sent"])
+        self.assertFalse(self._marker(application))
 
     def test_a_late_retry_covers_the_period_approval_would_have(self):
         """The first invoice discharges the running period from the membership's start, not from the day of
-        the retry; otherwise the schedule's next invoice (approval + period) would overlap it. PROBE SHORTCUT,
-        stated: the membership start and the schedule's next_invoice_date are moved back 10 days to stand in
-        for a retry made 10 days after the approval."""
+        the retry; otherwise the schedule's next invoice would overlap it. The schedule's next_invoice_date is
+        the one the REAL approval wrote (approval + period). PROBE SHORTCUT, stated: the membership start and
+        that date are both moved back by the same ONE MONTH (the fixture's frequency is Monthly), standing in for a
+        retry made a period after approval."""
         application, member = self._approved_with_failed_invoice()
         self._fix_invoicing()
         plan = frappe.db.get_value("Member", member, "current_membership_plan")
-        start = add_days(today(), -10)
+        schedule = frappe.db.get_value("Membership Dues Schedule", {"member": member, "is_template": 0}, "name")
+        written = frappe.db.get_value("Membership Dues Schedule", schedule, "next_invoice_date")
+        start = add_months(frappe.db.get_value("Membership", plan, "start_date"), -1)
         frappe.db.set_value("Membership", plan, "start_date", start)
-        schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": member, "is_template": 0}, "name"
-        )
-        frappe.db.set_value("Membership Dues Schedule", schedule, "next_invoice_date", add_months(start, 1))
+        frappe.db.set_value("Membership Dues Schedule", schedule, "next_invoice_date", add_months(written, -1))
 
         response, _mails = self._retry(application)
 
         invoice = frappe.get_doc("Sales Invoice", response["invoice"])
         self.assertEqual(getdate(invoice.custom_coverage_start_date), getdate(start))
-        next_due = frappe.db.get_value("Membership Dues Schedule", schedule, "next_invoice_date")
         self.assertEqual(
             add_days(getdate(invoice.custom_coverage_end_date), 1),
-            getdate(next_due),
+            getdate(add_months(written, -1)),
             "the next period starts the day after this one ends: no overlap, no gap",
         )
