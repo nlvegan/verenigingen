@@ -93,6 +93,10 @@ after_migrate = [
     # fixture and makes our own DocTypes' JSON permissions win over frozen Custom DocPerm
     # rows (#1621/#1622). Last, so every role it grants to already exists.
     "verenigingen.setup.custom_docperm_setup.apply_custom_permissions",
+    # A key added after a site's install has no Email Configuration row, so it counts as disabled
+    # and its alerts are skipped silently (#2037, maintainer ruling 2026-11-03). Only ADDS rows:
+    # existing ones, disabled included, are never touched. No save when nothing is missing.
+    "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
 ]
 
 # Run before test suite executes
