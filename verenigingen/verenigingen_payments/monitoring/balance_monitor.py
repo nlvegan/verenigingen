@@ -439,12 +439,18 @@ class BalanceMonitor:
     def _send_emergency_notification(self, alert: Dict, action: Dict):
         """Send emergency notification"""
         try:
-            # Send email notification
-            email_service = get_email_service()
-            email_service.send_simple_email(
-                recipients=["finance@company.com"],
-                subject=f"EMERGENCY: {alert['message']}",
-                message=f"""
+            # No literal fallback address (#2002): with nobody resolved the resolver has written
+            # an Error Log row and no mail is sent; the realtime alert below still goes out.
+            from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+                get_financial_admin_emails,
+            )
+
+            recipients = get_financial_admin_emails("balance_monitor_alert")
+            if recipients:
+                get_email_service().send_simple_email(
+                    recipients=recipients,
+                    subject=f"EMERGENCY: {alert['message']}",
+                    message=f"""
                 Emergency Alert:
 
                 Type: {alert['type']}
@@ -455,8 +461,8 @@ class BalanceMonitor:
 
                 Please review immediately.
                 """,
-                notification_key="balance_monitor_alert",
-            )
+                    notification_key="balance_monitor_alert",
+                )
 
             # Send realtime notification
             frappe.publish_realtime(
