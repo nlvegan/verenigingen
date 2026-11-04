@@ -695,8 +695,14 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.assertIn(member.name, logs[0])
         self.assertFalse(orch.is_acr_queued(member.name))
 
+        # Same event: the volunteer entry point still reports, but does not log a second row.
         volunteer_result = orch._ensure_user_account_for_volunteer(member.name)
         self.assertIn(failed, volunteer_result or "")
+        self.assertEqual(len(self._blocked_logs(failed)), 1)
+
+        # A new event (dispatcher resets the dedup set) reports again.
+        orch.reset_acr_dedup()
+        orch._ensure_user_account(member.name)
         self.assertEqual(len(self._blocked_logs(failed)), 2)
 
     def test_control_open_blocker_stays_a_silent_skip(self):
@@ -705,7 +711,13 @@ class TestEnsureUserAccount(EnhancedTestCase):
         orch = get_related_records_orchestrator()
         open_member = _create_member_without_user(self, "OpenBlock", "open-block@example.org")
         open_failed = self._insert_failed_acr(open_member)
-        frappe.db.set_value("Account Creation Request", open_failed, "status", "Requested")  # probe shortcut
+        # Real recovery flow: retry_processing() moves it Failed -> Requested -> Queued.
+        with patch("frappe.enqueue"):
+            frappe.get_doc("Account Creation Request", open_failed).retry_processing()
+        self.assertIn(
+            frappe.db.get_value("Account Creation Request", open_failed, "status"),
+            ("Requested", "Queued"),
+        )
         before = frappe.db.count("Error Log", {"method": "MijnRood account creation blocked"})
         self.assertIsNone(orch._ensure_user_account(open_member.name))
         self.assertEqual(frappe.db.count("Error Log", {"method": "MijnRood account creation blocked"}), before)
