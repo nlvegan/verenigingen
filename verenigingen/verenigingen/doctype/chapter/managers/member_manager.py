@@ -463,28 +463,36 @@ class MemberManager(BaseManager):
                     board_members.append(board_member.email)
 
             if board_members:
-                # MIGRATED: Use unified EmailService for chapter join requests
                 from verenigingen.services.communication.email_service import get_email_service
 
-                email_service = get_email_service()
-
-                # Prepare context for chapter join request template
                 context = {
                     "member": member_doc,
                     "member_name": member_doc.full_name,
                     "chapter": self.chapter_doc,
                     "chapter_name": self.chapter_name,
-                    "request_type": "join_request",
+                    "request_type": _("Join Request"),
+                    "base_url": frappe.utils.get_url(),
                 }
 
-                # Send using chapter assignment notification
-                email_service.send_notification(
-                    notification_type="chapter_assignment",
+                # WHY send_templated_email, not send_notification("chapter_assignment"): that
+                # type is not in send_notification's map, so it returned fail() and the board
+                # was never mailed (#2007). The result is checked: a failure must be logged.
+                result = get_email_service().send_templated_email(
+                    template_name="Chapter Assignment Notification",
                     recipients=board_members,
-                    data=context,
+                    context=context,
                     reference_doctype="Chapter",
                     reference_name=self.chapter_name,
+                    notification_key="chapter_join_request_submitted",
+                    # Per applicant: the key's 60 minute per-recipient cooldown would otherwise
+                    # swallow the board mail for every applicant after the first.
+                    cooldown_scope=member_id,
                 )
+                if not result.success:
+                    frappe.log_error(
+                        title="Chapter join request board mail failed",
+                        message=f"{self.chapter_name}: member {member_id}: {result.error_message}",
+                    )
         except Exception as e:
             frappe.log_error(f"Error sending join request notification: {str(e)}")
 
