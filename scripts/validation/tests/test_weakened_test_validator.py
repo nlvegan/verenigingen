@@ -4,7 +4,9 @@
 Pure-Python (no bench/site). Run with:
     python -m unittest discover -s scripts/validation/tests -p 'test_weakened_test_validator.py'
 """
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
@@ -131,6 +133,53 @@ class TestRemoved(unittest.TestCase):
         self.assertEqual(names(r.removed), ["TestA.test_x"])
 
 
+def _case(cls, name, n_asserts=2):
+    body = "        m = make_member()\n        i = make_invoice(m)\n" + "        self.assertTrue(i)\n" * n_asserts
+    return f"class {cls}(Base):\n    def {name}(self):\n{body}"
+
+
+class TestRenamePairing(unittest.TestCase):
+    """#2061 review F1: phase 3 must not pair unrelated tests."""
+
+    def test_deleted_test_plus_unrelated_new_test_still_reports_the_removal(self):
+        keep = "    def test_keep(self):\n        self.assertTrue(x())\n"
+        gone = (
+            "    def test_gone(self):\n        m = make_member()\n        i = make_invoice(m)\n"
+            "        self.assertTrue(i)\n        self.assertTrue(m)\n"
+        )
+        new = (
+            "    def test_new_feature(self):\n        m = make_member()\n        i = make_invoice(m)\n"
+            "        self.assertTrue(i)\n"
+        )
+        base = {"t/test_a.py": "class TestA(Base):\n" + keep + gone}
+        head = {"t/test_a.py": "class TestA(Base):\n" + keep + new}
+        r = run(base, head)
+        self.assertEqual(names(r.removed), ["TestA.test_gone"])
+        self.assertEqual(r.assertions_removed, [])
+
+    def test_control_same_body_in_another_class_is_not_a_rename(self):
+        base = {"t/test_a.py": _case("TestA", "test_create_member_flow")}
+        head = {"t/test_a.py": _case("TestB", "test_create_member_flow_again")}
+        self.assertEqual(names(run(base, head).removed), ["TestA.test_create_member_flow"])
+
+    def test_control_same_body_in_another_file_is_not_a_rename(self):
+        base = {"t/test_a.py": _case("TestA", "test_create_member_flow")}
+        head = {"t/test_b.py": _case("TestA", "test_create_member_flow_again")}
+        self.assertEqual(names(run(base, head).removed), ["TestA.test_create_member_flow"])
+
+    def test_control_same_class_same_body_but_unrelated_name_is_not_a_rename(self):
+        base = {"t/test_a.py": _case("TestA", "test_gone")}
+        head = {"t/test_a.py": _case("TestA", "test_new_feature")}
+        self.assertEqual(names(run(base, head).removed), ["TestA.test_gone"])
+
+    def test_genuine_rename_in_same_file_and_class_is_still_paired(self):
+        base = {"t/test_a.py": _case("TestA", "test_create_member_flow", 3)}
+        head = {"t/test_a.py": _case("TestA", "test_create_member_flow_renamed", 3)}
+        r = run(base, head)
+        self.assertEqual(r.removed, [])
+        self.assertEqual(r.assertions_removed, [])
+
+
 class TestAssertionsRemoved(unittest.TestCase):
     def test_two_assertions_removed_is_reported(self):
         head = src(
@@ -195,6 +244,25 @@ class TestAssertionsRemoved(unittest.TestCase):
     def test_control_asserts_added_are_not_reported(self):
         head = THREE_ASSERTS + "            self.assertTrue(z())\n"
         r = run({"t/test_a.py": THREE_ASSERTS}, {"t/test_a.py": head})
+        self.assertEqual(r.assertions_removed, [])
+
+
+    def test_test_body_reduced_to_pass_is_reported(self):
+        base = src("class T(B):\n    def test_x(self):\n        self.assertTrue(f())\n")
+        head = src("class T(B):\n    def test_x(self):\n        pass\n")
+        r = run({"t/test_a.py": base}, {"t/test_a.py": head})
+        self.assertEqual(names(r.assertions_removed), ["T.test_x"])
+        self.assertEqual((r.assertions_removed[0].before, r.assertions_removed[0].after), (1, 0))
+
+    def test_control_one_assertion_kept_of_one_is_not_reported(self):
+        base = src("class T(B):\n    def test_x(self):\n        self.assertTrue(f())\n")
+        head = src("class T(B):\n    def test_x(self):\n        self.assertTrue(g())\n")
+        r = run({"t/test_a.py": base}, {"t/test_a.py": head})
+        self.assertEqual(r.assertions_removed, [])
+
+    def test_control_zero_to_zero_is_not_reported(self):
+        both = src("class T(B):\n    def test_x(self):\n        f()\n")
+        r = run({"t/test_a.py": both}, {"t/test_a.py": both})
         self.assertEqual(r.assertions_removed, [])
 
 
@@ -367,6 +435,45 @@ class TestGitAndCli(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0)
             self.assertIn("skipped", proc.stdout.lower())
+
+
+    def test_non_utf8_test_file_does_not_crash_and_exits_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "tests").mkdir()
+            self.git(root, "init", "-q", "-b", "develop")
+            (root / "tests" / "test_a.py").write_bytes(
+                b"# caf\xe9\nclass TestA(Base):\n    def test_x(self):\n        self.assertTrue(f())\n"
+            )
+            self.git(root, "add", "-A")
+            self.git(root, "commit", "-qm", "base")
+            self.git(root, "checkout", "-qb", "feature")
+            (root / "tests" / "test_a.py").write_bytes(
+                b"# caf\xe9\nclass TestA(Base):\n    def test_x(self):\n        pass\n"
+            )
+            self.git(root, "commit", "-qam", "weaken")
+            proc = subprocess.run(
+                [sys.executable, str(_MOD_PATH), "--base", "develop", "--repo", str(root)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("Traceback", proc.stderr)
+            # decoded with replacement, so the check still runs and sees the weakening
+            self.assertNotIn("skipped", proc.stdout)
+            self.assertIn("TestA.test_x", proc.stdout)
+
+    def test_any_unexpected_exception_fails_open(self):
+        original = wtv.collect
+        wtv.collect = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = wtv.main(["--base", "x", "--repo", "."])
+        finally:
+            wtv.collect = original
+        self.assertEqual(rc, 0)
+        self.assertIn("Weakened-test check skipped", buf.getvalue())
+        self.assertIn("boom", buf.getvalue())
 
 
 if __name__ == "__main__":

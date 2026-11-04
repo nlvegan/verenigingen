@@ -6,7 +6,8 @@ Compares the test files a branch changes against the merge base and lists:
 1. tests removed (counted across ALL changed test files, so a moved test is not
    a finding; a test removed together with the production code it exercised is
    listed separately as "cleanup");
-2. assertions removed: >= 2 assertion calls gone from a test that still exists;
+2. assertions removed: >= 2 assertion calls gone from a test that still exists, or
+   any test that had assertions and now has none;
 3. constant asserts added (``assertTrue(True)``, ``assert True``, ``assertEqual(1, 1)``);
 4. new skips (``skipTest``, skip decorators, ``raise SkipTest``, an early
    ``return`` before the first assertion).
@@ -17,16 +18,22 @@ diff-only: it needs no baseline and never reports pre-existing constant asserts.
 
 Matching base tests to head tests (so moves/renames are not removals):
   1. same (class, method) name; 2. same method name in any class/file;
-  3. a rename: the remaining base/head tests whose non-assert identifiers overlap
-     (containment >= 0.6 of the smaller set, >= 1 shared). A paired rename is
-     still subject to the assertion-removal and skip checks.
+  3. a rename: a remaining base/head test pair in the SAME file and class whose
+     non-assert identifiers overlap strongly (containment >= 0.8, >= 3 shared, or all of a smaller body) AND
+     whose name tokens overlap (containment >= 0.5). A cross-file move keeps its
+     name and is handled by 2. A paired rename is still subject to the
+     assertion-removal and skip checks.
 
 Assertions-removed suppression: if the head test gained a call to a NEW
 ``assert*/verify*/check*/expect*`` helper that the base test did not call, the
 assertions are assumed delegated to it (e.g. ``self.assertDocExists``), so the
 drop is not reported. Helper bodies are not inspected.
 
-ADVISORY: always exits 0. Overlap check: ``harness_super_skip_validator.py``
+OUT OF SCOPE (never touches a test file, or is not a count): fixture or production-code
+edits that make tests pass (#1989; #1447's always-True mutant), weak predicates such as
+``assertGreaterEqual(x, 0)``, and assertions wrapped in ``try/except``.
+
+ADVISORY: always exits 0, even on undecodable files or unexpected errors. Overlap check: ``harness_super_skip_validator.py``
 guards setUp/tearDown ``super()`` calls, not skips, so nothing is reused from it.
 
 Usage:
@@ -47,6 +54,11 @@ MIN_ASSERTIONS_REMOVED = 2
 SKIP_DECORATORS = {"skip", "skipIf", "skipUnless", "skipif", "expectedFailure", "xfail"}
 HELPER_PREFIXES = ("assert", "_assert", "verify", "_verify", "check", "_check", "expect", "_expect")
 MIN_SYMBOL_LEN = 5
+# Rename pairing (phase 3): same file AND class, and both the body identifiers and the
+# name tokens must agree. Shared fixture/helper names alone are not evidence of a rename.
+RENAME_MIN_BODY_OVERLAP = 0.8
+RENAME_MIN_SHARED_IDENTS = 3
+RENAME_MIN_NAME_OVERLAP = 0.5
 
 
 @dataclass
@@ -254,6 +266,26 @@ def _overlap(a, b):
     return (shared / small if small else 0.0, shared)
 
 
+def _name_tokens(name):
+    return frozenset(t for t in name.lower().split("_") if t and t != "test")
+
+
+def _is_rename(b, h):
+    """Same file and class, similar body identifiers AND similar name tokens."""
+    if (b.path, b.cls) != (h.path, h.cls):
+        return None
+    body = _overlap(b.idents, h.idents)
+    # A rename that gutted its body shares few identifiers: cap the requirement at the
+    # smaller body so it is still paired (and its dropped assertions reported).
+    needed = min(RENAME_MIN_SHARED_IDENTS, len(b.idents), len(h.idents))
+    if body[0] < RENAME_MIN_BODY_OVERLAP or body[1] < max(needed, 1):
+        return None
+    name = _overlap(_name_tokens(b.name), _name_tokens(h.name))
+    if name[0] < RENAME_MIN_NAME_OVERLAP or name[1] < 1:
+        return None
+    return body, name
+
+
 def match_tests(base, head):
     """Pair base tests with head tests. -> (pairs, unmatched_base, unmatched_head)."""
     pairs, ub, uh = [], list(base), list(head)
@@ -277,10 +309,10 @@ def match_tests(base, head):
     phase(lambda f: (f.cls, f.name))
     phase(lambda f: f.name)
     for b in list(ub):
-        best, best_score = None, (0.0, 0)
+        best, best_score = None, None
         for h in uh:
-            score = _overlap(b.idents, h.idents)
-            if score[0] >= 0.6 and score[1] >= 1 and (score, h.cls == b.cls) > (best_score, best and best.cls == b.cls):
+            score = _is_rename(b, h)
+            if score is not None and (best_score is None or score > best_score):
                 best, best_score = h, score
         if best is not None:
             pairs.append((b, best))
@@ -329,7 +361,8 @@ def compare(base_tests, head_tests, base_prod=None, head_prod=None):
 
     for b, h in pairs:
         dropped = b.assertions - h.assertions
-        if dropped >= MIN_ASSERTIONS_REMOVED and not (h.delegates - b.delegates):
+        emptied = b.assertions > 0 and h.assertions == 0
+        if (dropped >= MIN_ASSERTIONS_REMOVED or emptied) and not (h.delegates - b.delegates):
             item = Finding(h.qual, h.path, h.line, before=b.assertions, after=h.assertions)
             # Asserting on code that was deleted in this diff is cleanup, not weakening.
             gone = (b.idents - h.idents) & removed_symbols
@@ -379,7 +412,7 @@ def _new_skips(rep, pairs, unmatched_head, base_funcs, head_funcs, base_cls, hea
 
 
 def _git(repo, *args):
-    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
 
 
 def _is_test_path(path):
@@ -454,11 +487,9 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         merge_base, bt, ht, bp, hp = collect(args.repo, args.base, args.head)
-    except (subprocess.CalledProcessError, OSError) as e:
-        print(f"Weakened-test check skipped: cannot diff {args.base}...{args.head} ({str(e)[:120]})")
-        return 0
-    rep = compare(bt, ht, bp, hp)
-    print(format_report(rep, f" vs {merge_base[:9]}"))
+        print(format_report(compare(bt, ht, bp, hp), f" vs {merge_base[:9]}"))
+    except Exception as e:  # advisory: never block a push, whatever went wrong
+        print(f"Weakened-test check skipped: {type(e).__name__}: {str(e)[:120]}")
     return 0
 
 
