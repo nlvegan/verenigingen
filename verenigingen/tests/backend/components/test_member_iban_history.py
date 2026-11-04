@@ -383,17 +383,28 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
         self.assertEqual(getdate(reloaded_row.to_date), getdate(today()))
 
     # ------------------------------------------------------------------ #2022
-    def _member_with_iban_and_blank_holder(self):
-        """A Member with an IBAN and a blank holder, built the way legacy rows are.
+    def _member_with_iban_and_blank_holder(self, **extra):
+        """A Member with an IBAN and no holder, built by the REAL flow that makes them:
+        MemberImportService.create (CSV import / MijnRood map the IBAN and no holder;
+        a Bank Transfer member needs no holder either)."""
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
 
-        Probe shortcut, stated: the blank holder is written with db.set_value (bypassing
-        validate) because every real entry point that creates a Member with an IBAN now
-        supplies a holder; the legacy/imported state this models is a row that already
-        has one. The IBAN CHANGE below then goes through a real Member.save().
-        """
-        member = self.create_test_member(iban="NL91ABNA0417164300", bank_account_name="Holder One")
-        frappe.db.set_value("Member", member.name, "bank_account_name", "", update_modified=False)
-        return frappe.get_doc("Member", member.name)
+        suffix = frappe.generate_hash(length=6)
+        status, name = get_member_import_service().create_or_update_member(
+            row_data={
+                "first_name": "Holderless",
+                "last_name": "T" + suffix,
+                "email": f"holderless.{suffix}@example.invalid",
+                "iban": "NL91ABNA0417164300",
+                **extra,
+            },
+            import_doc_name="TEST-2022",
+        )
+        self.assertEqual(status, "created", status)
+        member = frappe.get_doc("Member", name)
+        self.assertTrue(member.iban)
+        self.assertFalse(member.bank_account_name)
+        return member
 
     def _assert_refused_for_holder(self, member):
         with self.assertRaises(frappe.ValidationError) as ctx:
@@ -411,14 +422,17 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
             0,
         )
 
-    def test_iban_change_with_whitespace_holder_is_refused(self):
+    def test_iban_change_with_whitespace_holder_is_refused_by_the_guard(self):
+        """Via save() a whitespace holder is refused earlier still, by validate_iban_format's
+        holder-name check ("Bank details validation failed"), so the guard is exercised
+        directly: track_iban_change() must treat whitespace as blank."""
         member = self._member_with_iban_and_blank_holder()
         member.iban = "NL69INGB0123456789"
         member.bank_account_name = "   "
-        # Refused by the earlier holder-name validator before the #2022 guard is reached; either way
-        # it must not get as far as the history row.
-        with self.assertRaises(frappe.ValidationError):
-            member.save()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            member.track_iban_change()
+        self.assertIn("account holder", str(ctx.exception).lower())
+        self.assertEqual(len(member.iban_history), 0)
 
     def test_iban_change_with_holder_still_succeeds(self):
         """Control: the same change with a holder filled in records history as before."""
@@ -436,6 +450,19 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
         member = self._member_with_iban_and_blank_holder()
         member.first_name = "Renamed"
         member.save()
+
+    def test_unspaced_stored_iban_with_blank_holder_is_not_a_change(self):
+        """A legacy unspaced stored IBAN is re-spaced by validate_iban_format before
+        has_value_changed runs. A rename must not be read as an IBAN change (and must not add
+        a spurious history row). Stored value set directly: the unspaced form is the legacy state."""
+        member = self._member_with_iban_and_blank_holder()
+        frappe.db.set_value("Member", member.name, "iban", "NL91ABNA0417164300", update_modified=False)
+        member = frappe.get_doc("Member", member.name)
+        rows_before = len(member.iban_history)
+        member.first_name = "Renamed"
+        member.save()
+        member.reload()
+        self.assertEqual(len(member.iban_history), rows_before)
 
     def test_first_iban_set_with_blank_holder_is_not_refused(self):
         """Control: blank -> IBAN is not a change (track_iban_change records nothing then)."""

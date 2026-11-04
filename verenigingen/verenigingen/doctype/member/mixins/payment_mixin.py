@@ -12,6 +12,11 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+def _normalise_iban(iban):
+    """Spaces and case do not make a different IBAN."""
+    return (iban or "").replace(" ", "").upper()
+
+
 class PaymentMixin:
     """Mixin for payment-related functionality"""
 
@@ -368,14 +373,17 @@ class PaymentMixin:
         # refusal raised by the holder check and turn it back into a raw MandatoryError
         # on the history child row (#2022).
         old_iban = frappe.db.get_value("Member", self.name, "iban")
-        if old_iban and old_iban != self.iban and not self.bank_account_name:
+        # validate_iban_format has already re-spaced self.iban, so a legacy unspaced
+        # stored value differs textually from an untouched IBAN: compare normalised.
+        iban_changed = bool(old_iban) and _normalise_iban(old_iban) != _normalise_iban(self.iban)
+        if iban_changed and not (self.bank_account_name or "").strip():
             frappe.throw(
                 _("Please fill in the account holder (Account Holder Name) before changing the IBAN."),
                 title=_("Account holder required"),
             )
 
         try:
-            if old_iban and old_iban != self.iban:
+            if iban_changed:
                 # Deactivate previous IBAN history records in memory so Frappe
                 # persists the change when saving the child table.
                 for row in self.iban_history:
