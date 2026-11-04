@@ -17,6 +17,8 @@ from typing import Optional
 import frappe
 from frappe.utils import flt
 
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
+
 
 def find_journal_entry_by_reference(reference_number: str) -> Optional[str]:
     """Name of a live Journal Entry carrying this reference key, or None.
@@ -126,10 +128,9 @@ def reconcile_bank_transaction_with_journal_entry(
 
         total_allocated = sum(flt(row.allocated_amount) for row in bt.payment_entries)
         line_amount = flt(bt.deposit or 0) or flt(bt.withdrawal or 0)
-        if line_amount and total_allocated >= line_amount:
-            bt.status = "Reconciled"
-
         bt.save()
+        if line_amount and total_allocated >= line_amount:
+            persist_draft_status(bt, "Reconciled")
         frappe.db.commit()
 
         frappe.logger().info(
