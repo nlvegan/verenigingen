@@ -1629,6 +1629,35 @@ jobs:
     - name: Whole-tree check
       run: python scripts/validation/template_escaping_validator.py
 
+  # #2061: advisory check for test changes that make the suite easier to pass.
+  # NON-BLOCKING by design (the script always exits 0 and the job is
+  # continue-on-error); whether it ever gates is decided after its false-positive
+  # rate is known. Stdlib-only; pull_request only because it diffs against the base.
+  weakened-tests-advisory:
+    name: 🪶 Weakened Test Check (advisory)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # merge-base needs the history of both sides.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_weakened_test_validator.py' -v
+
+    - name: Weakened test check (advisory)
+      run: python scripts/validation/weakened_test_validator.py --base "origin/${{ github.base_ref }}"
+
   # The former `integration-test` job was deleted in PR #53.
   # It invoked scripts/testing/runners/validation_test_runner.py, which was
   # removed on 2026-03-03 by the test-suite Phase 1 dead-code sweep (commit
