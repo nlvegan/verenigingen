@@ -598,6 +598,9 @@ class TestMemberManager(VereningingenTestCase):
         self._reload_chapter()
         row = self.manager._find_chapter_member(member.name)
         self.assertEqual((row.status, row.enabled), ("Inactive", 1), "control: the rejoin state")
+        # #2021: only an Active member may request. Reinstatement is a db_set shortcut here (the
+        # row state above is the part driven through real writers).
+        member.db_set("status", "Active")
 
         result = self.manager.request_to_join(member.name, notify=True)
 
