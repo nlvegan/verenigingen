@@ -7,27 +7,32 @@ Email Notification Type row for its key. Local sites carry none, CI's fresh inst
 them (#1998), so the same test checks different things in the two places.
 
 ``own_notification_keys`` makes the state the test's own: it seeds exactly the keys it names
-(enabled, no cooldown), switches the master switch on, clears the Redis cooldown keys, and restores
-the child rows afterwards. ``singleton_backup`` is not an option for the rows: it does not restore
+(enabled, cooldown 0, so Redis is never read), switches the master switch on, and restores the
+child rows and the switch afterwards. ``singleton_backup`` is not an option for the rows: it does not restore
 child tables (#2029).
+
+Caveat: the restore is uncommitted, like the seed, so the surrounding rollback undoes both. A
+``frappe.db.commit()`` inside the test body (or in code it calls) makes the seed permanent for every
+later class, and the uncommitted restore cannot undo it. The helper does not commit to work around
+that; it notices the commit at cleanup and fails the test, so the leak is loud instead of silent.
 """
 
 import frappe
-
-from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns
 
 DOCTYPE = "Verenigingen Email Configuration"
 
 
 def own_notification_keys(test, *keys):
-    """Enable ``keys`` with no cooldown for ``test``; undo it (rows, master switch, cooldowns) afterwards."""
+    """Enable ``keys`` with no cooldown for ``test``; undo it (rows, master switch) afterwards."""
     from verenigingen.notification_registry import NOTIFICATION_KEYS
     from verenigingen.setup.notification_registry_setup import _registry_row
 
     config = frappe.get_single(DOCTYPE)
     snapshot = _snapshot_rows(config)
     master = config.master_email_enabled
-    test.addCleanup(_restore_notification_rows, snapshot, master)
+    committed = []
+    frappe.db.before_commit.add(lambda: committed.append(True))  # runs on commit, dropped on rollback
+    test.addCleanup(_restore_notification_rows, snapshot, master, committed)
 
     config.set("notification_types", [r for r in config.notification_types if r.notification_key not in keys])
     for key in keys:
@@ -36,7 +41,6 @@ def own_notification_keys(test, *keys):
         config.append("notification_types", row)
     config.master_email_enabled = 1
     config.save()
-    clear_email_cooldowns()
 
 
 def queued_mail_count(recipient):
@@ -50,9 +54,14 @@ def _snapshot_rows(config):
     return [{f: r.get(f) for f in fields} for r in config.notification_types]
 
 
-def _restore_notification_rows(snapshot, master):
+def _restore_notification_rows(snapshot, master, committed=()):
     config = frappe.get_single(DOCTYPE)
     config.set("notification_types", snapshot)
     config.master_email_enabled = master
     config.save()
-    clear_email_cooldowns()
+    if committed:
+        raise AssertionError(
+            "frappe.db.commit() ran while own_notification_keys was active, so the seeded "
+            "notification rows and master switch are now permanent for later tests; remove the "
+            "commit from the test (or the code it calls) rather than from this check"
+        )

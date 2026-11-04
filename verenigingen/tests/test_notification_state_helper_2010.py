@@ -91,3 +91,13 @@ class TestOwnNotificationKeys(FrappeTestCase):
         self.owner.doCleanups()
         self.assertEqual(_config_rows_2010()[KEY], (0, 1440))
         self.assertEqual(frappe.get_single(DOCTYPE).master_email_enabled, 0)
+
+    def test_a_commit_while_the_keys_are_owned_fails_the_cleanup_loudly(self):
+        """A commit makes the seed permanent (the restore is uncommitted), so it must not pass silently."""
+        own_notification_keys(self.owner, KEY)
+        frappe.db.commit()  # Probe: stands in for production code under test that commits
+
+        self.assertFalse(self.owner.doCleanups(), "the cleanup must report the leak")
+        # What the commit persisted is undone here, by hand, as this test is the one that committed it
+        self._put_state_back()
+        frappe.db.commit()
