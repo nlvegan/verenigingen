@@ -382,6 +382,84 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
         self.assertFalse(reloaded_row.is_active)
         self.assertEqual(getdate(reloaded_row.to_date), getdate(today()))
 
+    # ------------------------------------------------------------------ #2022
+    def _member_with_iban_and_blank_holder(self):
+        """A Member with an IBAN and a blank holder, built the way legacy rows are.
+
+        Probe shortcut, stated: the blank holder is written with db.set_value (bypassing
+        validate) because every real entry point that creates a Member with an IBAN now
+        supplies a holder; the legacy/imported state this models is a row that already
+        has one. The IBAN CHANGE below then goes through a real Member.save().
+        """
+        member = self.create_test_member(iban="NL91ABNA0417164300", bank_account_name="Holder One")
+        frappe.db.set_value("Member", member.name, "bank_account_name", "", update_modified=False)
+        return frappe.get_doc("Member", member.name)
+
+    def _assert_refused_for_holder(self, member):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            member.save()
+        self.assertNotIsInstance(ctx.exception, frappe.MandatoryError)
+        self.assertIn("account holder", str(ctx.exception).lower())
+
+    def test_iban_change_with_blank_holder_is_refused_with_a_clear_message(self):
+        """#2022: refused before the history row is built, not with a raw child MandatoryError."""
+        member = self._member_with_iban_and_blank_holder()
+        member.iban = "NL69INGB0123456789"
+        self._assert_refused_for_holder(member)
+        self.assertEqual(
+            len(frappe.get_all("Member IBAN History", filters={"parent": member.name, "iban": ["like", "%0123456789"]})),
+            0,
+        )
+
+    def test_iban_change_with_whitespace_holder_is_refused(self):
+        member = self._member_with_iban_and_blank_holder()
+        member.iban = "NL69INGB0123456789"
+        member.bank_account_name = "   "
+        # Refused by the earlier holder-name validator before the #2022 guard is reached; either way
+        # it must not get as far as the history row.
+        with self.assertRaises(frappe.ValidationError):
+            member.save()
+
+    def test_iban_change_with_holder_still_succeeds(self):
+        """Control: the same change with a holder filled in records history as before."""
+        member = self._member_with_iban_and_blank_holder()
+        member.iban = "NL69INGB0123456789"
+        member.bank_account_name = "Holder Two"
+        member.save()
+        member.reload()
+        active = [r for r in member.iban_history if r.is_active]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0].bank_account_name, "Holder Two")
+
+    def test_saving_blank_holder_without_iban_change_is_not_refused(self):
+        """Control: only an IBAN CHANGE is refused; an unrelated save of a legacy row passes."""
+        member = self._member_with_iban_and_blank_holder()
+        member.first_name = "Renamed"
+        member.save()
+
+    def test_first_iban_set_with_blank_holder_is_not_refused(self):
+        """Control: blank -> IBAN is not a change (track_iban_change records nothing then)."""
+        member = self.create_test_member()
+        member.iban = "NL69INGB0123456789"
+        member.save()
+
+    def test_csv_import_update_with_iban_change_and_blank_holder_reports_failure(self):
+        """Real caller (CSV import / MijnRood sync both land here): the refusal comes back as a
+        reported 'failed: ...' status with the holder message, and the IBAN is not changed.
+        Same outcome as before (MandatoryError -> 'failed'); only the message is better."""
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+        self.expectErrorLog("CSV Import Update Validation Error")
+
+        member = self._member_with_iban_and_blank_holder()
+        old_iban = member.iban
+        status, name = get_member_import_service().create_or_update_member(
+            row_data={"member_id": member.member_id, "email": member.email, "iban": "NL69INGB0123456789"},
+            import_doc_name="TEST-2022",
+        )
+        self.assertTrue(status.startswith("failed"), status)
+        self.assertIn("account holder", status.lower())
+        self.assertEqual(frappe.db.get_value("Member", member.name, "iban"), old_iban)
+
 
 def run_tests():
     """Run all Member IBAN history tests"""
