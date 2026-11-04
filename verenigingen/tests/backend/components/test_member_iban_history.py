@@ -383,25 +383,21 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
         self.assertEqual(getdate(reloaded_row.to_date), getdate(today()))
 
     # ------------------------------------------------------------------ #2022
-    def _member_with_iban_and_blank_holder(self, **extra):
-        """A Member with an IBAN and no holder, built by the REAL flow that makes them:
-        MemberImportService.create (CSV import / MijnRood map the IBAN and no holder;
-        a Bank Transfer member needs no holder either)."""
-        from verenigingen.services.csv_import.member_import_service import get_member_import_service
-
+    def _member_with_iban_and_blank_holder(self):
+        """A Member with an IBAN and no holder, built by a desk insert with payment_method
+        'Bank Transfer': validate_bank_details demands a holder only for SEPA Direct Debit, so
+        this path leaves it blank (the import service no longer does, #2022)."""
         suffix = frappe.generate_hash(length=6)
-        status, name = get_member_import_service().create_or_update_member(
-            row_data={
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
                 "first_name": "Holderless",
                 "last_name": "T" + suffix,
                 "email": f"holderless.{suffix}@example.invalid",
                 "iban": "NL91ABNA0417164300",
-                **extra,
-            },
-            import_doc_name="TEST-2022",
-        )
-        self.assertEqual(status, "created", status)
-        member = frappe.get_doc("Member", name)
+                "payment_method": "Bank Transfer",
+            }
+        ).insert()
         self.assertTrue(member.iban)
         self.assertFalse(member.bank_account_name)
         return member
@@ -470,22 +466,53 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
         member.iban = "NL69INGB0123456789"
         member.save()
 
-    def test_csv_import_update_with_iban_change_and_blank_holder_reports_failure(self):
-        """Real caller (CSV import / MijnRood sync both land here): the refusal comes back as a
-        reported 'failed: ...' status with the holder message, and the IBAN is not changed.
-        Same outcome as before (MandatoryError -> 'failed'); only the message is better."""
+    def _import(self, **row):
         from verenigingen.services.csv_import.member_import_service import get_member_import_service
-        self.expectErrorLog("CSV Import Update Validation Error")
 
+        return get_member_import_service().create_or_update_member(row_data=row, import_doc_name="TEST-2022")
+
+    def test_import_update_changing_iban_of_holderless_member_defaults_the_holder(self):
+        """Maintainer ruling 2026-11-04: the import path (CSV and MijnRood sync) defaults a blank
+        holder to the full name. Replaces the earlier test that pinned the import REFUSING; the
+        desk path still refuses (test above)."""
         member = self._member_with_iban_and_blank_holder()
-        old_iban = member.iban
-        status, name = get_member_import_service().create_or_update_member(
-            row_data={"member_id": member.member_id, "email": member.email, "iban": "NL69INGB0123456789"},
-            import_doc_name="TEST-2022",
+        status, name = self._import(
+            member_id=member.member_id,
+            email=member.email,
+            last_name="Renamed" + frappe.generate_hash(length=4),
+            iban="NL69INGB0123456789",
         )
-        self.assertTrue(status.startswith("failed"), status)
-        self.assertIn("account holder", status.lower())
-        self.assertEqual(frappe.db.get_value("Member", member.name, "iban"), old_iban)
+        self.assertEqual(status, "updated", status)
+        member.reload()
+        self.assertEqual(member.iban.replace(" ", ""), "NL69INGB0123456789")
+        self.assertTrue(member.bank_account_name)
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertTrue(member.last_name.startswith("Renamed"))
+        self.assertEqual(len(member.iban_history), 1)
+
+    def test_import_create_with_iban_and_no_holder_stores_the_full_name(self):
+        suffix = frappe.generate_hash(length=6)
+        status, name = self._import(
+            first_name="Imported",
+            last_name="T" + suffix,
+            email=f"imported.{suffix}@example.invalid",
+            iban="NL91ABNA0417164300",
+        )
+        self.assertEqual(status, "created", status)
+        member = frappe.get_doc("Member", name)
+        self.assertTrue(member.bank_account_name)
+        self.assertEqual(member.bank_account_name, member.full_name)
+
+    def test_import_keeps_a_holder_the_member_already_has(self):
+        """Control: the default only fills a blank holder. (The import row format maps no holder
+        column, so 'supplied' means already stored on the Member.)"""
+        member = self._member_with_iban_and_blank_holder()
+        frappe.db.set_value("Member", member.name, "bank_account_name", "Existing Holder", update_modified=False)
+        status, _name = self._import(member_id=member.member_id, email=member.email, iban="NL69INGB0123456789")
+        self.assertEqual(status, "updated", status)
+        member.reload()
+        self.assertEqual(member.bank_account_name, "Existing Holder")
+        self.assertEqual([r.bank_account_name for r in member.iban_history if r.is_active], ["Existing Holder"])
 
 
 def run_tests():
