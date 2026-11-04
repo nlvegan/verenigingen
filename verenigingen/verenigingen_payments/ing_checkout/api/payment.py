@@ -158,7 +158,7 @@ def create_ideal_order(
         client = get_client(settings)
 
         # Build return URL
-        # Pay.nl automatically appends ?orderId=... to the return URL
+        # Pay.nl appends the order id to the return URL; the return page accepts `id` and `orderId`
         # Only OUR default page gets a return token (#2038). A caller-supplied return_url or a
         # stored default_return_url override points at a page we do not render, so handing it
         # a proof would only leak it to that page; the override wins unchanged (as Mollie's does).
@@ -277,10 +277,10 @@ def create_ideal_order(
 def build_default_return_url(reference_doctype: str, reference_name: str) -> str:
     """Our /payment_success URL carrying the signed return token (#2038).
 
-    The token binds to the reference document, not the Pay.nl orderId: the orderId does not
-    exist until Pay.nl answers create_order, which is after this URL has been sent. Pay.nl then
-    appends `orderId` (with `&`, since the URL already has a query string - derived from Pay.nl's
-    documented behaviour, not measured against a live order).
+    The token binds to the reference document, not the Pay.nl order id: the id does not exist
+    until Pay.nl answers create_order, which is after this URL has been sent. How Pay.nl appends
+    the id to a URL that already has a query string is NOT measured (no usable sandbox merchant);
+    the return page tolerates `&id=`, `&orderId=` and a glued `?id=` (see `_ing_return_params`).
     """
     token = generate_guest_return_token(ING_RETURN_TOKEN_PURPOSE, f"{reference_doctype}:{reference_name}")
     return f"{get_url('/payment_success')}?token={token}"

@@ -21,7 +21,7 @@ from frappe.utils import get_bench_path
 
 from verenigingen.templates.pages import payment_success
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.support.ing_return import ing_return_token, stub_paynl_order_status
+from verenigingen.tests.support.ing_return import create_ing_order, ing_return_token, stub_paynl_order_status
 from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
 
 _SETTINGS_PATH = (
@@ -31,31 +31,8 @@ _SETTINGS_PATH = (
 
 
 class TestIngReturnUrlMintsToken(EnhancedTestCase):
-    def _create_order(self, settings_return_url=None, explicit_return_url=None):
-        from verenigingen.verenigingen_payments.ing_checkout.api import payment
-
-        client = MagicMock()
-        client.create_order.return_value = {
-            "id": f"EX-{frappe.generate_hash(length=4)}-5678-9012",
-            "links": {"redirect": "https://connect.pay.nl/checkout/abc"},
-        }
-        settings = SimpleNamespace(default_return_url=settings_return_url, service_id="SL-1234-5678")
-        doc = frappe.get_doc({"doctype": "ToDo", "description": "ing token probe"}).insert(
-            ignore_permissions=True
-        )
-        self.track_doc("ToDo", doc.name)
-        with patch(_SETTINGS_PATH, return_value=settings), patch.object(payment, "get_client", return_value=client):
-            payment.create_ideal_order("ToDo", doc.name, 10.0, "probe", explicit_return_url)
-        txn = frappe.db.get_value(
-            "ING Checkout Transaction",
-            {"transaction_id": client.create_order.return_value["id"]},
-            "name",
-        )
-        self.track_doc("ING Checkout Transaction", txn)
-        return doc.name, client.create_order.call_args[0][0]["returnUrl"]
-
     def test_default_return_url_carries_a_token_bound_to_the_reference(self):
-        name, url = self._create_order()
+        name, url = create_ing_order(self)
         parts = urlsplit(url)
         query = {k: v[0] for k, v in parse_qs(parts.query).items()}
         self.assertEqual(parts.path, "/payment_success")
@@ -69,9 +46,9 @@ class TestIngReturnUrlMintsToken(EnhancedTestCase):
 
     def test_stored_override_and_explicit_return_url_are_left_unchanged(self):
         """A page we do not render gets no proof: it would only leak it."""
-        self.assertEqual(self._create_order("https://example.org/ing-back")[1], "https://example.org/ing-back")
+        self.assertEqual(create_ing_order(self, "https://example.org/ing-back")[1], "https://example.org/ing-back")
         self.assertEqual(
-            self._create_order(None, "https://example.org/explicit")[1], "https://example.org/explicit"
+            create_ing_order(self, None, "https://example.org/explicit")[1], "https://example.org/explicit"
         )
 
 
@@ -145,6 +122,24 @@ class TestIngReturnPage(EnhancedTestCase):
         self.assertEqual(len({json.dumps(v, default=str) for v in results.values()}), 1, results)
 
 
+class TestIngReturnParams(EnhancedTestCase):
+    def test_every_plausible_return_shape_yields_the_id_and_the_token(self):
+        cases = {
+            "id": ({"token": "T", "id": "I"}, ("I", "T")),
+            "orderId": ({"token": "T", "orderId": "O"}, ("O", "T")),
+            "id wins over orderId": ({"token": "T", "id": "I", "orderId": "O"}, ("I", "T")),
+            "glued id": ({"token": "T?id=I"}, ("I", "T")),
+            "glued orderId": ({"token": "T?orderId=O"}, ("O", "T")),
+            "explicit id wins over glued": ({"token": "T?id=G", "id": "I"}, ("I", "T")),
+            "reference is never an id": ({"token": "T", "reference": "SINV:X"}, None),
+            "not an ING return": ({"doctype": "Donation", "docname": "D", "token": "T"}, None),
+            "foreign glued query": ({"token": "T?foo=bar"}, None),
+        }
+        for label, (form, expected) in cases.items():
+            with self.subTest(case=label):
+                self.assertEqual(payment_success._ing_return_params(frappe._dict(form)), expected)
+
+
 class TestIngReturnOverWsgi(EnhancedTestCase):
     """A Guest GET through the real WSGI app, and every channel compared across the refusals."""
 
@@ -174,6 +169,8 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
                 from verenigingen.verenigingen_payments.ing_checkout.api.payment import ING_RETURN_TOKEN_PURPOSE
                 good = generate_guest_return_token(ING_RETURN_TOKEN_PURPOSE, "Donation:" + donation.name)
+                purpose_reuse = generate_guest_return_token("payment_success", "Donation:" + donation.name)
+                wrong_reference = generate_guest_return_token(ING_RETURN_TOKEN_PURPOSE, "Donation:SOMEONE-ELSES")
                 created = {{"donor": donor.name, "donation": donation.name, "txn": txn.name}}
                 frappe.db.commit()
                 frappe.destroy()
@@ -186,7 +183,10 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
 
                 def error_logs():
                     frappe.init(site=SITE); frappe.connect()
-                    n = frappe.db.count("Error Log"); frappe.destroy(); return n
+                    n = frappe.db.sql(
+                        "select count(*) from `tabError Log` where method like %s or method like %s",
+                        ("%ING Checkout%", "%Payment%"))[0][0]
+                    frappe.destroy(); return n
 
                 paynl = MagicMock()
                 paynl.get_order.return_value = {{"status": {{"code": 100, "action": "PAID"}}, "payments": []}}
@@ -196,11 +196,26 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                     counter["n"] += 1
                     return real_sql(self, *a, **kw)
 
+                nope = "EX-nope-" + uuid.uuid4().hex[:6]
+                bad = "0" * 64
+                tail = "&statusAction=PAID&statusCode=100&reference=X"
                 cases = (
-                    ("good", "/payment_success?orderId=" + order_id + "&token=" + good),
-                    ("unknown", "/payment_success?orderId=EX-nope-" + uuid.uuid4().hex[:6] + "&token=" + good),
-                    ("bad", "/payment_success?orderId=" + order_id + "&token=" + "0" * 64),
-                    ("none", "/payment_success?orderId=" + order_id),
+                    # valid token, each plausible Pay.nl return shape (docs say id=, legacy says orderId=, ? may glue)
+                    ("good_id", "/payment_success?token=" + good + "&id=" + order_id + tail),
+                    ("good_orderId", "/payment_success?token=" + good + "&orderId=" + order_id),
+                    ("good_glued_id", "/payment_success?token=" + good + "?id=" + order_id + tail),
+                    ("good_glued_orderId", "/payment_success?token=" + good + "?orderId=" + order_id),
+                    # refusals, per shape
+                    ("unknown_id", "/payment_success?token=" + good + "&id=" + nope),
+                    ("unknown_orderId", "/payment_success?token=" + good + "&orderId=" + nope),
+                    ("unknown_glued", "/payment_success?token=" + good + "?id=" + nope),
+                    ("bad_id", "/payment_success?token=" + bad + "&id=" + order_id),
+                    ("bad_orderId", "/payment_success?token=" + bad + "&orderId=" + order_id),
+                    ("bad_glued", "/payment_success?token=" + bad + "?id=" + order_id),
+                    ("none_id", "/payment_success?id=" + order_id),
+                    ("none_orderId", "/payment_success?orderId=" + order_id),
+                    ("wrong_reference", "/payment_success?token=" + wrong_reference + "&id=" + order_id),
+                    ("purpose_reuse", "/payment_success?token=" + purpose_reuse + "&id=" + order_id),
                 )
                 out = {{}}
                 for key, target in cases:
@@ -247,24 +262,32 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
         # The subprocess commits its fixtures: nothing it created (Donor, Donation, Transaction, Customer) may remain.
         self.assertEqual(leftover, "LEFTOVER[]")
 
-        # Valid token: the Guest sees the real status, fetched once from the (stubbed) Pay.nl client.
-        self.assertEqual(out["good"]["status"], 200)
-        self.assertIn("Payment completed successfully", out["good"]["body"])
-        self.assertEqual(out["good"]["pay_nl_calls"], 1)
-        self.assertEqual(out["good"]["error_logs"], 0)
+        good = [k for k in out if k.startswith("good_")]
+        refused_keys = [k for k in out if not k.startswith("good_")]
+        self.assertEqual(len(good), 4)
+        self.assertEqual(len(refused_keys), 10)
+
+        # Valid token, every return shape: the Guest sees the real status, fetched once, for the STORED id.
+        for key in good:
+            with self.subTest(case=key):
+                self.assertEqual(out[key]["status"], 200)
+                self.assertIn("Payment completed successfully", out[key]["body"])
+                self.assertEqual(out[key]["pay_nl_calls"], 1)
+                self.assertEqual(out[key]["error_logs"], 0)
 
         # Every refusal: same status and body, no Pay.nl call, no Error Log row, same query count.
-        refused = [out[k] for k in ("unknown", "bad", "none")]
-        for label, case in zip(("unknown", "bad", "none"), refused):
-            with self.subTest(case=label):
+        for key in refused_keys:
+            with self.subTest(case=key):
+                case = out[key]
                 self.assertEqual(case["status"], 200)
                 self.assertIn("Invalid payment reference or document not found", case["body"])
                 self.assertNotIn("Payment completed successfully", case["body"])
                 self.assertEqual(case["pay_nl_calls"], 0)
                 self.assertEqual(case["error_logs"], 0)
                 self.assertFalse(case["server_messages"])
+        refused = [out[k] for k in refused_keys]
         self.assertEqual(len({c["status"] for c in refused}), 1)
-        self.assertEqual(len({c["queries"] for c in refused}), 1, [c["queries"] for c in refused])
+        self.assertEqual(len({c["queries"] for c in refused}), 1, {k: out[k]["queries"] for k in refused_keys})
         # The only per-request byte is the brand-css cache-buster timestamp.
         import re
 
