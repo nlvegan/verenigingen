@@ -562,6 +562,82 @@ def notify_administrators(
     return result
 
 
+def resolve_admin_recipients(
+    notification_key=None,
+    category=None,
+    setting_field=None,
+    default_roles=None,
+    exclude_users=None,
+    extra_emails=(),
+    key_first=False,
+):
+    """Resolve staff recipients: the ONE place that decides who an admin alert goes to.
+
+    ``key_first=False`` is what notify_administrators has always done, and must not change
+    (#2043 tracks that the category beats the key there): the category's recipients (for Admin,
+    ``admin_notification_emails`` or, when unset, the fallback role's holders), else the key's own
+    recipients, else the legacy ``setting_field`` / ``admin_notification_emails`` setting, else
+    enabled holders of ``default_roles``. ``exclude_users`` is applied to the FINAL list only.
+
+    ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
+    the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
+    category's role fallback), then ``extra_emails`` (the caller's explicit list), then enabled
+    holders of ``default_roles`` (default Roles.ADMIN_PAIR). ``exclude_users`` is applied to every
+    tier, so a tier holding only an excluded user falls through, and the result is deduplicated.
+    """
+    config_service = _get_email_config_service()
+
+    def category_tier():
+        return config_service.get_category_recipients(category) if config_service and category else None
+
+    def key_tier():
+        return (
+            config_service.get_recipients_for_notification(notification_key)
+            if config_service and notification_key
+            else None
+        )
+
+    def own_key_tier():
+        # A key with no row has NO recipients of its own; get_recipients_for_notification would answer
+        # with the fallback role's holders, which is the category fallback again under another name.
+        if not (
+            config_service and notification_key and config_service.get_notification_config(notification_key)
+        ):
+            return None
+        return key_tier()
+
+    def configured_admin_tier():
+        config = config_service._get_config() if config_service else None
+        emails = getattr(config, "admin_notification_emails", None) if config else None
+        return config_service._parse_email_list(emails) if emails else None
+
+    def extra_tier():
+        return list(extra_emails)
+
+    def legacy_tier():
+        return get_notification_recipients(
+            setting_field or "admin_notification_emails",
+            default_roles or list(Roles.ADMIN_PAIR),
+        )
+
+    if key_first:
+        tiers = (own_key_tier, configured_admin_tier, extra_tier, legacy_tier)
+    else:
+        tiers = (category_tier, key_tier, legacy_tier)
+
+    recipients = []
+    for tier in tiers:
+        recipients = list(tier() or [])
+        if key_first:
+            recipients = _without_users([r for r in recipients if r], exclude_users or ())
+        if recipients:
+            break
+
+    if exclude_users and not key_first:
+        recipients = _without_users(recipients, exclude_users)
+    return list(dict.fromkeys(recipients)) if key_first else recipients
+
+
 def _notify_administrators(
     subject,
     message,
@@ -575,28 +651,13 @@ def _notify_administrators(
     exclude_users,
     source_event,
 ):
-    # Try Verenigingen Email Configuration first for recipients
-    config_service = _get_email_config_service()
-    recipients = None
-
-    if config_service:
-        # Use category-based recipients if category provided
-        if category:
-            recipients = config_service.get_category_recipients(category)
-
-        # Use notification-specific recipients if notification_key provided
-        if notification_key and not recipients:
-            recipients = config_service.get_recipients_for_notification(notification_key)
-
-    # Fall back to legacy recipient lookup
-    if not recipients:
-        recipients = get_notification_recipients(
-            setting_field or "admin_notification_emails",
-            default_roles or list(Roles.ADMIN_PAIR),
-        )
-
-    if exclude_users:
-        recipients = _without_users(recipients, exclude_users)
+    recipients = resolve_admin_recipients(
+        notification_key=notification_key,
+        category=category,
+        setting_field=setting_field,
+        default_roles=default_roles,
+        exclude_users=exclude_users,
+    )
 
     return create_system_notification(
         recipients=recipients,

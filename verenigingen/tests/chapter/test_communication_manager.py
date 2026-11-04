@@ -9,11 +9,12 @@ Communication-record creation, history queries). It is reached in production via
 so every test resolves the manager that way to mirror the real call path rather
 than instantiating the class directly.
 
-EmailService is a no-op in the test environment, so the email send itself is not
-asserted on -- instead the tests exercise the real branching (template lookup,
-recipient resolution, opt-in/statutory filtering, guard clauses) and assert on
-observable outputs: returned dicts, recipient lists, created Communication rows
-and Comment audit trails. All Chapters/Members/Volunteers/Email Templates are
+A send that EmailService skips (its notification key disabled or unseeded, a recipient in
+cooldown) is reported as success, so the tests that mean "the mail was sent" own their keys
+(``own_notification_keys``) and assert the Email Queue row (#2010). The rest exercise the real
+branching (template lookup, recipient resolution, opt-in/statutory filtering, guard clauses) and
+assert on observable outputs: returned dicts, recipient lists, created Communication rows and
+Comment audit trails. All Chapters/Members/Volunteers/Email Templates are
 created via the real test factory (no business-logic mocking) and the suite runs
 as Administrator.
 """
@@ -21,6 +22,7 @@ as Administrator.
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
 
 
 class TestCommunicationManager(VereningingenTestCase):
@@ -28,6 +30,14 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
+        own_notification_keys(
+            self,
+            "chapter_board_added",
+            "chapter_board_removed",
+            "chapter_member_joined",
+            "chapter_member_left",
+            "chapter_generic_notification",
+        )
         self.chapter = self.create_test_chapter(
             chapter_name=f"CommMgr Chapter {frappe.generate_hash(length=6)}",
             postal_codes="1000-9999",
@@ -121,10 +131,11 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def test_notify_board_member_added_with_template(self):
         self._make_email_template(name="board_member_added")
-        _member, volunteer = self._make_volunteer(first="NotifyAddTmpl")
-        # EmailService is a no-op in tests; the send path executes and reports a bool.
+        member, volunteer = self._make_volunteer(first="NotifyAddTmpl")
+        queued_before = queued_mail_count(member.email)
         result = self.manager.notify_board_member_added(volunteer.name, "Some Role")
-        self.assertIsInstance(result, bool)
+        self.assertIs(result, True)
+        self.assertEqual(queued_mail_count(member.email), queued_before + 1)
 
     def test_notify_board_member_added_volunteer_without_member_returns_false(self):
         # A volunteer with no linked member cannot be notified.
@@ -147,8 +158,10 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def test_notify_board_member_removed_with_template(self):
         self._make_email_template(name="board_member_removed")
-        _member, volunteer = self._make_volunteer(first="NotifyRemTmpl")
-        self.assertIsInstance(self.manager.notify_board_member_removed(volunteer.name), bool)
+        member, volunteer = self._make_volunteer(first="NotifyRemTmpl")
+        queued_before = queued_mail_count(member.email)
+        self.assertIs(self.manager.notify_board_member_removed(volunteer.name), True)
+        self.assertEqual(queued_mail_count(member.email), queued_before + 1)
 
     # ===================================================== notify_member_added/removed
 
@@ -157,7 +170,9 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def test_notify_member_added_with_template(self):
         self._make_email_template(name="member_added_to_chapter")
-        self.assertIsInstance(self.manager.notify_member_added(self.member.name), bool)
+        queued_before = queued_mail_count(self.member.email)
+        self.assertIs(self.manager.notify_member_added(self.member.name), True)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     def test_notify_member_added_member_without_email_returns_false(self):
         no_email = self._make_member(first="NoEmail", email=False)
@@ -169,7 +184,9 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def test_notify_member_removed_with_template(self):
         self._make_email_template(name="member_removed_from_chapter")
-        self.assertIsInstance(self.manager.notify_member_removed(self.member.name), bool)
+        queued_before = queued_mail_count(self.member.email)
+        self.assertIs(self.manager.notify_member_removed(self.member.name), True)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     # ===================================================== send_bulk_notification
 
@@ -198,7 +215,9 @@ class TestCommunicationManager(VereningingenTestCase):
         )
         self.assertTrue(result["success"])
         self.assertEqual(result["total_recipients"], 5)
-        self.assertIn("sent_count", result)
+        self.assertEqual(result["sent_count"], 5)
+        for address in recipients:
+            self.assertEqual(queued_mail_count(address), 1, address)
 
     # ===================================================== _get_newsletter_recipients
 
@@ -251,10 +270,12 @@ class TestCommunicationManager(VereningingenTestCase):
         comments_before = frappe.db.count(
             "Comment", {"reference_doctype": "Chapter", "reference_name": self.chapter.name}
         )
+        queued_before = queued_mail_count(self.member.email)
         result = self.chapter.communication_manager.send_chapter_newsletter(
             "News Subject", "News body", recipient_filter="members"
         )
         self.assertTrue(result["success"])
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
         # A newsletter activity Comment is created on the chapter.
         comments_after = frappe.db.count(
             "Comment", {"reference_doctype": "Chapter", "reference_name": self.chapter.name}
@@ -356,16 +377,19 @@ class TestCommunicationManager(VereningingenTestCase):
     def test_send_statutory_communication_with_template(self):
         self._make_email_template(name="statutory_agm")
         self._add_member_row(self.member)
+        queued_before = queued_mail_count(self.member.email)
         result = self.chapter.communication_manager.send_statutory_communication(
             "AGM Notice", "body", communication_type="agm"
         )
         self.assertTrue(result["success"])
         self.assertEqual(result["total_recipients"], 1)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     # ===================================================== _send_templated_email (direct)
 
     def test_send_templated_email_returns_bool(self):
         tmpl = self._make_email_template()
+        queued_before = queued_mail_count(self.member.email)
         result = self.manager._send_templated_email(
             template=tmpl,
             recipients=[self.member.email],
@@ -375,7 +399,8 @@ class TestCommunicationManager(VereningingenTestCase):
             reference_name=self.chapter.name,
             notification_key="chapter_generic_notification",
         )
-        self.assertIsInstance(result, bool)
+        self.assertIs(result, True)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     # ============================ regression: chapter emails silently failed
     #
@@ -396,6 +421,7 @@ class TestCommunicationManager(VereningingenTestCase):
         # (exactly what every notify_* method passes) must NOT raise and must
         # return True now that the keys are no longer double-forwarded.
         tmpl = self._make_email_template()
+        queued_before = queued_mail_count(self.member.email)
         result = self.manager._send_templated_email(
             template=tmpl,
             recipients=[self.member.email],
@@ -411,6 +437,7 @@ class TestCommunicationManager(VereningingenTestCase):
             "reference_doctype kwargs collision (TypeError) + OperationResult.get() "
             "AttributeError swallowed by the outer except",
         )
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     def test_send_chapter_email_returns_operation_result_success(self):
         # Boundary assertion: the compatibility wrapper the manager calls returns a
@@ -419,6 +446,7 @@ class TestCommunicationManager(VereningingenTestCase):
         from verenigingen.utils.operation_result import OperationResult
 
         tmpl = self._make_email_template()
+        queued_before = queued_mail_count(self.member.email)
         result = send_chapter_email(
             chapter_name=self.chapter.name,
             recipients=[self.member.email],
@@ -430,21 +458,27 @@ class TestCommunicationManager(VereningingenTestCase):
         )
         self.assertIsInstance(result, OperationResult)
         self.assertTrue(result.success, f"send_chapter_email failed: {result.errors}")
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     def test_notify_board_member_added_returns_true(self):
         # End-to-end regression through a real notify_* method: with the template
         # present and a real volunteer/member, this routed through the broken
         # _send_templated_email and returned False. It must now return True.
         self._make_email_template(name="board_member_added")
-        _member, volunteer = self._make_volunteer(first="NotifyAddTrue")
+        member, volunteer = self._make_volunteer(first="NotifyAddTrue")
+        queued_before = queued_mail_count(member.email)
         result = self.manager.notify_board_member_added(volunteer.name, "Some Role")
         self.assertIs(result, True)
+        self.assertEqual(queued_mail_count(member.email), queued_before + 1)
 
     def test_notify_member_added_returns_true(self):
         # Member-facing notification path through _send_templated_email.
         self._make_email_template(name="member_added_to_chapter")
+        queued_before = queued_mail_count(self.member.email)
         result = self.manager.notify_member_added(self.member.name)
         self.assertIs(result, True)
+        self.assertEqual(queued_mail_count(self.member.email), queued_before + 1)
 
     # ===================================================== _validate_email_settings
 

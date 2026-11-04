@@ -485,15 +485,23 @@ class TestStaffAlertEvent(FrappeTestCase):
         self.assertEqual(engine[0][0], "MyISAM")
 
     def test_a_send_that_raises_still_leaves_a_failed_event(self):
-        """A Role-Based row whose ``recipient_roles`` is NULL makes the recipient lookup raise (``None.split``)."""
+        """A send whose recipient lookup raises still leaves a Failed event (write-ahead).
+
+        This used a Role-Based row with NULL ``recipient_roles`` (``None.split``) to make the lookup
+        raise; #1997 (PR #2031) fixed that crash, so the failure is now injected at the same boundary.
+        """
         note = self._note()
         with singleton_backup(CONFIG):
             _set_config_rows([_config_row(SEEDED_KEY, policy="Role-Based", roles="x")])
-            row = frappe.get_single(CONFIG).notification_types[0].name
-            frappe.db.set_value("Email Notification Type", row, "recipient_roles", None)
             frappe.db.savepoint("t1979_raise")
-            with self.assertRaises(AttributeError):
-                self._alert(SEEDED_KEY, note)
+            # Mock justified: failure injection at the recipient-lookup boundary the real crash came from.
+            with patch(
+                "verenigingen.services.communication.email_configuration_service."
+                "EmailConfigurationService.get_recipients_for_notification",
+                side_effect=AttributeError("injected lookup failure"),
+            ):
+                with self.assertRaises(AttributeError):
+                    self._alert(SEEDED_KEY, note)
             frappe.db.rollback(save_point="t1979_raise")
         event = frappe.db.get_value(EVENT, {"reference_name": note}, ["outcome", "detail"], as_dict=True)
         self.assertIsNotNone(event, "the write-ahead row is there although the send raised and rolled back")

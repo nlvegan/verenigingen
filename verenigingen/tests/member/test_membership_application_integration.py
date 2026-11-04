@@ -7,6 +7,7 @@ import frappe
 import unittest
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 
 
 class TestMembershipApplicationIntegration(EnhancedTestCase):
@@ -241,27 +242,22 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         # Use REAL system settings - no mocking of business configuration
         self._ensure_system_email_settings()
         
+        # A skipped send is also success=True; own the key so the fallback send is proven (#2010).
+        own_notification_keys(self, "member_application_approved")
+
         # Only mock actual email infrastructure to prevent sending during tests
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
-            try:
-                send_approval_notification(
-                    self.test_member,
-                    real_invoice,
-                    self.membership_type
-                )
-                
-                # Email sending may vary based on template availability and business rules
-                # Main test is that function executes without parameter errors
-                # This validates JavaScript-Python integration robustness
-                
-            except Exception as e:
-                # Expect graceful handling of missing templates/configuration
-                if "does not exist" not in str(e):
-                    self.fail(f"Unexpected error in email notification: {str(e)}")
-                # Expected error for missing email template - this is acceptable
+            result = send_approval_notification(
+                self.test_member,
+                real_invoice,
+                self.membership_type
+            )
 
-
+        self.assertTrue(result.success, result.errors)
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        mock_sendmail.assert_called_once()
+        self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
     def test_field_name_consistency(self):
         """Test that field names used in code match actual DocType fields"""

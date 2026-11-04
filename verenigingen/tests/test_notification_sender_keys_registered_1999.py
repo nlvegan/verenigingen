@@ -40,7 +40,7 @@ from verenigingen.hooks.lifecycle import after_install
 from verenigingen.notification_registry import NOTIFICATION_KEYS
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
-from verenigingen.tests.utils.test_config import disable_test_email_mocking, enable_test_email_mocking
+from verenigingen.tests.utils.test_config import disable_test_email_mocking, restore_test_email_mocking
 
 DOCTYPE = "Verenigingen Email Configuration"
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,13 +70,39 @@ def _map_values(node):
     return []
 
 
+def _module_str_constants(tree):
+    """{NAME: "value"} for a module-level ``NAME = "literal"`` that is assigned exactly once (#2002).
+
+    A name bound twice, or to anything but a string literal, is NOT followed: the walker could not
+    know which value reaches the sender.
+    """
+    assigned = {}
+    for node in tree.body:
+        targets = [t.id for t in node.targets if isinstance(t, ast.Name)] if isinstance(node, ast.Assign) else []
+        if isinstance(node, (ast.AugAssign, ast.AnnAssign)) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        for name in targets:
+            assigned.setdefault(name, []).append(node)
+    return {
+        name: nodes[0].value.value
+        for name, nodes in assigned.items()
+        if len(nodes) == 1
+        and isinstance(nodes[0], ast.Assign)
+        and isinstance(nodes[0].value, ast.Constant)
+        and isinstance(nodes[0].value.value, str)
+    }
+
+
 def _tree_keys(tree, relpath):
     """[(key, lineno)] for every constant sender key in one parsed module."""
     found = []
+    constants = _module_str_constants(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.keyword) and node.arg == "notification_key":
             if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                 found.append((node.value.value, node.value.lineno))
+            elif isinstance(node.value, ast.Name) and node.value.id in constants:
+                found.append((constants[node.value.id], node.value.lineno))
         elif isinstance(node, ast.Assign):
             names = " ".join(ast.unparse(t) for t in node.targets)
             if "notification_key" in names or (
@@ -130,10 +156,13 @@ def _unresolved(tree):
         for child in ast.iter_child_nodes(parent):
             parents[child] = parent
     bad = []
+    constants = _module_str_constants(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.keyword) and node.arg == "notification_key":
             if isinstance(node.value, ast.Constant):
                 continue
+            if isinstance(node.value, ast.Name) and node.value.id in constants:
+                continue  # followed by _tree_keys, which then checks it against the registry
             func = node
             while func is not None and not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func = parents.get(func)
@@ -206,6 +235,27 @@ class TestSenderKeysAreRegistered(FrappeTestCase):
         self.assertEqual(flagged("send(notification_key=MAP[t])"), [1])
         self.assertEqual(flagged("def f():\n    k = pick()\n    send(notification_key=k)"), [3])
         self.assertEqual(flagged("send(notification_key=obj.key)"), [1])
+
+    def test_a_module_level_string_constant_is_followed_and_still_checked_against_the_registry(self):
+        """#2002: a constant-passed key is resolved, and a constant naming an unregistered key is reported."""
+        registered = "const_registered_key"
+        planted = ast.parse(f"KEY = '{registered}'\ndef f():\n    send(notification_key=KEY)\n")
+        self.assertEqual(_unresolved(planted), [])
+        self.assertEqual(_tree_keys(planted, "p.py"), [(registered, 3)])
+        self.assertEqual(_unregistered({registered: ["p"]}, {registered: {}}), {})
+        unregistered = ast.parse("KEY = 'planted_unregistered_const_2002'\nsend(notification_key=KEY)\n")
+        keys = {k: ["p"] for k, _ in _tree_keys(unregistered, "p.py")}
+        self.assertEqual(keys, {"planted_unregistered_const_2002": ["p"]})
+        self.assertEqual(_unregistered(keys, NOTIFICATION_KEYS), keys)
+
+    def test_a_constant_that_is_not_a_single_string_literal_is_not_followed(self):
+        for source in (
+            "KEY = 'a'\nKEY = 'b'\nsend(notification_key=KEY)\n",  # bound twice
+            "KEY = pick()\nsend(notification_key=KEY)\n",  # not a literal
+            "KEY = 'a'\nKEY += 'b'\nsend(notification_key=KEY)\n",  # augmented
+            "def f():\n    KEY = 'a'\n    send(notification_key=KEY)\n",  # not module level
+        ):
+            self.assertNotEqual(_unresolved(ast.parse(source)), [], source)
 
     def test_no_sender_passes_a_notification_key_the_walker_cannot_resolve(self):
         unresolved = [f"{rel}:{n}" for rel, tree in _parsed_sources() for n in _unresolved(tree)]
@@ -291,8 +341,8 @@ class TestNewlyRegisteredKeysAreSent(FrappeTestCase):
     def test_payment_failure_first_is_queued_on_a_seeded_site(self):
         control, target = self._unique_recipient("control"), self._unique_recipient("failure-first")
         # the harness replaces frappe.sendmail process-wide, so no Email Queue row could appear
-        disable_test_email_mocking()
-        self.addCleanup(enable_test_email_mocking)
+        was_mocked = disable_test_email_mocking()
+        self.addCleanup(restore_test_email_mocking, was_mocked)  # not enable_*: #2060
         # singleton_backup commits on exit, which makes the queued rows durable, so a rollback
         # cannot remove them: delete them by recipient (registered before the send; LIFO).
         self.addCleanup(self._cleanup_queue_rows, [control, target])

@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import get_url_to_form, today
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.authorization import (
     SEPAOperation,
@@ -16,6 +17,9 @@ from verenigingen.utils.security.authorization import (
 )
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+NO_RECIPIENTS_LOG_TITLE = "SEPA notification recipients"
+NO_RECIPIENTS_CACHE_PREFIX = "sepa_no_recipients_logged"
 
 
 def _get_email_config_service():
@@ -34,56 +38,71 @@ def _get_email_config_service():
         return None
 
 
-def get_financial_admin_emails():
+def get_financial_admin_emails(notification_key=None):
     """Get email addresses for financial administrators
 
-    Priority:
-    1. Verenigingen Email Configuration (Admin category recipients)
-    2. Verenigingen Payments Settings.financial_admin_emails
-    3. Users with Financial Admin roles
-    4. Administrator (final fallback)
+    The shared staff resolver in key-first mode (utils.notification_helpers):
+    1. the notification key's own recipients (Verenigingen Email Configuration)
+    2. Email Configuration admin emails, only when configured
+    3. Verenigingen Payments Settings.financial_admin_emails
+    4. enabled holders of the admin roles (Roles.ADMIN_PAIR)
+
+    The Administrator user is never a recipient (it is not in active use), and there is no
+    literal fallback address (#2002). Recipients are resolved whatever the key's enabled state (EmailService skips a
+    disabled key itself). When nobody resolves, or the lookup fails, one Error Log row per key per
+    day is written (none for a disabled key) and the caller gets [], which every caller treats as "send nothing".
     """
     try:
-        # Try Verenigingen Email Configuration first
-        config_service = _get_email_config_service()
-        if config_service:
-            recipients = config_service.get_category_recipients("Admin")
-            if recipients:
-                return recipients
-
-        payments_settings = get_payments_settings()
-
-        # Get from settings if available
-        if hasattr(payments_settings, "financial_admin_emails") and payments_settings.financial_admin_emails:
-            return [email.strip() for email in payments_settings.financial_admin_emails.split(",")]
-
-        # Fallback: get users with Financial Admin roles
-        financial_admins = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Accounts Manager"]]},
-            fields=["parent"],
+        recipients = resolve_admin_recipients(
+            notification_key=notification_key,
+            extra_emails=_payments_settings_recipients(),
+            exclude_users=("Administrator",),
+            key_first=True,
         )
-
-        if financial_admins:
-            emails = []
-            for admin in financial_admins:
-                user_email = frappe.db.get_value("User", admin.parent, "email")
-                if user_email:
-                    emails.append(user_email)
-            return emails
-
-        # Final fallback: Administrator
-        return [frappe.db.get_value("User", "Administrator", "email") or "admin@example.com"]
-
+        reason = "no recipient is configured and no enabled user holds an admin role"
     except Exception as e:
-        frappe.log_error(f"Error getting financial admin emails: {str(e)}", "Notification System")
-        return ["admin@example.com"]
+        recipients = []
+        reason = f"the recipient lookup failed: {e}\n{frappe.get_traceback(with_context=False)}"
+
+    if not recipients and _is_enabled(notification_key):
+        _log_no_recipients_once(notification_key, reason)
+    return recipients
+
+
+def _is_enabled(notification_key):
+    """False for a disabled key: nothing is sent for it (EmailService skips it), so a gap in
+    its recipients is not worth an Error Log row. Recipients are resolved regardless."""
+    config_service = _get_email_config_service()
+    if not notification_key or not config_service:
+        return True
+    return config_service.is_notification_enabled(notification_key)
+
+
+def _payments_settings_recipients():
+    emails = getattr(get_payments_settings(), "financial_admin_emails", None)
+    return [email.strip() for email in emails.split(",") if email.strip()] if emails else []
+
+
+def _log_no_recipients_once(notification_key, reason):
+    """Error Log row at most once a day per key, so a daily scheduler does not flood the log."""
+    cache = frappe.cache()
+    cache_key = f"{NO_RECIPIENTS_CACHE_PREFIX}:{notification_key or 'any'}"
+    if cache.get_value(cache_key):
+        return
+    cache.set_value(cache_key, 1, expires_in_sec=86400)
+    frappe.log_error(
+        title=NO_RECIPIENTS_LOG_TITLE,
+        message=f"Not sent ({notification_key or 'SEPA notification'}): {reason}. "
+        "Set recipients in Verenigingen Email Configuration or Payments Settings.",
+    )
 
 
 def send_critical_batch_notification(batch, errors):
     """Send urgent notification for blocked batches"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_error")
+        if not recipients:
+            return
 
         subject = f"🚨 URGENT: SEPA Batch {batch.name} Blocked - Manual Intervention Required"
 
@@ -135,7 +154,9 @@ def send_critical_batch_notification(batch, errors):
 def send_batch_warning_notification(batch, warnings):
     """Send informational notification for processed batches with warnings"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_warning")
+        if not recipients:
+            return
 
         subject = f"ℹ️ SEPA Batch {batch.name} Processed with Warnings"
 
@@ -185,7 +206,9 @@ def send_batch_warning_notification(batch, warnings):
 def send_daily_batch_summary(validation_summary, batch_result):
     """Send daily summary of batch processing results"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_success")
+        if not recipients:
+            return
 
         total_batches = sum(validation_summary.values())
         if total_batches == 0:
@@ -235,7 +258,9 @@ def send_daily_batch_summary(validation_summary, batch_result):
 def send_system_error_notification(error_message):
     """Send notification for system-level errors"""
     try:
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("sepa_batch_error")
+        if not recipients:
+            return
 
         subject = f"🔥 CRITICAL: SEPA Batch System Error - {today()}"
 
@@ -326,7 +351,9 @@ def test_notification_system():
     """Test the notification system - for development/testing only"""
     try:
         # Test email configuration
-        recipients = get_financial_admin_emails()
+        recipients = get_financial_admin_emails("email_template_test")
+        if not recipients:
+            return {"success": False, "error": "No recipients resolved; nothing was sent"}
 
         subject = "🧪 SEPA Notification System Test"
 

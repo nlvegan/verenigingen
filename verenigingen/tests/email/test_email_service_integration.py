@@ -24,6 +24,7 @@ import frappe
 from frappe.utils import add_days, getdate, now_datetime, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.services.communication.email_service import get_email_service, EmailService
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
@@ -176,6 +177,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
     def test_email_service_notification_mapping(self):
         """Test EmailService notification type mapping"""
         # Mock frappe.sendmail
+        # A skipped send is also success=True; own the key so this proves a real send (#2010).
+        own_notification_keys(self, "member_application_approved")
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_notification(
@@ -188,7 +191,10 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Should succeed even if template doesn't exist (would fall back)
-        self.assertIsNotNone(result)
+        self.assertTrue(result.success, result.errors)
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        mock_sendmail.assert_called_once()
+        self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
     def test_email_service_bulk_sending(self):
         """Test EmailService bulk email functionality"""
@@ -285,6 +291,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
 
     def test_compatibility_layer_member_notifications(self):
         """Test member notification compatibility layer"""
+        # A skipped send is also success=True; own the key so this proves a real send (#2010).
+        own_notification_keys(self, "member_application_approved")
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = send_member_notification(
@@ -295,8 +303,10 @@ class TestEmailServiceIntegration(EnhancedTestCase):
                 }
             )
 
-        # Should attempt to send notification
-        self.assertIsNotNone(result)
+        self.assertTrue(result.success, result.errors)
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        mock_sendmail.assert_called_once()
+        self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
     def test_compatibility_layer_chapter_emails(self):
         """Test chapter email compatibility layer"""
@@ -529,6 +539,8 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
 
     def test_member_status_change_notification_flow(self):
         """Test complete member status change notification flow"""
+        # A skipped send is invisible to the handler; own the key so the send is real (#2010).
+        own_notification_keys(self, "member_application_approved")
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             # Import the event handler
@@ -545,9 +557,9 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
             # Call the event handler
             handle_status_change_notifications("member_status_changed", event_data)
 
-            # Should have attempted to send notification
-            # (Exact behavior depends on template availability)
-            self.assertTrue(True)  # Handler should not crash
+        # The approval notification went out, to this member
+        mock_sendmail.assert_called_once()
+        self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
     def test_member_lifecycle_notification_flow(self):
         """Test member lifecycle notification flow"""

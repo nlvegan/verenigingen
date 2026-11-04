@@ -56,6 +56,9 @@ BUSINESS_ALERT_TYPES = frozenset(
         "ORPHANED_PAYMENTS",
     }
 )
+# These severities skip the per-key cooldown so a LOW alert cannot hide them (#2003 ruling);
+# LOW and MEDIUM stay rate-limited. The set is SystemAlert.severity's Select options.
+COOLDOWN_BYPASS_SEVERITIES = frozenset({"HIGH", "CRITICAL"})
 NO_RECIPIENTS_LOG_TITLE = "Monitoring alert not sent: no recipients"
 UNSENT_LOG_TITLE = "Monitoring alert not sent: email not queued"
 UNSENT_LOG_CACHE_PREFIX = "alert_manager_unsent_logged"
@@ -130,6 +133,7 @@ class AlertManager:
                 alert_group_for(alert_type),
                 subject=f"[{severity}] {alert_type}: {message}",
                 body=self.format_alert_email(alert_type, severity, message, details),
+                bypass_cooldown=str(severity).upper() in COOLDOWN_BYPASS_SEVERITIES,
             )
 
             return alert_doc
@@ -138,7 +142,7 @@ class AlertManager:
             frappe.log_error(f"Failed to send alert: {str(e)}")
             return None
 
-    def _email_alert_recipients(self, group, subject, body):
+    def _email_alert_recipients(self, group, subject, body, bypass_cooldown=False):
         """Queue the email for the group's profile holders, making every "nothing was sent" visible."""
         recipients = self.get_alert_recipients(ALERT_GROUPS[group]["role_profile"])
         if not recipients:
@@ -150,6 +154,7 @@ class AlertManager:
             message=body,
             delayed=False,
             notification_key=ALERT_GROUPS[group]["notification_key"],
+            bypass_cooldown=bypass_cooldown,
         )
         skipped = result.success and (result.data or {}).get("skipped")
         reason = (result.data or {}).get("reason") if skipped else None

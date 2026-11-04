@@ -111,7 +111,6 @@ verenigingen/setup/__init__.py::create_membership_items::2
 verenigingen/setup/__init__.py::ensure_prerequisites::3
 verenigingen/setup/__init__.py::install_and_link_onboarding::1
 verenigingen/setup/__init__.py::load_application_fixtures::1
-verenigingen/setup/__init__.py::setup_email_templates::2
 verenigingen/setup/__init__.py::setup_termination_roles_and_permissions::1
 verenigingen/setup/add_settings_fields.py::add_missing_email_settings_fields::1
 verenigingen/setup/role_profile_setup.py::setup_role_profiles::1
