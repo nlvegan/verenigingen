@@ -28,6 +28,7 @@ from verenigingen.services.communication.email_service import EmailService
 from verenigingen.services.member.approval import application_payments
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.tests.setup import ensure_member_test_masters
+from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 HOLD_SECONDS = 3.0
 SECOND_STARTS_AFTER = 1.5
@@ -79,6 +80,7 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
                     if doc.docstatus == 1:
                         doc.cancel()
                     frappe.delete_doc("Sales Invoice", name, force=True)
+                    purge_ledger_rows("Sales Invoice", name)  # delete_doc leaves GL / Payment Ledger rows
                 except Exception as error:  # swallow-ok: best-effort teardown of a committed fixture
                     print(f"cleanup of {name} failed: {error}")
             try:
