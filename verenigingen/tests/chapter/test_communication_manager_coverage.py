@@ -14,6 +14,7 @@ the real factory and run as Administrator.
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
 
 
 class TestCommunicationManagerCoverage(VereningingenTestCase):
@@ -119,18 +120,27 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
     def test_notify_board_of_member_joined_with_board_returns_true(self):
         self._enable_notifications()
         self._make_template("chapter_board_member_joined")
-        self._seat_board_member(first="JoinBoard")
+        # A skipped send is also reported as success (#2010): own the key, then read the Email Queue.
+        own_notification_keys(self, "chapter_member_joined")
+        _member, _volunteer = self._seat_board_member(first="JoinBoard")
+        board_email = self.chapter.board_members[0].email  # the address the dispatch mails
+        queued_before = queued_mail_count(board_email)
         result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
         self.assertTrue(result, "an active board member + enabled setting must queue a notification")
+        self.assertEqual(queued_mail_count(board_email), queued_before + 1)
 
     def test_notify_board_of_member_left_with_board_returns_true(self):
         self._enable_notifications()
         self._make_template("chapter_board_member_left")
-        self._seat_board_member(first="LeftBoard")
+        own_notification_keys(self, "chapter_member_left")
+        _member, _volunteer = self._seat_board_member(first="LeftBoard")
+        board_email = self.chapter.board_members[0].email  # the address the dispatch mails
+        queued_before = queued_mail_count(board_email)
         result = self.chapter.communication_manager.notify_board_of_member_left(
             self.member.name, leave_reason="moved"
         )
         self.assertTrue(result)
+        self.assertEqual(queued_mail_count(board_email), queued_before + 1)
 
     def test_notify_board_of_member_left_disabled_returns_false(self):
         frappe.db.set_single_value("Verenigingen Settings", "send_chapter_assignment_notifications", 0)

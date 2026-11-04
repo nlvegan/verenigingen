@@ -64,11 +64,11 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
                     notification_key="test_disabled",
                 )
 
-                # Verify result indicates notification was skipped
-                self.assertTrue(
-                    (isinstance(result.data, dict) and result.data.get("skipped")) or not result.success,
-                    f"Expected notification to be skipped/blocked, got: {result}"
-                )
+                # A skip is success=True; assert the skip AND its reason (not "skipped or failed", which
+                # a failure for any other reason would also satisfy) (#2010).
+                self.assertTrue(result.success, result)
+                self.assertTrue(result.data.get("skipped"), result)
+                self.assertIn("test_disabled", result.data["reason"])
                 # sendmail should NOT be called for disabled notifications
                 mock_sendmail.assert_not_called()
 

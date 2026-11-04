@@ -21,6 +21,7 @@ from verenigingen.services.communication.compatibility import (
     send_templated_email_legacy,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 import unittest
 
 
@@ -51,6 +52,9 @@ class TestEmailCompatibility(EnhancedTestCase):
             email=unique_email
         )
 
+        # A skipped send is also success=True; own the key so this proves a real send (#2010).
+        own_notification_keys(self, "member_application_approved")
+
         result = send_member_notification(
             member_name=member.name,
             notification_type="approval"
@@ -58,7 +62,9 @@ class TestEmailCompatibility(EnhancedTestCase):
 
         # OperationResult pattern
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertTrue(result.success, result.errors)
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        self.assertEqual(len(self.get_sent_emails(to=unique_email)), 1)
 
     def test_send_member_notification_no_email_returns_failed_result(self):
         """Test notification for member without email returns failed OperationResult"""
