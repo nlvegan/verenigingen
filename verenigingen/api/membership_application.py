@@ -467,8 +467,9 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                 },
             )
 
-        # Validate membership amount if custom amount is provided
-        amount_error = _validate_membership_amount(data) or _validate_selected_membership_type(data)
+        # The type check goes first: the amount validator looks the type up too, and its "not found"
+        # (message + Error Log row) would tell a guest an unknown name from a disabled one (#1962).
+        amount_error = _validate_selected_membership_type(data) or _validate_membership_amount(data)
         if amount_error:
             return amount_error
 

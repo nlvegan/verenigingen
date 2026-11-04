@@ -1841,12 +1841,12 @@ class TestMembershipApplicationEdgeCases(ApplicationFlowCase):
         self.assertEqual(frappe.db.get_value("Membership Type", doc.name, "is_active"), 0)
         return doc.name
 
-    def _post_with_type_probe(self, membership_type):
+    def _post_with_type_probe(self, membership_type, **extra):
         """Post the application for `membership_type` as Guest and return every channel a caller or an
         operator could read: the response, the message log, new Error Log rows, the SQL issued."""
         from verenigingen.tests.utils.query_counter import count_queries
 
-        data = {**self.base_data, "selected_membership_type": membership_type}
+        data = {**self.base_data, "selected_membership_type": membership_type, **extra}
         data["email"] = f"type_probe_{frappe.generate_hash(length=8)}@example.com"
         errors_before = frappe.db.count("Error Log")
         frappe.local.message_log = []
@@ -1889,6 +1889,33 @@ class TestMembershipApplicationEdgeCases(ApplicationFlowCase):
         self.assertFalse(unknown_probe["result"]["success"], unknown_probe["result"])
         for channel in ("result", "message_log", "new_error_logs", "query_count"):
             self.assertEqual(disabled_probe[channel], unknown_probe[channel], channel)
+
+    def test_disabled_and_unknown_type_refused_identically_with_a_custom_fee(self):
+        """The amount validator looks the type up first when a fee is posted; the type check must run
+        before it, or an unknown name leaves a message and an Error Log row a disabled one does not."""
+        disabled = self._disabled_membership_type()
+        unknown = f"Nonexistent Type {frappe.generate_hash(length=8)}"
+        fee = {"custom_contribution_fee": 20}
+
+        self._post_with_type_probe(unknown, **fee)  # warm caches
+        disabled_probe = self._post_with_type_probe(disabled, **fee)
+        unknown_probe = self._post_with_type_probe(unknown, **fee)
+
+        self.assertFalse(unknown_probe["result"]["success"], unknown_probe["result"])
+        self.assertIn("not available", str(unknown_probe["result"]["error"]["message"]))
+        for channel in ("result", "message_log", "new_error_logs", "query_count"):
+            self.assertEqual(disabled_probe[channel], unknown_probe[channel], channel)
+
+    def test_non_string_membership_type_refused_and_not_staged(self):
+        """frappe.db.get_value reads a dict as a filter, so {"is_active": 1} would match an active type
+        and be staged; a list is not a name either."""
+        for bogus in ({"is_active": 1}, ["Test Membership"]):
+            with self.subTest(bogus=bogus):
+                probe = self._post_with_type_probe(bogus)
+
+                self.assertFalse(probe["result"]["success"], probe["result"])
+                self.assertIn("not available", str(probe["result"]["error"]["message"]))
+                self.assertEqual(frappe.db.count(SUBMISSION, {"email": probe["email"]}), 0)
 
     def test_type_disabled_after_submit_is_refused_at_approval(self):
         """Pins existing behaviour (validate_membership_type_for_approval): a type that was active at
