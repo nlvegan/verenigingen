@@ -96,6 +96,8 @@ after_migrate = [
     # A key added after a site's install has no Email Configuration row, so it counts as disabled
     # and its alerts are skipped silently (#2037, maintainer ruling 2026-11-03). Only ADDS rows:
     # existing ones, disabled included, are never touched. No save when nothing is missing.
+    # (When a key IS missing the Single is saved, so a pre-existing invalid row, e.g. a bad email
+    # or duplicate key, would fail that save and so the migrate; the v2_2 patch shares the risk.)
     "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
 ]
 

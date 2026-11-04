@@ -16,8 +16,9 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import cint
 
 from verenigingen.hooks.lifecycle import after_migrate
-from verenigingen.notification_registry import NOTIFICATION_KEYS
+from verenigingen.notification_registry import DEFAULT_COOLDOWN_MINUTES, NOTIFICATION_KEYS
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
+from verenigingen.tests.test_notification_registry_seed_1959 import _rows
 
 DOCTYPE = "Verenigingen Email Configuration"
 SEED_HANDLER = "ensure_notification_registry_rows"
@@ -30,21 +31,17 @@ def _migrate_seed_handler():
     return frappe.get_attr(path)
 
 
-def _rows():
-    return {r.notification_key: r for r in frappe.get_single(DOCTYPE).notification_types}
-
-
 class TestNotificationRegistrySeedOnMigrate(FrappeTestCase):
     def setUp(self):
         super().setUp()
         # Snapshot BEFORE seeding: a site may legitimately carry no rows, and must end the same way.
         self.baseline = {k: dict(r.as_dict()) for k, r in _rows().items()}
-        self.addCleanup(self._restore_rows)
+        self.addCleanup(self._put_back_snapshot)
         ensure_notification_registry_rows()
         self.keys = sorted(NOTIFICATION_KEYS)
         self.assertGreaterEqual(len(self.keys), 4, "control: the registry has keys to play with")
 
-    def _restore_rows(self):
+    def _put_back_snapshot(self):
         # Not singleton_backup: it skips child tables (#2029). Put back exactly what was there.
         config = frappe.get_single(DOCTYPE)
         config.notification_types = []
@@ -62,7 +59,14 @@ class TestNotificationRegistrySeedOnMigrate(FrappeTestCase):
         config.save()
 
     def test_migrate_adds_missing_rows_and_leaves_existing_ones_alone(self):
-        missing_a, missing_b, disabled_key, edited_key = self.keys[:4]
+        # Pinned: missing_a carries a registry cooldown other than the default, so the seeded value
+        # is distinguishable from the default; the rest are the first other keys.
+        missing_a = next(
+            k for k in self.keys if NOTIFICATION_KEYS[k].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
+            != DEFAULT_COOLDOWN_MINUTES
+        )
+        others = [k for k in self.keys if k != missing_a]
+        missing_b, disabled_key, edited_key = others[:3]
         self._config_without(
             missing_a,
             missing_b,
@@ -78,11 +82,8 @@ class TestNotificationRegistrySeedOnMigrate(FrappeTestCase):
         self.assertEqual(set(rows), set(NOTIFICATION_KEYS))
         for key in (missing_a, missing_b):
             self.assertEqual(cint(rows[key].enabled), 1, key)
-            self.assertEqual(
-                cint(rows[key].cooldown_minutes),
-                NOTIFICATION_KEYS[key].get("cooldown_minutes", cint(rows[key].cooldown_minutes)),
-                key,
-            )
+            expected = NOTIFICATION_KEYS[key].get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
+            self.assertEqual(cint(rows[key].cooldown_minutes), expected, key)
         self.assertEqual(cint(rows[disabled_key].enabled), 0, "an admin-disabled row stays disabled")
         self.assertEqual(rows[edited_key].label, "Custom label")
         self.assertEqual(cint(rows[edited_key].cooldown_minutes), 7)
