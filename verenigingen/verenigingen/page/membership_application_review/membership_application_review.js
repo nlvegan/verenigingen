@@ -434,8 +434,7 @@ class MembershipApplicationReview {
 		$wrapper.on('click', '#btn-clear-filters', () => {
 			$('#filter-chapter').val('');
 			$('#filter-days-overdue').val('');
-			this.filters = { chapter: null, days_overdue: null };
-			this.load_applications();
+			this.clear_filters();
 		});
 
 		// Action button handlers
@@ -631,9 +630,22 @@ class MembershipApplicationReview {
 		}
 	}
 
+	// Clearing filters also leaves focus mode (?application=), or the reviewer is stuck on one record.
+	clear_filters() {
+		this.filters = { chapter: null, days_overdue: null };
+		this.focus_application = null;
+		this.load_applications();
+	}
+
 	render_applications() {
 		if (this.applications.length === 0) {
+			// The focused application may no longer be listed (e.g. no longer Pending Review);
+			// keep a way back to the full list instead of a dead-end empty state.
+			const focus_notice = this.focus_application
+				? `<div class="alert alert-info focus-banner">${__('The requested application is not in the pending list.')} <a href="#" class="show-all-applications">${__('Show all applications')}</a></div>`
+				: '';
 			$('.applications-list').html(`
+				${focus_notice}
 				<div class="empty-state text-center p-5">
 					<i class="fa fa-inbox fa-3x text-muted mb-3"></i>
 					<h5 class="text-muted">No pending applications found</h5>
