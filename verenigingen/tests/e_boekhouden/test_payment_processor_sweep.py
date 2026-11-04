@@ -34,6 +34,7 @@ Run with::
 import frappe
 from frappe.utils import flt, getdate, nowdate
 
+from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
 from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -586,6 +587,19 @@ class TestLinkBankTransactionToPayment(_PayProcBase):
         self.assertEqual(len(bt.payment_entries), 1)
         self.assertEqual(bt.payment_entries[0].payment_entry, pe.name)
         self.assertEqual(bt.payment_entries[0].payment_document, "Payment Entry")
+
+    def test_payment_entry_handler_link_reconciles_a_draft(self):
+        # #2080: the e-boekhouden PaymentEntryHandler has its own copy of this link step. Under
+        # erpnext 7526af9b2 its save resets a draft to "Pending", so the outcome must be
+        # persisted after the save, as in PaymentProcessor above.
+        bt = self._make_draft_bt("EB-PE-7340003", 30.0)
+        pe = self._make_internal_transfer_pe(30.0)
+        PaymentEntryHandler(self.company)._link_bank_transaction_to_payment(bt.name, pe.name)
+
+        bt.reload()
+        self.assertEqual(bt.docstatus, 0)
+        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.payment_entries[0].payment_entry, pe.name)
 
     def test_idempotent_when_already_linked(self):
         p = self._processor()

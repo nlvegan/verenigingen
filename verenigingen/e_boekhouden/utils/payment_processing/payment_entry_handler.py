@@ -17,6 +17,7 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
 
 # Lock for thread-safe monkey patching of Payment Entry during floating point fix
 _floating_point_fix_lock = threading.Lock()
@@ -1589,7 +1590,6 @@ class PaymentEntryHandler:
             )
 
             # Update Bank Transaction status and amounts
-            bt.status = self.BANK_TRANSACTION_STATUS_RECONCILED
             bt.allocated_amount = pe.paid_amount or pe.received_amount
             bt.unallocated_amount = 0.0
 
@@ -1639,6 +1639,7 @@ class PaymentEntryHandler:
                         f"This may indicate a framework issue - check logs for details."
                     )
 
+            persist_draft_status(bt, self.BANK_TRANSACTION_STATUS_RECONCILED)
             self._log(
                 f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}"
             )
