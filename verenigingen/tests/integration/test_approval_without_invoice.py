@@ -600,7 +600,9 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertEqual(len(mails), 1)
         self.assertIn(f"/payment/membership/{member}/{new_invoice}", mails[0]["content"])
         self.assertNotIn(old_invoice, mails[0]["content"])
-        self.assertFalse(self._marker(application))
+        # The rejoiner was mailed at the first approval, so this mail may be in the recipient's cooldown and
+        # skipped: the marker must then stay. Either way it matches whether the mail went out.
+        self.assertEqual(bool(self._marker(application)), not response["mail_sent"])
 
     def test_a_draft_invoice_of_an_earlier_membership_does_not_block_this_retry(self):
         earlier_plan, application, member = self._rejoin_with_failed_invoice()
@@ -612,6 +614,104 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertNotEqual(response["invoice"], old_draft)
         self.assertEqual(frappe.db.get_value("Sales Invoice", old_draft, "docstatus"), 0, "the old draft is untouched")
         self.assertEqual(len(mails), 1)
+
+    def _unlinked_membership_invoice(self, member, coverage_start):
+        """A submitted membership invoice on the member's Customer with NO membership link, as some other
+        writer might leave one. PROBE SHORTCUT, stated: it is made with the approval's own helper and then the
+        `membership` link is blanked and the coverage start set directly, to ask the lookup's fallback."""
+        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+        doc = frappe.get_doc("Member", member)
+        membership = frappe.get_doc("Membership", doc.current_membership_plan)
+        invoice = MembershipCreationService()._create_membership_invoice(
+            doc, membership, frappe.get_doc("Membership Type", membership.membership_type)
+        )
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"membership": None, "custom_coverage_start_date": coverage_start},
+            update_modified=False,
+        )
+        return invoice.name, membership
+
+    def test_an_unlinked_invoice_covering_this_membership_is_mailed_not_duplicated(self):
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        plan = frappe.db.get_value("Member", member, "current_membership_plan")
+        start = frappe.db.get_value("Membership", plan, "start_date")
+        unlinked, _membership = self._unlinked_membership_invoice(member, start)
+        self.assertFalse(frappe.db.get_value("Sales Invoice", unlinked, "membership"), "control: no link")
+
+        response, mails = self._retry(application)
+
+        self.assertEqual(response["invoice"], unlinked)
+        self.assertEqual(self._invoices_of(member), [unlinked], "nothing new was created")
+        self.assertEqual(len(mails), 1)
+        self.assertIn(f"/payment/membership/{member}/{unlinked}", mails[0]["content"])
+
+    def test_an_invoice_linked_to_this_membership_is_found_whatever_its_coverage_start(self):
+        """The link is the key; coverage is only the fallback for an unlinked invoice. A linked invoice whose
+        coverage begins before the membership start is still this membership's, and is mailed, not duplicated."""
+        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        doc = frappe.get_doc("Member", member)
+        membership = frappe.get_doc("Membership", doc.current_membership_plan)
+        linked = MembershipCreationService()._create_membership_invoice(
+            doc,
+            membership,
+            frappe.get_doc("Membership Type", membership.membership_type),
+            period_start=add_days(membership.start_date, -5),
+        )
+        self.assertEqual(frappe.db.get_value("Sales Invoice", linked.name, "membership"), membership.name)
+
+        response, mails = self._retry(application)
+
+        self.assertEqual(response["invoice"], linked.name)
+        self.assertEqual(self._invoices_of(member), [linked.name])
+        self.assertEqual(len(mails), 1)
+
+    def test_an_unlinked_invoice_from_before_this_membership_is_ignored(self):
+        """Control for the fallback: an unlinked invoice whose coverage starts BEFORE the membership start
+        belongs to something earlier. It must not be mailed, and a new invoice is created."""
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        plan = frappe.db.get_value("Member", member, "current_membership_plan")
+        start = frappe.db.get_value("Membership", plan, "start_date")
+        unlinked, _membership = self._unlinked_membership_invoice(member, add_days(start, -400))
+
+        response, mails = self._retry(application)
+
+        self.assertTrue(response["invoice"])
+        self.assertNotEqual(response["invoice"], unlinked)
+        self.assertEqual(len(mails), 1)
+        self.assertIn(f"/payment/membership/{member}/{response['invoice']}", mails[0]["content"])
+        self.assertNotIn(unlinked, mails[0]["content"])
+
+    def test_a_skipped_mail_is_not_a_sent_mail_and_keeps_the_marker(self):
+        """The mail service answers success with skipped=True when emails are off (or the notification is
+        disabled, in cooldown, opted out). The held mail was NOT sent, so the marker stays and the response says why."""
+        from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+
+        application, member = self._approved_with_failed_invoice()
+        self._fix_invoicing()
+        # The master switch is a scalar field, which singleton_backup restores; a notification_types ROW
+        # would not be restored (it skips child tables).
+        with singleton_backup("Verenigingen Email Configuration"):
+            frappe.db.set_single_value("Verenigingen Email Configuration", "master_email_enabled", 0)
+            response, mails = self._retry(application)
+            self.assertEqual(mails, [], "control: nothing was sent while emails are off")
+
+        self.assertFalse(response["mail_sent"])
+        self.assertIn("skipped", response["message"].lower())
+        self.assertTrue(response["invoice"], "the invoice itself was created")
+        self.assertTrue(self._marker(application), "nothing was sent, so the marker stays")
+        second, mails = self._retry(application)  # notification enabled again
+        self.assertTrue(second["mail_sent"])
+        self.assertEqual(second["invoice"], response["invoice"], "the resend creates no new invoice")
+        self.assertEqual(len(mails), 1)
+        self.assertFalse(self._marker(application))
 
     def test_a_late_retry_covers_the_period_approval_would_have(self):
         """The first invoice discharges the running period from the membership's start, not from the day of

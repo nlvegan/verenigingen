@@ -385,12 +385,23 @@ def _create_user_account_safe(member, should_activate_volunteer):
 
 
 def _send_approval_email_safe(member, invoice, membership_type_doc):
-    """Send approval email with nested error handling. Fire-and-forget; returns whether it was sent."""
+    """Send approval email with nested error handling. Fire-and-forget for the approval.
+
+    Returns (sent, skipped_reason). The mail service answers success with `skipped` set when it deliberately
+    sent nothing (emails off, notification disabled, cooldown, opt-out): that is NOT sent, which the retry
+    needs to know so it keeps its marker. The approval ignores the return value, and a skip is still silent
+    there, as before.
+    """
     sent = False
+    skipped_reason = None
     try:
         email_result = send_approval_notification(member, invoice, membership_type_doc)
-        sent = bool(email_result and email_result.success)
-        if not sent:
+        data = email_result.data if email_result and email_result.success else None
+        if isinstance(data, dict) and data.get("skipped"):
+            skipped_reason = data.get("reason") or _("not specified")
+        else:
+            sent = bool(email_result and email_result.success)
+        if not sent and not skipped_reason:
             frappe.log_error(
                 f"Approval email failed for {member.name} ({member.email}): {'; '.join(email_result.errors or []) if email_result else 'No result returned'}",
                 "Approval Email Failed",
@@ -415,7 +426,7 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
             indicator="orange",
         )
         # Continue with approval - emails can be sent manually
-    return sent
+    return sent, skipped_reason
 
 
 def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
@@ -1169,7 +1180,7 @@ def _retry_application_invoice_locked(application_name):
         frappe.msgprint(message, indicator="orange")
         return _retry_response(application_name, member, None, False, message, invoice_failed=True)
 
-    mail_sent = _send_approval_email_safe(member, invoice, membership_type)
+    mail_sent, skipped_reason = _send_approval_email_safe(member, invoice, membership_type)
     if mail_sent:
         # Cleared only once the mail went out, and in the same request as the invoice: the marker is what a
         # racing retry reads, and what lets a later retry resend a mail that failed.
@@ -1189,7 +1200,12 @@ def _retry_application_invoice_locked(application_name):
             invoice_name=invoice.name,
             enqueue_after_commit=True,
         )
-    if not mail_sent:
+    if skipped_reason:
+        message = _(
+            "The invoice exists, but the approval email was skipped: {0}. Fix that, then retry: the retry "
+            "sends the email and creates no new invoice."
+        ).format(skipped_reason)
+    elif not mail_sent:
         message = _(
             "The invoice exists, but the approval email could NOT be sent. See the Error Log, then retry: "
             "the retry sends the email and creates no new invoice."
