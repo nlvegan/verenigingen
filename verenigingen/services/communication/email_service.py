@@ -453,6 +453,7 @@ class EmailService(StatelessService):
         create_communication: bool = True,  # Deprecated - kept for backward compatibility
         notification_key: str = None,
         cooldown_scope: str = None,
+        bypass_cooldown: bool = False,
         **options,
     ) -> OperationResult:
         """
@@ -470,6 +471,9 @@ class EmailService(StatelessService):
                              checks per-notification-type settings and cooldown.
             cooldown_scope: Optional. Narrows the per-recipient cooldown to this scope (e.g. a
                             chapter), so one recipient can get the same notification once per scope.
+            bypass_cooldown: Optional. Skips ONLY the cooldown check, for an urgent send. The enable
+                             switch and user opt-outs still apply. It does not record the cooldown
+                             either, so it never uses up a rate-limited sender's slot.
         """
         try:
             # Check Verenigingen Email Configuration if available
@@ -509,7 +513,7 @@ class EmailService(StatelessService):
                     # Check cooldown for each recipient
                     recipients_to_send = []
                     for recipient in recipients:
-                        if config_service.check_cooldown(
+                        if bypass_cooldown or config_service.check_cooldown(
                             notification_key, self._cooldown_id(recipient, cooldown_scope)
                         ):
                             recipients_to_send.append(recipient)
@@ -593,7 +597,8 @@ class EmailService(StatelessService):
             # For audit trails, use Email Queue reports instead of Communication records.
 
             # Record cooldown for sent emails
-            if notification_key:
+            # A bypassing send does not take the rate-limited sends' slot (#2003).
+            if notification_key and not bypass_cooldown:
                 self._record_cooldown(notification_key, recipients, cooldown_scope)
 
             return OperationResult.ok(
