@@ -395,6 +395,13 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
                 )
                 processed_invoices.append(invoice.name)
 
+                # Re-pin the drain clocks right before EACH counted call. Building the invoice can
+                # take longer than the 30 s drain window (a 10 s exchange-rate fetch timeout per
+                # invoice was seen in CI shard 11 of PR #2071 and on every offline bench), and a
+                # single pin before the loop then lets the drain run inside the counted call.
+                for k in ("payments", "expenses"):
+                    clocks[k] = now_datetime()
+
                 # Add to payment history with race condition handling
                 with count_queries() as counter:
                     member.add_invoice_to_payment_history(invoice.name)
