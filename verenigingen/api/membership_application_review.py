@@ -1201,22 +1201,44 @@ def _retry_application_invoice_locked(application_name):
     return _retry_response(application_name, member, invoice, mail_sent, message)
 
 
+def _invoices_of_this_membership(member, membership):
+    """Non-cancelled membership invoices that belong to THIS membership, first period first.
+
+    A rejoining member keeps the same Customer and its older (often paid) invoices, so the Customer alone says
+    nothing. The key is the invoice's own `membership` link: approval sets it (`create_membership_invoice_with_
+    amount`) and so does the dues generator (`invoice.membership = member.current_membership_plan`), and a
+    rejoin creates a NEW Membership. An invoice with no `membership` link is attributed by its coverage start
+    (on or after this membership's start); one with neither a link nor a coverage start cannot be attributed
+    and is ignored, so it cannot make a retry mail an old invoice or refuse on an old draft.
+    """
+    if not member.customer:
+        return []
+    base = {"customer": member.customer, "is_membership_invoice": 1, "docstatus": ["<", 2]}
+    fields = ["name", "docstatus", "custom_coverage_start_date"]
+    rows = frappe.get_all("Sales Invoice", {**base, "membership": membership.name}, fields)
+    if membership.start_date:
+        rows += frappe.get_all(
+            "Sales Invoice",
+            {
+                **base,
+                "membership": ["is", "not set"],
+                "custom_coverage_start_date": [">=", membership.start_date],
+            },
+            fields,
+        )
+    return sorted(
+        rows,
+        key=lambda row: (row.custom_coverage_start_date is None, row.custom_coverage_start_date, row.name),
+    )
+
+
 def _existing_or_new_membership_invoice(member, membership, membership_type):
-    """(invoice, created). A SUBMITTED membership invoice on the member's Customer (made by the scheduler, a
+    """(invoice, created). A SUBMITTED invoice of this membership (made by the scheduler, a
     manual run, or an earlier retry whose mail failed) is used as it is, and nothing is created. Only a DRAFT
     one (a submit that failed) is refused: creating another would bill the member twice. Otherwise create."""
     from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
 
-    existing = (
-        frappe.get_all(
-            "Sales Invoice",
-            {"customer": member.customer, "is_membership_invoice": 1, "docstatus": ["<", 2]},
-            ["name", "docstatus"],
-            order_by="creation asc",
-        )
-        if member.customer
-        else []
-    )
+    existing = _invoices_of_this_membership(member, membership)
     submitted = [row.name for row in existing if row.docstatus == 1]
     if submitted:
         return frappe.get_doc("Sales Invoice", submitted[0]), False

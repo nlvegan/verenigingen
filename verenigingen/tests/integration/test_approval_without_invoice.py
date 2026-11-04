@@ -519,6 +519,100 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertTrue(second["mail_sent"])
         self.assertFalse(self._marker(application))
 
+    def _rejoin_with_failed_invoice(self):
+        """(earlier membership, application, member): a member approved once without an invoice, terminated
+        through the real termination service, then re-applying and approved again with invoicing broken.
+        PROBE SHORTCUT, stated: only the first Membership's commitment_end_date is backdated so a past-dated
+        termination can run (as test_approval_invoice_period does)."""
+        from verenigingen.tests.support.termination_request import execute_real_termination
+
+        self.expectErrorLog("Chapter Membership Error")
+        first = self._stage_and_confirm()
+        first_response, _m, _o, _e = self._approve_capturing_mail(first, create_invoice=False)
+        member = first_response["member"]
+        earlier_plan = frappe.db.get_value("Member", member, "current_membership_plan")
+        frappe.db.set_value("Membership", earlier_plan, "commitment_end_date", add_days(today(), -60))
+        execute_real_termination(self, member, add_days(today(), -30))
+        self.assertEqual(frappe.db.get_value("Member", member, "status"), "Quit")
+
+        second = self._stage_and_confirm()
+        self._make_invoicing_fail()
+        response, _mails, _outcomes, _errors = self._approve_capturing_mail(second, create_invoice=True)
+        self.assertTrue(response["invoice_failed"], response)
+        self.assertEqual(response["member"], member, "the rejoiner is the same Member")
+        self.assertNotEqual(frappe.db.get_value("Member", member, "current_membership_plan"), earlier_plan)
+        self._fix_invoicing()
+        return earlier_plan, second, member
+
+    def _earlier_membership_invoice(self, member, earlier_plan, submitted):
+        """An invoice of the EARLIER membership that survives on the shared Customer, as a paid one would
+        (the termination cancels or deletes unpaid ones). PROBE SHORTCUT, stated: it is made with the
+        approval's own invoice helper against the old Membership and a coverage start a year back; with
+        submitted=False the submit step is made to fail, which leaves a draft."""
+        from types import SimpleNamespace
+
+        from verenigingen.services.member.approval import application_payments
+        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+        doc = frappe.get_doc("Member", member)
+        membership = frappe.get_doc("Membership", earlier_plan)
+        membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+        real = application_payments.secure_document_operation
+
+        def fail_submit(*args, **kwargs):
+            if kwargs.get("operation") == "submit":
+                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+            return real(*args, **kwargs)
+
+        service = MembershipCreationService()
+        start = add_days(today(), -400)
+        if submitted:
+            invoice = service._create_membership_invoice(doc, membership, membership_type, period_start=start)
+            self.assertTrue(invoice and invoice.docstatus == 1, "control: a submitted earlier invoice")
+            return invoice.name
+        self.expectErrorLog("Membership Invoice Creation Failed", "Membership Invoice Security")
+        # Mock justified: External Service boundary - only the submit step is made to fail
+        with patch.object(application_payments, "secure_document_operation", fail_submit):
+            service._create_membership_invoice(doc, membership, membership_type, period_start=start)
+        drafts = frappe.get_all(
+            "Sales Invoice",
+            {"customer": doc.customer, "membership": earlier_plan, "docstatus": 0},
+            pluck="name",
+        )
+        self.assertEqual(len(drafts), 1, "control: a draft earlier invoice")
+        return drafts[0]
+
+    def test_a_submitted_invoice_of_an_earlier_membership_does_not_stand_in_for_this_one(self):
+        """A rejoiner keeps the Customer and its old (often paid) membership invoices. The retry must bill the
+        NEW membership and mail the NEW invoice's link, not mail the old one and leave the member unbilled."""
+        earlier_plan, application, member = self._rejoin_with_failed_invoice()
+        old_invoice = self._earlier_membership_invoice(member, earlier_plan, submitted=True)
+
+        response, mails = self._retry(application)
+
+        new_invoice = response["invoice"]
+        self.assertTrue(new_invoice)
+        self.assertNotEqual(new_invoice, old_invoice)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", new_invoice, "membership"),
+            frappe.db.get_value("Member", member, "current_membership_plan"),
+        )
+        self.assertEqual(len(mails), 1)
+        self.assertIn(f"/payment/membership/{member}/{new_invoice}", mails[0]["content"])
+        self.assertNotIn(old_invoice, mails[0]["content"])
+        self.assertFalse(self._marker(application))
+
+    def test_a_draft_invoice_of_an_earlier_membership_does_not_block_this_retry(self):
+        earlier_plan, application, member = self._rejoin_with_failed_invoice()
+        old_draft = self._earlier_membership_invoice(member, earlier_plan, submitted=False)
+
+        response, mails = self._retry(application)
+
+        self.assertTrue(response["invoice"])
+        self.assertNotEqual(response["invoice"], old_draft)
+        self.assertEqual(frappe.db.get_value("Sales Invoice", old_draft, "docstatus"), 0, "the old draft is untouched")
+        self.assertEqual(len(mails), 1)
+
     def test_a_late_retry_covers_the_period_approval_would_have(self):
         """The first invoice discharges the running period from the membership's start, not from the day of
         the retry; otherwise the schedule's next invoice would overlap it. The schedule's next_invoice_date is
