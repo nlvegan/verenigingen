@@ -46,6 +46,7 @@ import ast
 import re
 import subprocess
 import sys
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -360,6 +361,9 @@ def compare(base_tests, head_tests, base_prod=None, head_prod=None):
         (rep.removed_cleanup if cleanup else rep.removed).append(item)
 
     for b, h in pairs:
+        if b.name != h.name:
+            # Phase-3 pairing is heuristic: list it so a reader can spot an absorbed deletion.
+            rep.notes.append(f"treated as rename: {b.qual} -> {h.qual}")
         dropped = b.assertions - h.assertions
         emptied = b.assertions > 0 and h.assertions == 0
         if (dropped >= MIN_ASSERTIONS_REMOVED or emptied) and not (h.delegates - b.delegates):
@@ -488,8 +492,11 @@ def main(argv=None):
     try:
         merge_base, bt, ht, bp, hp = collect(args.repo, args.base, args.head)
         print(format_report(compare(bt, ht, bp, hp), f" vs {merge_base[:9]}"))
-    except Exception as e:  # advisory: never block a push, whatever went wrong
+    except (subprocess.CalledProcessError, OSError) as e:
         print(f"Weakened-test check skipped: {type(e).__name__}: {str(e)[:120]}")
+    except Exception:  # advisory: never block a push, but show a real bug in the check
+        print("Weakened-test check internal error (advisory, not blocking)", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
     return 0
 
 

@@ -179,6 +179,25 @@ class TestRenamePairing(unittest.TestCase):
         self.assertEqual(r.removed, [])
         self.assertEqual(r.assertions_removed, [])
 
+    def test_control_similar_name_but_disjoint_body_is_not_a_rename(self):
+        base = src("class T(B):\n    def test_member_payment_flow(self):\n        a = alpha_one()\n"
+                   "        b = alpha_two(a)\n        c = alpha_three(b)\n        self.assertTrue(c)\n")
+        head = src("class T(B):\n    def test_member_payment_flow_v2(self):\n        a = beta_one()\n"
+                   "        b = beta_two(a)\n        c = beta_three(b)\n        self.assertTrue(c)\n")
+        r = run({"t/test_a.py": base}, {"t/test_a.py": head})
+        self.assertEqual(names(r.removed), ["T.test_member_payment_flow"])
+
+    def test_every_rename_pairing_is_listed_as_a_note(self):
+        base = {"t/test_a.py": _case("TestA", "test_create_member_flow", 3)}
+        head = {"t/test_a.py": _case("TestA", "test_create_member_flow_renamed", 3)}
+        r = run(base, head)
+        self.assertEqual(r.notes, ["treated as rename: TestA.test_create_member_flow -> TestA.test_create_member_flow_renamed"])
+        self.assertIn("note: treated as rename", wtv.format_report(r))
+
+    def test_control_same_name_pairing_is_not_noted_as_a_rename(self):
+        both = {"t/test_a.py": _case("TestA", "test_create_member_flow", 3)}
+        self.assertEqual(run(both, both).notes, [])
+
 
 class TestAssertionsRemoved(unittest.TestCase):
     def test_two_assertions_removed_is_reported(self):
@@ -466,14 +485,34 @@ class TestGitAndCli(unittest.TestCase):
         original = wtv.collect
         wtv.collect = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
         try:
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
+            buf, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                rc = wtv.main(["--base", "x", "--repo", "."])
+        finally:
+            wtv.collect = original
+        self.assertEqual(rc, 0)
+        self.assertNotIn("skipped", buf.getvalue())
+        self.assertIn("internal error (advisory, not blocking)", err.getvalue())
+        self.assertIn("Traceback", err.getvalue())
+        self.assertIn("RuntimeError: boom", err.getvalue())
+
+
+    def test_git_failure_keeps_the_one_line_skipped_message(self):
+        original = wtv.collect
+
+        def boom(*a, **k):
+            raise subprocess.CalledProcessError(128, "git")
+
+        wtv.collect = boom
+        try:
+            buf, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
                 rc = wtv.main(["--base", "x", "--repo", "."])
         finally:
             wtv.collect = original
         self.assertEqual(rc, 0)
         self.assertIn("Weakened-test check skipped", buf.getvalue())
-        self.assertIn("boom", buf.getvalue())
+        self.assertEqual(err.getvalue(), "")
 
 
 if __name__ == "__main__":
