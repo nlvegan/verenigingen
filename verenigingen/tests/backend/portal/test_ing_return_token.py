@@ -181,16 +181,32 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                 client = Client(frappe.app.application, use_cookies=False)
                 headers = {{"X-Frappe-Site-Name": SITE}}
 
-                def error_logs():
+                def error_log_mark():
+                    # Cheap: the newest creation stamp plus the names AT it, not the whole (growing) table.
                     frappe.init(site=SITE); frappe.connect()
-                    rows = frappe.db.sql("select name, method, error from `tabError Log`")
+                    newest = frappe.db.sql("select max(creation) from `tabError Log`")[0][0]
+                    names = set()
+                    if newest:
+                        names = {{r[0] for r in frappe.db.sql("select name from `tabError Log` where creation >= %s", (newest,))}}
                     frappe.destroy()
-                    return {{r[0]: ((r[1] or "") + " " + (r[2] or "")).lower() for r in rows}}
+                    return newest, names
 
-                def ours(before, after):
-                    # NEW rows only (robust against unrelated writers) that mention this flow, whatever title they use.
+                def new_rows_about_this_flow(mark):
+                    # Only rows newer than the mark are read; any title is caught, unrelated writers are not.
+                    newest, names = mark
+                    frappe.init(site=SITE); frappe.connect()
+                    if newest:
+                        rows = frappe.db.sql("select name, method, error from `tabError Log` where creation >= %s", (newest,))
+                    else:
+                        rows = frappe.db.sql("select name, method, error from `tabError Log`")
+                    frappe.destroy()
                     needles = ("payment_success", order_id.lower(), "ing", "return")
-                    return [name for name, text in after.items() if name not in before and any(n in text for n in needles)]
+                    found = []
+                    for name, method, error in rows:
+                        text = ((method or "") + " " + (error or "")).lower()
+                        if name not in names and any(n in text for n in needles):
+                            found.append(name)
+                    return found
 
                 paynl = MagicMock()
                 paynl.get_order.return_value = {{"status": {{"code": 100, "action": "PAID"}}, "payments": []}}
@@ -226,7 +242,7 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                 )
                 out = {{}}
                 for key, target in cases:
-                    before_logs = error_logs()
+                    before_logs = error_log_mark()
                     paynl.get_order.reset_mock()
                     counter["n"] = 0
                     with patch("verenigingen.verenigingen_payments.ing_checkout.api.payment.get_client", return_value=paynl), \\
@@ -236,7 +252,7 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                         "status": r.status_code,
                         "body": r.get_data(as_text=True),
                         "server_messages": "_server_messages" in r.get_data(as_text=True) or r.headers.get("X-Frappe-Message-Log"),
-                        "error_logs": ours(before_logs, error_logs()),
+                        "error_logs": new_rows_about_this_flow(before_logs),
                         "pay_nl_calls": paynl.get_order.call_count,
                         "pay_nl_arg": paynl.get_order.call_args[0][0] if paynl.get_order.call_args else None,
                         "queries": counter["n"],
