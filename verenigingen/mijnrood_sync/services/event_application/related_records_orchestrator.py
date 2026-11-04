@@ -310,7 +310,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         Returns:
             ``(request_name, None)`` when queued; ``(None, None)`` when a request
             is already open or the member has no email (expected skips); ``(None, message)``
-            for any other refusal, which is also written to the Error Log
+            for any other refusal, including a Failed blocking request (#1825), which is also written to the Error Log
             (``frappe.logger`` is never read) so it surfaces to the caller.
         """
         result = queue_fn(member_name, **kwargs)
@@ -318,8 +318,9 @@ class MijnRoodRelatedRecordsOrchestrator:
             return (result.get("data") or {}).get("request_name") or "unknown", None
 
         context = ((result or {}).get("meta") or {}).get("context") or {}
-        if (context.get("params") or {}).get("existing_request"):
-            return None, None
+        blocking = (context.get("params") or {}).get("existing_request")
+        if blocking:
+            return self._skip_for_blocking_request(member_name, blocking)
 
         error = (result or {}).get("error") or {}
         if error.get("code") == "NO_EMAIL":
@@ -332,6 +333,26 @@ class MijnRoodRelatedRecordsOrchestrator:
             message=f"Member {member_name}: {reason} {detail}".strip(),
         )
         return None, _("Account creation not queued: {0}").format(reason)
+
+    def _skip_for_blocking_request(self, member_name: str, blocking_request: str):
+        """An open blocker is an expected skip; a Failed one is a stuck account (#1825).
+
+        ``_find_blocking_request`` also returns a Failed request with retries left, and
+        nothing retries a standalone one unattended (only a staff ``retry_failed_request``).
+        ``mark_failed`` writes only ``frappe.logger`` (never read), so without this row the
+        member has no account and no trace anywhere.
+        """
+        status = frappe.db.get_value("Account Creation Request", blocking_request, "status")
+        if status != "Failed":
+            return None, None
+        frappe.log_error(
+            title="MijnRood account creation blocked",
+            message=(
+                f"Member {member_name}: no account created because Account Creation Request "
+                f"{blocking_request} is Failed and still retryable. Retry or cancel it."
+            ),
+        )
+        return None, _("Account creation blocked by failed request {0}").format(blocking_request)
 
     def _ensure_membership_and_dues(self, member_name: str, row_data: dict) -> Optional[str]:
         """Create Membership + Dues Schedule for a synced member if eligible.
