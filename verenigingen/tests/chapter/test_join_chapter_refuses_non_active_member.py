@@ -89,15 +89,31 @@ class TestJoinChapterRefusesNonActiveMember(EnhancedTestCase):
         self.assertFalse(result.get("success"), result)
         self.assertNotIn("Banned", str(result))
 
-    def test_rejoin_request_of_a_now_suspended_member_is_refused(self):
-        """The Inactive+enabled -> Pending branch is a second writer in the same function."""
+    def _seed_inactive_enabled_row(self):
+        """Inactive + enabled=1 row: the state the rejoin branch of request_to_join acts on."""
         self.assertTrue(self._join_as_member().get("success"))
         frappe.db.set_value(
-            "Chapter Member",
-            {"parent": self.target.name, "member": self.member_name},
-            "status",
-            "Inactive",
+            "Chapter Member", {"parent": self.target.name, "member": self.member_name}, "status", "Inactive"
         )
+
+    def test_rejoin_branch_is_behind_the_guard(self):
+        """The rejoin branch is a second writer of a Pending row. Called DIRECTLY (as Administrator),
+        because through join_chapter as the member an earlier Chapter:write permission check at the
+        rejoin save refuses first and would hide a mis-placed guard."""
+        self._seed_inactive_enabled_row()
+        frappe.db.set_value("Member", self.member_name, "status", "Suspended")
+        self.target.reload()
+
+        result = self.target.member_manager.request_to_join(self.member_name, notify=False)
+
+        self.assertFalse(result.get("success"), result)
+        self.assertEqual(result.get("action"), "not_active", result)
+        self.assertEqual([r.status for r in self._rows()], ["Inactive"])
+
+    def test_rejoin_via_member_user_of_a_suspended_member_writes_nothing(self):
+        """End-to-end as the member's own user. NOT proof of the rejoin guard: another permission
+        check refuses this caller first (see test_rejoin_branch_is_behind_the_guard)."""
+        self._seed_inactive_enabled_row()
         frappe.db.set_value("Member", self.member_name, "status", "Suspended")
         result = self._join_as_member()
         self.assertFalse(result.get("success"), result)
