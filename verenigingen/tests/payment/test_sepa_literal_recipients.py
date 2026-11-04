@@ -172,27 +172,32 @@ class TestFinancialAdminResolver(EnhancedTestCase):
         self.assertEqual(_error_rows_titled(NOTIF_ERROR_LOG_TITLE), before + 1)
 
 
-class TestNotifyAdministratorsOrderIsUnchanged(EnhancedTestCase):
-    """Pins today's order for a call passing BOTH a category and a key: the category wins (#2043).
+class TestNotifyAdministratorsKeyBeatsCategory(EnhancedTestCase):
+    """A call passing BOTH a category and a key reaches the KEY's own recipients (#2043).
 
-    A change to that order is a deliberate red here, not a side effect of #2002.
+    This replaces ``test_category_recipients_beat_the_keys_own_recipients``, which pinned the opposite
+    order and was written to go red on exactly this change. Evidence the old assertion was wrong, not
+    the code: the maintainer ruling on #2043 (2026-11-04): "the key wins ... the category is only a
+    fallback, for a key that has no row or whose row resolves to nobody". Control assertion: the
+    category's recipient is still what a category-only call returns, and what the key falls back to.
     """
 
-    def test_category_recipients_beat_the_keys_own_recipients(self):
+    def test_the_keys_own_recipients_beat_the_category_recipients(self):
         rows = _snapshot_rows()
         self.addCleanup(_restore_rows, rows)
         cat_user, key_user = "cat-user-2002@example.org", "key-user-2002@example.org"
         self.create_test_user(cat_user, roles=["Verenigingen Administrator"])
         self.create_test_user(key_user, roles=["Verenigingen Administrator"])
-        frappe.db.set_single_value(CONFIG_DOCTYPE, "admin_notification_emails", cat_user)
+        frappe.db.set_single_value("Verenigingen Email Configuration", "admin_notification_emails", cat_user)
         _put_key_row("termination_overdue", "Fixed", fixed_recipients=key_user)
         self.assertEqual(
-            resolve_admin_recipients(notification_key="termination_overdue", category="Admin"), [cat_user]
+            resolve_admin_recipients(notification_key="termination_overdue", category="Admin"), [key_user]
         )
         self.assertEqual(resolve_admin_recipients(notification_key="termination_overdue"), [key_user])
+        self.assertEqual(resolve_admin_recipients(category="Admin"), [cat_user])  # control
         subject = f"order-pin-2002-{frappe.generate_hash(length=6)}"
         notify_administrators(subject=subject, message="m", notification_key="termination_overdue", category="Admin")
-        self.assertEqual(frappe.get_all("Notification Log", {"subject": subject}, pluck="for_user"), [cat_user])
+        self.assertEqual(frappe.get_all("Notification Log", {"subject": subject}, pluck="for_user"), [key_user])
 
 
 class TestBatchSendersSkipWithoutRecipients(EnhancedTestCase):

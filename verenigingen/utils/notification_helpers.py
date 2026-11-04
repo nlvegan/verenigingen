@@ -505,7 +505,9 @@ def notify_administrators(
         notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, uses Verenigingen Email Configuration for enable/disable checks.
         category (str, optional): Notification category (Admin, System, etc.)
-            Used for recipient lookup in Verenigingen Email Configuration.
+            Used for recipient lookup in Verenigingen Email Configuration. With a
+            ``notification_key`` too, the category is only the FALLBACK: it applies when the
+            key has no Email Notification Type row or its row resolves to nobody (#2043).
         exclude_users (list, optional): User names that must never be a recipient, applied to the
             FINAL recipient list (after the configured, category and role fallbacks). Matches the
             user's name or email.
@@ -573,11 +575,15 @@ def resolve_admin_recipients(
 ):
     """Resolve staff recipients: the ONE place that decides who an admin alert goes to.
 
-    ``key_first=False`` is what notify_administrators has always done, and must not change
-    (#2043 tracks that the category beats the key there): the category's recipients (for Admin,
-    ``admin_notification_emails`` or, when unset, the fallback role's holders), else the key's own
-    recipients, else the legacy ``setting_field`` / ``admin_notification_emails`` setting, else
-    enabled holders of ``default_roles``. ``exclude_users`` is applied to the FINAL list only.
+    ``key_first=False`` is notify_administrators. When a call passes BOTH a category and a key, the
+    key's own recipients come first and the category is the fallback (maintainer ruling on #2043):
+    the key's own recipients (none when the key has no row), else the category's recipients (for
+    Admin, ``admin_notification_emails`` or, when unset, the fallback role's holders), else the
+    legacy ``setting_field`` / ``admin_notification_emails`` setting, else enabled holders of
+    ``default_roles``. A call passing only a key still gets the key's recipients (the email
+    configuration service's System Manager fallback for an unknown key included), and a call passing
+    only a category gets the category's: those are unchanged. ``exclude_users`` is applied to the
+    FINAL list only.
 
     ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
     the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
@@ -623,7 +629,9 @@ def resolve_admin_recipients(
     if key_first:
         tiers = (own_key_tier, configured_admin_tier, extra_tier, legacy_tier)
     else:
-        tiers = (category_tier, key_tier, legacy_tier)
+        # The service's fallback for an unknown key is the category fallback under another name, so
+        # with a category to fall back to, a key counts only when it has its own row (#2043).
+        tiers = (own_key_tier if category else key_tier, category_tier, legacy_tier)
 
     recipients = []
     for tier in tiers:
