@@ -93,11 +93,13 @@ class TestOwnNotificationKeys(FrappeTestCase):
         self.assertEqual(frappe.get_single(DOCTYPE).master_email_enabled, 0)
 
     def test_a_commit_while_the_keys_are_owned_fails_the_cleanup_loudly(self):
-        """A commit makes the seed permanent (the restore is uncommitted), so it must not pass silently."""
+        """A commit makes the seed permanent (the restore is uncommitted), so it must not pass silently.
+
+        Probe shortcut: a real commit would persist the seed in this site (and add a bare commit to
+        the order-dependence census), so the commit's first step is run instead: Database.commit()
+        calls before_commit.run() before it issues COMMIT, which is the hook the helper listens on.
+        """
         own_notification_keys(self.owner, KEY)
-        frappe.db.commit()  # Probe: stands in for production code under test that commits
+        frappe.db.before_commit.run()
 
         self.assertFalse(self.owner.doCleanups(), "the cleanup must report the leak")
-        # What the commit persisted is undone here, by hand, as this test is the one that committed it
-        self._put_state_back()
-        frappe.db.commit()
