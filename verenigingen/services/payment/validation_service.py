@@ -275,7 +275,11 @@ class PaymentValidationService(StatelessService):
 
         # Return result
         if errors:
-            return ValidationResult.failure(_("Bank details validation failed"), errors=errors)
+            # Name the reasons: callers that throw result.message (Member.validate_iban_format, hence a
+            # refused approval) otherwise tell the approver nothing about the IBAN or the holder (#2023).
+            # The generic text stays the prefix.
+            message = _("Bank details validation failed") + ": " + "; ".join(str(e) for e in errors)
+            return ValidationResult.failure(message, errors=errors)
 
         return ValidationResult.success(_("Bank details are valid"), data=data)
 
