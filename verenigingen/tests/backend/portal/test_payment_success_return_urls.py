@@ -23,6 +23,7 @@ from frappe.utils import get_bench_path, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.gateway_stub import stub_redirect_gateway
+from verenigingen.tests.support.ing_return import create_ing_order
 from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
 from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import get_mollie_settings
 from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
@@ -85,32 +86,13 @@ class TestMollieReturnUrl(ReturnUrlCase):
 
 
 class TestIngReturnUrl(ReturnUrlCase):
-    def _create_order(self, settings_return_url=None):
-        from verenigingen.verenigingen_payments.ing_checkout.api import payment
-
-        client = MagicMock()
-        client.create_order.return_value = {
-            "id": f"EX-{frappe.generate_hash(length=4)}-5678-9012",
-            "links": {"redirect": "https://connect.pay.nl/checkout/abc"},
-        }
-        settings = SimpleNamespace(default_return_url=settings_return_url, service_id="SL-1234-5678")
-        doc = frappe.get_doc({"doctype": "ToDo", "description": "ing return url probe"}).insert(
-            ignore_permissions=True
-        )
-        self.track_doc("ToDo", doc.name)
-        with patch(
-            "verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings.get_ing_checkout_settings",
-            return_value=settings,
-        ), patch.object(payment, "get_client", return_value=client):
-            payment.create_ideal_order("ToDo", doc.name, 10.0, "probe")
-        return client.create_order.call_args[0][0]["returnUrl"]
-
     def test_default_return_url_is_the_underscore_page(self):
-        path, _query = self._url_parts(self._create_order())
+        path, _query = self._url_parts(create_ing_order(self)[1])
         self.assertEqual(path, "/payment_success")
 
     def test_a_stored_default_return_url_override_still_wins(self):
-        self.assertEqual(self._create_order("https://example.org/ing-back"), "https://example.org/ing-back")
+        _name, url = create_ing_order(self, "https://example.org/ing-back")
+        self.assertEqual(url, "https://example.org/ing-back")
 
 
 class TestCheckoutScriptReturnUrl(ReturnUrlCase):

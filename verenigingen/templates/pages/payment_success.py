@@ -135,12 +135,57 @@ def validate_payment_document_access(doctype, docname, payment_id, token=None):
         return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
 
-def handle_ing_checkout_return(context, order_id):
+def _ing_return_params(form):
+    """(order_id, token) of an ING Checkout return, or None when `form` is not one.
+
+    Pay.nl's return parameters are not confirmed for the Order:Create API: its docs say the
+    payer comes back with `?id=` (plus statusAction/statusCode/reference), the legacy API used
+    `orderId`. Both are accepted, `id` first. Pay.nl may also append with `?` to our URL, which
+    already has `?token=`, gluing the two into token="T?id=I"; both values are recovered. Pay.nl's
+    echoed `reference` is never used as an identifier.
+    """
+    from urllib.parse import parse_qs
+
+    token = form.get("token")
+    glued = {}
+    if isinstance(token, str) and "?" in token:
+        token, _sep, rest = token.partition("?")
+        glued = {key: values[0] for key, values in parse_qs(rest).items() if values}
+    order_id = form.get("id") or form.get("orderId") or glued.get("id") or glued.get("orderId")
+    return (order_id, token) if order_id else None
+
+
+def _ing_return_transaction(order_id, token):
+    """The ING Checkout Transaction this return is proven for, else None (#2038).
+
+    The signed token must match the reference of the ORDER's own row. One indexed lookup, the
+    same whether or not the order exists; an unknown order is still run through the HMAC (against
+    a placeholder) so a refusal costs the same either way. No Pay.nl call and no Error Log write
+    happens here, so a refusal has no side effects. Callers use the returned row, never the
+    caller-supplied order_id, for everything afterwards.
+    """
+    from verenigingen.verenigingen_payments.ing_checkout.api.payment import ING_RETURN_TOKEN_PURPOSE
+
+    if not isinstance(order_id, str):
+        return None
+    transaction = frappe.db.get_value(
+        "ING Checkout Transaction",
+        {"transaction_id": order_id},
+        ["transaction_id", "reference_doctype", "reference_name", "amount"],
+        as_dict=True,
+    )
+    identifier = f"{transaction.reference_doctype}:{transaction.reference_name}" if transaction else "-"
+    proven = verify_guest_return_token(ING_RETURN_TOKEN_PURPOSE, identifier, token)
+    return transaction if transaction and proven else None
+
+
+def handle_ing_checkout_return(context, order_id, token=None):
     """
     Handle return from ING Checkout/Pay.nl payment.
 
-    Pay.nl redirects with ?orderId=EX-xxxx-xxxx-xxxx
-    We look up the transaction and fetch current status from Pay.nl API.
+    Pay.nl redirects back to the return URL we gave it at order creation, which carries a signed
+    `token` (#2038), with the order id appended (see `_ing_return_params`). The status is shown
+    ONLY for a valid token; a missing/invalid one is refused exactly like an unknown order.
     """
     # Initialize context
     context.payment_status = "unknown"
@@ -148,11 +193,18 @@ def handle_ing_checkout_return(context, order_id):
     context.document_info = {}
     context.next_steps = []
 
-    try:
-        # Fetch status from Pay.nl API
-        from verenigingen.verenigingen_payments.ing_checkout.api.payment import get_payment_status
+    transaction = _ing_return_transaction(order_id, token)
+    if not transaction:
+        context.payment_status = "error"
+        context.payment_message = _GENERIC_PAYMENT_ACCESS_DENIED
+        return context
 
-        result = get_payment_status(order_id)
+    try:
+        # Fetch status from Pay.nl API through the internal lookup: the whitelisted
+        # get_payment_status is authenticated-only, so a Guest payer was always refused.
+        from verenigingen.verenigingen_payments.ing_checkout.api.payment import fetch_payment_status
+
+        result = fetch_payment_status(transaction.transaction_id)
 
         if not result.get("success"):
             context.payment_status = "error"
@@ -186,15 +238,7 @@ def handle_ing_checkout_return(context, order_id):
             context.payment_status = "pending"
             context.payment_message = _("Payment status is being updated. Please check back shortly.")
 
-        # Try to get linked document info from our transaction record
-        transaction = frappe.db.get_value(
-            "ING Checkout Transaction",
-            {"transaction_id": order_id},
-            ["reference_doctype", "reference_name", "amount"],
-            as_dict=True,
-        )
-
-        if transaction and transaction.reference_doctype and transaction.reference_name:
+        if transaction.reference_doctype and transaction.reference_name:
             context.document_info = {
                 "doctype": transaction.reference_doctype,
                 "docname": transaction.reference_name,
@@ -202,28 +246,16 @@ def handle_ing_checkout_return(context, order_id):
                 "amount": transaction.amount or 0,
                 "paid": status_code == 100,
             }
-
-            # Get next steps based on status
             context.next_steps = get_next_steps(
                 context.payment_status,
                 transaction.reference_doctype,
                 transaction.reference_name,
             )
-        else:
-            # No linked document, provide generic next steps
-            context.document_info = {
-                "doctype": "Payment",
-                "docname": order_id,
-                "title": _("ING Checkout Payment"),
-                "amount": 0,
-                "paid": status_code == 100,
-            }
-            context.next_steps = get_next_steps(context.payment_status, None, None)
 
     except Exception as e:
         frappe.log_error(
             title="ING Checkout Return Page Error",
-            message=f"Error handling return for {order_id}: {str(e)}",
+            message=f"Error handling return for {transaction.transaction_id}: {str(e)}",
         )
         context.payment_status = "error"
         context.payment_message = _(
@@ -359,9 +391,9 @@ def get_context(context):
         frappe.set_user("Guest")
 
     # Check for ING Checkout/Pay.nl redirect (uses orderId param)
-    order_id = frappe.form_dict.get("orderId")
-    if order_id:
-        return handle_ing_checkout_return(context, order_id)
+    ing_return = _ing_return_params(frappe.form_dict)
+    if ing_return:
+        return handle_ing_checkout_return(context, *ing_return)
 
     # Check for Ponto Payment Link redirect (uses payment_link param)
     ponto_link = frappe.form_dict.get("payment_link")
