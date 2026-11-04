@@ -14,7 +14,12 @@ from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.verenigingen_payments.ing_checkout.client import PayNLError, get_client
+
+# Namespace of the return token minted into the ING return URL and checked by
+# templates/pages/payment_success.py (#2038); distinct from "payment_success" (Mollie).
+ING_RETURN_TOKEN_PURPOSE = "ing_checkout_return"
 
 # Payment Method IDs
 PAYMENT_METHOD_IDEAL = 10
@@ -154,8 +159,13 @@ def create_ideal_order(
 
         # Build return URL
         # Pay.nl automatically appends ?orderId=... to the return URL
+        # Only OUR default page gets a return token (#2038). A caller-supplied return_url or a
+        # stored default_return_url override points at a page we do not render, so handing it
+        # a proof would only leak it to that page; the override wins unchanged (as Mollie's does).
         if not return_url:
-            return_url = settings.default_return_url or get_url("/payment_success")
+            return_url = settings.default_return_url or build_default_return_url(
+                reference_doctype, reference_name
+            )
 
         # Build webhook URL
         webhook_url = (
@@ -264,6 +274,18 @@ def create_ideal_order(
         }
 
 
+def build_default_return_url(reference_doctype: str, reference_name: str) -> str:
+    """Our /payment_success URL carrying the signed return token (#2038).
+
+    The token binds to the reference document, not the Pay.nl orderId: the orderId does not
+    exist until Pay.nl answers create_order, which is after this URL has been sent. Pay.nl then
+    appends `orderId` (with `&`, since the URL already has a query string - derived from Pay.nl's
+    documented behaviour, not measured against a live order).
+    """
+    token = generate_guest_return_token(ING_RETURN_TOKEN_PURPOSE, f"{reference_doctype}:{reference_name}")
+    return f"{get_url('/payment_success')}?token={token}"
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_payment_status(transaction_id: str) -> dict:
@@ -281,6 +303,15 @@ def get_payment_status(transaction_id: str) -> dict:
             - paid: bool indicating if payment is complete
             - customer_iban: IBAN of payer (if available)
             - customer_name: Name of payer (if available)
+    """
+    return fetch_payment_status(transaction_id)
+
+
+def fetch_payment_status(transaction_id: str) -> dict:
+    """Pay.nl order status, WITHOUT the whitelist/auth decorators.
+
+    For trusted internal callers that authorised the request themselves (the guest return
+    page, after verifying its signed token). `get_payment_status` is the authenticated wrapper.
     """
     try:
         if not transaction_id:

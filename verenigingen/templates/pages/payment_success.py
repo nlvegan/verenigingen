@@ -135,12 +135,33 @@ def validate_payment_document_access(doctype, docname, payment_id, token=None):
         return False, _GENERIC_PAYMENT_ACCESS_DENIED
 
 
-def handle_ing_checkout_return(context, order_id):
+def _ing_return_is_proven(order_id, token):
+    """True only if `token` is the signed proof minted for the reference of this order (#2038).
+
+    One indexed lookup, the same whether or not the orderId exists; an unknown orderId is still
+    run through the HMAC (against a placeholder) so the refusal costs the same either way. No
+    Pay.nl call and no Error Log write happens here, so a refusal carries no side effects.
+    """
+    from verenigingen.verenigingen_payments.ing_checkout.api.payment import ING_RETURN_TOKEN_PURPOSE
+
+    transaction = frappe.db.get_value(
+        "ING Checkout Transaction",
+        {"transaction_id": order_id},
+        ["reference_doctype", "reference_name"],
+        as_dict=True,
+    )
+    identifier = f"{transaction.reference_doctype}:{transaction.reference_name}" if transaction else "-"
+    proven = verify_guest_return_token(ING_RETURN_TOKEN_PURPOSE, identifier, token)
+    return bool(transaction and proven)
+
+
+def handle_ing_checkout_return(context, order_id, token=None):
     """
     Handle return from ING Checkout/Pay.nl payment.
 
-    Pay.nl redirects with ?orderId=EX-xxxx-xxxx-xxxx
-    We look up the transaction and fetch current status from Pay.nl API.
+    Pay.nl redirects with ?orderId=EX-xxxx-xxxx-xxxx, appended to the return URL we gave it at
+    order creation, which carries a signed `token` (#2038). The status is shown ONLY for a valid
+    token; a missing/invalid one is refused exactly like an unknown orderId.
     """
     # Initialize context
     context.payment_status = "unknown"
@@ -148,11 +169,17 @@ def handle_ing_checkout_return(context, order_id):
     context.document_info = {}
     context.next_steps = []
 
-    try:
-        # Fetch status from Pay.nl API
-        from verenigingen.verenigingen_payments.ing_checkout.api.payment import get_payment_status
+    if not _ing_return_is_proven(order_id, token):
+        context.payment_status = "error"
+        context.payment_message = _GENERIC_PAYMENT_ACCESS_DENIED
+        return context
 
-        result = get_payment_status(order_id)
+    try:
+        # Fetch status from Pay.nl API through the internal lookup: the whitelisted
+        # get_payment_status is authenticated-only, so a Guest payer was always refused.
+        from verenigingen.verenigingen_payments.ing_checkout.api.payment import fetch_payment_status
+
+        result = fetch_payment_status(order_id)
 
         if not result.get("success"):
             context.payment_status = "error"
@@ -361,7 +388,7 @@ def get_context(context):
     # Check for ING Checkout/Pay.nl redirect (uses orderId param)
     order_id = frappe.form_dict.get("orderId")
     if order_id:
-        return handle_ing_checkout_return(context, order_id)
+        return handle_ing_checkout_return(context, order_id, frappe.form_dict.get("token"))
 
     # Check for Ponto Payment Link redirect (uses payment_link param)
     ponto_link = frappe.form_dict.get("payment_link")
