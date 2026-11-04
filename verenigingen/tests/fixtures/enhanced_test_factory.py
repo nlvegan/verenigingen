@@ -6732,13 +6732,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 )
             payment_entry_data["paid_from"] = bank_account
 
+            # The party account's type must match the Party Type's (erpnext 8f783ee243,
+            # #2080): a Customer is Receivable, so a refund (Pay) to a Customer debits the
+            # debtors account -- what production books. Only other parties use Payable.
+            party_account_type = "Receivable" if payment_entry_data["party_type"] == "Customer" else "Payable"
             creditors_account = frappe.db.get_value(
-                "Account", {"company": company, "account_type": "Payable", "is_group": 0}, "name"
+                "Account", {"company": company, "account_type": party_account_type, "is_group": 0}, "name"
             )
             if not creditors_account:
                 raise ValueError(
-                    f"No Payable account found for company {company}.\n"
-                    f"Ensure Chart of Accounts includes a Payable account type."
+                    f"No {party_account_type} account found for company {company}.\n"
+                    f"Ensure Chart of Accounts includes a {party_account_type} account type."
                 )
             payment_entry_data["paid_to"] = creditors_account
 

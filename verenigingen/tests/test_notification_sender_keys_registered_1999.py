@@ -40,7 +40,7 @@ from verenigingen.hooks.lifecycle import after_install
 from verenigingen.notification_registry import NOTIFICATION_KEYS
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
-from verenigingen.tests.utils.test_config import disable_test_email_mocking, enable_test_email_mocking
+from verenigingen.tests.utils.test_config import disable_test_email_mocking, restore_test_email_mocking
 
 DOCTYPE = "Verenigingen Email Configuration"
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -341,8 +341,8 @@ class TestNewlyRegisteredKeysAreSent(FrappeTestCase):
     def test_payment_failure_first_is_queued_on_a_seeded_site(self):
         control, target = self._unique_recipient("control"), self._unique_recipient("failure-first")
         # the harness replaces frappe.sendmail process-wide, so no Email Queue row could appear
-        disable_test_email_mocking()
-        self.addCleanup(enable_test_email_mocking)
+        was_mocked = disable_test_email_mocking()
+        self.addCleanup(restore_test_email_mocking, was_mocked)  # not enable_*: #2060
         # singleton_backup commits on exit, which makes the queued rows durable, so a rollback
         # cannot remove them: delete them by recipient (registered before the send; LIFO).
         self.addCleanup(self._cleanup_queue_rows, [control, target])
