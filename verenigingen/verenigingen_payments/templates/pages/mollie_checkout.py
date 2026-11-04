@@ -37,6 +37,7 @@ from frappe import _
 from frappe.utils import cint, fmt_money
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, public_api
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.verenigingen_payments.utils.reference_ownership import (
     ALLOWED_REFERENCE_DOCTYPES,
     verify_payer_owns_reference as _verify_payer_owns_reference,
@@ -200,6 +201,13 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
         else:
             # Check existing payment status
             result = check_existing_payment(doc, data, existing_payment_id, gateway_name)
+
+        # Proof for /payment_success, minted only now that the payer has proven they own
+        # this document (#1996). Sales Invoice has no payment_id field to compare, so
+        # without it the page refuses the checkout's own redirect.
+        result["returnToken"] = generate_guest_return_token(
+            "payment_success", f"{reference_doctype}:{doc.name}"
+        )
 
         # Update payment status in database if status field exists
         if hasattr(doc, "payment_status") and result.get("status"):
