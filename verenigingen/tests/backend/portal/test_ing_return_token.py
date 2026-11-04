@@ -183,10 +183,14 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
 
                 def error_logs():
                     frappe.init(site=SITE); frappe.connect()
-                    n = frappe.db.sql(
-                        "select count(*) from `tabError Log` where method like %s or method like %s",
-                        ("%ING Checkout%", "%Payment%"))[0][0]
-                    frappe.destroy(); return n
+                    rows = frappe.db.sql("select name, method, error from `tabError Log`")
+                    frappe.destroy()
+                    return {{r[0]: ((r[1] or "") + " " + (r[2] or "")).lower() for r in rows}}
+
+                def ours(before, after):
+                    # NEW rows only (robust against unrelated writers) that mention this flow, whatever title they use.
+                    needles = ("payment_success", order_id.lower(), "ing", "return")
+                    return [name for name, text in after.items() if name not in before and any(n in text for n in needles)]
 
                 paynl = MagicMock()
                 paynl.get_order.return_value = {{"status": {{"code": 100, "action": "PAID"}}, "payments": []}}
@@ -205,6 +209,9 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                     ("good_orderId", "/payment_success?token=" + good + "&orderId=" + order_id),
                     ("good_glued_id", "/payment_success?token=" + good + "?id=" + order_id + tail),
                     ("good_glued_orderId", "/payment_success?token=" + good + "?orderId=" + order_id),
+                    # MariaDB matches case- and pad-insensitively; Pay.nl must still be asked for the STORED id.
+                    ("good_upper_id", "/payment_success?token=" + good + "&id=" + order_id.upper()),
+                    ("good_padded_id", "/payment_success?token=" + good + "&id=" + order_id + "%20"),
                     # refusals, per shape
                     ("unknown_id", "/payment_success?token=" + good + "&id=" + nope),
                     ("unknown_orderId", "/payment_success?token=" + good + "&orderId=" + nope),
@@ -229,11 +236,13 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                         "status": r.status_code,
                         "body": r.get_data(as_text=True),
                         "server_messages": "_server_messages" in r.get_data(as_text=True) or r.headers.get("X-Frappe-Message-Log"),
-                        "error_logs": error_logs() - before_logs,
+                        "error_logs": ours(before_logs, error_logs()),
                         "pay_nl_calls": paynl.get_order.call_count,
+                        "pay_nl_arg": paynl.get_order.call_args[0][0] if paynl.get_order.call_args else None,
                         "queries": counter["n"],
                     }}
                 print("RESULT" + json.dumps(out))
+                print("STORED" + order_id)
             finally:
                 frappe.init(site=SITE)
                 frappe.connect()
@@ -262,9 +271,10 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
         # The subprocess commits its fixtures: nothing it created (Donor, Donation, Transaction, Customer) may remain.
         self.assertEqual(leftover, "LEFTOVER[]")
 
+        stored_id = next(x for x in lines if x.startswith("STORED"))[len("STORED") :]
         good = [k for k in out if k.startswith("good_")]
         refused_keys = [k for k in out if not k.startswith("good_")]
-        self.assertEqual(len(good), 4)
+        self.assertEqual(len(good), 6)
         self.assertEqual(len(refused_keys), 10)
 
         # Valid token, every return shape: the Guest sees the real status, fetched once, for the STORED id.
@@ -273,7 +283,8 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                 self.assertEqual(out[key]["status"], 200)
                 self.assertIn("Payment completed successfully", out[key]["body"])
                 self.assertEqual(out[key]["pay_nl_calls"], 1)
-                self.assertEqual(out[key]["error_logs"], 0)
+                self.assertEqual(out[key]["error_logs"], [])
+                self.assertEqual(out[key]["pay_nl_arg"], stored_id)
 
         # Every refusal: same status and body, no Pay.nl call, no Error Log row, same query count.
         for key in refused_keys:
@@ -283,7 +294,7 @@ class TestIngReturnOverWsgi(EnhancedTestCase):
                 self.assertIn("Invalid payment reference or document not found", case["body"])
                 self.assertNotIn("Payment completed successfully", case["body"])
                 self.assertEqual(case["pay_nl_calls"], 0)
-                self.assertEqual(case["error_logs"], 0)
+                self.assertEqual(case["error_logs"], [])
                 self.assertFalse(case["server_messages"])
         refused = [out[k] for k in refused_keys]
         self.assertEqual(len({c["status"] for c in refused}), 1)
