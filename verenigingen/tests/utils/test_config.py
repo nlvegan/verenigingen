@@ -3,6 +3,8 @@ Global test configuration for Verenigingen
 Sets up email mocking and other test settings
 """
 
+from contextlib import contextmanager
+
 import frappe
 from unittest.mock import patch
 
@@ -48,13 +50,36 @@ def enable_test_email_mocking():
 
 
 def disable_test_email_mocking():
-    """Disable global email mocking"""
+    """Disable global email mocking.
+
+    Returns whether mocking WAS on, to hand to ``restore_test_email_mocking``. Cleaning up with
+    ``enable_test_email_mocking`` instead forces the mock on in a process that had it off, and
+    every later test then sees no Email Queue row (#2060).
+    """
     global _original_sendmail
-    if _original_sendmail:
+    was_mocked = _original_sendmail is not None
+    if was_mocked:
         frappe.sendmail = _original_sendmail
         _original_sendmail = None
+    return was_mocked
 
 
-# Auto-enable email mocking when this module is imported in test context
-if hasattr(frappe, 'flags') and frappe.flags.get('in_test'):
-    enable_test_email_mocking()
+def restore_test_email_mocking(was_mocked):
+    """Put mocking back as ``disable_test_email_mocking`` found it: on only if it was on."""
+    if was_mocked:
+        enable_test_email_mocking()
+
+
+@contextmanager
+def email_mocking_disabled():
+    was_mocked = disable_test_email_mocking()
+    try:
+        yield
+    finally:
+        restore_test_email_mocking(was_mocked)
+
+
+# No import-time enable (#2060): importing this module from a test file is collection, not a
+# request to mock. The old auto-enable ran inside whichever module imported it first, so a
+# disable/restore pair around a real send then "restored" a mock nobody had asked for, and every
+# later module in the process saw no Email Queue rows. boot.py enables explicitly where wanted.
