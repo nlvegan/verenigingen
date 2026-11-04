@@ -148,3 +148,25 @@ class TestKeyRecipientsBeatCategory(EnhancedTestCase):
             ),
             [self.key_user],
         )
+
+    def test_a_key_row_holding_only_excluded_users_falls_through_to_the_category(self):
+        """Maintainer decision on #2043: all-excluded counts as 'resolves to nobody'."""
+        admin_email = "administrator-2043@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=admin_email)
+        frappe.db.set_single_value(CONFIG, "admin_notification_emails", self.cat_user)
+        self.assertEqual(
+            resolve_admin_recipients(
+                notification_key=OVERDUE_KEY, category="Admin", exclude_users=["Administrator"]
+            ),
+            [self.cat_user],
+        )
+
+    def test_key_only_exclusion_is_still_applied_to_the_final_list(self):
+        """Control: key-only keeps final-list exclusion, so an Administrator-only key gives nobody."""
+        admin_email = "administrator-2043@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=admin_email)
+        self.assertEqual(
+            resolve_admin_recipients(notification_key=OVERDUE_KEY, exclude_users=["Administrator"]), []
+        )

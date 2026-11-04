@@ -582,8 +582,9 @@ def resolve_admin_recipients(
     legacy ``setting_field`` / ``admin_notification_emails`` setting, else enabled holders of
     ``default_roles``. A call passing only a key still gets the key's recipients (the email
     configuration service's System Manager fallback for an unknown key included), and a call passing
-    only a category gets the category's: those are unchanged. ``exclude_users`` is applied to the
-    FINAL list only.
+    only a category gets the category's: those are unchanged. With both, ``exclude_users`` is applied
+    to every tier, so a key row holding only excluded users (Administrator) resolves to nobody and falls
+    through to the category; with only one of the two it is applied to the FINAL list only.
 
     ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
     the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
@@ -633,10 +634,13 @@ def resolve_admin_recipients(
         # with a category to fall back to, a key counts only when it has its own row (#2043).
         tiers = (own_key_tier if category else key_tier, category_tier, legacy_tier)
 
+    # A tier holding only excluded users resolves to nobody, so it falls through (#2043 ruling); the
+    # key-only and category-only calls keep excluding from the final list alone.
+    per_tier_exclusion = key_first or bool(category and notification_key)
     recipients = []
     for tier in tiers:
         recipients = list(tier() or [])
-        if key_first:
+        if per_tier_exclusion:
             recipients = _without_users([r for r in recipients if r], exclude_users or ())
         if recipients:
             break
