@@ -584,7 +584,10 @@ def resolve_admin_recipients(
     configuration service's System Manager fallback for an unknown key included), and a call passing
     only a category gets the category's: those are unchanged. With both, ``exclude_users`` is applied
     to every tier, so a key row holding only excluded users (Administrator) resolves to nobody and falls
-    through to the category; with only one of the two it is applied to the FINAL list only.
+    through to the category; with only one of the two it is applied to the FINAL list only. On that path
+    the key's tier also counts only its deliverable recipients (enabled Users other than Administrator, as
+    create_system_notification matches them): a row naming only disabled users or non-User addresses falls
+    through to the category instead of winning and reaching nobody.
 
     ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
     the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
@@ -633,6 +636,10 @@ def resolve_admin_recipients(
         # The service's fallback for an unknown key is the category fallback under another name, so
         # with a category to fall back to, a key counts only when it has its own row (#2043).
         tiers = (own_key_tier if category else key_tier, category_tier, legacy_tier)
+        if category and notification_key:
+            # create_system_notification drops a recipient that is not an enabled User, so a row naming
+            # only such addresses would win here and reach nobody: only deliverable ones count (#2043).
+            tiers = (lambda: _deliverable_users(own_key_tier()), category_tier, legacy_tier)
 
     # A tier holding only excluded users resolves to nobody, so it falls through (#2043 ruling); the
     # key-only and category-only calls keep excluding from the final list alone.
@@ -681,6 +688,21 @@ def _notify_administrators(
         notification_key=notification_key,
         source_event=source_event,
     )
+
+
+def _deliverable_users(recipients):
+    """Keep the recipients that are an enabled User other than Administrator, matched by name or email."""
+    recipients = [r for r in (recipients or []) if r]
+    if not recipients:
+        return []
+    users = frappe.get_all(
+        "User",
+        filters={"enabled": 1, "name": ["!=", "Administrator"]},
+        or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
+        fields=["name", "email"],
+    )
+    deliverable = {value.lower() for user in users for value in (user.name, user.email) if value}
+    return [r for r in recipients if r.lower() in deliverable]
 
 
 def _without_users(recipients, exclude_users):

@@ -170,3 +170,44 @@ class TestKeyRecipientsBeatCategory(EnhancedTestCase):
         self.assertEqual(
             resolve_admin_recipients(notification_key=OVERDUE_KEY, exclude_users=["Administrator"]), []
         )
+
+    # ---- a key row that names nobody deliverable (reviewer F1/F3) ---------------------------------
+    def test_a_key_row_naming_a_disabled_user_falls_through_to_the_category(self):
+        disabled = f"disabled-2043-{frappe.generate_hash(length=6)}@example.org"
+        self.create_test_user(disabled, roles=["Verenigingen Administrator"])
+        frappe.db.set_value("User", disabled, "enabled", 0)
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=disabled)
+        frappe.db.set_single_value(CONFIG, "admin_notification_emails", self.cat_user)
+        self.assertEqual(resolve_admin_recipients(notification_key=OVERDUE_KEY, category="Admin"), [self.cat_user])
+
+    def test_a_key_row_naming_an_email_that_is_not_a_user_falls_through_to_the_category(self):
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients="not-a-user-2043@example.org")
+        frappe.db.set_single_value(CONFIG, "admin_notification_emails", self.cat_user)
+        self.assertEqual(resolve_admin_recipients(notification_key=OVERDUE_KEY, category="Admin"), [self.cat_user])
+
+    def test_only_the_deliverable_recipients_of_the_keys_row_are_kept(self):
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=f"not-a-user-2043@example.org, {self.key_user}")
+        self.assertEqual(resolve_admin_recipients(notification_key=OVERDUE_KEY, category="Admin"), [self.key_user])
+
+    def test_an_administrator_only_key_row_reaches_the_category_through_termination_utils(self):
+        """Real call site, exclude_users=None: Administrator never counts as reached, so the System
+        Manager category user gets the alert and a Notification Log row proves it."""
+        admin_email = "administrator-2043@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        self.expectErrorLog("Notification Creation Error")  # other System Managers, e.g. Administrator itself
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=admin_email)
+        self._make_overdue_request()
+        tu.process_overdue_termination_requests()
+        self.assertIn(self.cat_user, self._reached("Overdue Termination Requests%"))
+
+    def test_a_key_alone_naming_nobody_deliverable_is_unchanged(self):
+        """Control: the deliverable filter is for category+key only; a key alone returns its row as is."""
+        _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients="not-a-user-2043@example.org")
+        self.assertEqual(resolve_admin_recipients(notification_key=OVERDUE_KEY), ["not-a-user-2043@example.org"])
+
+    def test_a_category_alone_with_only_excluded_emails_keeps_final_list_exclusion(self):
+        """Mirror control: a category-only call does not fall through per tier."""
+        admin_email = "administrator-2043@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        frappe.db.set_single_value(CONFIG, "admin_notification_emails", admin_email)
+        self.assertEqual(resolve_admin_recipients(category="Admin", exclude_users=["Administrator"]), [])
