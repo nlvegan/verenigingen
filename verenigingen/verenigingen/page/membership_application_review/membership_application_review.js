@@ -423,7 +423,7 @@ class MembershipApplicationReview {
 
 		$wrapper.on('click', '.show-all-applications', (e) => {
 			e.preventDefault();
-			this.focus_application = null;
+			this.exit_focus_mode();
 			this.load_applications();
 		});
 
@@ -633,8 +633,18 @@ class MembershipApplicationReview {
 	// Clearing filters also leaves focus mode (?application=), or the reviewer is stuck on one record.
 	clear_filters() {
 		this.filters = { chapter: null, days_overdue: null };
-		this.focus_application = null;
+		this.exit_focus_mode();
 		this.load_applications();
+	}
+
+	// Also drop ?application= from the URL, or a hard refresh re-enters focus mode.
+	exit_focus_mode() {
+		this.focus_application = null;
+		if (window.history && window.history.replaceState) {
+			const url = new URL(window.location.href);
+			url.searchParams.delete('application');
+			window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+		}
 	}
 
 	render_applications() {
