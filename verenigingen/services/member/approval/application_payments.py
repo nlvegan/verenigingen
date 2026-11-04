@@ -15,8 +15,13 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
-def create_membership_invoice_with_amount(member, membership, amount):
-    """Create invoice with specific amount (custom or standard)"""
+def create_membership_invoice_with_amount(member, membership, amount, period_start=None):
+    """Create invoice with specific amount (custom or standard).
+
+    period_start: first day of the period the invoice discharges. Approval leaves it None (today); a staff
+    retry of an approval whose invoice failed passes the membership start, so it covers the period approval
+    would have (#1900).
+    """
     try:
         from verenigingen.utils import DutchTaxExemptionHandler
     except ImportError:
@@ -39,7 +44,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
     # schedule decides its length (#1773): the schedule is what bills every later
     # period, and its template may differ from the Membership Type's billing_period.
     # billing_period is optional on membership type - default to Annual if not set
-    period_start = today()
+    period_start = period_start or today()
     billing_period, period_end = _first_coverage_period(member, membership_type, period_start)
 
     # Determine invoice description with coverage period
@@ -503,14 +508,14 @@ def validate_payment_amount(invoice, received_amount):
         }
 
 
-def create_membership_invoice(member, membership, membership_type, amount=None):
+def create_membership_invoice(member, membership, membership_type, amount=None, period_start=None):
     """Create invoice for membership with optional custom amount"""
     if amount is None:
         # Get default amount from template
         template = load_template_for_membership_type(membership_type)
         amount = template.suggested_amount or 0
 
-    return create_membership_invoice_with_amount(member, membership, amount)
+    return create_membership_invoice_with_amount(member, membership, amount, period_start=period_start)
 
 
 def format_currency_for_display(amount, currency="EUR"):

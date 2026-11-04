@@ -620,7 +620,7 @@ class MembershipApplicationReview {
 				indicator: result.invoice_failed || !result.mail_sent ? 'orange' : 'green'
 			});
 		} catch (error) {
-			frappe.msgprint(`${__('Error retrying the invoice')}: ${frappe.utils.escape_html(error.message)}`);
+			// frappe.call shows the server's own error dialog; a rejection carries no message to repeat.
 		}
 		this.load_retry_invoice_section();
 	}
