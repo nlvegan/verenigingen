@@ -649,6 +649,88 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.assertEqual(frappe.db.count("Account Creation Request", {"source_record": member.name}), 1)
         self.assertEqual(_refusal_log_count(), errors_before)
 
+    def _insert_failed_acr(self, member, retry_count=0):
+        """A real Failed ACR: inserted (not queued, so no worker can race it), then failed
+        through the real ``mark_failed()``. ``retry_count`` is set directly (probe shortcut:
+        stands in for spent retries)."""
+        request = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email,
+                "full_name": member.full_name,
+                "role_profile": "Verenigingen Member",
+                "business_justification": "test",
+                "requested_roles": [{"role": "Verenigingen Member"}],
+            }
+        )
+        request.insert()
+        request.mark_failed("boom 1825", stage="User Creation")
+        if retry_count:
+            frappe.db.set_value("Account Creation Request", request.name, "retry_count", retry_count)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request.name, "status"), "Failed")
+        return request.name
+
+    def _blocked_logs(self, request_name):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": "MijnRood account creation blocked", "error": ["like", f"%{request_name}%"]},
+            pluck="error",
+        )
+
+    def test_failed_blocking_request_is_recorded_not_a_silent_skip(self):
+        """#1825: a Failed ACR with retries left blocks a new one; the orchestrator used to
+        return None with no trace. Both entry points must now log member + ACR and say so."""
+        self.expectErrorLog("MijnRood account creation blocked")
+        self._set_create_member_accounts(1)
+        member = _create_member_without_user(self, "FailedBlock", "failed-block@example.org")
+        failed = self._insert_failed_acr(member)
+        orch = get_related_records_orchestrator()
+
+        result = orch._ensure_user_account(member.name)
+        self.assertIn(failed, result or "")
+        logs = self._blocked_logs(failed)
+        self.assertEqual(len(logs), 1)
+        self.assertIn(member.name, logs[0])
+        self.assertFalse(orch.is_acr_queued(member.name))
+
+        # Same event: the volunteer entry point still reports, but does not log a second row.
+        volunteer_result = orch._ensure_user_account_for_volunteer(member.name)
+        self.assertIn(failed, volunteer_result or "")
+        self.assertEqual(len(self._blocked_logs(failed)), 1)
+
+        # A new event (dispatcher resets the dedup set) reports again.
+        orch.reset_acr_dedup()
+        orch._ensure_user_account(member.name)
+        self.assertEqual(len(self._blocked_logs(failed)), 2)
+
+    def test_control_open_blocker_stays_a_silent_skip(self):
+        """Control with a real row: an open (Requested) blocker is still an expected skip."""
+        self._set_create_member_accounts(1)
+        orch = get_related_records_orchestrator()
+        open_member = _create_member_without_user(self, "OpenBlock", "open-block@example.org")
+        open_failed = self._insert_failed_acr(open_member)
+        # Real recovery flow: retry_processing() moves it Failed -> Requested -> Queued.
+        with patch("frappe.enqueue"):
+            frappe.get_doc("Account Creation Request", open_failed).retry_processing()
+        self.assertIn(
+            frappe.db.get_value("Account Creation Request", open_failed, "status"),
+            ("Requested", "Queued"),
+        )
+        before = frappe.db.count("Error Log", {"method": "MijnRood account creation blocked"})
+        self.assertIsNone(orch._ensure_user_account(open_member.name))
+        self.assertEqual(frappe.db.count("Error Log", {"method": "MijnRood account creation blocked"}), before)
+
+    def test_control_spent_failed_blocker_is_not_a_blocker(self):
+        """Control: a Failed ACR with spent retries does not block, so a new ACR is queued."""
+        self._set_create_member_accounts(1)
+        orch = get_related_records_orchestrator()
+        spent_member = _create_member_without_user(self, "SpentBlock", "spent-block@example.org")
+        spent = self._insert_failed_acr(spent_member, retry_count=3)
+        self.assertIn("queued", orch._ensure_user_account(spent_member.name))
+        self.assertEqual(self._blocked_logs(spent), [])
+
     def test_refusal_surfaces_and_is_logged_not_swallowed(self):
         """Control for the dict reading: a real refusal must be reported, written
         to the Error Log, and NOT marked queued. Production runs as the human who
