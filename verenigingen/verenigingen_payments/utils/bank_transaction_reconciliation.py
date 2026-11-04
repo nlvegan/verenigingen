@@ -16,6 +16,7 @@ from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -937,13 +938,13 @@ class PaymentReconciliationManager:
                     deposit_total = Decimal(str(bank_trans.deposit or 0))
 
                     if created_entries and allocated_total == deposit_total:
-                        bank_trans.status = "Reconciled"
                         bank_trans.add_comment(
                             "Comment",
                             f'Auto-reconciled: {match["match_reason"]} '
                             f'(Confidence: {match["confidence"]:.0%})',
                         )
                         bank_trans.save()
+                        persist_draft_status(bank_trans, "Reconciled")
                         return True
 
                     self._mark_transaction_unreconciled(
@@ -995,12 +996,12 @@ class PaymentReconciliationManager:
                         return False
 
                     # Update bank transaction
-                    bank_trans.status = "Reconciled"
                     bank_trans.add_comment(
                         "Comment",
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
                     )
                     bank_trans.save()
+                    persist_draft_status(bank_trans, "Reconciled")
 
                     return True
 
@@ -1090,8 +1091,8 @@ class PaymentReconciliationManager:
 
                     # Update bank transaction with settlement processing details
                     bank_trans.custom_processing_status = "Mollie Settlement Processed"
-                    bank_trans.status = "Reconciled"
                     bank_trans.save()
+                    persist_draft_status(bank_trans, "Reconciled")
 
                     self._add_comment_without_failing(
                         bank_trans,
@@ -1445,9 +1446,9 @@ class PaymentReconciliationManager:
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
             # "Unreconciled" is the valid Bank Transaction status; "Unmatched" is not
             # a permitted Select option and would raise on save.
-            bank_trans.status = "Unreconciled"
             bank_trans.add_comment("Comment", f"Reconciliation failed: {reason}")
             bank_trans.save()
+            persist_draft_status(bank_trans, "Unreconciled")
             frappe.logger().info(f"Transaction {transaction['name']} marked as unreconciled: {reason}")
         except Exception as e:
             _log_error_with_traceback(

@@ -24,6 +24,7 @@ from verenigingen.e_boekhouden.utils.data_integrity import (
     mask_pii_in_mutation,
     safe_log_mutation_error,
 )
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
 
 from .base_processor import BaseTransactionProcessor
 
@@ -785,12 +786,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
             # Update Bank Transaction status and amounts
-            bt.status = "Reconciled"
             bt.allocated_amount = pe.paid_amount or pe.received_amount
             bt.unallocated_amount = 0.0
 
             # Save the Bank Transaction
             bt.save(ignore_permissions=False)
+            persist_draft_status(bt, "Reconciled")
 
             self.debug_info.append(
                 f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}"
@@ -1142,12 +1143,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
             # Update Bank Transaction status and amounts
-            bt.status = "Reconciled"
             bt.allocated_amount = allocated_amount
             bt.unallocated_amount = 0.0
 
             # Save the Bank Transaction
             bt.save(ignore_permissions=False)
+            persist_draft_status(bt, "Reconciled")
 
             self.debug_info.append(
                 f"✅ Reconciled Bank Transaction {bank_transaction_name} with Journal Entry {journal_entry_name} "
