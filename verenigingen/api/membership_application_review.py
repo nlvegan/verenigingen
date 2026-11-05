@@ -1265,12 +1265,14 @@ def _existing_or_new_membership_invoice(member, membership, membership_type):
     submitted = [row.name for row in existing if row.docstatus == 1]
     if submitted:
         if not frappe.db.exists("Sales Invoice", submitted[0]):
-            # The locking read found it, this transaction's snapshot does not: a racing retry committed it
-            # after this request began (#2090). Refuse, as a loser is refused when that winner's mail went
-            # out; a retry started now sees the invoice and sends its mail without creating another.
+            # The locking read found it, this transaction's snapshot does not: it was committed after this
+            # request began (#2090), by a racing retry or the dues scheduler. Refuse, as a loser is refused
+            # when that winner's mail went out; a retry started now sees the invoice and sends its mail
+            # without creating another.
             frappe.throw(
                 _(
-                    "Another retry created invoice {0} a moment ago. Retry again to send its approval email."
+                    "Invoice {0} was created a moment ago, by another retry or the invoice scheduler. Retry "
+                    "again to send its approval email."
                 ).format(submitted[0])
             )
         return frappe.get_doc("Sales Invoice", submitted[0]), False
