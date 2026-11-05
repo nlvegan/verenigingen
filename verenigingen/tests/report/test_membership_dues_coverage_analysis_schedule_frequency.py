@@ -120,13 +120,14 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
         """Old Monthly Membership cancelled, a new Membership submitted, and the member's
         only live schedule is a Monthly one still linked to the OLD Membership.
 
-        #1938 is fixed: cancel_membership now cancels the old schedule and the new
-        Membership gets its own. This state is no longer reachable through that flow, so it
-        is built from real steps: the new Membership's own schedule is cancelled through the
-        repository, then an amendment-style schedule is inserted for the old Membership
-        (_insert_schedule, the one direct write; it stands in for a writer that links a
-        live schedule to an older Membership). It keeps rule (b) of
-        _get_schedule_frequency pinned."""
+        Probe shortcut: the last step is a direct amendment-style insert
+        (_insert_schedule), after the new Membership's own schedule is cancelled through
+        the repository. The same state is reachable through the real flow (End of Period
+        cancel -> process_membership_statuses -> the new Membership's on_submit re-types
+        the old schedule, link unchanged), verified on test_site_4 at eeb4ac370. It is not
+        driven here because process_membership_statuses saves EVERY submitted Membership
+        on the site, which a test must not do. Keeps rule (b) of _get_schedule_frequency
+        pinned."""
         cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
         new = self._covfreq_submit_membership(member, new_frequency, new_start_offset_days)
         own = self._live_schedule(member)

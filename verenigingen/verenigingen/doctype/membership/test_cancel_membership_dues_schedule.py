@@ -16,7 +16,10 @@ from frappe.utils import add_days, today
 from verenigingen.services.billing.dues_schedule_creation_service import DuesScheduleCreationService
 from verenigingen.services.termination.termination_integration import cancel_membership_safe
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.verenigingen.doctype.membership.membership import cancel_membership
+from verenigingen.verenigingen.doctype.membership.membership import (
+    _cancel_linked_dues_schedule,
+    cancel_membership,
+)
 
 
 class TestCancelMembershipDuesSchedule(VereningingenTestCase):
@@ -143,4 +146,56 @@ class TestCancelMembershipDuesSchedule(VereningingenTestCase):
         """Control: #1938 does not settle End of Period; its behaviour is unchanged."""
         first = self._cs_submit_membership("Monthly")
         cancel_membership(first.name, cancellation_reason="staff", cancellation_type="End of Period")
+        self.assertEqual([s.status for s in self._cs_schedules(membership=first.name)], ["Active"])
+
+    def test_every_live_schedule_linked_to_the_membership_is_cancelled(self):
+        """Probe shortcut: a second, Paused schedule linked to the same Membership is inserted
+        directly (as the amendment service links extra schedules); no flow in this test makes
+        one. Two ACTIVE ones cannot coexist (validate refuses), so Active + Paused it is."""
+        first = self._cs_submit_membership("Monthly")
+        extra = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "schedule_name": f"Extra {frappe.generate_hash(length=6)}",
+                "member": self.member.name,
+                "membership": first.name,
+                "membership_type": first.membership_type,
+                "contribution_mode": "Fixed",
+                "dues_rate": 20,
+                "billing_frequency": "Monthly",
+                "status": "Paused",
+                "auto_generate": 1,
+                "next_invoice_date": today(),
+            }
+        )
+        extra.flags.from_amendment = True
+        extra.insert()
+        self.assertEqual(
+            sorted(s.status for s in self._cs_schedules(membership=first.name)),
+            ["Active", "Paused"],
+            "fixture",
+        )
+
+        cancel_membership(first.name, cancellation_reason="staff", cancellation_type="Immediate")
+
+        self.assertEqual(self._cs_schedules(status=["!=", "Cancelled"]), [])
+
+    def test_unwritable_schedule_refuses_instead_of_leaving_it_billing(self):
+        """cancel_dues_schedule_safe returns False when the caller may not write the schedule
+        (secure_document_operation refuses, no raw-SQL fallback on that branch); the
+        membership must then not be reported cancelled."""
+        first = self._cs_submit_membership("Monthly")
+        self.expectErrorLog("Secure Operation Failed")
+        user_email = f"cs_nowrite_{frappe.generate_hash(length=6)}@example.com"
+        self.create_test_user(user_email, roles=[])
+
+        caller = frappe.session.user
+        frappe.set_user(user_email)
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                _cancel_linked_dues_schedule(first.name)
+        finally:
+            frappe.set_user(caller)
+
+        self.assertIn("membership not cancelled", str(ctx.exception))
         self.assertEqual([s.status for s in self._cs_schedules(membership=first.name)], ["Active"])
