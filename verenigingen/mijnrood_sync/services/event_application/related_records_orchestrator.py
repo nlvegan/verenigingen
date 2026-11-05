@@ -344,8 +344,8 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         ``_find_blocking_request`` also returns a Failed request with retries left, and
         nothing retries a standalone one unattended (only a staff ``retry_failed_request``).
-        ``mark_failed`` writes only ``frappe.logger`` (never read), so without this row the
-        member has no account and no trace anywhere.
+        ``mark_failed`` logs the original failure once (#2066), not each attempt it blocks, so
+        without this row the member's blocked attempt leaves no trace.
         """
         status = frappe.db.get_value("Account Creation Request", blocking_request, "status")
         if status != "Failed":

@@ -826,9 +826,9 @@ class TestVolunteerAcrRefusalsAreNotDropped(EnhancedTestCase):
         self.assertIn("Member not found", logs[0].error)
 
     def test_auto_activation_with_failed_blocker_is_logged_with_its_name(self):
-        """A retryable Failed ACR still blocks a new one (#1614). ``mark_failed`` writes no
-        Error Log of its own, so without this row the volunteer goes Active with no
-        account and no trace anywhere."""
+        """A retryable Failed ACR still blocks a new one (#1614). ``mark_failed`` logs the
+        original failure once (#2066), not this refusal, so without this row the volunteer
+        goes Active with no trace of the blocked attempt."""
         title = "Volunteer Auto-Activation Queue Refused"
         failed = frappe.get_doc(
             {
