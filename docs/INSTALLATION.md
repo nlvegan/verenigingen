@@ -90,7 +90,7 @@ The Vereiningen app is a comprehensive association management system built on th
 
 Runtime: `frappe-ui`, `js-yaml`
 
-Dev/build: `tailwindcss` (v4), `jest`, `cypress`, `playwright`, `eslint`, `prettier`
+Dev/build: `tailwindcss` (v4), `jest`, `cypress`, `eslint`, `prettier`
 
 See `package.json` for the full list.
 
