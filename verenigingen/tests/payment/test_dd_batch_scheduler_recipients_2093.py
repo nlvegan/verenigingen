@@ -13,6 +13,7 @@ import importlib
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.utils import now_datetime
 
 from verenigingen.notification_registry import NOTIFICATION_KEYS
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
@@ -24,6 +25,7 @@ from verenigingen.tests.payment.test_sepa_literal_recipients import (
 )
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.api.dd_batch_scheduler import send_batch_creation_notification
+from verenigingen.verenigingen_payments.utils import sepa_alerting_system as sas
 
 KEY = "sepa_batch_scheduler_alert"
 CONFIG = "Verenigingen Email Configuration"
@@ -159,3 +161,58 @@ class TestSeedAndPatch(_Base):
 
         listing = (Path(frappe.get_app_path("verenigingen")) / "patches.txt").read_text()
         self.assertIn(PATCH, listing)
+
+
+class TestMonitoringAlertsKeepTheAdminAudience(_Base):
+    """The SEPA alerting system (monitoring alerts, escalations, security incidents) is NOT the batch
+    scheduler's alert: it has its own key, seeded with the admin pair, so the scheduler's move to
+    Financial Managers does not drag it along (#2093 ruling)."""
+
+    def setUp(self):
+        super().setUp()
+        suffix = frappe.generate_hash(length=5)
+        self.finance_only = f"fm-only-2093-{suffix}@example.org"
+        self.create_test_user(self.finance_only, roles=[Roles.FINANCIAL_MANAGER])
+        self.sysmgr = f"sm-live-2093-{suffix}@example.org"
+        self.create_test_user(self.sysmgr, roles=[Roles.SYSTEM_MANAGER])
+        self.sysmgr_gone = f"sm-gone-2093-{suffix}@example.org"
+        self.create_test_user(self.sysmgr_gone, roles=[Roles.SYSTEM_MANAGER], enabled=0)
+
+    def _recipients(self):
+        alert = sas.SEPAAlert(
+            alert_id="2093-a",
+            alert_type="t",
+            severity=sas.AlertSeverity.WARNING,
+            title="t",
+            message="m",
+            details={},
+            timestamp=now_datetime(),
+        )
+        return sas.SEPAAlertingSystem()._get_notification_recipients(alert)
+
+    def test_the_alerting_system_has_its_own_key(self):
+        self.assertNotEqual(sas.SEPA_ALERT_NOTIFICATION_KEY, KEY)
+        self.assertIn(sas.SEPA_ALERT_NOTIFICATION_KEY, NOTIFICATION_KEYS)
+
+    def test_fresh_seeded_row_is_the_admin_pair_never_finance_only_or_administrator(self):
+        config = frappe.get_single(CONFIG)
+        config.set(
+            "notification_types",
+            [r for r in config.notification_types if r.notification_key != sas.SEPA_ALERT_NOTIFICATION_KEY],
+        )
+        config.save()
+        ensure_notification_registry_rows()  # the fresh-install / migrate seed creates the missing row
+        row = next(
+            r for r in frappe.get_single(CONFIG).notification_types if r.notification_key == sas.SEPA_ALERT_NOTIFICATION_KEY
+        )
+        self.assertEqual(set(row.recipient_roles.split(", ")), set(Roles.ADMIN_PAIR))
+        recipients = self._recipients()
+        self.assertIn(self.sysmgr, recipients)  # control: a real enabled holder is reached
+        self.assertNotIn(self.sysmgr_gone, recipients)
+        self.assertNotIn(self.finance_only, recipients)
+        self.assertNotIn(self.admin_email, recipients)
+        self.assertNotIn("Administrator", recipients)
+
+    def test_a_fixed_row_on_the_monitoring_key_wins(self):
+        _put_key_row(sas.SEPA_ALERT_NOTIFICATION_KEY, "Fixed", fixed_recipients="ops-2093@example.org")
+        self.assertEqual(self._recipients(), ["ops-2093@example.org"])

@@ -473,6 +473,13 @@ NOTIFICATION_KEYS = {
         # Seeded roles for this Role-Based row (default: the admin pair); finance staff get the scheduler alert (#2093).
         "recipient_roles": "Verenigingen Financial Manager",
     },
+    "sepa_monitoring_alert": {
+        "label": "SEPA Monitoring Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alerts from the SEPA monitoring system: threshold alerts, escalations and security incidents.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "balance_monitor_alert": {
         "label": "Balance Monitor Alert",
         "category": CATEGORY_PAYMENT,
@@ -763,6 +770,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "ponto_executed_on_cancelled_row",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
+        "sepa_monitoring_alert",
         "payment_failure_final",
         "payment_alert_overpayment",
         "payment_alert_failure",
