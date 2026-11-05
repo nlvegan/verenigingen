@@ -748,6 +748,7 @@ class UnifiedWebhookWrapperService:
                 reversal_id=chargeback["chargeback_id"],
                 amount=chargeback["amount"],
                 reversal_type="chargeback",
+                reversal_date=chargeback.get("chargeback_date"),
                 reason=chargeback.get("reason") or None,
             )
             for chargeback in state.pending_chargebacks
