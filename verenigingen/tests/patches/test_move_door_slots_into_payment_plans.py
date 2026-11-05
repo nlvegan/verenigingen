@@ -5,6 +5,9 @@ door's validation skipped, because the new validation refuses a Regular door wit
 shape such a door has in the database before the patch; the patch is then run through its own execute().
 """
 
+import contextlib
+import io
+
 import frappe
 
 from verenigingen.patches.v2_2.move_door_slots_into_payment_plans import execute
@@ -124,3 +127,61 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
         execute()
         self.assertEqual(self._migrated_amount_options(door), [])
         self.assertEqual(self._migrated_plans(door), [(self.monthly, 1, 0)])
+
+    def _run_reporting(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            execute()
+        return out.getvalue()
+
+    def _notes_on(self, door):
+        return frappe.get_all(
+            "Comment",
+            {"reference_doctype": DOOR, "reference_name": door, "comment_type": "Info"},
+            pluck="content",
+        )
+
+    def test_a_migrated_amount_row_keeps_its_original_frequency(self):
+        door = self._old_shape_door(
+            monthly_dues_template=self.monthly,
+            annual_dues_template=self.annual,
+            amount_options=[{"frequency": "Annual", "amount": 60}, {"frequency": "Monthly", "amount": 6}],
+        )
+        execute()
+        self.assertEqual(
+            sorted((row.frequency, row.amount) for row in frappe.get_doc(DOOR, door).amount_options),
+            [("Annual", 60), ("Monthly", 6)],
+        )
+
+    def test_doors_whose_behaviour_changes_are_reported_and_clean_ones_are_not(self):
+        fixed = self._plan_template("Monthly", mode="Fixed", dues_rate=15)
+        clean = self._old_shape_door(monthly_dues_template=self.monthly)  # Flexible + custom: unchanged
+        presets_ignored = self._old_shape_door(
+            monthly_dues_template=fixed, amount_options=[{"frequency": "Monthly", "amount": 20}]
+        )
+        custom_overridden = self._old_shape_door(monthly_dues_template=fixed, allow_custom_amount=1)
+        no_custom_flexible = self._plan_template("Monthly", allow_custom_amount=0)
+        custom_lost_on_flexible = self._old_shape_door(
+            monthly_dues_template=no_custom_flexible, allow_custom_amount=1
+        )
+        wrong_period = self._old_shape_door(monthly_dues_template=self.annual)
+
+        printed = self._run_reporting()
+
+        self.assertEqual(self._notes_on(clean), [], "control: nothing changed meaning")
+        self.assertNotIn(clean, printed)
+        self.assertIn("preset amount(s) on Fixed template", " ".join(self._notes_on(presets_ignored)))
+        self.assertIn("no longer takes a free amount", " ".join(self._notes_on(custom_overridden)))
+        self.assertIn("no longer takes a free amount", " ".join(self._notes_on(custom_lost_on_flexible)))
+        self.assertIn("is billed Annual, so the plan bills Annual", " ".join(self._notes_on(wrong_period)))
+        for door in (presets_ignored, custom_overridden, custom_lost_on_flexible, wrong_period):
+            self.assertIn(f"Door {door}:", printed)
+        self.assertIn("4 door(s) changed what they accept", printed)
+
+    def test_running_it_again_reports_nothing_new(self):
+        fixed = self._plan_template("Monthly", mode="Fixed", dues_rate=15)
+        door = self._old_shape_door(monthly_dues_template=fixed, allow_custom_amount=1)
+        self._run_reporting()
+        self.assertEqual(len(self._notes_on(door)), 1)
+        self.assertNotIn(f"Door {door}:", self._run_reporting())
+        self.assertEqual(len(self._notes_on(door)), 1)

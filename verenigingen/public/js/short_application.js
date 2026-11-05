@@ -93,7 +93,7 @@
 			event.preventDefault();
 			submit(state);
 		});
-		if (isRegular) {
+		if (isRegular && plans.length) {
 			bindCalculator(state);
 			selectPlan(state, form.dataset.defaultPlan);
 		}
@@ -119,13 +119,21 @@
 		return postal ? Math.max(plan.minimum, plan.postal_minimum) : plan.minimum;
 	}
 
+	// A Fixed plan charges its rate, or the postal minimum when paper delivery is chosen and it is higher.
+	function fixedPrice(plan, postal) {
+		return postal ? Math.max(plan.amount, plan.postal_minimum) : plan.amount;
+	}
+
 	function refresh(state) {
-		if (!state.isRegular) {
+		if (!state.isRegular || !state.plans.length) {
 			return;
 		}
 		const { form, plan } = state;
 		refreshDeliveryOptions(form);
 		const minimum = minimumFor(plan, isPostal(form));
+		if (plan && plan.mode === 'Fixed') {
+			byId('wl-fixed-amount').textContent = `${format(fixedPrice(plan, isPostal(form)))} ${plan.billing_display}`;
+		}
 		const hint = document.getElementById('wl-minimum-hint');
 		hint.textContent = minimum ? __('Minimum amount: {0}', [format(minimum)]) : '';
 		const ibanHint = document.getElementById('wl-iban-hint');
@@ -180,7 +188,8 @@
 		show('wl-calculated-row', false);
 		byId('income-calculator').style.display = 'none';
 		if (mode === 'Fixed') {
-			byId('wl-fixed-amount').textContent = `${format(plan.amount)} ${plan.billing_display}`;
+			byId('wl-fixed-amount').textContent =
+				`${format(fixedPrice(plan, isPostal(state.form)))} ${plan.billing_display}`;
 		} else if (mode === 'Flexible') {
 			amountChoices(plan).forEach((amount) => choices.appendChild(amountRadio(amount, plan)));
 		} else if (mode === 'Income-Based') {
@@ -210,6 +219,11 @@
 	function showCalculator(state) {
 		const { plan } = state;
 		const calculator = window.ContributionCalculator;
+		if (!calculator) {
+			// The shared calculator script did not load: say so rather than throw, and post nothing.
+			byId('wl-error').textContent = __('The calculator could not be loaded. Reload the page and try again.');
+			return;
+		}
 		byId('income-calculator').style.display = 'block';
 		byId('calculator-description').textContent = (plan.calculator && plan.calculator.description) || '';
 		byId('calc-payment-interval').value = calculator.intervalFor(plan.frequency);
@@ -239,6 +253,9 @@
 			return;
 		}
 		const calculator = window.ContributionCalculator;
+		if (!calculator) {
+			return;
+		}
 		const interval = byId('calc-payment-interval').value;
 		const result = calculator.compute(
 			plan.calculator,
@@ -266,7 +283,7 @@
 			return '';
 		}
 		if (plan.mode === 'Fixed') {
-			return String(plan.amount);
+			return String(fixedPrice(plan, isPostal(form)));
 		}
 		if (plan.mode === 'Income-Based') {
 			return (state && state.calculated) || '';
@@ -376,7 +393,8 @@
 		selectPlan,
 		renderAmount,
 		amountChoices,
-		minimumFor
+		minimumFor,
+		fixedPrice
 	};
 
 	frappe.ready(init);

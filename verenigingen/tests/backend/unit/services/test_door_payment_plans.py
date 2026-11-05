@@ -47,6 +47,17 @@ class DoorPlanCase(ApplicationDoorMixin, VereningingenUnitTestCase):
             rows.append({"dues_template": template, "is_default": int(index == 0)} | extra)
         return self._door(plans=rows, **fields)
 
+    def _type_minimum(self, minimum, default_rate):
+        """A membership type minimum with a default template whose rate respects it (the configuration
+        approval accepts: a default template below the type minimum is refused there)."""
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", minimum)
+        type_template = frappe.db.get_value(
+            "Membership Type", self.membership_type.name, "dues_schedule_template"
+        )
+        frappe.db.set_value(
+            "Membership Dues Schedule", type_template, {"dues_rate": default_rate, "suggested_amount": default_rate}
+        )
+
     def _plan_id(self, door, template):
         return next(row.name for row in door.plans if row.dues_template == template)
 
@@ -158,11 +169,61 @@ class TestAmountRulesPerContributionMode(DoorPlanCase):
         self.assertTrue(self._accepted(door, template, 30))  # control: the template amount passes
         self.assertTrue(self._accepted(door, template, "30,00"))
 
-    def test_fixed_still_respects_the_postal_minimum(self):
-        template = self._plan_template("Monthly", mode="Fixed", dues_rate=8, minimum_amount=0)
+    def test_fixed_with_paper_delivery_charges_exactly_the_postal_minimum_when_it_is_higher(self):
+        """Ruling on #2127: paper charges max(rate, postal minimum); digital charges the rate."""
+        template = self._plan_template("Monthly", mode="Fixed", dues_rate=15, minimum_amount=0)
+        door = self._plan_door((template, {"postal_minimum": 30}))
+        for delivery in ("Papier", "Beide"):
+            with self.subTest(delivery):
+                self.assertTrue(self._accepted(door, template, 30, magazine_delivery=delivery))
+                self.assertFalse(self._accepted(door, template, 15, magazine_delivery=delivery))
+                self.assertFalse(self._accepted(door, template, 45, magazine_delivery=delivery))
+        self.assertTrue(self._accepted(door, template, 15), "digital: the rate")
+        self.assertFalse(self._accepted(door, template, 30), "digital: not the paper price")
+        [plan] = offered_plans(door)
+        self.assertEqual((plan["amount"], plan["postal_minimum"]), (15, 30))
+
+    def test_fixed_with_a_postal_minimum_below_the_rate_charges_the_rate_on_paper(self):
+        template = self._plan_template("Monthly", mode="Fixed", dues_rate=15, minimum_amount=0)
         door = self._plan_door((template, {"postal_minimum": 10}))
-        self.assertTrue(self._accepted(door, template, 8))
-        self.assertFalse(self._accepted(door, template, 8, magazine_delivery="Papier"))
+        self.assertTrue(self._accepted(door, template, 15, magazine_delivery="Papier"))
+        self.assertFalse(self._accepted(door, template, 10, magazine_delivery="Papier"))
+
+    def test_income_based_paper_delivery_raises_the_floor_to_the_postal_minimum(self):
+        template = self._plan_template("Monthly", mode="Income-Based", minimum_amount=5)
+        door = self._plan_door((template, {"postal_minimum": 20}))
+        self.assertFalse(self._accepted(door, template, 19.99, magazine_delivery="Papier"))
+        self.assertTrue(self._accepted(door, template, 20, magazine_delivery="Papier"))
+        self.assertTrue(self._accepted(door, template, 5), "digital: the template minimum")
+
+    def test_the_floor_is_the_one_approval_applies_not_just_the_plan_templates(self):
+        """Approval validates the schedule against max(the type's default template minimum, the
+        membership type minimum). A plan template with a lower minimum must not let a submit through
+        that approval would then refuse (and swallow, leaving no schedule)."""
+        self._type_minimum(25, default_rate=30)
+        template = self._plan_template("Monthly", suggested_amount=30, allow_custom_amount=1, minimum_amount=5)
+        door = self._plan_door((template, {}))
+        [plan] = offered_plans(door)
+        self.assertEqual(plan["minimum"], 25)
+        self.assertFalse(self._accepted(door, template, 12))
+        self.assertFalse(self._accepted(door, template, 24.99))
+        self.assertTrue(self._accepted(door, template, 25))
+
+    def test_a_fixed_plan_below_the_floor_approval_applies_is_not_offered(self):
+        self._type_minimum(25, default_rate=30)
+        template = self._plan_template("Monthly", mode="Fixed", dues_rate=15, minimum_amount=0)
+        door = self._plan_door((template, {}))
+        self.assertEqual(offered_plans(door), [])
+        # Control: a Fixed plan at or above the floor is offered.
+        ok = self._plan_template("Monthly", mode="Fixed", dues_rate=25, minimum_amount=0)
+        self.assertEqual([p["template"] for p in offered_plans(self._plan_door((ok, {})))], [ok])
+
+    def test_nothing_is_offered_when_approval_itself_would_refuse_the_type(self):
+        """A type whose default template is below its own minimum cannot get a schedule at approval
+        (the template service refuses), so no plan of that type is offered: fail closed."""
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 25)
+        template = self._plan_template("Monthly", suggested_amount=30, minimum_amount=5)
+        self.assertEqual(offered_plans(self._plan_door((template, {}))), [])
 
     def test_flexible_without_custom_amounts_takes_suggested_and_presets_only(self):
         template = self._plan_template("Monthly", suggested_amount=15, allow_custom_amount=0)
@@ -364,3 +425,22 @@ class TestWordLidPlanPage(DoorPlanCase):
         self.assertIn('id="calc-monthly-income"', html)
         carried = json.loads(re.search(r"data-plans='([^']*)'", html).group(1))
         self.assertEqual(carried[0]["calculator"]["percentage"], 1.25)
+
+    def test_the_page_never_shows_template_placeholders(self):
+        template = self._plan_template("Quarterly", mode="Income-Based")
+        html = self._door_page_html(self._plan_door((template, {})))
+        self.assertNotIn("{{", html)
+        self.assertNotIn("calculator_description", html)
+        self.assertNotIn("income_percentage_rate", html)
+
+    def test_a_door_with_no_offerable_plan_says_so_instead_of_an_empty_amount_block(self):
+        template = self._plan_template("Monthly")
+        door = self._plan_door((template, {}))
+        frappe.db.set_value("Membership Dues Schedule", template, "status", "Cancelled")
+        html = self._door_page_html(door)
+        self.assertIn("This form cannot be used right now", html)
+        self.assertNotIn('id="wl-amount-block"', html)
+        # Control: a door with an offerable plan shows the amount block and no such message.
+        ok = self._door_page_html(self._plan_door((self._plan_template("Monthly"), {})))
+        self.assertIn('id="wl-amount-block"', ok)
+        self.assertNotIn("This form cannot be used right now", ok)

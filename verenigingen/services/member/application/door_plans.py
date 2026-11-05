@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.services.billing.template_configuration_service import TemplateConfigurationService
 from verenigingen.services.member.application.membership_application_service import (
     get_membership_application_service,
 )
@@ -23,10 +24,14 @@ def offered_plans(door) -> list[dict]:
     """The door's plans that can be offered right now, in the order the door lists them.
 
     A plan whose template can no longer be offered (not a template of the door's type, archived,
-    or a Fixed template without a rate) is left out rather than shown broken.
+    or a Fixed template whose rate is below the minimum it would be billed under) is left out rather
+    than shown broken.
     """
+    approval_minimum = _approval_minimum(door.membership_type)
+    if approval_minimum is None:  # approval could not tell the floor either: offer nothing
+        return []
     schedules = _schedules_by_name(door.membership_type)
-    minimums = _template_minimums([row.dues_template for row in door.plans])
+    minimums = _template_minimums([row.dues_template for row in door.plans], approval_minimum)
     plans = []
     for row in door.plans:
         schedule = schedules.get(row.dues_template)
@@ -58,7 +63,7 @@ def check_amount(plan: dict, amount: float, postal: bool):
         frappe.throw(_("The amount is below the minimum for this choice."))
     mode = plan["mode"]
     if mode == "Fixed":
-        accepted = _same(amount, plan["amount"])
+        accepted = _same(amount, fixed_price(plan, postal))
     elif mode == "Flexible":
         accepted = plan["allow_custom"] or any(_same(amount, offered) for offered in _flexible_amounts(plan))
     else:
@@ -70,6 +75,12 @@ def check_amount(plan: dict, amount: float, postal: bool):
 def minimum_for(plan: dict, postal: bool) -> float:
     """The template's minimum, raised to the plan's postal minimum when paper delivery is chosen (#1968)."""
     return max(plan["minimum"], plan["postal_minimum"]) if postal else plan["minimum"]
+
+
+def fixed_price(plan: dict, postal: bool) -> float:
+    """What a Fixed plan charges: the rate, or the plan's postal minimum when that is higher and paper
+    delivery is chosen (ruling on #2127)."""
+    return max(plan["amount"], plan["postal_minimum"]) if postal else plan["amount"]
 
 
 def _flexible_amounts(plan: dict) -> list[float]:
@@ -87,19 +98,35 @@ def _schedules_by_name(membership_type) -> dict:
     return {schedule["name"]: schedule for schedule in result["schedules"]}
 
 
-def _template_minimums(templates) -> dict:
-    """The templates' own ``minimum_amount``. The shared service shows ``minimum_amount or dues_rate`` as
-    the minimum, which would raise a template with no minimum to its rate."""
+def _approval_minimum(membership_type) -> float | None:
+    """The minimum approval applies to the schedule it creates: the same service call, so submit and
+    approval cannot drift apart. None when that call refuses (fail closed)."""
+    try:
+        values = TemplateConfigurationService().get_template_values(
+            schedule_doc=frappe._dict(), membership_type=membership_type, is_template=False
+        )
+    except frappe.ValidationError:
+        frappe.clear_messages()
+        return None
+    return flt(values["minimum_amount"])
+
+
+def _template_minimums(templates, approval_minimum) -> dict:
+    """Each template's floor: its own ``minimum_amount`` (the shared service shows ``minimum_amount or
+    dues_rate``, which would raise a template with no minimum to its rate), and never below what approval
+    will enforce."""
     rows = frappe.get_all(
         "Membership Dues Schedule", filters={"name": ["in", templates]}, fields=["name", "minimum_amount"]
     )
-    return {row.name: flt(row.minimum_amount) for row in rows}
+    return {row.name: max(flt(row.minimum_amount), approval_minimum) for row in rows}
 
 
 def _offer(door, row, schedule, minimum) -> dict | None:
     settings = schedule["contribution_settings"]
     mode = settings["mode"]
     if mode == "Fixed" and flt(schedule["amount"]) <= 0:
+        return None
+    if mode == "Fixed" and flt(schedule["amount"]) < minimum - CENT:
         return None
     return {
         "id": row.name,

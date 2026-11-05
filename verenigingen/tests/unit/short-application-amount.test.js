@@ -11,7 +11,7 @@ global.__ = (s) => s;
 require('../../public/js/contribution_calculator.js');
 require('../../public/js/short_application.js');
 
-const { chosenAmount, selectPlan, amountChoices, minimumFor, problems } = window.ShortApplication;
+const { chosenAmount, selectPlan, amountChoices, minimumFor, fixedPrice, problems } = window.ShortApplication;
 
 const FIXED = {
 	id: 'fixed',
@@ -58,6 +58,8 @@ function render() {
 	document.body.innerHTML = `
 		<form id="f">
 			<input type="hidden" name="plan" id="wl-plan">
+			<select name="magazine_delivery"><option value="">-</option><option value="Digitaal">D</option><option value="Papier">P</option></select>
+			<p id="wl-error"></p>
 			<p id="wl-fixed-amount"></p>
 			<div id="wl-amount-choices"></div>
 			<label id="wl-custom-amount-row"><input type="radio" name="amount_choice" value="custom">
@@ -162,3 +164,38 @@ function form_custom(form, value) {
 	form.querySelector('input[value="custom"]').checked = true;
 	form.querySelector('#wl-custom-amount').value = value;
 }
+
+describe('a Fixed plan with a postal minimum above its rate', () => {
+	const PAPER_FIXED = { ...FIXED, amount: 15, postal_minimum: 30 };
+
+	test('digital charges the rate and paper charges the postal minimum', () => {
+		expect(fixedPrice(PAPER_FIXED, false)).toBe(15);
+		expect(fixedPrice(PAPER_FIXED, true)).toBe(30);
+		expect(fixedPrice({ ...PAPER_FIXED, postal_minimum: 10 }, true)).toBe(15); // never below the rate
+	});
+
+	test('the posted amount and the shown price follow the delivery choice', () => {
+		const state = stateFor([PAPER_FIXED]);
+		selectPlan(state, 'fixed');
+		expect(chosenAmount(state.form, state.plan, state)).toBe('15');
+		state.form.elements.magazine_delivery.value = 'Papier';
+		expect(chosenAmount(state.form, state.plan, state)).toBe('30');
+		state.form.elements.magazine_delivery.value = 'Digitaal';
+		expect(chosenAmount(state.form, state.plan, state)).toBe('15');
+	});
+});
+
+describe('the shared calculator script did not load', () => {
+	test('choosing an Income-Based plan reports it and posts no amount, without throwing', () => {
+		const loaded = window.ContributionCalculator;
+		delete window.ContributionCalculator;
+		try {
+			const state = stateFor([INCOME]);
+			expect(() => selectPlan(state, 'income')).not.toThrow();
+			expect(document.getElementById('wl-error').textContent).toContain('calculator could not be loaded');
+			expect(chosenAmount(state.form, state.plan, state)).toBe('');
+		} finally {
+			window.ContributionCalculator = loaded;
+		}
+	});
+});

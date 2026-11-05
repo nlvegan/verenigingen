@@ -14,7 +14,7 @@ from verenigingen.utils.security.guest_return_tokens import generate_guest_retur
 
 
 class TestPlanBecomesDuesSchedule(ApprovalCase):
-    def _stage_plan(self, door, plan, amount):
+    def _stage_plan(self, door, plan, amount, **overrides):
         data = {
             "first_name": "Anna",
             "last_name": "Berg",
@@ -33,6 +33,7 @@ class TestPlanBecomesDuesSchedule(ApprovalCase):
             "magazine_delivery": "Geen",
             "starter_guide_delivery": "Geen",
         }
+        data.update(overrides)
         previous = frappe.session.user
         self._request_from_fresh_ip()
         frappe.set_user("Guest")
@@ -53,9 +54,9 @@ class TestPlanBecomesDuesSchedule(ApprovalCase):
         self.assertTrue(confirmed["success"], confirmed)
         return name
 
-    def _approved_schedule(self, door, template, amount):
+    def _approved_schedule(self, door, template, amount, **overrides):
         [plan] = [p for p in offered_plans(door) if p["template"] == template]
-        name = self._stage_plan(door, plan, amount)
+        name = self._stage_plan(door, plan, amount, **overrides)
         self.assertTrue(self._approve_as(name)["success"])
         member = frappe.db.get_value(SUBMISSION, name, "member")
         schedules = frappe.get_all(
@@ -93,3 +94,29 @@ class TestPlanBecomesDuesSchedule(ApprovalCase):
             plans=[{"dues_template": quarterly, "is_default": 1}, {"dues_template": annual}]
         )
         self.assertEqual(self._approved_schedule(door, annual, 77.77).billing_frequency, "Annual")
+
+    def test_an_amount_at_the_floor_approval_applies_becomes_a_schedule_with_a_stale_template_minimum(self):
+        """The plan template's own minimum (5) is below the membership type's (25), which approval also
+        enforces: the floor submit applies must be the higher one, and the amount at it must reach a
+        schedule (an approval-time refusal is swallowed and leaves the member with none)."""
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 25)
+        type_template = frappe.db.get_value(
+            "Membership Type", self.membership_type.name, "dues_schedule_template"
+        )
+        frappe.db.set_value("Membership Dues Schedule", type_template, {"dues_rate": 30, "suggested_amount": 30})
+        template = self._plan_template("Quarterly", suggested_amount=30, allow_custom_amount=1, minimum_amount=5)
+        door = self._door(plans=[{"dues_template": template, "is_default": 1}])
+        [plan] = offered_plans(door)
+        self.assertEqual(plan["minimum"], 25)
+
+        schedule = self._approved_schedule(door, template, 25)
+
+        self.assertEqual((schedule.billing_frequency, schedule.dues_rate), ("Quarterly", 25))
+
+    def test_a_fixed_plan_on_paper_bills_the_postal_minimum_when_it_is_above_the_rate(self):
+        template = self._plan_template("Monthly", mode="Fixed", dues_rate=40, minimum_amount=0)
+        door = self._door(plans=[{"dues_template": template, "is_default": 1, "postal_minimum": 60}])
+
+        paper = self._approved_schedule(door, template, 60, magazine_delivery="Papier")
+
+        self.assertEqual((paper.billing_frequency, paper.dues_rate), ("Monthly", 60))

@@ -49,6 +49,9 @@
         <section class="wl-card mb-6">
             <h2 class="text-xl font-semibold mb-4">{{ _("My choices") }}</h2>
 
+            {% if not plans %}
+            <p class="wl-error mb-4" role="alert">{{ _("This form cannot be used right now. Please contact us.") }}</p>
+            {% else %}
             {% if plans | length > 1 %}
             <fieldset class="mb-4" id="wl-plans">
                 <legend class="wl-label">{{ _("Payment plan") }}</legend>
@@ -75,6 +78,7 @@
                 <p class="mb-2" id="wl-calculated-row" style="display:none">{{ _("Your contribution") }}: <strong id="wl-calculated-amount"></strong></p>
                 <p class="wl-hint mt-1" id="wl-minimum-hint"></p>
             </div>
+            {% endif %}
 
             {% if "magazine_delivery" not in hidden %}
             <div class="mb-4">
@@ -192,7 +196,7 @@
         {% endif %}
 
         <p class="wl-error mb-3" id="wl-error" role="alert"></p>
-        <button type="submit" class="wl-button" id="wl-submit">{{ _("Submit application") }}</button>
+        <button type="submit" class="wl-button" id="wl-submit" {{ "disabled" if door.form_shape == "Regular" and not plans else "" }}>{{ _("Submit application") }}</button>
     </form>
     <div class="wl-card mt-6" id="wl-done" style="display:none"></div>
 {% endif %}
@@ -201,12 +205,11 @@
 
 {% block script %}
 {% if door %}
+<!-- Plain tag first, as the full form does: frappe.require adds one script per file with no order guarantee -->
+<script src="/assets/verenigingen/js/contribution_calculator.js"></script>
 <script>
 frappe.ready(function() {
-    frappe.require([
-        '/assets/verenigingen/js/contribution_calculator.js',
-        '/assets/verenigingen/js/short_application.js'
-    ]);
+    frappe.require(['/assets/verenigingen/js/short_application.js']);
 });
 </script>
 {% endif %}
