@@ -17,7 +17,10 @@ migrated: the dues template's own allow_custom_amount (and contribution mode) de
 import frappe
 
 DOOR = "Membership Application Door"
-SLOTS = (("Monthly", "monthly_dues_template", "postal_minimum_monthly"), ("Annual", "annual_dues_template", "postal_minimum_annual"))
+SLOTS = (
+    ("Monthly", "monthly_dues_template", "postal_minimum_monthly"),
+    ("Annual", "annual_dues_template", "postal_minimum_annual"),
+)
 
 
 def execute():
@@ -39,7 +42,11 @@ def migrate_door(door) -> bool:
     for frequency, slot in slots.items():
         door.append(
             "plans",
-            {"dues_template": slot["template"], "postal_minimum": slot["postal_minimum"], "is_default": int(frequency == default)},
+            {
+                "dues_template": slot["template"],
+                "postal_minimum": slot["postal_minimum"],
+                "is_default": int(frequency == default),
+            },
         )
     door.set("amount_options", _options_on_plans(door, slots))
     # The rows were built from slots the old validation had already checked; saving the door must not

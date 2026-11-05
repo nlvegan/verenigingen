@@ -30,7 +30,7 @@ def offered_plans(door) -> list[dict]:
     plans = []
     for row in door.plans:
         schedule = schedules.get(row.dues_template)
-        plan = _plan(door, row, schedule, minimums.get(row.dues_template, 0)) if schedule else None
+        plan = _offer(door, row, schedule, minimums.get(row.dues_template, 0)) if schedule else None
         if plan:
             plans.append(plan)
     return plans
@@ -96,7 +96,7 @@ def _template_minimums(templates) -> dict:
     return {row.name: flt(row.minimum_amount) for row in rows}
 
 
-def _plan(door, row, schedule, minimum) -> dict | None:
+def _offer(door, row, schedule, minimum) -> dict | None:
     settings = schedule["contribution_settings"]
     mode = settings["mode"]
     if mode == "Fixed" and flt(schedule["amount"]) <= 0:

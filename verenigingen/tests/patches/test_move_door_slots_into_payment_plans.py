@@ -40,13 +40,13 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
         self.assertEqual(plan_rows, 0)
         return door.name
 
-    def _plans(self, door):
+    def _migrated_plans(self, door):
         return [
             (row.dues_template, int(row.is_default), row.postal_minimum)
             for row in frappe.get_doc(DOOR, door).plans
         ]
 
-    def _options(self, door):
+    def _migrated_amount_options(self, door):
         return [(row.dues_template, row.amount) for row in frappe.get_doc(DOOR, door).amount_options]
 
     def test_both_slots_become_plans_and_monthly_is_the_default(self):
@@ -64,20 +64,20 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
 
         execute()
 
-        self.assertEqual(self._plans(door), [(self.monthly, 1, 4), (self.annual, 0, 40)])
+        self.assertEqual(self._migrated_plans(door), [(self.monthly, 1, 4), (self.annual, 0, 40)])
         self.assertEqual(
-            sorted(self._options(door)), sorted([(self.annual, 60), (self.monthly, 6), (self.monthly, 9)])
+            sorted(self._migrated_amount_options(door)), sorted([(self.annual, 60), (self.monthly, 6), (self.monthly, 9)])
         )
 
     def test_a_door_with_only_an_annual_slot_defaults_to_it(self):
         door = self._old_shape_door(annual_dues_template=self.annual, postal_minimum_annual=25)
         execute()
-        self.assertEqual(self._plans(door), [(self.annual, 1, 25)])
+        self.assertEqual(self._migrated_plans(door), [(self.annual, 1, 25)])
 
     def test_a_door_with_only_a_monthly_slot_defaults_to_it(self):
         door = self._old_shape_door(monthly_dues_template=self.monthly)
         execute()
-        self.assertEqual(self._plans(door), [(self.monthly, 1, 0)])
+        self.assertEqual(self._migrated_plans(door), [(self.monthly, 1, 0)])
 
     def test_the_migrated_door_is_a_valid_door(self):
         door = self._old_shape_door(
@@ -97,9 +97,9 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
             amount_options=[{"frequency": "Annual", "amount": 60}],
         )
         execute()
-        first = (self._plans(door), self._options(door))
+        first = (self._migrated_plans(door), self._migrated_amount_options(door))
         execute()
-        self.assertEqual((self._plans(door), self._options(door)), first)
+        self.assertEqual((self._migrated_plans(door), self._migrated_amount_options(door)), first)
 
     def test_a_door_that_already_has_plans_is_left_alone(self):
         """A door an admin has already moved to plans keeps its choices, even if its hidden legacy
@@ -110,17 +110,17 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
         doc.flags.ignore_validate = True
         doc.save()
         execute()
-        self.assertEqual(self._plans(door), [(self.annual, 1, 7)])
+        self.assertEqual(self._migrated_plans(door), [(self.annual, 1, 7)])
 
     def test_a_door_without_slots_gets_no_plans_and_no_error(self):
         door = self._old_shape_door(form_shape="Housemate")
         execute()
-        self.assertEqual(self._plans(door), [])
+        self.assertEqual(self._migrated_plans(door), [])
 
     def test_an_amount_option_for_a_frequency_the_door_never_offered_is_dropped(self):
         door = self._old_shape_door(
             monthly_dues_template=self.monthly, amount_options=[{"frequency": "Annual", "amount": 60}]
         )
         execute()
-        self.assertEqual(self._options(door), [])
-        self.assertEqual(self._plans(door), [(self.monthly, 1, 0)])
+        self.assertEqual(self._migrated_amount_options(door), [])
+        self.assertEqual(self._migrated_plans(door), [(self.monthly, 1, 0)])

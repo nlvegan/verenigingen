@@ -17,6 +17,7 @@ from verenigingen.api import short_application as sa
 from verenigingen.services.member.application.door_plans import find_plan, offered_plans
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
+from verenigingen.tests.utils.query_counter import count_queries
 
 IBAN = "NL91ABNA0417164300"
 SUBMISSION = "Membership Application Submission"
@@ -49,7 +50,7 @@ class DoorPlanCase(ApplicationDoorMixin, VereningingenUnitTestCase):
     def _plan_id(self, door, template):
         return next(row.name for row in door.plans if row.dues_template == template)
 
-    def _data(self, **overrides):
+    def _guest_form(self, **overrides):
         data = {
             "first_name": "Anna",
             "last_name": "Berg",
@@ -70,7 +71,7 @@ class DoorPlanCase(ApplicationDoorMixin, VereningingenUnitTestCase):
         data.update(overrides)
         return data
 
-    def _submit(self, door_name, **overrides):
+    def _submit_plan_form(self, door_name, **overrides):
         """As Guest through the endpoint; (response, message_log, new Error Log rows). Each call is a new
         applicant unless it names an email: an address gets at most 3 confirmation mails a day."""
         if "email" not in overrides:
@@ -81,7 +82,7 @@ class DoorPlanCase(ApplicationDoorMixin, VereningingenUnitTestCase):
         frappe.local.message_log = []
         frappe.set_user("Guest")
         try:
-            response = sa.submit_short_application(door_name, **self._data(**overrides))
+            response = sa.submit_short_application(door_name, **self._guest_form(**overrides))
         finally:
             frappe.set_user(self._previous_user)
         for name in frappe.get_all(SUBMISSION, {"email": self.email}, pluck="name"):
@@ -89,7 +90,7 @@ class DoorPlanCase(ApplicationDoorMixin, VereningingenUnitTestCase):
         return response, list(frappe.local.message_log), frappe.db.count("Error Log") - errors
 
     def _accepted(self, door, template, amount, **overrides):
-        response, _log, _errors = self._submit(
+        response, _log, _errors = self._submit_plan_form(
             door.name, plan=self._plan_id(door, template), amount=str(amount), **overrides
         )
         return response["success"]
@@ -106,7 +107,7 @@ class TestPlansOfferedAndSubmitted(DoorPlanCase):
         [offered] = offered_plans(door)
         self.assertEqual((offered["frequency"], offered["mode"], offered["amount"]), ("Quarterly", "Fixed", 30))
 
-        response, _log, _errors = self._submit(door.name, plan=offered["id"], amount="30")
+        response, _log, _errors = self._submit_plan_form(door.name, plan=offered["id"], amount="30")
 
         self.assertTrue(response["success"], response)
         payload = self._staged_payload()
@@ -143,7 +144,7 @@ class TestPlansOfferedAndSubmitted(DoorPlanCase):
         door = self._plan_door((monthly, {}), (quarterly, {}))
         frappe.db.set_value("Membership Dues Schedule", quarterly, "status", "Cancelled")
         self.assertEqual([plan["template"] for plan in offered_plans(door)], [monthly])
-        response, _log, _errors = self._submit(door.name, plan=self._plan_id(door, quarterly))
+        response, _log, _errors = self._submit_plan_form(door.name, plan=self._plan_id(door, quarterly))
         self.assertEqual(response, {"success": False, "message": PLAN_REFUSAL})
 
 
@@ -224,10 +225,12 @@ class TestAmountRulesPerContributionMode(DoorPlanCase):
 
 
 class TestPlanRefusalsAreIdentical(DoorPlanCase):
-    def _channels(self, door_name, **overrides):
+    def _refusal_channels(self, door_name, **overrides):
         """Every channel a guest can read from a refusal."""
-        response, log, errors = self._submit(door_name, email=self.email, **overrides)
+        with count_queries() as counter:
+            response, log, errors = self._submit_plan_form(door_name, email=self.email, **overrides)
         return {
+            "queries": len(counter.queries),
             "response": response,
             "message_log": log,
             "error_log_rows": errors,
@@ -244,7 +247,8 @@ class TestPlanRefusalsAreIdentical(DoorPlanCase):
             frappe.db.exists("Membership Application Door Plan", foreign),  # doctype-ok: new in #2127
             "control: it exists",
         )
-        unknown = self._channels(door.name, plan="does-not-exist", amount="12")
+        self._refusal_channels(door.name, plan="warm-the-caches", amount="12")  # a cold first call counts extra
+        unknown = self._refusal_channels(door.name, plan="does-not-exist", amount="12")
         for label, plan in (
             ("another door's plan", foreign),
             ("another door's template name", theirs),
@@ -252,7 +256,7 @@ class TestPlanRefusalsAreIdentical(DoorPlanCase):
             ("a dict", {"a": 1}),
         ):
             with self.subTest(label):
-                refused = self._channels(door.name, plan=plan, amount="12")
+                refused = self._refusal_channels(door.name, plan=plan, amount="12")
                 self.assertEqual(refused, unknown)
         self.assertEqual(unknown["response"], {"success": False, "message": PLAN_REFUSAL})
         self.assertEqual(unknown["submissions"], 0)
@@ -262,8 +266,8 @@ class TestPlanRefusalsAreIdentical(DoorPlanCase):
         template = self._plan_template("Monthly")
         disabled = self._plan_door((template, {}), enabled=0)
         plan = self._plan_id(disabled, template)
-        unknown_door = self._channels("bestaat-niet", plan=plan, amount="12")
-        self.assertEqual(self._channels(disabled.name, plan=plan, amount="12"), unknown_door)
+        unknown_door = self._refusal_channels("bestaat-niet", plan=plan, amount="12")
+        self.assertEqual(self._refusal_channels(disabled.name, plan=plan, amount="12"), unknown_door)
 
 
 class TestWordLidPlanPage(DoorPlanCase):
@@ -275,14 +279,14 @@ class TestWordLidPlanPage(DoorPlanCase):
         frappe.form_dict.pop("door", None)
         super().tearDown()
 
-    def _context(self, door):
+    def _door_page_context(self, door):
         from verenigingen.www import word_lid
 
         frappe.form_dict.pop("door", None)
         frappe.form_dict["door"] = door.name
         return word_lid.get_context(frappe._dict())
 
-    def _html(self, door):
+    def _door_page_html(self, door):
         from frappe.website.serve import get_response
 
         path = f"word-lid/{door.slug}"
@@ -306,11 +310,11 @@ class TestWordLidPlanPage(DoorPlanCase):
                 {"dues_template": annual},
             ]
         )
-        context = self._context(door)
+        context = self._door_page_context(door)
         default_id = self._plan_id(door, quarterly)
         self.assertEqual(context.default_plan_id, default_id)
         self.assertEqual(len(context.plans), 3)
-        html = self._html(door)
+        html = self._door_page_html(door)
         checked = re.findall(r'<input type="radio" name="plan_choice" value="([^"]+)" checked>', html)
         self.assertEqual(checked, [default_id], "only the default plan is preselected")
         for template in (monthly, annual):
@@ -324,7 +328,7 @@ class TestWordLidPlanPage(DoorPlanCase):
     def test_a_single_plan_has_no_picker_but_is_preselected(self):
         template = self._plan_template("Quarterly")
         door = self._plan_door((template, {}))
-        html = self._html(door)
+        html = self._door_page_html(door)
         self.assertNotIn('name="plan_choice"', html)
         self.assertIn('name="plan" id="wl-plan" value="%s"' % self._plan_id(door, template), html)
 
@@ -335,7 +339,7 @@ class TestWordLidPlanPage(DoorPlanCase):
             plans=[{"dues_template": fixed, "is_default": 1}, {"dues_template": flexible, "postal_minimum": 50}],
             amount_options=[{"dues_template": flexible, "amount": 60}],
         )
-        plans = {plan["template"]: plan for plan in self._context(door).plans}
+        plans = {plan["template"]: plan for plan in self._door_page_context(door).plans}
         self.assertEqual(
             (plans[fixed]["mode"], plans[fixed]["amount"], plans[fixed]["presets"]), ("Fixed", 30, [])
         )
@@ -351,11 +355,11 @@ class TestWordLidPlanPage(DoorPlanCase):
             "Quarterly", mode="Income-Based", income_calculation_type="Percentage", income_percentage=1.25
         )
         door = self._plan_door((template, {}))
-        [plan] = self._context(door).plans
+        [plan] = self._door_page_context(door).plans
         self.assertEqual(plan["mode"], "Income-Based")
         self.assertEqual(plan["calculator"]["calculation_type"], "Percentage")
         self.assertEqual(plan["calculator"]["percentage"], 1.25)
-        html = self._html(door)
+        html = self._door_page_html(door)
         self.assertIn('id="income-calculator"', html, "the full form's calculator markup is reused")
         self.assertIn('id="calc-monthly-income"', html)
         carried = json.loads(re.search(r"data-plans='([^']*)'", html).group(1))
