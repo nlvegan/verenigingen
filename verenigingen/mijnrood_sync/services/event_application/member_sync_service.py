@@ -29,6 +29,7 @@ from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_servic
 )
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.member_sync")
 
@@ -177,6 +178,13 @@ class MijnRoodMemberSyncService:
                 "message": _("No linked member found for MijnRood ID {0}").format(new_data.get("id")),
             }
 
+        # The transfer below is written before the member fields, and a failed member update
+        # is RETURNED (not raised), so apply_event then saves and commits the event with the
+        # transfer still pending in the transaction (#2067). The savepoint lets that failure
+        # take the transfer back out: the event is all-or-nothing, and a re-apply starts clean.
+        transfer_savepoint = f"mijnrood_changed_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(transfer_savepoint)
+
         # Chapter transfer if division_id changed
         chapter_result = get_related_records_orchestrator()._handle_division_field_change(
             member_name, changed_fields, event, field_name="division_id"
@@ -220,6 +228,7 @@ class MijnRoodMemberSyncService:
                     get_related_records_orchestrator()._create_related_records(updated_name, row_data, event)
                 )
             else:
+                rollback_to_savepoint(transfer_savepoint)
                 return {"success": False, "message": _("Member update {0}").format(status)}
 
         role_msgs = get_volunteer_sync_service()._process_member_roles(
