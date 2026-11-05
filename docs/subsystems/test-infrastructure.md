@@ -49,6 +49,7 @@ The Test Infrastructure System provides testing capabilities for the Vereniginge
 | `tests/config/` | Test configuration |
 | `tests/contracts/` | API contract tests (SEPA, Mollie JSON) |
 | `tests/docs/` | Test documentation |
+| `tests/e2e/` | End-to-end tests |
 | `tests/fixtures/` | Test data factories and helpers |
 | `tests/frontend/` | Frontend/JS controller tests |
 | `tests/integration/` | Integration tests |
@@ -60,6 +61,7 @@ The Test Infrastructure System provides testing capabilities for the Vereniginge
 | `tests/scalability/` | Scalability tests |
 | `tests/services/` | Service layer tests |
 | `tests/setup/` | Test setup utilities |
+| `tests/support/` | Test support modules |
 | `tests/test_records/` | Test record data |
 | `tests/unit/` | Unit tests |
 | `tests/utils/` | Test utility modules |
