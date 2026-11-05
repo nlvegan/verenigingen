@@ -9,6 +9,7 @@ from frappe.utils import add_days, add_to_date, get_weekday, getdate, now_dateti
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -392,19 +393,16 @@ def send_batch_creation_notification(result):
     """Send email notification about created batches"""
     try:
         # Get finance team members
-        finance_managers = frappe.get_all(
-            "User",
-            filters={
-                "enabled": 1,
-                "name": [
-                    "in",
-                    frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent"),
-                ],
-            },
-            fields=["email", "full_name"],
+        # The key's own recipients first (seeded: Financial Manager), then enabled Financial
+        # Manager holders; never the Administrator user (#2093).
+        finance_emails = resolve_admin_recipients(
+            notification_key="sepa_batch_scheduler_alert",
+            default_roles=[Roles.FINANCIAL_MANAGER],
+            exclude_users=("Administrator",),
+            key_first=True,
         )
 
-        if not finance_managers:
+        if not finance_emails:
             return
 
         # Prepare email content
@@ -463,9 +461,9 @@ def send_batch_creation_notification(result):
 
         # Send email to finance team
         email_service = get_email_service()
-        for manager in finance_managers:
+        for email in finance_emails:
             email_service.send_simple_email(
-                recipients=[manager.email],
+                recipients=[email],
                 subject=subject,
                 message=message,
                 delayed=False,
