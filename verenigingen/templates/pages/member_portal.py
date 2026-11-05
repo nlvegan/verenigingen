@@ -64,7 +64,7 @@ def get_context(context):
 
     # Get active membership using standardized utility
     membership = get_active_membership_for_member(
-        member, ["name", "membership_type", "start_date", "renewal_date", "status"]
+        member, ["name", "membership_type", "start_date", "renewal_date", "status", "cancellation_date"]
     )
     context.membership = membership
 
