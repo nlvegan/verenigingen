@@ -406,7 +406,9 @@ def create_system_notification(
         "User",
         filters={"enabled": 1},
         or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
-        pluck="email",
+        # Notification Log.for_user is a Link to User, so it needs the user's NAME. Administrator's
+        # name is not its email, and an email there fails the Link check (#1958).
+        pluck="name",
     )
 
     if not valid_users:

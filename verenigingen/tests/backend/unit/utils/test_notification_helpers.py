@@ -264,11 +264,8 @@ class TestCreateSystemNotification(FrappeTestCase):
     def _create_test_recipient(self):
         """Ensure a real, enabled User exists whose docname == email.
 
-        create_system_notification resolves recipients via a `pluck="email"`
-        query and then uses that value as the `for_user` Link (a User
-        docname). For most users name == email, but "Administrator"'s name
-        differs from its email — using it as a recipient here would 404 on
-        the Link. A dedicated fixture user sidesteps that special case.
+        A dedicated fixture user whose docname == email; the Administrator
+        and name != email cases (#1958) have their own tests below.
         """
         if not frappe.db.exists("User", self._TEST_RECIPIENT):
             user = frappe.get_doc(
@@ -282,6 +279,63 @@ class TestCreateSystemNotification(FrappeTestCase):
                 }
             )
             user.insert(ignore_permissions=True)
+
+    def _logs_for(self, subject):
+        return frappe.get_all("Notification Log", filters={"subject": subject}, pluck="for_user")
+
+    def _creation_errors(self, marker):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": "Notification Creation Error", "error": ["like", f"%{marker}%"]},
+            pluck="name",
+        )
+
+    def test_administrator_gets_a_log_addressed_by_user_name_1958(self):
+        """Administrator's name ('Administrator') differs from its email; the Link needs the name."""
+        marker = f"adm1958 {frappe.generate_hash(length=8)}"
+        self.assertNotEqual(
+            frappe.db.get_value("User", "Administrator", "email"),
+            "Administrator",
+            "control: Administrator's email is not its name",
+        )
+        result = create_system_notification(["Administrator"], marker, "m")
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["notifications_created"], 1)
+        self.assertEqual(self._logs_for(marker), ["Administrator"])
+        self.assertEqual(self._creation_errors(marker), [])
+
+    def test_a_user_whose_name_differs_from_their_email_is_addressed_by_name_1958(self):
+        """Probe shortcut: Frappe's User.validate forces email = name for every non-standard user, so a
+        real non-Administrator user cannot be made with name != email through insert/save/rename. The
+        drift is written straight to the column (``db.set_value``), as legacy data or a raw write would.
+        Reached both by the drifted email and by the name."""
+        drifted_name = f"drift1958-{frappe.generate_hash(length=6)}@example.com".lower()
+        drifted_email = f"other-{frappe.generate_hash(length=6)}@example.com".lower()
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": drifted_name,
+                "first_name": "Drift",
+                "enabled": 1,
+                "send_welcome_email": 0,
+            }
+        ).insert()
+        frappe.db.set_value("User", drifted_name, "email", drifted_email, update_modified=False)
+        self.assertNotEqual(frappe.db.get_value("User", drifted_name, "email"), drifted_name, "control")
+        for label, recipient in (("by-email", drifted_email), ("by-name", drifted_name)):
+            marker = f"drift1958 {label} {frappe.generate_hash(length=8)}"
+            result = create_system_notification([recipient], marker, "m")
+            self.assertTrue(result["success"], (label, result))
+            self.assertEqual(self._logs_for(marker), [drifted_name], label)
+            self.assertEqual(self._creation_errors(marker), [], label)
+
+    def test_mixed_name_and_email_recipients_get_one_log_each_1958(self):
+        marker = f"mixed1958 {frappe.generate_hash(length=8)}"
+        result = create_system_notification(
+            ["Administrator", self._TEST_RECIPIENT, self._TEST_RECIPIENT], marker, "m"
+        )
+        self.assertEqual(result["notifications_created"], 2, result)
+        self.assertEqual(sorted(self._logs_for(marker)), sorted(["Administrator", self._TEST_RECIPIENT]))
 
     def test_returns_failure_when_no_recipients(self):
         """Test returns failure when no recipients provided."""
