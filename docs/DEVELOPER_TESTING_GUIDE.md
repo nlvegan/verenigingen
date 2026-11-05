@@ -201,7 +201,6 @@ bench --site test_site_1 run-parallel-tests --app verenigingen
 ```bash
 cd ~/frappe-bench/apps/verenigingen
 ./run_controller_tests.sh       # Run controller tests
-./run_mollie_e2e_tests.sh       # Run Mollie integration tests
 ```
 
 ## Mandatory Test Patterns
