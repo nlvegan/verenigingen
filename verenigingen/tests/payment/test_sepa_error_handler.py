@@ -294,7 +294,9 @@ class TestCircuitBreakerStateMachine(EnhancedTestCase):
         """#2079: a future stamp (clock stepped back) read as ~86400 s and recovered at once."""
         for _ in range(5):
             self.handler.record_failure(Exception("timeout"))
-        self.handler.circuit_breaker["last_failure_time"] = now_datetime() + timedelta(seconds=100)
+        # Further ahead than recovery_timeout, or an abs() wrong fix would also stay open.
+        ahead = self.handler.circuit_breaker["recovery_timeout"] + 100
+        self.handler.circuit_breaker["last_failure_time"] = now_datetime() + timedelta(seconds=ahead)
         self.assertFalse(self.handler.check_circuit_breaker())
         self.assertEqual(self.handler.circuit_breaker["state"], "open")
 
