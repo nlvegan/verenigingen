@@ -1231,9 +1231,14 @@ def _invoices_of_this_membership(member, membership):
         return []
     base = {"customer": member.customer, "is_membership_invoice": 1, "docstatus": ["<", 2]}
     fields = ["name", "docstatus", "custom_coverage_start_date"]
-    rows = frappe.get_all("Sales Invoice", {**base, "membership": membership.name}, fields)
+    # LOCKING reads (#2090): the retry runs under an advisory lock, but a plain read returns this
+    # transaction's snapshot, taken before a racing winner committed its invoice. When the winner's mail
+    # failed its marker stays set, so the loser gets this far and would create a second invoice.
+    rows = frappe.db.get_values(
+        "Sales Invoice", {**base, "membership": membership.name}, fields, as_dict=True, for_update=True
+    )
     if membership.start_date:
-        rows += frappe.get_all(
+        rows += frappe.db.get_values(
             "Sales Invoice",
             {
                 **base,
@@ -1241,6 +1246,8 @@ def _invoices_of_this_membership(member, membership):
                 "custom_coverage_start_date": [">=", membership.start_date],
             },
             fields,
+            as_dict=True,
+            for_update=True,
         )
     return sorted(
         rows,
@@ -1257,6 +1264,15 @@ def _existing_or_new_membership_invoice(member, membership, membership_type):
     existing = _invoices_of_this_membership(member, membership)
     submitted = [row.name for row in existing if row.docstatus == 1]
     if submitted:
+        if not frappe.db.exists("Sales Invoice", submitted[0]):
+            # The locking read found it, this transaction's snapshot does not: a racing retry committed it
+            # after this request began (#2090). Refuse, as a loser is refused when that winner's mail went
+            # out; a retry started now sees the invoice and sends its mail without creating another.
+            frappe.throw(
+                _(
+                    "Another retry created invoice {0} a moment ago. Retry again to send its approval email."
+                ).format(submitted[0])
+            )
         return frappe.get_doc("Sales Invoice", submitted[0]), False
     if existing:
         frappe.throw(

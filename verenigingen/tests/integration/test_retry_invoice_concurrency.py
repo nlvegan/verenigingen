@@ -90,14 +90,18 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
                 print(f"cleanup of {member} failed: {error}")
         frappe.db.commit()
 
-    def test_two_retries_at_once_create_one_invoice_and_one_mail(self):
+    def _race_two_retries(self, send):
+        """Two staff retry the same failed approval at once; ``send`` stands in for the mail boundary.
+
+        Returns (invoices, mails, outcomes): the submitted invoices of the applicant, every mail the boundary
+        was asked to send, and each worker's return value or exception.
+        """
         application, member = self._create_committed_failed_approval()
         customer = frappe.db.get_value("Member", member, "customer")
         admin = self.admin_user.email
         site = self.site
         mails, outcomes, held = [], {}, []
         real_secure = application_payments.secure_document_operation
-        real_send = EmailService._send_email_internal
 
         def _create_after_midop_commit(*args, **kwargs):
             if threading.current_thread().name == "T1" and not held:
@@ -111,7 +115,7 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
 
         def spy_send(service, *args, **kwargs):
             mails.append(kwargs)
-            return real_send(service, *args, **kwargs)
+            return send(service, *args, **kwargs)
 
         def _create_request_worker(name, delay):
             time.sleep(delay)
@@ -143,8 +147,31 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
 
         frappe.db.rollback()  # end this connection's old snapshot before reading what the workers committed
         invoices = frappe.get_all("Sales Invoice", {"customer": customer, "docstatus": 1}, pluck="name")
+        return invoices, mails, outcomes
+
+    def test_two_retries_at_once_create_one_invoice_and_one_mail(self):
+        invoices, mails, outcomes = self._race_two_retries(EmailService._send_email_internal)
         applicant_mails = [m for m in mails if m.get("recipients") and self.email in m["recipients"]]
         self.assertEqual(len(invoices), 1, f"exactly one invoice. outcomes: {outcomes}")
         self.assertEqual(len(applicant_mails), 1, f"exactly one mail. outcomes: {outcomes}")
         self.assertIsInstance(outcomes["second"], frappe.ValidationError, f"the loser is refused: {outcomes}")
         self.assertTrue(outcomes["first"]["invoice"], outcomes)
+
+    def test_two_retries_while_the_mail_fails_still_create_one_invoice(self):
+        """#2090: the marker is cleared only once the mail went out, so when the mail fails the loser gets past
+        the marker check. It must still see the winner's committed invoice and be refused, not create a second."""
+
+        def failing_send(service, *args, **kwargs):
+            raise frappe.OutgoingEmailError("mail is down (#2090)")
+
+        self.expectErrorLog("Approval Email Failed", "mail is down")
+        invoices, mails, outcomes = self._race_two_retries(failing_send)
+
+        self.assertEqual(len(invoices), 1, f"the member was billed twice. outcomes: {outcomes}")
+        self.assertTrue(mails, "control: the mail boundary was reached, so the mail really failed")
+        self.assertFalse(outcomes["first"]["mail_sent"], outcomes)
+        self.assertIsInstance(outcomes["second"], frappe.ValidationError, f"the loser is refused: {outcomes}")
+        # The deliberate refusal, not a DoesNotExistError from loading an invoice outside this snapshot
+        # (also a ValidationError, also naming the invoice).
+        self.assertIn("Another retry created invoice", str(outcomes["second"]), outcomes)
+        self.assertIn(outcomes["first"]["invoice"], str(outcomes["second"]), "the refusal names the invoice")
