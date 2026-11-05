@@ -403,6 +403,46 @@ def get_quick_actions(member, membership, volunteer):
     return actions
 
 
+def get_member_billing_frequency(member, membership):
+    """Display name of the cadence the member is actually billed at.
+
+    The member is billed by their own live Membership Dues Schedule, whose
+    frequency may differ from Membership Type.billing_period (#1934, #1909), so
+    the schedule wins (same lookup as the coverage report) and the Type is only
+    the fallback for a member without one.
+    """
+    from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (
+        _get_schedule_frequency,
+    )
+
+    if not membership:
+        return "Monthly"
+    try:
+        frequency = _get_schedule_frequency(
+            member.name,
+            {
+                "name": membership.get("name"),
+                "start_date": membership.get("start_date"),
+                "cancellation_date": membership.get("cancellation_date"),
+            },
+        ) or (frappe.db.get_value("Membership Type", membership.get("membership_type"), "billing_period"))
+    except Exception as e:
+        frappe.log_error(
+            title="Member Portal Billing Frequency Fallback",
+            message=f"Using 'Monthly' for membership {membership.get('name')}: {str(e)}",
+        )
+        return "Monthly"
+
+    # Membership Type and Membership Dues Schedule use different vocabularies
+    display_names = {
+        "Biannual": "Biannually",
+        "Semi-Annual": "Biannually",
+        "Annual": "Annually",
+    }
+    frequency = frequency or "Monthly"
+    return display_names.get(frequency, frequency)
+
+
 def get_payment_status(member, membership):
     """Get comprehensive payment status for member"""
     if not member:
@@ -418,36 +458,7 @@ def get_payment_status(member, membership):
         # Get current fee information
         current_fee_info = get_member_fee_calculation_service().get_current_membership_fee(member)
 
-        # Get membership billing frequency from the Membership Type doctype
-        billing_frequency = "Monthly"  # Default fallback
-        if membership:
-            try:
-                # Get the billing period from the Membership Type doctype (optional field)
-                membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
-                billing_period = getattr(membership_type_doc, "billing_period", None) or "Monthly"
-
-                # Map billing periods to display names
-                billing_frequency_map = {
-                    "Daily": "Daily",
-                    "Monthly": "Monthly",
-                    "Quarterly": "Quarterly",
-                    "Biannual": "Biannually",
-                    "Annual": "Annually",
-                    "Lifetime": "Lifetime",
-                    "Custom": "Custom",
-                }
-
-                billing_frequency = billing_frequency_map.get(billing_period, billing_period)
-            except Exception as e:
-                frappe.log_error(
-                    f"Error getting billing frequency for membership {membership.name}: {str(e)}"
-                )
-                # Use explicit default with better error handling
-                billing_frequency = "Monthly"  # Explicit default
-                frappe.log_error(
-                    f"Using fallback billing frequency 'Monthly' for membership {membership.name} due to error: {str(e)}",
-                    "Member Portal Billing Frequency Fallback",
-                )
+        billing_frequency = get_member_billing_frequency(member, membership)
 
         # Get outstanding invoices
         customer = get_member_customer(member.name)
