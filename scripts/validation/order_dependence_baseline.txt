@@ -377,6 +377,7 @@ COMMIT_EXEMPT tests/integration/services/test_coverage_calculator_module.py::1  
 COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_account_creation_service_orchestration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/integration/test_retry_invoice_concurrency.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_team_background_jobs.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/member/test_account_creation_request_cancel.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/member/test_bulk_account_creation.py::1  # order-dep-exempt

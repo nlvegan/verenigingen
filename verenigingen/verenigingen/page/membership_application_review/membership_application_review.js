@@ -244,6 +244,19 @@ class MembershipApplicationReview {
 							</div>
 						</div>
 
+						<!-- Approved, invoice missing (#1900): only shown when the caller may retry something -->
+						<div class="row" id="retry-invoice-section" style="display: none;">
+							<div class="col-md-12">
+								<div class="card">
+									<div class="card-header">
+										<h5 class="mb-0">${__('Approved, invoice missing')}</h5>
+										<small class="text-muted">${__('The approval email is held until the invoice exists. Retrying creates the invoice and sends it.')}</small>
+									</div>
+									<div class="card-body" id="retry-invoice-list"></div>
+								</div>
+							</div>
+						</div>
+
 						<!-- Last Updated -->
 						<div class="row mt-4">
 							<div class="col-md-12 text-center text-muted">
@@ -479,6 +492,13 @@ class MembershipApplicationReview {
 			}
 		});
 
+		$wrapper.on('click', '.action-retry-invoice', (e) => {
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.retry_invoice(applicationName);
+			}
+		});
+
 		$wrapper.on('click', '#btn-bulk-approve', () => {
 			this.bulk_approve();
 		});
@@ -555,6 +575,53 @@ class MembershipApplicationReview {
 		await this.load_chapters();
 		await this.load_statistics();
 		await this.load_applications();
+		await this.load_retry_invoice_section();
+	}
+
+	async load_retry_invoice_section() {
+		// The server scopes the list to the applications the caller may approve, so a caller who cannot
+		// retry sees nothing here.
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.membership_application_review.get_approved_applications_without_invoice'
+			});
+			const rows = response.message || [];
+			const e = (str) => this.escapeHtml(str);
+			$('#retry-invoice-list').html(
+				rows
+					.map(
+						(row) => `
+				<div class="d-flex justify-content-between align-items-center mb-2">
+					<span><strong>${e(row.applicant_name)}</strong> ${e(row.email)} ${e(row.chapter) || ''}</span>
+					<button class="btn btn-warning btn-sm action-retry-invoice" data-application="${e(row.name)}">
+						<i class="fa fa-refresh"></i> ${__('Retry invoice')}
+					</button>
+				</div>`
+					)
+					.join('')
+			);
+			$('#retry-invoice-section').toggle(rows.length > 0);
+		} catch (error) {
+			$('#retry-invoice-section').hide();
+		}
+	}
+
+	async retry_invoice(application_name) {
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.membership_application_review.retry_application_invoice',
+				args: { application_name }
+			});
+			const result = response.message || {};
+			frappe.msgprint({
+				title: result.invoice_failed ? __('Invoice not created') : __('Invoice created'),
+				message: frappe.utils.escape_html(result.message || ''),
+				indicator: result.invoice_failed || !result.mail_sent ? 'orange' : 'green'
+			});
+		} catch (error) {
+			// frappe.call shows the server's own error dialog; a rejection carries no message to repeat.
+		}
+		this.load_retry_invoice_section();
 	}
 
 	async load_chapters() {
@@ -831,10 +898,18 @@ class MembershipApplicationReview {
 						frappe.msgprint({
 							title: __('Approved without invoice'),
 							message: frappe.utils.escape_html(response.message.message),
-							indicator: 'orange'
+							indicator: 'orange',
+							primary_action: {
+								label: __('Retry invoice'),
+								action: () => {
+									frappe.hide_msgprint();
+									this.retry_invoice(response.message.application);
+								}
+							}
 						});
 						this.load_applications();
 						this.load_statistics();
+						this.load_retry_invoice_section();
 					} else if (response.message?.success) {
 						frappe.show_alert({
 							message: __('Application approved for {0}', [frappe.utils.escape_html(app.applicant_name)]),
