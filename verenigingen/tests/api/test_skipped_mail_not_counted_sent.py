@@ -45,7 +45,8 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
         """
         leaked = set(frappe.db.sql_list("select name from `tabEmail Account`")) - cls._accounts_before
         super().tearDownClass()
-        assert not leaked, f"Email Account(s) leaked by this module: {sorted(leaked)}"
+        if leaked:
+            raise AssertionError(f"Email Account(s) leaked by this module: {sorted(leaked)}")
 
     def setUp(self):
         super().setUp()

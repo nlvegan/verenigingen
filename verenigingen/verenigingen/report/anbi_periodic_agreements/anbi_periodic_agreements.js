@@ -171,7 +171,18 @@ frappe.query_reports['ANBI Periodic Agreements'] = {
 						},
 						callback(r) {
 							if (r.message) {
-								const data = r.message.data || r.message;
+								const data = unwrapOperationResult(r.message);
+								if (!data) {
+									frappe.msgprint({
+										title: __('Error'),
+										indicator: 'red',
+										message: verenigingen.utils.getErrorMessage(
+											r.message,
+											__('Could not send the renewal reminder emails')
+										)
+									});
+									return;
+								}
 								let msg = __('{0} renewal reminder emails sent, {1} skipped, {2} failed', [
 									data.sent_count || 0,
 									data.skipped_count || 0,
