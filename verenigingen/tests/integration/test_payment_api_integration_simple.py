@@ -65,7 +65,9 @@ class TestPaymentAPIIntegrationSimple(EnhancedTestCase):
         
         try:
             # Performance baseline following A+ standards  
-            with self.assertQueryCount(4000):  # Realistic baseline for payment processing with overdue member analysis
+            # #2025: 4000 was not a baseline, it was the security framework's N+1 over the 2000+ shipped
+            # Critical Operation Rules (2 queries each, measured 4301 cold). Fixed; measured now: 38 cold, 7 warm.
+            with self.assertQueryCount(100):
                 # Mock only external SMTP service (legitimate mock)
                 # Mock justified: External Service - SMTP delivery, not business logic
                 with patch('frappe.sendmail') as mock_smtp:
