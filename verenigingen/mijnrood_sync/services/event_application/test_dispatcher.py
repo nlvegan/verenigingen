@@ -508,6 +508,9 @@ class TestChangedMemberEventIsAllOrNothing(TestDispatcherBase):
         self.assertFalse(result["success"], result)
         self.assertIn("already committed", result["message"])
         self.assertIn("already committed", event.error_message)
+        # The harm itself: the savepoint rollback was a no-op here, so it is apply_event's
+        # full rollback that must have taken the transfer back out.
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
         self.assertEqual(event.status, "Approved")
 
     def test_successful_event_still_transfers_and_updates(self):
