@@ -28,13 +28,13 @@ class TestTeamPatchRecipientPolicy(FrappeTestCase):
     def setUp(self):
         super().setUp()
         self.baseline = {k: dict(r.as_dict()) for k, r in _rows().items()}
-        self.addCleanup(self._put_back_snapshot)
+        self.addCleanup(self._cleanup_restore_snapshot)
         config = frappe.get_single(DOCTYPE)
         config.notification_types = [r for r in config.notification_types if r.notification_key not in KEYS]
         config.save()
         self.assertFalse(set(KEYS) & set(_rows()), "control: the two rows are really missing")
 
-    def _put_back_snapshot(self):
+    def _cleanup_restore_snapshot(self):
         # Not singleton_backup: it skips child tables (#2029).
         config = frappe.get_single(DOCTYPE)
         config.notification_types = []
