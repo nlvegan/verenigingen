@@ -30,11 +30,28 @@ EXPIRY_LOG = "Renewal reminder sent"
 
 
 class TestSkippedMailNotCountedSent(VereningingenTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._accounts_before = set(frappe.db.sql_list("select name from `tabEmail Account`"))
+
+    @classmethod
+    def tearDownClass(cls):
+        """Control for the account leak: no Email Account created by this module survives.
+
+        Runs after every test's cleanup. Vacuous on a site that already has a default
+        outgoing account (the helper then creates none); on an account-less site it fails
+        if the helper's cleanup is removed.
+        """
+        leaked = set(frappe.db.sql_list("select name from `tabEmail Account`")) - cls._accounts_before
+        super().tearDownClass()
+        assert not leaked, f"Email Account(s) leaked by this module: {sorted(leaked)}"
+
     def setUp(self):
         super().setUp()
         self._baseline = {}
         frappe.set_user("Administrator")
-        ensure_outgoing_email_account()
+        ensure_outgoing_email_account(self)
         ensure_notification_registry_rows()
         self._ensure_template(CONSENT_KEY)
         self._configure_master(1)

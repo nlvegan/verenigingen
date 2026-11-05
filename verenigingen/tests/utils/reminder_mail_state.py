@@ -32,8 +32,13 @@ def allow_reminder_sends(keys=("payment_reminder_friendly", "payment_reminder_ur
     clear_email_cooldowns()
 
 
-def ensure_outgoing_email_account():
-    """A default outgoing Email Account, so a send is queued rather than refused."""
+def ensure_outgoing_email_account(testcase):
+    """A default outgoing Email Account, so a send is queued rather than refused.
+
+    The code under test commits, so a created account would outlive the test and hand every
+    later module in the shard an outgoing account (masking #1758/#1881). When this call
+    creates the account, ``testcase`` is given a cleanup that deletes it and commits.
+    """
     if frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1}):
         return
     account = frappe.get_doc(
@@ -51,6 +56,12 @@ def ensure_outgoing_email_account():
     account.flags.ignore_validate = True
     account.flags.ignore_mandatory = True
     account.insert()
+
+    def _cleanup_created_email_account():
+        frappe.delete_doc("Email Account", account.name, force=True)
+        frappe.db.commit()
+
+    testcase.addCleanup(_cleanup_created_email_account)
 
 
 def configure_notification_key(key, enabled, cooldown_minutes):

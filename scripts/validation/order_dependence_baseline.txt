@@ -439,6 +439,7 @@ COMMIT_EXEMPT tests/test_notification_sender_keys_registered_1999.py::1  # order
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/reminder_mail_state.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/stock_email_templates.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/test_drain_role_grants.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::1  # order-dep-exempt

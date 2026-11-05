@@ -175,7 +175,17 @@ frappe.query_reports['Donation Summary'] = {
 					},
 					callback(r) {
 						if (r.message) {
-							frappe.msgprint(__('{0} consent request emails sent', [r.message.sent_count]));
+							const data = r.message.data || r.message;
+							let msg = __('{0} consent request emails sent, {1} skipped, {2} failed', [
+								data.sent_count || 0,
+								data.skipped_count || 0,
+								data.failed_count || 0
+							]);
+							const reasons = Object.keys(data.skipped_reasons || {});
+							if (reasons.length) {
+								msg += `<br>${__('Skipped: {0}', [reasons.map(frappe.utils.escape_html).join('; ')])}`;
+							}
+							frappe.msgprint(msg);
 							report.refresh();
 						}
 					}

@@ -697,15 +697,16 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
                     sent_count += 1
                 else:
                     failed_count += 1
-                    frappe.logger().error(
-                        f"Failed to send consent request to {donor.donor_email}: {'; '.join(result.errors)}"
+                    frappe.log_error(
+                        title="ANBI Consent Email Not Sent",
+                        message=f"{donor.donor_email}: {result.error_message or '; '.join(result.errors)}",
                     )
 
             except Exception as e:
                 failed_count += 1
                 frappe.log_error(
-                    f"Failed to send consent request to {donor.donor_email}: {str(e)}",
-                    "ANBI Consent Email Error",
+                    title="ANBI Consent Email Error",
+                    message=f"Failed to send consent request to {donor.donor_email}: {str(e)}",
                 )
 
         frappe.db.commit()
@@ -725,8 +726,8 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to send consent requests: {str(e)}\n{traceback.format_exc()}",
-            "ANBI Consent Request Error",
+            title="ANBI Consent Request Error",
+            message=f"Failed to send consent requests: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Failed to send consent requests"),
