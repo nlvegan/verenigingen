@@ -130,11 +130,15 @@ class ApplicationRecordCase(ApplicationDoorMixin, VereningingenUnitTestCase):
         return names[0]
 
     def _confirm_link(self, name):
+        response, log, _errors = self._confirm_link_with_errors(name)
+        return response, log
+
+    def _confirm_link_with_errors(self, name):
+        """As _confirm_link, plus the Error Log delta (an operator-side channel)."""
         token = generate_guest_return_token(CONFIRM_TOKEN_PURPOSE, name)
         frappe.local.request = Request(EnvironBuilder(method="POST").get_environ())
         frappe.local.request_ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
-        response, log, _errors = self._as_guest(sa.confirm_short_application, name, token)
-        return response, log
+        return self._as_guest(sa.confirm_short_application, name, token)
 
     def _footprint(self, email):
         """Everything a Member would leave behind for this email."""
@@ -362,13 +366,13 @@ class TestApplicationRecord(ApplicationRecordCase):
 
     def _confirm_after_disabling_the_type(self, name):
         self._disable_type()
-        return self._confirm_link(name)
+        return self._confirm_link_with_errors(name)
 
-    def _assert_refused_like_a_vanished_one(self, name, response, log):
+    def _assert_refused_like_a_vanished_one(self, name, response, log, errors):
         """#2070: a type disabled after submit gets the same answer as an unknown link (R15), and the
         application is Expired rather than a Pending Review that approval would refuse."""
-        reference = self._confirm_link("does-not-exist")
-        self.assertEqual((response, log), reference)
+        reference = self._confirm_link_with_errors("does-not-exist")
+        self.assertEqual((response, log, errors), reference)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
         self.assertEqual(self._footprint(self.email)["members"], 0)
 
@@ -376,31 +380,35 @@ class TestApplicationRecord(ApplicationRecordCase):
         self._submit_full()
         name = self._latest_submission(self.email)
 
-        response, log = self._confirm_after_disabling_the_type(name)
+        response, log, errors = self._confirm_after_disabling_the_type(name)
 
-        self._assert_refused_like_a_vanished_one(name, response, log)
+        self._assert_refused_like_a_vanished_one(name, response, log, errors)
 
     def test_short_form_confirm_refuses_a_type_disabled_after_submit(self):
         name = self._submit_short()
 
-        response, log = self._confirm_after_disabling_the_type(name)
+        response, log, errors = self._confirm_after_disabling_the_type(name)
 
-        self._assert_refused_like_a_vanished_one(name, response, log)
+        self._assert_refused_like_a_vanished_one(name, response, log, errors)
+
+    def _submit_housemate(self, email=None):
+        """Stage a Housemate application (no template, no amount) and return its name."""
+        email = email or self.email
+        door = self._door(form_shape="Housemate", monthly_dues_template=None)
+        housemate = self._short_data(
+            email=email, amount="", iban="", bank_account_name="", housemate_of_name="Pat Payer", housemate_confirmed="1"
+        )
+        response, _log, _errors = self._as_guest(sa.submit_short_application, door.name, **housemate)
+        self.assertTrue(response["success"], response)
+        return self._latest_submission(email)
 
     def test_housemate_confirm_refuses_a_type_disabled_after_submit(self):
         """The Housemate door carries no template, so only the type's own state can refuse it."""
-        self.door = self._door(form_shape="Housemate", monthly_dues_template=None)
-        response, _log, _errors = self._as_guest(
-            sa.submit_short_application, self.door.name, **self._short_data(
-                amount="", iban="", bank_account_name="", housemate_of_name="Pat Payer", housemate_confirmed="1"
-            ),
-        )
-        self.assertTrue(response["success"], response)
-        name = self._latest_submission(self.email)
+        name = self._submit_housemate()
 
-        response, log = self._confirm_after_disabling_the_type(name)
+        response, log, errors = self._confirm_after_disabling_the_type(name)
 
-        self._assert_refused_like_a_vanished_one(name, response, log)
+        self._assert_refused_like_a_vanished_one(name, response, log, errors)
 
     def test_a_door_whose_type_is_already_disabled_never_reaches_pending_review(self):
         """#2070 "not established" item, measured: the /word-lid door is configured with a type that is
@@ -410,9 +418,9 @@ class TestApplicationRecord(ApplicationRecordCase):
         self.assertTrue(response["success"], "measured: submit stages it; the refusal is at confirm")
         name = self._latest_submission(self.email)
 
-        response, log = self._confirm_link(name)
+        response, log, errors = self._confirm_link_with_errors(name)
 
-        self._assert_refused_like_a_vanished_one(name, response, log)
+        self._assert_refused_like_a_vanished_one(name, response, log, errors)
         self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email, "status": "Pending Review"}), 0)
 
     def test_confirm_still_accepts_an_active_type_for_every_form(self):
@@ -420,7 +428,8 @@ class TestApplicationRecord(ApplicationRecordCase):
         self._submit_full()
         full = self._latest_submission(self.email)
         short = self._submit_short(email=self._unused_email())
-        for label, name in (("full", full), ("short", short)):
+        housemate = self._submit_housemate(email=self._unused_email())
+        for label, name in (("full", full), ("short", short), ("housemate", housemate)):
             with self.subTest(label):
                 self.assertTrue(self._confirm_link(name)[0]["success"])
                 self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
