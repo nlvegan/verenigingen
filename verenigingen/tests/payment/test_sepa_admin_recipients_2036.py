@@ -16,8 +16,15 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.payment.test_sepa_literal_recipients import _put_key_row, _restore_rows, _snapshot_rows
-from verenigingen.verenigingen_payments.services.sepa_xml_adapter import BatchValidationSummary, SEPAXMLAdapter
+from verenigingen.tests.payment.test_sepa_literal_recipients import (
+    _put_key_row,
+    _restore_rows,
+    _snapshot_rows,
+)
+from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
+    BatchValidationSummary,
+    SEPAXMLAdapter,
+)
 from verenigingen.verenigingen_payments.utils import payment_retry as pr
 from verenigingen.verenigingen_payments.utils.sepa_rollback_manager import RollbackReason, SEPARollbackManager
 
@@ -96,6 +103,14 @@ class TestPaymentRetryEscalationRecipients(_Base):
         _put_key_row("payment_failure_final", "Fixed", fixed_recipients=f"{ADMIN_EMAIL}, treasurer-2036@example.org")
         recipients = self._send().send_templated_email.call_args.kwargs["recipients"]
         self.assertEqual(recipients, ["treasurer-2036@example.org"])
+
+    def test_configured_admin_emails_replace_the_staff_fallback(self):
+        """Key-first: with no recipients on the key's row, the configured admin emails come BEFORE the
+        Staff role fallback (key_first=False would reach the Staff holder and Administrator too)."""
+        _put_key_row("payment_failure_final", "Role-Based")  # a row with no recipients of its own
+        frappe.db.set_single_value(CONFIG_DOCTYPE, "admin_notification_emails", "cfg-admin-2036@example.org")
+        recipients = self._send().send_templated_email.call_args.kwargs["recipients"]
+        self.assertEqual(recipients, ["cfg-admin-2036@example.org"])
 
     def test_nobody_resolving_sends_nothing_and_logs(self):
         self.expectErrorLog("Payment retry escalation recipients")  # asserted below by assertErrorLog
