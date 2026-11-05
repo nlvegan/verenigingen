@@ -142,6 +142,16 @@ class MijnRoodMemberSyncService:
 
         return _("Member number changed from {0} to {1}").format(current, incoming)
 
+    def _undo_transfer_or_raise(self, savepoint: str) -> None:
+        """Take the chapter transfer back, or abandon the whole event if it cannot be.
+
+        ``rollback_to_savepoint`` returns False when the savepoint is gone (a nested commit
+        cleared it), i.e. the transfer is durable. Returning a plain failure then would leave
+        the very state #2067 is about, so raise: apply_event rolls back and records the failure.
+        """
+        if not rollback_to_savepoint(savepoint):
+            frappe.throw(_("Member update failed after the chapter transfer was already committed"))
+
     def apply_changed_member(self, event) -> dict:
         """Update existing Member fields from MijnRood admin_member data.
 
@@ -228,7 +238,7 @@ class MijnRoodMemberSyncService:
                     get_related_records_orchestrator()._create_related_records(updated_name, row_data, event)
                 )
             else:
-                rollback_to_savepoint(transfer_savepoint)
+                self._undo_transfer_or_raise(transfer_savepoint)
                 return {"success": False, "message": _("Member update {0}").format(status)}
 
         role_msgs = get_volunteer_sync_service()._process_member_roles(

@@ -436,13 +436,79 @@ class TestChangedMemberEventIsAllOrNothing(TestDispatcherBase):
         self.assertEqual(frappe.db.get_value("Member", member_name, "last_name"), "Before")
         self.assertEqual(self._chapters_of(member_name), [old_chapter])
 
+    def _chapter_member_rows(self, member_name):
+        return frappe.db.count("Chapter Member", {"member": member_name})
+
     def test_reapplying_a_failed_event_does_not_repeat_the_transfer(self):
         mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        rows_before = self._chapter_member_rows(member_name)
         event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+
         self._apply(event)
-        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        rows_after_first = self._chapter_member_rows(member_name)
+        first_error = event.error_message
+        self.assertTrue(first_error)
         self._apply(event)
+
+        # Two failed attempts leave the Chapter Member table exactly as it was: no row for the
+        # new chapter, none added per attempt, and the old seat still enabled.
+        self.assertEqual(rows_after_first, rows_before)
+        self.assertEqual(self._chapter_member_rows(member_name), rows_before)
+        self.assertFalse(frappe.db.exists("Chapter Member", {"parent": new_chapter, "member": member_name}))
         self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        self.assertEqual(event.status, "Approved")
+        self.assertEqual(event.error_message, first_error)
+
+    def test_failure_rollback_is_a_savepoint_not_a_full_rollback(self):
+        """Uncommitted state written BEFORE the transfer must survive the failure.
+
+        Probe shortcut: the unrelated write is injected by wrapping the termination check
+        (the step that runs before the savepoint) with a Chapter field write; it stands in for
+        whatever the caller had pending.
+        """
+        from verenigingen.mijnrood_sync.services.event_application.termination_sync_service import (
+            MijnRoodTerminationSyncService,
+        )
+
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+        event.approve()  # left uncommitted on purpose, like the unrelated write below
+        marker = frappe.db.get_value("Chapter", old_chapter, "introduction")
+        unrelated = f"pending-before-transfer-{mid}"
+
+        def _write_then_continue(*args, **kwargs):
+            frappe.db.set_value("Chapter", old_chapter, "introduction", unrelated)
+            return None
+
+        # Mock justified: injects a pending, unrelated write ahead of the savepoint
+        with patch.object(
+            MijnRoodTerminationSyncService, "_check_and_handle_termination", side_effect=_write_then_continue
+        ):
+            result = get_event_application_service().apply_event(event.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        self.assertEqual(frappe.db.get_value("Chapter", old_chapter, "introduction"), unrelated)
+        self.assertNotEqual(marker, unrelated)
+
+    def test_transfer_that_cannot_be_undone_abandons_the_event(self):
+        """If the savepoint is gone (a commit slipped in), the transfer is durable: fail closed."""
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+
+        # Mock justified: reproduces rollback_to_savepoint's "savepoint already gone" return
+        # (what a nested commit causes) without a bare commit in the test.
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.member_sync_service."
+            "rollback_to_savepoint",
+            return_value=False,
+        ):
+            result = self._apply(event)
+
+        self.assertFalse(result["success"], result)
+        self.assertIn("already committed", result["message"])
+        self.assertIn("already committed", event.error_message)
+        self.assertEqual(event.status, "Approved")
 
     def test_successful_event_still_transfers_and_updates(self):
         mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
