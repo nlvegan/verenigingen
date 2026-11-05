@@ -163,7 +163,9 @@ class UnifiedWebhookWrapperService:
             try:
                 refund_id = pending_refund["refund_id"]
                 refund_amount = pending_refund["amount"]
-                refund_date = pending_refund.get("refund_date")
+                refund_date = self._reversal_date_or_today(
+                    pending_refund.get("refund_date"), "refund", refund_id
+                )
 
                 # Parse refund_date to proper date format
                 parsed_date = refund_date
@@ -1756,6 +1758,33 @@ class UnifiedWebhookWrapperService:
             currency = frappe.db.get_value("Account", gl_account, "account_currency")
         return currency or frappe.db.get_value("Company", config["company"], "default_currency")
 
+    def _reversal_date_or_today(self, reversal_date, reversal_type, reversal_id):
+        """The reversal's own date, or today when no active Fiscal Year covers it (#1806).
+
+        Booking on Mollie's own date (rather than today) means a reversal of an old
+        payment can land outside every Fiscal Year, and the Journal/Payment Entry is
+        then refused for good while Mollie retries and gives up. Booking on today
+        is what happened before the date was carried, so it is the no-worse fallback.
+        The Fiscal Year is looked up without a company: the company is not known
+        this early, and a company-specific year is the rarer setup.
+        """
+        if not reversal_date:
+            return reversal_date
+        from erpnext.accounts.utils import get_fiscal_year
+
+        parsed = self._parse_reversal_date(reversal_date)
+        if get_fiscal_year(parsed, verbose=0, raise_on_missing=False):
+            return parsed
+        today = frappe.utils.getdate()
+        frappe.log_error(
+            title="Mollie Reversal Date Outside Fiscal Year",
+            message=(
+                f"{reversal_type} {reversal_id} is dated {parsed}, which is in no active Fiscal Year; "
+                f"booking it on {today} instead."
+            ),
+        )
+        return today
+
     @staticmethod
     def _parse_reversal_date(reversal_date):
         """Mollie sends ISO strings; downstream wants a date."""
@@ -1881,6 +1910,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(
                 f"🔄 Processing {reversal_type} webhook for {reversal_id} (payment: {payment_id})"
             )
+            reversal_date = self._reversal_date_or_today(reversal_date, reversal_type, reversal_id)
 
             # What did the forward payment actually book? Do NOT re-classify the
             # Mollie payment: the forward path mutates the classifier's own inputs
