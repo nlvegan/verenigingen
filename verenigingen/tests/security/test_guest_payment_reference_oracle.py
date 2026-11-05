@@ -109,7 +109,10 @@ try:
     # Warm-up: the first request on a cold process fills Redis/meta caches (thousands of queries).
     with patch("verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway",
                return_value=gateway), patch.object(RateLimitEngine, "check_rate_limit", return_value=unthrottled):
-        for endpoint, form in (cases["mk_don_unknown"][0], cases["ip_don_unknown"][0]):
+        # Every doctype both endpoints read gets one request, or its first meta load lands in a measured case.
+        for warm in ("mk_don_unknown", "ip_don_unknown", "mk_ppp_unknown", "ip_ppp_unknown",
+                     "mk_member_unknown", "ip_member_unknown"):
+            endpoint, form = cases[warm][0]
             client.post(paths[endpoint], data=form, headers=headers)
     for key, ((endpoint, form), ref_name) in cases.items():
         before = error_log_rows()
@@ -146,8 +149,13 @@ finally:
     for dt, key in (("Payment Plan Payment", "plan_payment"), ("Donation", "donation"), ("Donor", "donor"),
                     ("Member", "member")):
         if created.get(key):
-            frappe.delete_doc(dt, created[key], force=True, ignore_permissions=True)
-    frappe.db.commit()
+            # One failing delete must not strand the rest; the LEFTOVER line below reports what stayed.
+            try:
+                frappe.delete_doc(dt, created[key], force=True, ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as e:
+                frappe.db.rollback()
+                print("CLEANUP_FAILED " + dt + " " + str(e))
     left = [(dt, created[k]) for dt, k in (("Payment Plan Payment", "plan_payment"), ("Donation", "donation"),
             ("Donor", "donor"), ("Member", "member")) if created.get(k) and frappe.db.exists(dt, created[k])]
     print("LEFTOVER" + json.dumps(left))
@@ -162,13 +170,19 @@ class TestGuestPaymentReferenceOracle(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        result = subprocess.run(
-            [sys.executable, "-c", _PROBE, frappe.local.site],
-            cwd=os.path.join(get_bench_path(), "sites"),
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", _PROBE, frappe.local.site],
+                cwd=os.path.join(get_bench_path(), "sites"),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise AssertionError(
+                "the WSGI probe subprocess did not finish within 300s; its committed fixtures "
+                f"(Donor/Donation/Payment Plan Payment/Member 'Oracle Probe') may remain. stdout: {e.stdout}"
+            ) from e
         if result.returncode != 0:
             raise AssertionError(result.stdout + "\n" + result.stderr)
         lines = result.stdout.splitlines()
