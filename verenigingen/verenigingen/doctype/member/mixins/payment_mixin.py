@@ -308,7 +308,7 @@ class PaymentMixin:
 
         if not result.valid:
             # Service provides user-friendly error messages
-            frappe.throw(result.message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
+            frappe.throw(result.message, title=_("Invalid bank details"), exc=frappe.ValidationError)
 
         # Update BIC if it was derived by the service
         if should_derive_bic and result.data.get("bic") and result.data.get("bic_derived"):

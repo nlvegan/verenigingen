@@ -18,6 +18,7 @@
   "reviewed_by",
   "review_date",
   "review_notes",
+  "invoice_failed_on",
   "rejection_category",
   "superseded_by",
   "payload"
@@ -118,6 +119,13 @@
    "read_only": 1
   },
   {
+   "description": "Set at approval when the membership invoice could not be created: the approval email is held until staff retry the invoice. Cleared by a successful retry.",
+   "fieldname": "invoice_failed_on",
+   "fieldtype": "Datetime",
+   "label": "Approval invoice failed on",
+   "read_only": 1
+  },
+  {
    "fieldname": "rejection_category",
    "fieldtype": "Data",
    "label": "Rejection category",
@@ -138,7 +146,7 @@
   }
  ],
  "links": [],
- "modified": "2026-11-02 12:00:00.000000",
+ "modified": "2026-11-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Application Submission",

@@ -492,6 +492,25 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: weakened-test-validator
+        name: 🪶 Weakened Test Check (advisory)
+        description: >-
+          ADVISORY, always exits 0 (#2061). Compares the test files this branch
+          changes with the merge base (origin/develop) and lists changes that make
+          the suite easier to pass: tests removed (project-wide, so a move is not
+          one; a removal together with the code it covered is listed apart),
+          >= 2 assertions removed from a surviving test (or a test whose assertions
+          went to zero), newly added assertions
+          on a constant (assertTrue(True), assert True, assertEqual(1, 1)), and
+          new skips (skipTest, skip decorators, early return before the first
+          assertion). Diff-only, no baseline. verbose: it must print on a pass.
+        entry: python scripts/validation/weakened_test_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
+        stages: [pre-push]
+
       - id: submittability-drift-validator
         name: 📝 Submittability Drift Guard (ratchet)
         description: >-
