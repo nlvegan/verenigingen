@@ -86,11 +86,16 @@ class TestCreatorDraftInReconcilePool(BTRBase):
         )
         return sorted(pe for pe in set(refs) if frappe.db.get_value("Payment Entry", pe, "docstatus") == 1)
 
-    def _book_payment(self, invoice):
+    def _book_payment(self, invoice, amount=None, reference_no=None):
+        """A Payment Entry booked outside the pool and never linked to any draft.
+
+        ``reference_no`` is how the Mollie path ties a Payment Entry to its money: the
+        Mollie payment id, which the creator also uses as the draft's reference_number.
+        """
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-        pe = get_payment_entry(dt="Sales Invoice", dn=invoice.name, party_amount=flt(invoice.grand_total))
-        pe.reference_no = frappe.generate_hash(length=10)
+        pe = get_payment_entry(dt="Sales Invoice", dn=invoice.name, party_amount=flt(amount or invoice.grand_total))
+        pe.reference_no = reference_no or frappe.generate_hash(length=10)
         pe.reference_date = today()
         pe.mode_of_payment = "Mollie"
         pe.insert()
@@ -150,3 +155,61 @@ class TestCreatorDraftInReconcilePool(BTRBase):
         comments = self._comments(bt)
         self.assertIn("Reconciliation failed", comments)
         self.assertIn(invoice.name, comments)
+
+    def test_a_pooled_creator_draft_mirroring_a_booked_partial_payment_is_not_booked_again(self):
+        """The same Mollie payment, partially paying the invoice.
+
+        Invoice 30, a Payment Entry of 10 booked for Mollie payment X, and a creator draft of
+        10 for the same payment X. Outstanding is 20, so the pool's ``deposit > outstanding``
+        guard lets it through. What refuses it is the unique
+        ``custom_mollie_idempotency_key`` (hash of reference_no, payment_type, party;
+        ``utils/mollie_idempotency_key.py``): the pool's Payment Entry reuses the draft's
+        reference_number, so it collides with the one already booked. This test pins that.
+        """
+        it = self._make_member_with_invoice(first_name="Pool2083Part", grand_total=30.0)
+        invoice = it["invoice"]
+        bt = self._creator_draft(10.0, f"INVOICE {invoice.name}")
+        booked = self._book_payment(invoice, amount=10.0, reference_no=bt.reference_number)
+        self.expectErrorLog("Payment Entry Validation")
+
+        self._run_pool()
+
+        self.assertEqual(
+            self._submitted_payment_entries(invoice.name),
+            [booked.name],
+            "the pool booked the same Mollie payment a second time",
+        )
+        # No half-made Payment Entry of ANY docstatus is left behind either.
+        self.assertEqual(
+            frappe.get_all(
+                "Payment Entry Reference",
+                filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
+                pluck="parent",
+            ),
+            [booked.name],
+        )
+        invoice.reload()
+        self.assertEqual(flt(invoice.outstanding_amount), 20.0)
+        # Proves the pool selected and tried this draft (and was refused), rather than
+        # never selecting it, which would also book nothing.
+        self.assertIn("Reconciliation failed", self._comments(bt))
+
+    def test_a_pooled_creator_draft_for_a_second_instalment_is_still_booked(self):
+        """Control for the test above: a DIFFERENT earlier payment is not this money.
+
+        Same shape, but the earlier Payment Entry carries another reference. The draft is a
+        separate instalment and must be booked, or the guard would block every partial
+        payment after the first.
+        """
+        it = self._make_member_with_invoice(first_name="Pool2083Inst", grand_total=30.0)
+        invoice = it["invoice"]
+        earlier = self._book_payment(invoice, amount=10.0)
+        bt = self._creator_draft(10.0, f"INVOICE {invoice.name}")
+        self.assertNotEqual(earlier.reference_no, bt.reference_number)
+
+        self._run_pool()
+
+        self.assertEqual(len(self._submitted_payment_entries(invoice.name)), 2)
+        invoice.reload()
+        self.assertEqual(flt(invoice.outstanding_amount), 10.0)
+        self.assertIn("Auto-reconciled", self._comments(bt))
