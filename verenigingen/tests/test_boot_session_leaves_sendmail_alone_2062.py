@@ -20,7 +20,7 @@ class TestBootSessionLeavesSendmailAlone(FrappeTestCase):
         # Mock justified: the process-wide frappe.sendmail swap is the state under test; the true
         # original and the harness bookkeeping are put back by the cleanup.
         saved = (frappe.sendmail, test_config._original_sendmail, frappe.flags.get("mute_emails"))
-        self.addCleanup(self._put_back, saved)
+        self.addCleanup(self._restore_sendmail_state, saved)
         # a distinct stand-in for "the real sendmail" so an identity check cannot pass by luck
         self.real = lambda *a, **k: "real"
         frappe.sendmail = self.real
@@ -29,7 +29,7 @@ class TestBootSessionLeavesSendmailAlone(FrappeTestCase):
         frappe.flags.mute_emails = False
 
     @staticmethod
-    def _put_back(saved):
+    def _restore_sendmail_state(saved):
         frappe.sendmail, test_config._original_sendmail, frappe.flags.mute_emails = saved
 
     def test_boot_session_does_not_replace_sendmail(self):
