@@ -4,7 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils.html_utils import sanitize_html
 
-from verenigingen.services.member.application.door_plans import offered_plans
+from verenigingen.services.member.application.door_alerts import alert_if_door_unusable
+from verenigingen.services.member.application.door_plans import diagnose_plans
 
 DOOR_DOCTYPE = "Membership Application Door"
 # The intro sits next to the application form, and each card inside its door's own link: no form
@@ -54,7 +55,8 @@ def _load_door(context, door_slug):
     context.title = door.title
     context.intro_html = _editor_html(door.intro_text, FORM_CONTROL_TAGS)
     context.hidden = door.hidden()
-    context.plans = offered_plans(door)
+    context.plans, problems = diagnose_plans(door)
+    alert_if_door_unusable(door, context.plans, problems)
     context.default_plan_id = _default_plan_id(context.plans)
     context.countries = _available_countries()
     context.join_reasons = _enabled_names("Membership Join Reason", "reason")

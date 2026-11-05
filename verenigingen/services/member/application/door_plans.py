@@ -21,24 +21,36 @@ CENT = 0.005
 
 
 def offered_plans(door) -> list[dict]:
-    """The door's plans that can be offered right now, in the order the door lists them.
+    """The door's plans that can be offered right now, in the order the door lists them."""
+    return diagnose_plans(door)[0]
 
-    A plan whose template can no longer be offered (not a template of the door's type, archived,
-    or a Fixed template whose rate is below the minimum it would be billed under) is left out rather
-    than shown broken.
+
+def diagnose_plans(door) -> tuple[list[dict], list[str]]:
+    """(the plans offered right now, why each other plan is not).
+
+    A plan whose template can no longer be offered (not an active template of the door's type, or a
+    Fixed template whose rate is below the minimum it would be billed under) is left out rather than
+    shown broken, and says why. When approval's own minimum cannot be determined nothing is offered.
     """
-    approval_minimum = _approval_minimum(door.membership_type)
+    approval_minimum, refusal = _approval_minimum(door.membership_type)
     if approval_minimum is None:  # approval could not tell the floor either: offer nothing
-        return []
+        return [], [refusal]
     schedules = _schedules_by_name(door.membership_type)
     minimums = _template_minimums([row.dues_template for row in door.plans], approval_minimum)
-    plans = []
+    plans, problems = [], []
     for row in door.plans:
         schedule = schedules.get(row.dues_template)
-        plan = _offer(door, row, schedule, minimums.get(row.dues_template, 0)) if schedule else None
+        if not schedule:
+            problems.append(
+                f"template {row.dues_template} is not an active template of {door.membership_type}"
+            )
+            continue
+        plan, problem = _offer(door, row, schedule, minimums.get(row.dues_template, 0))
         if plan:
             plans.append(plan)
-    return plans
+        else:
+            problems.append(problem)
+    return plans, problems
 
 
 def find_plan(door, plan_id=None, frequency=None) -> dict | None:
@@ -98,17 +110,17 @@ def _schedules_by_name(membership_type) -> dict:
     return {schedule["name"]: schedule for schedule in result["schedules"]}
 
 
-def _approval_minimum(membership_type) -> float | None:
-    """The minimum approval applies to the schedule it creates: the same service call, so submit and
-    approval cannot drift apart. None when that call refuses (fail closed)."""
+def _approval_minimum(membership_type) -> tuple[float | None, str]:
+    """(the minimum approval applies to the schedule it creates, "") from the same service call approval
+    makes, so submit and approval cannot drift apart. (None, why) when that call refuses (fail closed)."""
     try:
         values = TemplateConfigurationService().get_template_values(
             schedule_doc=frappe._dict(), membership_type=membership_type, is_template=False
         )
-    except frappe.ValidationError:
+    except frappe.ValidationError as error:
         frappe.clear_messages()
-        return None
-    return flt(values["minimum_amount"])
+        return None, f"approval would refuse membership type {membership_type}: {error}"
+    return flt(values["minimum_amount"]), ""
 
 
 def _template_minimums(templates, approval_minimum) -> dict:
@@ -121,13 +133,17 @@ def _template_minimums(templates, approval_minimum) -> dict:
     return {row.name: max(flt(row.minimum_amount), approval_minimum) for row in rows}
 
 
-def _offer(door, row, schedule, minimum) -> dict | None:
+def _offer(door, row, schedule, minimum) -> tuple[dict | None, str]:
+    """(the plan, "") or (None, why it cannot be offered)."""
     settings = schedule["contribution_settings"]
     mode = settings["mode"]
     if mode == "Fixed" and flt(schedule["amount"]) <= 0:
-        return None
+        return None, f"Fixed template {row.dues_template} has no rate"
     if mode == "Fixed" and flt(schedule["amount"]) < minimum - CENT:
-        return None
+        return None, (
+            f"Fixed template {row.dues_template} has a rate of {flt(schedule['amount']):.2f}, below the "
+            f"minimum {flt(minimum):.2f} approval enforces"
+        )
     return {
         "id": row.name,
         "template": row.dues_template,
@@ -144,7 +160,7 @@ def _offer(door, row, schedule, minimum) -> dict | None:
         "allow_custom": mode == "Flexible" and bool(settings.get("allow_custom")),
         "presets": _presets(door, row.dues_template) if mode == "Flexible" else [],
         "calculator": settings if mode == "Income-Based" else None,
-    }
+    }, ""
 
 
 def _presets(door, template) -> list[float]:
