@@ -353,6 +353,78 @@ class TestApplicationRecord(ApplicationRecordCase):
         self.assertEqual(self._confirm_link(name), reference)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
 
+    def _disable_type(self):
+        """Untick the type's is_active the way an admin does (a real save, so hooks run)."""
+        type_doc = frappe.get_doc("Membership Type", self.membership_type.name)
+        type_doc.is_active = 0
+        type_doc.save()
+        self.assertEqual(frappe.db.get_value("Membership Type", type_doc.name, "is_active"), 0)
+
+    def _confirm_after_disabling_the_type(self, name):
+        self._disable_type()
+        return self._confirm_link(name)
+
+    def _assert_refused_like_a_vanished_one(self, name, response, log):
+        """#2070: a type disabled after submit gets the same answer as an unknown link (R15), and the
+        application is Expired rather than a Pending Review that approval would refuse."""
+        reference = self._confirm_link("does-not-exist")
+        self.assertEqual((response, log), reference)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
+        self.assertEqual(self._footprint(self.email)["members"], 0)
+
+    def test_full_form_confirm_refuses_a_type_disabled_after_submit(self):
+        self._submit_full()
+        name = self._latest_submission(self.email)
+
+        response, log = self._confirm_after_disabling_the_type(name)
+
+        self._assert_refused_like_a_vanished_one(name, response, log)
+
+    def test_short_form_confirm_refuses_a_type_disabled_after_submit(self):
+        name = self._submit_short()
+
+        response, log = self._confirm_after_disabling_the_type(name)
+
+        self._assert_refused_like_a_vanished_one(name, response, log)
+
+    def test_housemate_confirm_refuses_a_type_disabled_after_submit(self):
+        """The Housemate door carries no template, so only the type's own state can refuse it."""
+        self.door = self._door(form_shape="Housemate", monthly_dues_template=None)
+        response, _log, _errors = self._as_guest(
+            sa.submit_short_application, self.door.name, **self._short_data(
+                amount="", iban="", bank_account_name="", housemate_of_name="Pat Payer", housemate_confirmed="1"
+            ),
+        )
+        self.assertTrue(response["success"], response)
+        name = self._latest_submission(self.email)
+
+        response, log = self._confirm_after_disabling_the_type(name)
+
+        self._assert_refused_like_a_vanished_one(name, response, log)
+
+    def test_a_door_whose_type_is_already_disabled_never_reaches_pending_review(self):
+        """#2070 "not established" item, measured: the /word-lid door is configured with a type that is
+        disabled BEFORE the applicant submits. Submit may stage it; confirm must not promote it."""
+        self._disable_type()
+        response, _log, _errors = self._as_guest(sa.submit_short_application, self.door.name, **self._short_data())
+        self.assertTrue(response["success"], "measured: submit stages it; the refusal is at confirm")
+        name = self._latest_submission(self.email)
+
+        response, log = self._confirm_link(name)
+
+        self._assert_refused_like_a_vanished_one(name, response, log)
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email, "status": "Pending Review"}), 0)
+
+    def test_confirm_still_accepts_an_active_type_for_every_form(self):
+        """Control for the three refusals above: each is a real, confirmable row while the type is active."""
+        self._submit_full()
+        full = self._latest_submission(self.email)
+        short = self._submit_short(email=self._unused_email())
+        for label, name in (("full", full), ("short", short)):
+            with self.subTest(label):
+                self.assertTrue(self._confirm_link(name)[0]["success"])
+                self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+
     def test_a_stored_payload_keeps_the_shape_the_form_produced(self):
         short = self._submit_short()
         self._submit_full(email=(full_email := self._unused_email()))
