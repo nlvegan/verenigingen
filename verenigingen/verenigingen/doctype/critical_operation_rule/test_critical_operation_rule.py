@@ -22,6 +22,13 @@ def _delete_rules_created_by_this_module():
     frappe.db.delete("Critical Operation Rule", {"operation_name": ["in", _RULE_NAMES_CREATED_HERE]})
 
 
+def _cleanup_rule(operation_name):
+    # Commits: the test's own setUp/tearDown commit the survivor rows, so an uncommitted
+    # delete here would leave them on the site.
+    frappe.db.delete("Critical Operation Rule", {"operation_name": operation_name})
+    frappe.db.commit()
+
+
 class TestCriticalOperationRule(FrappeTestCase):
     """Test Critical Operation Rule DocType"""
 
@@ -276,7 +283,7 @@ class TestCriticalOperationRule(FrappeTestCase):
                     "enabled": 1,
                 }
             ).insert()
-            self.addCleanup(frappe.db.delete, "Critical Operation Rule", {"operation_name": name})
+            self.addCleanup(_cleanup_rule, name)
 
         self.setUp()
         self.tearDown()

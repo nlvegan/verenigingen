@@ -25,6 +25,12 @@ class TestAPIAuditLog(unittest.TestCase):
         frappe.db.delete("API Audit Log", {"event_id": ["like", "test\\_%"]})
         frappe.db.commit()
 
+    @staticmethod
+    def _cleanup_audit_event(event_id):
+        # Commits: setUp/tearDown commit the survivor row, so an uncommitted delete would leak it.
+        frappe.db.delete("API Audit Log", {"event_id": event_id})
+        frappe.db.commit()
+
     def test_cleanup_only_deletes_literal_test_underscore_prefix(self):
         """#2120: `LIKE 'test_%'` treated `_` as a wildcard and also deleted `testing...` rows."""
         event_id = f"testing_survivor_{frappe.generate_hash(length=8)}"
@@ -39,7 +45,7 @@ class TestAPIAuditLog(unittest.TestCase):
             }
         )
         audit_doc.insert()
-        self.addCleanup(frappe.db.delete, "API Audit Log", {"event_id": event_id})
+        self.addCleanup(self._cleanup_audit_event, event_id)
 
         self.setUp()
         self.tearDown()
