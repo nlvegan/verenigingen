@@ -283,26 +283,24 @@ class TestCreateSystemNotification(FrappeTestCase):
     def _logs_for(self, subject):
         return frappe.get_all("Notification Log", filters={"subject": subject}, pluck="for_user")
 
-    def _creation_errors(self, marker):
-        return frappe.get_all(
-            "Error Log",
-            filters={"method": "Notification Creation Error", "error": ["like", f"%{marker}%"]},
-            pluck="name",
-        )
+    def _creation_error_count(self):
+        """Error Log is MyISAM (no rollback), so tests compare the count before and after the call."""
+        return frappe.db.count("Error Log", {"method": "Notification Creation Error"})
 
-    def test_administrator_gets_a_log_addressed_by_user_name_1958(self):
-        """Administrator's name ('Administrator') differs from its email; the Link needs the name."""
-        marker = f"adm1958 {frappe.generate_hash(length=8)}"
-        self.assertNotEqual(
-            frappe.db.get_value("User", "Administrator", "email"),
-            "Administrator",
-            "control: Administrator's email is not its name",
-        )
-        result = create_system_notification(["Administrator"], marker, "m")
-        self.assertTrue(result["success"], result)
-        self.assertEqual(result["notifications_created"], 1)
-        self.assertEqual(self._logs_for(marker), ["Administrator"])
-        self.assertEqual(self._creation_errors(marker), [])
+    def test_administrator_alone_is_dropped_silently_by_name_and_by_email_1958(self):
+        """Staff alerts never go to Administrator (2026-11-01): no log, no Error Log row, no error entry."""
+        admin_email = frappe.db.get_value("User", "Administrator", "email")
+        self.assertTrue(admin_email, "control: Administrator has an email")
+        self.assertNotEqual(admin_email, "Administrator", "control: its email is not its name")
+        for label, recipient in (("name", "Administrator"), ("email", admin_email)):
+            marker = f"adm1958 {label} {frappe.generate_hash(length=8)}"
+            errors_before = self._creation_error_count()
+            result = create_system_notification([recipient], marker, "m")
+            self.assertEqual(result["notifications_created"], 0, (label, result))
+            self.assertFalse(result["success"], (label, result))
+            self.assertFalse(result.get("errors"), (label, result))
+            self.assertEqual(self._logs_for(marker), [], label)
+            self.assertEqual(self._creation_error_count(), errors_before, label)
 
     def test_a_user_whose_name_differs_from_their_email_is_addressed_by_name_1958(self):
         """Probe shortcut: Frappe's User.validate forces email = name for every non-standard user, so a
@@ -324,18 +322,24 @@ class TestCreateSystemNotification(FrappeTestCase):
         self.assertNotEqual(frappe.db.get_value("User", drifted_name, "email"), drifted_name, "control")
         for label, recipient in (("by-email", drifted_email), ("by-name", drifted_name)):
             marker = f"drift1958 {label} {frappe.generate_hash(length=8)}"
+            errors_before = self._creation_error_count()
             result = create_system_notification([recipient], marker, "m")
             self.assertTrue(result["success"], (label, result))
             self.assertEqual(self._logs_for(marker), [drifted_name], label)
-            self.assertEqual(self._creation_errors(marker), [], label)
+            self.assertEqual(self._creation_error_count(), errors_before, label)
 
-    def test_mixed_name_and_email_recipients_get_one_log_each_1958(self):
+    def test_administrator_mixed_with_a_real_user_only_the_real_user_gets_a_log_1958(self):
+        admin_email = frappe.db.get_value("User", "Administrator", "email")
         marker = f"mixed1958 {frappe.generate_hash(length=8)}"
+        errors_before = self._creation_error_count()
         result = create_system_notification(
-            ["Administrator", self._TEST_RECIPIENT, self._TEST_RECIPIENT], marker, "m"
+            ["Administrator", admin_email, self._TEST_RECIPIENT, self._TEST_RECIPIENT], marker, "m"
         )
-        self.assertEqual(result["notifications_created"], 2, result)
-        self.assertEqual(sorted(self._logs_for(marker)), sorted(["Administrator", self._TEST_RECIPIENT]))
+        self.assertEqual(result["notifications_created"], 1, result)
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result.get("errors"), result)
+        self.assertEqual(self._logs_for(marker), [self._TEST_RECIPIENT])
+        self.assertEqual(self._creation_error_count(), errors_before)
 
     def test_returns_failure_when_no_recipients(self):
         """Test returns failure when no recipients provided."""

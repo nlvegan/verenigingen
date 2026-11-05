@@ -410,6 +410,9 @@ def create_system_notification(
         # name is not its email, and an email there fails the Link check (#1958).
         pluck="name",
     )
+    # Staff alerts never go to the Administrator user (maintainer ruling, 2026-11-01). Dropped by NAME
+    # here, after the name/email match, so admin@example.com is dropped too. Silent: no log, no error.
+    valid_users = [user for user in valid_users if user != "Administrator"]
 
     if not valid_users:
         frappe.logger().warning(f"No valid/enabled users found for notification: {subject}")
