@@ -49,7 +49,6 @@ The Test Infrastructure System provides testing capabilities for the Vereniginge
 | `tests/config/` | Test configuration |
 | `tests/contracts/` | API contract tests (SEPA, Mollie JSON) |
 | `tests/docs/` | Test documentation |
-| `tests/e2e/` | End-to-end tests |
 | `tests/fixtures/` | Test data factories and helpers |
 | `tests/frontend/` | Frontend/JS controller tests |
 | `tests/integration/` | Integration tests |
@@ -61,7 +60,6 @@ The Test Infrastructure System provides testing capabilities for the Vereniginge
 | `tests/scalability/` | Scalability tests |
 | `tests/services/` | Service layer tests |
 | `tests/setup/` | Test setup utilities |
-| `tests/support/` | Test support modules |
 | `tests/test_records/` | Test record data |
 | `tests/unit/` | Unit tests |
 | `tests/utils/` | Test utility modules |
@@ -135,7 +133,6 @@ Note: Pre-push Jest hook has 3 pre-existing failures (`SKIP=jest-testing`).
 
 ### Mollie Integration Tests
 
-Runner: `./run_mollie_e2e_tests.sh`
 Tests: `vereinigingen_payments/mollie/tests/`
 
 ## DocType-Level Tests
@@ -183,9 +180,6 @@ bench --site test_site_1 run-parallel-tests --app verenigingen
 
 # Cypress
 ./run_controller_tests.sh --all --headless
-
-# Mollie E2E
-./run_mollie_e2e_tests.sh
 ```
 
 ## Key File Locations
@@ -196,6 +190,6 @@ bench --site test_site_1 run-parallel-tests --app verenigingen
 - **Core factory**: `tests/fixtures/test_data_factory.py`
 - **Cypress config**: `cypress.config.js`
 - **Jest config**: `jest.config.js`
-- **Test runners**: `run_controller_tests.sh`, `run_mollie_e2e_tests.sh`
+- **Test runners**: `run_controller_tests.sh`
 - **API contracts**: `tests/contracts/`
 - **Mollie tests**: `vereinigingen_payments/mollie/tests/`
