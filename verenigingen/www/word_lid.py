@@ -4,8 +4,9 @@ import frappe
 from frappe import _
 from frappe.utils.html_utils import sanitize_html
 
+from verenigingen.services.member.application.door_plans import offered_plans
+
 DOOR_DOCTYPE = "Membership Application Door"
-FREQUENCIES = ("Monthly", "Annual")
 # The intro sits next to the application form, and each card inside its door's own link: no form
 # that posts elsewhere, and no link nested in the card's link.
 FORM_CONTROL_TAGS = ["form", "input", "button", "select", "textarea"]
@@ -53,9 +54,8 @@ def _load_door(context, door_slug):
     context.title = door.title
     context.intro_html = _editor_html(door.intro_text, FORM_CONTROL_TAGS)
     context.hidden = door.hidden()
-    context.amount_options = [{"frequency": o.frequency, "amount": o.amount} for o in door.amount_options]
-    context.frequencies = [f for f in FREQUENCIES if door.get_template_for(f)]
-    context.minimums = {f: _minimums(door, f) for f in context.frequencies}
+    context.plans = offered_plans(door)
+    context.default_plan_id = _default_plan_id(context.plans)
     context.countries = _available_countries()
     context.join_reasons = _enabled_names("Membership Join Reason", "reason")
     context.referral_sources = _enabled_names("Membership Referral Source", "source")
@@ -66,8 +66,10 @@ def _editor_html(value, disallowed_tags):
     return sanitize_html(value or "", always_sanitize=True, disallowed_tags=disallowed_tags)
 
 
-def _minimums(door, frequency):
-    return {"base": door.minimum_for(frequency, False), "postal": door.minimum_for(frequency, True)}
+def _default_plan_id(plans):
+    """The door's default plan is preselected; when it cannot be offered right now, the first one is."""
+    default = next((plan for plan in plans if plan["is_default"]), None)
+    return (default or plans[0])["id"] if plans else None
 
 
 def _enabled_names(doctype, label_field):

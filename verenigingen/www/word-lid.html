@@ -39,7 +39,8 @@
     <form id="short-application-form" novalidate
           data-door="{{ door.name }}"
           data-shape="{{ door.form_shape }}"
-          data-minimums='{{ minimums | tojson }}'>
+          data-plans='{{ plans | tojson }}'
+          data-default-plan="{{ default_plan_id or '' }}">
         <div class="wl-hp" aria-hidden="true">
             <label>Laat dit veld leeg <input type="text" name="leave_this_empty" tabindex="-1" autocomplete="off" value=""></label>
         </div>
@@ -48,31 +49,30 @@
         <section class="wl-card mb-6">
             <h2 class="text-xl font-semibold mb-4">{{ _("My choices") }}</h2>
 
-            {% if frequencies | length > 1 %}
-            <div class="mb-4">
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="wl-annual-toggle">
-                    <span>{{ _("I want to pay yearly") }}</span>
+            {% if plans | length > 1 %}
+            <fieldset class="mb-4" id="wl-plans">
+                <legend class="wl-label">{{ _("Payment plan") }}</legend>
+                {% for plan in plans %}
+                <label class="flex items-center gap-2 mb-1">
+                    <input type="radio" name="plan_choice" value="{{ plan.id | e }}" {{ "checked" if plan.id == default_plan_id else "" }}>
+                    <span>{{ plan.label | e }} <span class="wl-hint">({{ plan.billing_display | e }})</span></span>
                 </label>
-            </div>
+                {% endfor %}
+            </fieldset>
             {% endif %}
-            <input type="hidden" name="frequency" id="wl-frequency" value="{{ 'Monthly' if 'Monthly' in frequencies else 'Annual' }}">
+            <input type="hidden" name="plan" id="wl-plan" value="{{ default_plan_id or '' }}">
 
             <div class="mb-4" id="wl-amount-block">
                 <span class="wl-label">{{ _("Amount") }}</span>
-                {% for o in amount_options %}
-                <label class="flex items-center gap-2 mb-1" data-frequency="{{ o.frequency }}">
-                    <input type="radio" name="amount_choice" value="{{ o.amount }}">
-                    <span>&euro; {{ o.amount }}</span>
-                </label>
-                {% endfor %}
-                {% if door.allow_custom_amount or not amount_options %}
-                <label class="flex items-center gap-2 mt-2" id="wl-custom-amount-row">
+                <p class="text-2xl font-semibold" id="wl-fixed-amount" style="display:none"></p>
+                <div id="wl-amount-choices"></div>
+                <label class="flex items-center gap-2 mt-2" id="wl-custom-amount-row" style="display:none">
                     <input type="radio" name="amount_choice" value="custom">
                     <span>{{ _("My own amount") }}</span>
                     <input type="number" step="0.01" min="0" class="wl-input" style="max-width:10rem" id="wl-custom-amount" inputmode="decimal">
                 </label>
-                {% endif %}
+                {% include "templates/includes/contribution_calculator.html" %}
+                <p class="mb-2" id="wl-calculated-row" style="display:none">{{ _("Your contribution") }}: <strong id="wl-calculated-amount"></strong></p>
                 <p class="wl-hint mt-1" id="wl-minimum-hint"></p>
             </div>
 
@@ -203,7 +203,10 @@
 {% if door %}
 <script>
 frappe.ready(function() {
-    frappe.require(['/assets/verenigingen/js/short_application.js']);
+    frappe.require([
+        '/assets/verenigingen/js/contribution_calculator.js',
+        '/assets/verenigingen/js/short_application.js'
+    ]);
 });
 </script>
 {% endif %}
