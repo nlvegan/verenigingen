@@ -332,3 +332,51 @@ class TestFinancialAdminEmails(EnhancedTestCase):
             frappe.db.set_single_value(
                 "Verenigingen Settings", "stuck_schedule_notification_emails", original or ""
             )
+
+
+class TestValidationAlertRecipients(EnhancedTestCase):
+    """#2036: with no stuck_schedule_notification_emails the alert fell back to System Manager USER NAMES
+    (Administrator included, no enabled filter, limit 5)."""
+
+    def setUp(self):
+        super().setUp()
+        self.adapter = SEPAXMLAdapter()
+        self.addCleanup(
+            frappe.db.set_single_value,
+            "Verenigingen Settings",
+            "stuck_schedule_notification_emails",
+            frappe.db.get_single_value("Verenigingen Settings", "stuck_schedule_notification_emails") or "",
+        )
+        frappe.db.set_single_value("Verenigingen Settings", "stuck_schedule_notification_emails", "")
+        self.admin_email = "administrator-2036@example.org"
+        frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
+        self.holder = "va-live-2036@example.org"
+        self.create_test_user(self.holder, roles=["Verenigingen Administrator"])
+        self.gone = "va-disabled-2036@example.org"
+        self.create_test_user(self.gone, roles=["Verenigingen Administrator"], enabled=0)
+
+    def _alert_recipients(self):
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.services.sepa_xml_adapter import BatchValidationSummary
+
+        summary = BatchValidationSummary(total_invoices=1)
+        # Mock justified: frappe.sendmail is the outgoing-mail boundary; the recipient resolution runs for real.
+        with patch.object(frappe, "sendmail") as sendmail:
+            self.adapter._send_validation_alert("DDB-2036", summary)
+        self.assertTrue(sendmail.called, "the alert must still be sent when staff resolve")
+        return sendmail.call_args.kwargs["recipients"]
+
+    def test_fallback_recipients_are_enabled_staff_emails_never_administrator(self):
+        recipients = self._alert_recipients()
+        self.assertIn(self.holder, recipients)  # control: a real admin-role holder is reached
+        self.assertNotIn("Administrator", recipients)
+        self.assertNotIn(self.admin_email, recipients)
+        self.assertNotIn(self.gone, recipients)
+        self.assertTrue(all("@" in r for r in recipients), recipients)  # emails, not user names
+
+    def test_configured_list_still_wins(self):
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "stuck_schedule_notification_emails", "fin-2036@example.org"
+        )
+        self.assertEqual(self._alert_recipients(), ["fin-2036@example.org"])

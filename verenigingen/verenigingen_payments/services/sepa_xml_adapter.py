@@ -21,7 +21,6 @@ from typing import Dict, List, Optional
 import frappe
 from frappe.utils import get_datetime, getdate, now_datetime
 
-from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.utils.sepa_constants import MAX_PAYMENT_INFO_ID_LENGTH
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
@@ -348,13 +347,12 @@ class SEPAXMLAdapter:
         try:
             recipients = self._get_financial_admin_emails()
             if not recipients:
-                # Fall back to system managers
-                recipients = frappe.get_all(
-                    "Has Role",
-                    filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"},
-                    pluck="parent",
-                    limit=5,
+                # The shared staff resolver (key first, then the admin roles, never Administrator, #2036)
+                from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+                    get_financial_admin_emails,
                 )
+
+                recipients = get_financial_admin_emails("sepa_batch_warning")
 
             if not recipients:
                 frappe.logger().warning(f"No recipients for SEPA validation alert for batch {batch_name}")

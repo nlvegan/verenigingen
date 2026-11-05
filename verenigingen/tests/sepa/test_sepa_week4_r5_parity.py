@@ -123,6 +123,31 @@ class TestR5RecipientParity(EnhancedTestCase):
             self.assertIn("@", r)
 
 
+class TestSepaManagersNeverReachAdministrator(EnhancedTestCase):
+    """#2036: both managers resolve System Manager holders, and Administrator is one of them."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin_email = "administrator-2036@example.org"
+        frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
+        self.holder = "sm-live-2036@example.org"
+        self.create_test_user(self.holder, roles=["System Manager"])
+
+    def test_rule_recipients_exclude_administrator(self):
+        rule = NotificationRule(
+            rule_id="2036_rule", name="2036", conditions={}, template_id="batch_success",
+            recipients=["system_managers", "sepa_administrators"],
+        )
+        recipients = SEPANotificationManager()._get_rule_recipients(rule)
+        self.assertIn(self.holder, recipients)  # control: a real holder is reached
+        self.assertNotIn(self.admin_email, recipients)
+
+    def test_rollback_recipients_exclude_administrator(self):
+        recipients = SEPARollbackManager()._get_notification_recipients(RollbackReason.BANK_REJECTION)
+        self.assertIn(self.holder, recipients)
+        self.assertNotIn(self.admin_email, recipients)
+
+
 class TestR5DbHelperParity(EnhancedTestCase):
     """Tracking tables exist by the time a manager is used; audit rows via insert_audit_row.
 
