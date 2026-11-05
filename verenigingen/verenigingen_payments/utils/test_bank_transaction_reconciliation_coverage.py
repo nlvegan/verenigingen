@@ -761,7 +761,7 @@ class TestCreateReconciliationMollieBranch(MollieBase):
             ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertTrue(ok)
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
 
 
 # =============================================================================
@@ -858,7 +858,7 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             f"status={bt.status!r} custom_processing_status="
             f"{bt.custom_processing_status!r}; comments={self._bt_comments(bt.name)}",
         )
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
         self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
 
         # The deploy-critical artifact: the option must exist on the DEPLOYED Custom
@@ -981,8 +981,8 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         )
         bt.reload()
         self.assertEqual(
-            bt.status,
-            "Unreconciled",
+            bt.custom_processing_status,
+            "Reconciliation Failed",
             "a settlement whose accounting was already posted must be taken out of the "
             "retry pool and put in front of an operator",
         )
@@ -1034,8 +1034,8 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         )
         bt.reload()
         self.assertEqual(
-            bt.status,
-            "Unreconciled",
+            bt.custom_processing_status,
+            "Reconciliation Failed",
             "the Payment Entries were already submitted, so this settlement must not "
             "go back into the auto-reconciliation pool",
         )
@@ -1171,8 +1171,8 @@ class TestSettlementIdempotency(MollieBase):
         bt.reload()
         comments = self._bt_comments(bt.name)
         self.assertEqual(
-            bt.status,
-            "Unreconciled",
+            bt.custom_processing_status,
+            "Reconciliation Failed",
             "a settlement that has failed on every attempt must eventually leave the "
             f"retry pool; comments={comments}",
         )
@@ -1346,8 +1346,8 @@ class TestPartiallyAllocatedSettlement(MollieBase):
         )
         bt.reload()
         self.assertEqual(
-            bt.status,
-            "Reconciled",
+            bt.custom_processing_status,
+            "Mollie Settlement Processed",
             f"the completed settlement must close the deposit; comments={self._bt_comments(bt.name)}",
         )
 

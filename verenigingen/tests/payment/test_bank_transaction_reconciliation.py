@@ -746,7 +746,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
         result = self.mgr.match_transaction(self._txn_dict(bt))
         self.assertTrue(result)
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         # A submitted payment entry referencing the invoice should now exist.
         refs = frappe.get_all(
             "Payment Entry Reference",
@@ -803,8 +803,8 @@ class TestMatchTransactionAndReconcile(BTRBase):
         # "not Reconciled" would also pass if the description never matched at all,
         # pinning nothing.
         self.assertEqual(
-            bt.status,
-            "Unreconciled",
+            bt.custom_processing_status,
+            "Reconciliation Failed",
             "a 500.00 deposit was reconciled against a 30.00 invoice matched only by "
             "an invoice number in the description",
         )
@@ -851,7 +851,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
         self.mgr.match_transaction(self._txn_dict(bt))
 
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         refs = frappe.get_all(
             "Payment Entry Reference",
             filters={"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
@@ -910,7 +910,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertTrue(ok)
         bt.reload()
-        self.assertIn(bt.status, ("Reconciled", "Settled"))
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         # Meaningful side effect of the fixed batch branch: a submitted Payment
         # Entry now references the batch's invoice (the former bug booked nothing
         # and left the transaction Unreconciled).
@@ -943,7 +943,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertTrue(ok)
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         # Assert via Payment Entry Reference on the invoice (the service links the
         # PE to the invoice; it does NOT populate a custom_bank_transaction field
         # from this code path).
@@ -980,7 +980,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertFalse(ok)
         bt.reload()
-        self.assertEqual(bt.status, "Unreconciled")
+        self.assertEqual(bt.custom_processing_status, "Reconciliation Failed")
 
 
 # =============================================================================
@@ -991,7 +991,7 @@ class TestMarkUnreconciled(BTRBase):
         bt = self._make_bank_transaction(deposit=10.0, date=today())
         self.mgr._mark_transaction_unreconciled({"name": bt.name}, "because reasons")
         bt.reload()
-        self.assertEqual(bt.status, "Unreconciled")
+        self.assertEqual(bt.custom_processing_status, "Reconciliation Failed")
         comments = frappe.get_all(
             "Comment",
             filters={"reference_doctype": "Bank Transaction", "reference_name": bt.name},
@@ -1205,7 +1205,9 @@ class TestReconciliationSummary(BTRBase):
 
     def test_summary_counts_reconciled_transaction(self):
         # Side effect: a Reconciled transaction must exist for this date range.
-        self._make_bank_transaction(deposit=10.0, date=today(), status="Reconciled")
+        bt = self._make_bank_transaction(deposit=10.0, date=today())
+        # A draft's reconciled state is the pool's marker; ERPNext keeps its status "Pending" (#2082).
+        bt.db_set("custom_processing_status", "Fully Reconciled", update_modified=False)
         result = btr.get_reconciliation_summary(from_date=today(), to_date=today())
         self.assertGreaterEqual(result["reconciled"], 1)
         self.assertGreaterEqual(result["total_transactions"], 1)
@@ -1317,7 +1319,7 @@ class TestBatchReconciliationGuards(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertFalse(ok, "partial collection must not report success")
         bt.reload()
-        self.assertEqual(bt.status, "Unreconciled", "txn must be left Unreconciled on partial collection")
+        self.assertEqual(bt.custom_processing_status, "Reconciliation Failed", "txn must leave the pool as failed on partial collection")
 
     def test_full_collection_reconciles(self):
         """S2 happy path: when the booked total matches the deposit, the
@@ -1334,7 +1336,7 @@ class TestBatchReconciliationGuards(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertTrue(ok)
         bt.reload()
-        self.assertIn(bt.status, ("Reconciled", "Settled"))
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
 
 
 # =============================================================================
@@ -1573,7 +1575,7 @@ class TestCreateReconciliationPermissions(BTRBase):
         )
         # The user can write the Bank Transaction, so the refusal leaves it Unreconciled.
         bt.reload()
-        self.assertEqual(bt.status, "Unreconciled")
+        self.assertEqual(bt.custom_processing_status, "Reconciliation Failed")
 
 
 if __name__ == "__main__":

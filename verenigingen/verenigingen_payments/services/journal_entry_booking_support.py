@@ -17,7 +17,7 @@ from typing import Optional
 import frappe
 from frappe.utils import flt
 
-from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import RECONCILED, record_pool_outcome
 
 
 def find_journal_entry_by_reference(reference_number: str) -> Optional[str]:
@@ -130,7 +130,7 @@ def reconcile_bank_transaction_with_journal_entry(
         line_amount = flt(bt.deposit or 0) or flt(bt.withdrawal or 0)
         bt.save()
         if line_amount and total_allocated >= line_amount:
-            persist_draft_status(bt, "Reconciled")
+            record_pool_outcome(bt, RECONCILED)
         frappe.db.commit()
 
         frappe.logger().info(
