@@ -94,8 +94,8 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
     def _insert_schedule(self, member, membership, frequency, status):
         """Insert a schedule with the fields create_dues_schedule_for_amendment sets
         that are real fields here (from_amendment flag, Fixed mode, auto_generate=1,
-        test_mode=0); its effective_date and notes are not set. No real flow creates
-        a second schedule in these tests: submitting a Membership reuses the member's."""
+        test_mode=0); its effective_date and notes are not set. The helper's cancelled
+        schedules and this insert are the only extra schedules these tests make."""
         schedule = frappe.get_doc(
             {
                 "doctype": "Membership Dues Schedule",
@@ -116,6 +116,27 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
         schedule.insert()
         return schedule
 
+    def _live_schedule_linked_to_old_membership(self, member, old, new_frequency, new_start_offset_days):
+        """Old Monthly Membership cancelled, a new Membership submitted, and the member's
+        only live schedule is a Monthly one still linked to the OLD Membership.
+
+        #1938 is fixed: cancel_membership now cancels the old schedule and the new
+        Membership gets its own. This state is no longer reachable through that flow, so it
+        is built from real steps: the new Membership's own schedule is cancelled through the
+        repository, then an amendment-style schedule is inserted for the old Membership
+        (_insert_schedule, the one direct write; it stands in for a writer that links a
+        live schedule to an older Membership). It keeps rule (b) of
+        _get_schedule_frequency pinned."""
+        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
+        new = self._covfreq_submit_membership(member, new_frequency, new_start_offset_days)
+        own = self._live_schedule(member)
+        self.assertEqual(own.membership, new.name, "fixture: the new Membership has its own schedule")
+        self.assertTrue(DuesScheduleRepository().cancel_schedule(own.name, "test").success)
+        self._insert_schedule(member, old, "Monthly", "Active")
+        live = self._live_schedule(member)
+        self.assertEqual((live.membership, live.billing_frequency), (old.name, "Monthly"))
+        return new
+
     def _live_schedule(self, member):
         return frappe.db.get_value(
             "Membership Dues Schedule",
@@ -132,36 +153,38 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
     # ---------------------------------------------- period-aware (item 1)
 
     def test_current_period_follows_the_schedule_that_bills_even_if_linked_to_an_old_membership(self):
-        """Reflects #1938's CURRENT real flow: after cancel_membership + a second
-        Membership, the member's ONLY live schedule (Monthly) stays linked to the
-        OLD Membership and keeps billing. The old period gets Monthly from its own
-        schedule; the new current period ALSO gets Monthly, because that is what
-        really bills, not the new Type's Annual."""
+        """Rule (b): the member's live schedule bills the current period even when it is
+        linked to an older Membership (here an amendment-style schedule, see the helper)."""
         member = self._covfreq_member()
         old = self._covfreq_submit_membership(member, "Monthly", -300)
-        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
-        self._covfreq_submit_membership(member, "Annual", -100)
-
-        schedule = self._live_schedule(member)
-        self.assertEqual(schedule.membership, old.name, "fixture: real flow keeps the old schedule")
-        self.assertEqual(schedule.billing_frequency, "Monthly")
+        self._live_schedule_linked_to_old_membership(member, old, "Annual", -100)
 
         self.assertEqual(self._frequency_over(member, -300, -160), "Monthly", "old period: linked schedule")
         self.assertEqual(self._frequency_over(member, -100, 0), "Monthly", "current period: live schedule")
 
-    def test_older_period_without_its_own_schedule_uses_its_type(self):
-        """(c): the old Membership's schedule is cancelled through the repository's
-        real cancel path, so the new Membership gets its
-        own Annual schedule. The OLD period is not current and the live schedule is
-        linked to the new Membership, so the old period must use its own Type."""
+    def test_new_membership_after_cancel_is_reported_by_its_own_schedule(self):
+        """#1938 fixed, real flow: cancel_membership cancels the old schedule and the new
+        Membership gets its own Annual one, so the current period is Annual and the old
+        period (its schedule is Cancelled) falls back to its own Type."""
         member = self._covfreq_member()
         old = self._covfreq_submit_membership(member, "Monthly", -300)
         cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
-        old_schedule = self._live_schedule(member)
-        self.assertTrue(DuesScheduleRepository().cancel_schedule(old_schedule.name, "test").success)
         new = self._covfreq_submit_membership(member, "Annual", -100)
-        # The new Membership gets no schedule of its own (#1938), so give it one.
-        self._insert_schedule(member, new, "Annual", "Active")
+
+        schedule = self._live_schedule(member)
+        self.assertEqual((schedule.membership, schedule.billing_frequency), (new.name, "Annual"))
+        self.assertEqual(self._frequency_over(member, -300, -160), "Monthly", "old period: its Type")
+        self.assertEqual(self._frequency_over(member, -100, 0), "Annual", "current period: own schedule")
+
+    def test_older_period_without_its_own_schedule_uses_its_type(self):
+        """(c): cancel_membership cancels the old Membership's schedule and the new
+        Membership gets its own Annual one (#1938). The OLD period is not current and the
+        live schedule is linked to the new Membership, so the old period must use its own
+        Type."""
+        member = self._covfreq_member()
+        old = self._covfreq_submit_membership(member, "Monthly", -300)
+        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
+        new = self._covfreq_submit_membership(member, "Annual", -100)
 
         schedule = self._live_schedule(member)
         self.assertEqual((schedule.membership, schedule.billing_frequency), (new.name, "Annual"))
@@ -223,11 +246,10 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
         """Report path: get_membership_periods clamps the period end to to_date, so
         with to_date in the past the NEW Membership's period ends before today. It is
         still the current Membership, so the live Monthly schedule (linked to the old
-        one, #1938) must still apply rather than the new Type's Annual."""
+        one (see the helper) must still apply rather than the new Type's Annual."""
         member = self._covfreq_member()
         old = self._covfreq_submit_membership(member, "Monthly", -300)
-        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
-        self._covfreq_submit_membership(member, "Annual", -100)
+        self._live_schedule_linked_to_old_membership(member, old, "Annual", -100)
 
         for to_offset in (0, -1, -10):
             with self.subTest(to_date_offset=to_offset):
@@ -258,15 +280,14 @@ class TestCoverageReportUsesScheduleFrequency(ScheduleFrequencyFixtureMixin, Ver
             template.insert()
 
     def test_future_dated_membership_does_not_take_the_old_live_schedule(self):
-        """Pins the `start_date <= today` guard in _get_schedule_frequency. On the
-        #1938 real flow the live schedule is Monthly (linked to the old Membership).
+        """Pins the `start_date <= today` guard in _get_schedule_frequency. The
+        live schedule is Monthly, linked to the old Membership (see the helper).
         An Annual Membership that starts in the future and ends later is not
         billed yet, so its period must use its own Type, not rule (b)."""
         member = self._covfreq_member()
         old = self._covfreq_submit_membership(member, "Monthly", -300)
-        cancel_membership(old.name, add_days(today(), -150), "test", "Immediate")
         # (a second ACTIVE Membership is refused, so the future one follows the cancelled old one)
-        future = self._covfreq_submit_membership(member, "Annual", 10)
+        future = self._live_schedule_linked_to_old_membership(member, old, "Annual", 10)
         # End of Period keeps it Active while giving it a future end date.
         cancel_membership(future.name, add_days(today(), 300), "test", "End of Period")
 
