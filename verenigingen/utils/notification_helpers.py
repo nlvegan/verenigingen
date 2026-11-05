@@ -505,7 +505,9 @@ def notify_administrators(
         notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, uses Verenigingen Email Configuration for enable/disable checks.
         category (str, optional): Notification category (Admin, System, etc.)
-            Used for recipient lookup in Verenigingen Email Configuration.
+            Used for recipient lookup in Verenigingen Email Configuration. With a
+            ``notification_key`` too, the category is only the FALLBACK: it applies when the
+            key has no Email Notification Type row or its row resolves to nobody (#2043).
         exclude_users (list, optional): User names that must never be a recipient, applied to the
             FINAL recipient list (after the configured, category and role fallbacks). Matches the
             user's name or email.
@@ -573,11 +575,19 @@ def resolve_admin_recipients(
 ):
     """Resolve staff recipients: the ONE place that decides who an admin alert goes to.
 
-    ``key_first=False`` is what notify_administrators has always done, and must not change
-    (#2043 tracks that the category beats the key there): the category's recipients (for Admin,
-    ``admin_notification_emails`` or, when unset, the fallback role's holders), else the key's own
-    recipients, else the legacy ``setting_field`` / ``admin_notification_emails`` setting, else
-    enabled holders of ``default_roles``. ``exclude_users`` is applied to the FINAL list only.
+    ``key_first=False`` is notify_administrators. When a call passes BOTH a category and a key, the
+    key's own recipients come first and the category is the fallback (maintainer ruling on #2043):
+    the key's own recipients (none when the key has no row), else the category's recipients (for
+    Admin, ``admin_notification_emails`` or, when unset, the fallback role's holders), else the
+    legacy ``setting_field`` / ``admin_notification_emails`` setting, else enabled holders of
+    ``default_roles``. A call passing only a key still gets the key's recipients (the email
+    configuration service's System Manager fallback for an unknown key included), and a call passing
+    only a category gets the category's: those are unchanged. With both, ``exclude_users`` is applied
+    to every tier, so a key row holding only excluded users (Administrator) resolves to nobody and falls
+    through to the category; with only one of the two it is applied to the FINAL list only. On that path
+    the key's tier also counts only its deliverable recipients (enabled Users other than Administrator, as
+    create_system_notification matches them): a row naming only disabled users or non-User addresses falls
+    through to the category instead of winning and reaching nobody.
 
     ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
     the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
@@ -623,12 +633,21 @@ def resolve_admin_recipients(
     if key_first:
         tiers = (own_key_tier, configured_admin_tier, extra_tier, legacy_tier)
     else:
-        tiers = (category_tier, key_tier, legacy_tier)
+        # The service's fallback for an unknown key is the category fallback under another name, so
+        # with a category to fall back to, a key counts only when it has its own row (#2043).
+        tiers = (own_key_tier if category else key_tier, category_tier, legacy_tier)
+        if category and notification_key:
+            # create_system_notification drops a recipient that is not an enabled User, so a row naming
+            # only such addresses would win here and reach nobody: only deliverable ones count (#2043).
+            tiers = (lambda: _deliverable_users(own_key_tier()), category_tier, legacy_tier)
 
+    # A tier holding only excluded users resolves to nobody, so it falls through (#2043 ruling); the
+    # key-only and category-only calls keep excluding from the final list alone.
+    per_tier_exclusion = key_first or bool(category and notification_key)
     recipients = []
     for tier in tiers:
         recipients = list(tier() or [])
-        if key_first:
+        if per_tier_exclusion:
             recipients = _without_users([r for r in recipients if r], exclude_users or ())
         if recipients:
             break
@@ -669,6 +688,21 @@ def _notify_administrators(
         notification_key=notification_key,
         source_event=source_event,
     )
+
+
+def _deliverable_users(recipients):
+    """Keep the recipients that are an enabled User other than Administrator, matched by name or email."""
+    recipients = [r for r in (recipients or []) if r]
+    if not recipients:
+        return []
+    users = frappe.get_all(
+        "User",
+        filters={"enabled": 1, "name": ["!=", "Administrator"]},
+        or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
+        fields=["name", "email"],
+    )
+    deliverable = {value.lower() for user in users for value in (user.name, user.email) if value}
+    return [r for r in recipients if r.lower() in deliverable]
 
 
 def _without_users(recipients, exclude_users):
