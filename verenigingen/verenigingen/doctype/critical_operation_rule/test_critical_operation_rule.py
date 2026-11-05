@@ -4,6 +4,23 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+# Exact names this module creates. Not `LIKE 'test_%'` (#2120): `_` is a SQL wildcard and
+# shipped rules are themselves named `test_*`, so any prefix pattern deletes shipped rows.
+_RULE_NAMES_CREATED_HERE = (
+    "test_create_invoice",
+    "test_financial_low_security",
+    "test_zero_rate_limit",
+    "test_negative_rate_limit",
+    "test_alert_auto_recipients",
+    "test_payment_processing",
+    "test_disabled_rule",
+    "test_cache_invalidation",
+)
+
+
+def _delete_rules_created_by_this_module():
+    frappe.db.delete("Critical Operation Rule", {"operation_name": ["in", _RULE_NAMES_CREATED_HERE]})
+
 
 class TestCriticalOperationRule(FrappeTestCase):
     """Test Critical Operation Rule DocType"""
@@ -11,7 +28,7 @@ class TestCriticalOperationRule(FrappeTestCase):
     def setUp(self):
         """Set up test data"""
         # Clean up any existing test rules
-        frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_%"]})
+        _delete_rules_created_by_this_module()
         frappe.db.commit()
 
     def test_rule_creation_and_validation(self):
@@ -236,5 +253,36 @@ class TestCriticalOperationRule(FrappeTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_%"]})
+        _delete_rules_created_by_this_module()
         frappe.db.commit()
+
+    def test_cleanup_leaves_shipped_rules_alone(self):
+        """#2120: setUp/tearDown must not delete rows this module did not create.
+
+        Shipped rules include ones literally named ``test_*`` (196 on a fresh site), so
+        the module's old ``LIKE 'test_%'`` cleanup deleted them (``_`` is a wildcard,
+        and even escaped the prefix is shared). One row mirrors a literal ``test_`` rule,
+        one is named so only the wildcard reading of ``_`` catches it.
+        """
+        suffix = frappe.generate_hash(length=8)
+        survivors = [f"test_shipped_survivor_{suffix}", f"testing_survivor_{suffix}"]
+        for name in survivors:
+            frappe.get_doc(
+                {
+                    "doctype": "Critical Operation Rule",
+                    "operation_name": name,
+                    "operation_type": "financial",
+                    "security_level": "high",
+                    "enabled": 1,
+                }
+            ).insert()
+            self.addCleanup(frappe.db.delete, "Critical Operation Rule", {"operation_name": name})
+
+        self.setUp()
+        self.tearDown()
+
+        for name in survivors:
+            self.assertTrue(
+                frappe.db.exists("Critical Operation Rule", {"operation_name": name}),
+                f"cleanup deleted {name}, a row this module did not create",
+            )
