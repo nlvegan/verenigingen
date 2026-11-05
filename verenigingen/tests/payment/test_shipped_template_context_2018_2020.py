@@ -5,6 +5,10 @@ notifier, the Mollie subscription-status notifier) with the stock row from
 ``fixtures/email_template.json`` and reads the mail handed to ``frappe.sendmail`` (the harness
 captures it; EnhancedTestCase writes no Email Queue row). Only the mail transport is replaced.
 
+Setup never rewrites an existing Email Template row, but Frappe's fixture sync on migrate DOES
+overwrite these rows (reproduced, regardless of ``modified``), which is how existing sites
+receive this fix.
+
 What this does NOT prove: that the page a link points at works (only that the route is served,
 as in ``test_shipped_links_resolve``), nor anything about a site whose Email Template rows pre-date
 the fix (#1984: setup never rewrites an existing row).
@@ -18,6 +22,7 @@ from frappe.utils import getdate
 
 from verenigingen.api.payment_processing import send_payment_reminder_email
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment import test_payment_reminder_outcomes as _outcomes
 from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
@@ -52,6 +57,7 @@ class TestShippedTemplateContext(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        self._own_default_outgoing_account()
         own_notification_keys(self, *(STOCK))
         self.member = self.create_test_member(
             first_name="Context",
@@ -60,6 +66,25 @@ class TestShippedTemplateContext(EnhancedTestCase):
         )
         # Distinctive values: none equals a template default or the fixture member's data.
         self.info = {"total_overdue": 187.5, "overdue_count": 4, "days_overdue": 43}
+
+    def _own_default_outgoing_account(self):
+        """A site with no default outgoing Email Account (CI, test_site_11) refuses every send.
+
+        Reuses the outcomes module's creator (called unbound: it reads no instance state; the
+        module, not the class, is imported so the runner does not collect that class here).
+        The account is removed afterwards, and only if this test created it: a leaked default
+        outgoing account masks mail failures shard-wide (#2044).
+        """
+        had_one = frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1})
+        _outcomes.TestPaymentReminderOutcomes._ensure_outgoing_account(self)
+        if not had_one:
+            self.addCleanup(self._remove_outgoing_account, "Test Outgoing")
+
+    @staticmethod
+    def _remove_outgoing_account(name):
+        if frappe.db.exists("Email Account", name):
+            frappe.delete_doc("Email Account", name, force=True, ignore_permissions=True)
+        frappe.db.commit()  # the account was committed by nothing; but a rollback must not resurrect it
 
     def _one_mail(self):
         mails = self.get_sent_emails(to=self.member.email)
