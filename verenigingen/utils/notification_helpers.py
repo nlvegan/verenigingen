@@ -291,6 +291,10 @@ def create_system_notification(
     notification preferences - users can disable email delivery for specific
     notification types in their User settings.
 
+    The Administrator user is dropped silently (no log, no error, not counted): staff alerts never go
+    to Administrator (maintainer ruling, 2026-11-01). A call whose only recipient is Administrator
+    returns ``no_valid_recipients``.
+
     Note: For critical alerts requiring guaranteed email delivery, use
     EmailService directly instead of this function.
 
