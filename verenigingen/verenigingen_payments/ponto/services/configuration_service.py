@@ -27,6 +27,10 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 
+# Prefix of a pause set by the import currency guard. A fetch never lifts such a pause by
+# itself (it needs a person); pauses from the account audit lift when the audit is clean.
+IMPORT_REFUSED = "Import refused: "
+
 
 class PontoConfigurationService:
     """
@@ -46,6 +50,32 @@ class PontoConfigurationService:
         Roles.VERENIGINGEN_ADMIN,
         "Verenigingen Webhook User",
     }
+
+    @staticmethod
+    def is_active(mapping) -> bool:
+        """THE rule for "may this mapping be used": enabled and not Paused (#2125).
+
+        Works on a cached dict and on a Ponto Bank Account Mapping row alike. A row
+        staff re-ticked to ``enabled=1`` while ``sync_status`` is still "Paused" is
+        NOT active: the pause has a reason that nobody has resolved.
+        """
+        return bool(mapping.get("enabled")) and mapping.get("sync_status") != "Paused"
+
+    @classmethod
+    def is_usable(cls, mapping) -> bool:
+        """Active AND linked to a Bank Account: what money paths require."""
+        return cls.is_active(mapping) and bool(mapping.get("bank_account"))
+
+    @classmethod
+    def unusable_reason(cls, mapping) -> Optional[str]:
+        """Why a mapping may not be used, for the error a money path shows. None if usable."""
+        if mapping.get("sync_status") == "Paused":
+            return f"paused: {mapping.get('last_sync_error') or 'no reason recorded'}"
+        if not mapping.get("enabled"):
+            return "disabled in Ponto Settings"
+        if not mapping.get("bank_account"):
+            return "no Bank Account linked"
+        return None
 
     @classmethod
     def _load_settings_from_db(cls) -> Dict[str, Any]:
@@ -227,7 +257,7 @@ class PontoConfigurationService:
         """
         settings = cls.get_settings()
         mappings = settings.get("bank_account_mappings", [])
-        return [m for m in mappings if m.get("enabled") and m.get("sync_status") != "Paused"]
+        return [m for m in mappings if cls.is_active(m)]
 
     @classmethod
     def get_all_account_mappings(cls) -> List[Dict[str, Any]]:
@@ -269,12 +299,7 @@ class PontoConfigurationService:
             Bank Account name or None if not mapped/enabled
         """
         mapping = cls.get_mapping_for_ponto_account(ponto_account_id)
-        if (
-            mapping
-            and mapping.get("enabled")
-            and mapping.get("sync_status") != "Paused"
-            and mapping.get("bank_account")
-        ):
+        if mapping and cls.is_usable(mapping):
             return mapping.get("bank_account")
         return None
 
@@ -413,7 +438,7 @@ class PontoConfigurationService:
 
         # Check for bank account mappings
         mappings = settings.get("bank_account_mappings", [])
-        enabled_mappings = [m for m in mappings if m.get("enabled")]
+        enabled_mappings = [m for m in mappings if cls.is_active(m)]
 
         if not mappings:
             warnings.append("No Ponto accounts configured - use 'Fetch Accounts from Ponto' button")

@@ -38,7 +38,10 @@ from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoConfigurationError,
     PontoTransactionImportError,
 )
-from verenigingen.verenigingen_payments.ponto.services.configuration_service import get_ponto_config
+from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+    IMPORT_REFUSED,
+    get_ponto_config,
+)
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import get_bank_transaction_creator
 
 
@@ -250,12 +253,13 @@ class PontoTransactionImporter:
         gl_account = frappe.db.get_value("Bank Account", bank_account, "account")
         gl_currency = frappe.db.get_value("Account", gl_account, "account_currency") if gl_account else None
         if not gl_currency:
-            return f"Bank Account {bank_account} has no GL account with a currency"
+            return f"{IMPORT_REFUSED}Bank Account {bank_account} has no GL account with a currency"
         foreign = sorted({tx.currency for tx in transactions if tx.currency != gl_currency})
         if foreign:
             return (
-                f"Transactions in {', '.join(foreign)} cannot be imported into Bank Account "
-                f"{bank_account} (GL currency {gl_currency}); nothing was imported"
+                f"{IMPORT_REFUSED}transactions in {', '.join(foreign)} cannot go into Bank Account "
+                f"{bank_account} (GL currency {gl_currency}); nothing was imported. Clear the Bank "
+                "Account field and retrieve accounts again to re-check"
             )
         return None
 

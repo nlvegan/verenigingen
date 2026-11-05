@@ -436,7 +436,7 @@ class TestStaffAlertEvent(FrappeTestCase):
         self.assertIn("payment_plan_request", REQUIRES_ACTION_KEYS)
         self.assertNotIn("sepa_batch_warning", REQUIRES_ACTION_KEYS)
 
-    def test_the_three_notify_administrators_keys_are_marked_staff_alert_at_the_call_site(self):
+    def test_every_literal_notify_administrators_key_is_marked_staff_alert_at_the_call_site(self):
         marked = {}
         for path in APP_ROOT.rglob("*.py"):
             if "tests" in path.parts or "node_modules" in path.parts:
@@ -454,7 +454,11 @@ class TestStaffAlertEvent(FrappeTestCase):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
         self.assertEqual(
-            set(marked), {SEEDED_KEY, "termination_overdue", INFO_KEY}, "control: all three keys were found"
+            set(marked),
+            # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
+            # is marked staff_alert=True like the rest; the loop below still checks every flag.
+            {SEEDED_KEY, "termination_overdue", INFO_KEY, "ponto_executed_unbookable"},
+            "control: all four keys were found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")

@@ -100,14 +100,15 @@ class PontoIdentityBase(EnhancedTestCase):
         gl = frappe.db.get_value("Bank Account", bank_account, "account")
         return frappe.db.get_value("Account", gl, "account_currency")
 
-    def _make_manual_bank_account(self, iban, currency="EUR"):
+    def _make_manual_bank_account(self, iban, currency="EUR", company=None):
         """A pre-existing manual Bank Account (not created by Ponto code)."""
+        company = company or self.company
         parent = frappe.db.get_value(
-            "Account", {"company": self.company, "is_group": 1, "account_type": "Bank"}, "name"
+            "Account", {"company": company, "is_group": 1, "account_type": "Bank"}, "name"
         )
         gl = frappe.new_doc("Account")
-        gl.account_name = f"Manual Bank {self.sfx}"
-        gl.company = self.company
+        gl.account_name = f"Manual Bank {frappe.generate_hash(length=6)}"
+        gl.company = company
         gl.parent_account = parent
         gl.account_type = "Bank"
         gl.account_currency = currency
@@ -119,10 +120,10 @@ class PontoIdentityBase(EnhancedTestCase):
             b.insert(ignore_permissions=True)
             bank = b.name
         ba = frappe.new_doc("Bank Account")
-        ba.account_name = f"Manual BA {self.sfx}"
+        ba.account_name = f"Manual BA {frappe.generate_hash(length=6)}"
         ba.bank = bank
         ba.account = gl.name
-        ba.company = self.company
+        ba.company = company
         ba.is_company_account = 1
         ba.iban = iban
         ba.insert(ignore_permissions=True)
@@ -203,17 +204,50 @@ class TestFetchIdentity(PontoIdentityBase):
             self.assertEqual(frappe.db.count("Bank Account", {"iban": iban}), 1)
 
     def test_manual_account_claimed_by_another_mapping_is_not_adopted(self):
+        """R1 holds Bank Account B (IBAN X). A DIFFERENT Ponto account with IBAN X must not
+        adopt B: this reaches _adopt_or_pause, unlike an IBAN-less account."""
         with singleton_backup("Ponto Settings"):
             iban = TestIBAN.ING_1
             manual = self._make_manual_bank_account(iban, "EUR")
             self._prepare(
-                [{"ponto_account_id": "other", "ponto_iban": iban, "ponto_currency": "EUR",
+                [{"ponto_account_id": "r1", "ponto_iban": "", "ponto_currency": "EUR",
                   "bank_account": manual, "enabled": 1}]
             )
-            self._fetch([_ponto_acct("other", iban, "EUR"), _ponto_acct("acc-claimed", "", "EUR", "Fresh")])
+            self._fetch([_ponto_acct("r2", iban, "EUR", "Second")])
             rows = self._rows()
-            self.assertEqual(rows["other"].bank_account, manual)
-            self.assertNotEqual(rows["acc-claimed"].bank_account, manual)
+            self.assertEqual(rows["r1"].bank_account, manual)
+            self.assertEqual((rows["r2"].enabled, rows["r2"].sync_status), (0, "Paused"))
+            self.assertFalse(rows["r2"].bank_account)
+            self.assertIn("already linked", rows["r2"].last_sync_error)
+
+    def test_manual_account_in_another_company_is_not_adopted(self):
+        with singleton_backup("Ponto Settings"):
+            self._prepare()
+            iban = TestIBAN.ING_1
+            other = "_Test Company"
+            self.assertNotEqual(other, self.company)
+            manual = self._make_manual_bank_account(iban, "EUR", company=other)
+            self._fetch([_ponto_acct("acc-co", iban, "EUR")])
+            row = self._rows()["acc-co"]
+            self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
+            self.assertIn("another company", row.last_sync_error)
+            self.assertNotEqual(row.bank_account, manual)
+
+    def test_two_manual_accounts_with_the_same_iban_pause_and_adopt_neither(self):
+        """ERPNext enforces no IBAN uniqueness on Bank Account (the second insert below
+        succeeds), so the duplicate-candidate branch is reachable."""
+        with singleton_backup("Ponto Settings"):
+            self._prepare()
+            iban = TestIBAN.ING_1
+            first = self._make_manual_bank_account(iban, "EUR")
+            second = self._make_manual_bank_account(iban, "EUR")
+            self.assertEqual(frappe.db.count("Bank Account", {"iban": iban}), 2)
+            self._fetch([_ponto_acct("acc-dup", iban, "EUR")])
+            row = self._rows()["acc-dup"]
+            self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
+            self.assertFalse(row.bank_account)
+            self.assertIn("2 Bank Accounts carry IBAN", row.last_sync_error)
+            self.assertNotIn(row.bank_account, (first, second))
 
     def test_refetch_is_idempotent(self):
         with singleton_backup("Ponto Settings"):
@@ -418,3 +452,227 @@ class TestImportGuards(PontoIdentityBase):
             _update_account_sync_status("imp-1", status="OK")
             row = self._rows()["imp-1"]
             self.assertEqual((row.sync_status, row.last_sync_error), ("Paused", "why"))
+
+
+class TestPausedMappingsOnMoneyPaths(PontoIdentityBase):
+    """B2: a paused mapping is refused by every reader, including after staff re-tick
+    `enabled` on a Paused row (enabled=1, sync_status=Paused)."""
+
+    STATES = ({"enabled": 0, "sync_status": "Paused"}, {"enabled": 1, "sync_status": "Paused"})
+
+    def _paused(self, **state):
+        ba = self._make_manual_bank_account("", "EUR")
+        self._prepare(
+            [dict({"ponto_account_id": "pm-1", "ponto_account_name": "Paused acct", "ponto_iban": "",
+                   "ponto_currency": "EUR", "bank_account": ba, "last_sync_error": "shared bank account X"},
+                  **state)]
+        )
+        return ba
+
+    def test_create_sepa_payment_refuses_a_paused_account(self):
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            create_sepa_payment,
+        )
+
+        for state in self.STATES:
+            with self.subTest(state=state), singleton_backup("Ponto Settings"):
+                self._paused(**state)
+                before = frappe.db.count("Ponto Payment Request", {"ponto_account": "pm-1"})
+                with self.assertRaises(PontoIntegrationError) as ctx:
+                    create_sepa_payment("pm-1", 10.0, "Cred", TestIBAN.ABN_AMRO_1, "ref", auto_submit=False)
+                self.assertIn("shared bank account X", str(ctx.exception))
+                self.assertEqual(frappe.db.count("Ponto Payment Request", {"ponto_account": "pm-1"}), before)
+
+    def test_create_sepa_payment_refuses_an_unmapped_account_as_before(self):
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            create_sepa_payment,
+        )
+
+        with singleton_backup("Ponto Settings"):
+            self._prepare()
+            with self.assertRaises(PontoIntegrationError):
+                create_sepa_payment("nope", 10.0, "Cred", TestIBAN.ABN_AMRO_1, "ref", auto_submit=False)
+
+    def _make_supplier_with_iban(self):
+        sup = frappe.new_doc("Supplier")
+        sup.supplier_name = f"Ponto Sup {frappe.generate_hash(length=6)}"
+        sup.insert(ignore_permissions=True)
+        sup_ba = frappe.new_doc("Bank Account")
+        sup_ba.account_name = f"Sup BA {frappe.generate_hash(length=6)}"
+        sup_ba.bank = frappe.db.get_value("Bank", {}, "name")
+        sup_ba.party_type, sup_ba.party = "Supplier", sup.name
+        sup_ba.iban = TestIBAN.ABN_AMRO_2
+        sup_ba.insert(ignore_permissions=True)
+        return sup.name
+
+    def test_default_account_for_supplier_payment_skips_a_paused_row(self):
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            create_payment_for_supplier,
+        )
+
+        for state in self.STATES:
+            with self.subTest(state=state), singleton_backup("Ponto Settings"):
+                self._paused(**state)
+                supplier = [self._make_supplier_with_iban()]
+                with self.assertRaises(PontoIntegrationError) as ctx:
+                    create_payment_for_supplier(supplier[0], 5.0, "ref", auto_submit=False)
+                self.assertIn("No enabled Ponto accounts", str(ctx.exception))
+
+    def test_payment_entry_prerequisites_refuse_a_paused_account_with_the_reason(self):
+        for state in self.STATES:
+            with self.subTest(state=state), singleton_backup("Ponto Settings"):
+                self._paused(**state)
+                doc = frappe.new_doc("Ponto Payment Request")
+                doc.ponto_account = "pm-1"
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    doc._validate_payment_entry_prerequisites()
+                self.assertIn("shared bank account X", str(ctx.exception))
+
+    def test_getters_use_the_same_rule(self):
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService as Config,
+        )
+
+        for state in self.STATES:
+            with self.subTest(state=state), singleton_backup("Ponto Settings"):
+                self._paused(**state)
+                Config.clear_cache()
+                self.assertEqual(Config.get_enabled_account_mappings(), [])
+                self.assertIsNone(Config.get_bank_account_for_ponto_account("pm-1"))
+                self.assertIsNone(Config.get_first_enabled_bank_account())
+                settings = frappe.get_single("Ponto Settings")
+                self.assertEqual(settings.get_enabled_account_mappings(), [])
+                self.assertIsNone(settings.get_bank_account_for_ponto_account("pm-1"))
+
+    def test_usable_mapping_still_passes_every_reader(self):
+        """Control: an enabled, OK, linked mapping is NOT refused."""
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService as Config,
+        )
+
+        with singleton_backup("Ponto Settings"):
+            ba = self._paused(enabled=1, sync_status="OK")
+            Config.clear_cache()
+            self.assertEqual(Config.get_bank_account_for_ponto_account("pm-1"), ba)
+            doc = frappe.new_doc("Ponto Payment Request")
+            doc.ponto_account = "pm-1"
+            try:
+                doc._validate_payment_entry_prerequisites()
+            except frappe.ValidationError as e:
+                self.assertNotIn("paused", str(e).lower())
+
+
+class TestStalePausesAreNotOverwritten(PontoIdentityBase):
+    """S1: a stale in-memory copy must not un-pause a mapping paused meanwhile."""
+
+    def _paused_after_load(self):
+        ba = self._make_manual_bank_account("", "EUR")
+        self._prepare(
+            [{"ponto_account_id": "st-1", "ponto_iban": "", "ponto_currency": "EUR",
+              "bank_account": ba, "enabled": 1}]
+        )
+        stale = frappe.get_single("Ponto Settings")
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        self.assertTrue(PontoConfigurationService.pause_mapping("st-1", "Import refused: test reason"))
+        return stale
+
+    def test_refresh_user_info_does_not_unpause(self):
+        with singleton_backup("Ponto Settings"):
+            stale = self._paused_after_load()
+            client = MagicMock()
+            client.get.return_value = {"name": "Org", "sub": "org-1", "onboardingComplete": True}
+            with patch("verenigingen.verenigingen_payments.ponto.core.ponto_client.PontoClient", return_value=client):
+                stale.refresh_user_info()
+            row = self._rows()["st-1"]
+            self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
+            self.assertEqual(frappe.db.get_single_value("Ponto Settings", "organization_name"), "Org")
+
+    def test_fetch_cleanup_does_not_unpause(self):
+        with singleton_backup("Ponto Settings"):
+            ba = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [
+                    {"ponto_account_id": "st-1", "ponto_iban": "", "ponto_currency": "EUR",
+                     "bank_account": ba, "enabled": 1},
+                ]
+            )
+            stale = frappe.get_single("Ponto Settings")
+            stale.append("bank_account_mappings", {"ponto_account_id": "st-1"})  # duplicate to clean
+            from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+                PontoConfigurationService,
+            )
+
+            PontoConfigurationService.pause_mapping("st-1", "Import refused: test reason")
+            client = MagicMock()
+            client.list_accounts.return_value = [_ponto_acct("st-1", "", "EUR")]
+            with patch(TOKEN_MANAGER, return_value=MagicMock()), patch(ACCOUNTS_CLIENT, return_value=client):
+                stale.fetch_ponto_accounts()
+            row = self._rows()["st-1"]
+            self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
+
+    def test_fetch_does_not_overwrite_a_pause_set_while_it_runs(self):
+        """A pause landing during account creation (after the fetch loaded the mappings)."""
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+        from verenigingen.verenigingen_payments.ponto.utils import bank_account_creator as creator
+
+        with singleton_backup("Ponto Settings"):
+            ba = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [{"ponto_account_id": "st-1", "ponto_iban": "", "ponto_currency": "EUR",
+                  "bank_account": ba, "enabled": 1}]
+            )
+            real_create = creator.create_ponto_bank_account
+
+            def create_and_pause(*args, **kwargs):
+                PontoConfigurationService.pause_mapping("st-1", "Import refused: concurrent")
+                return real_create(*args, **kwargs)
+
+            client = MagicMock()
+            client.list_accounts.return_value = [_ponto_acct("st-1", "", "EUR"), _ponto_acct("st-2", "", "EUR", "New")]
+            settings = frappe.get_single("Ponto Settings")
+            with patch(TOKEN_MANAGER, return_value=MagicMock()), patch(
+                ACCOUNTS_CLIENT, return_value=client
+            ), patch.object(creator, "create_ponto_bank_account", side_effect=create_and_pause):
+                settings.fetch_ponto_accounts()
+            rows = self._rows()
+            self.assertEqual((rows["st-1"].enabled, rows["st-1"].sync_status), (0, "Paused"))
+            self.assertEqual(rows["st-2"].sync_status, "OK")
+
+    def test_audit_pause_resumes_but_an_import_refusal_does_not(self):
+        with singleton_backup("Ponto Settings"):
+            ba1 = self._make_manual_bank_account("", "EUR")
+            ba2 = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [
+                    {"ponto_account_id": "au-1", "ponto_iban": "", "ponto_currency": "EUR", "bank_account": ba1,
+                     "enabled": 0, "sync_status": "Paused", "last_sync_error": "Bank Account x is shared by 2"},
+                    {"ponto_account_id": "au-2", "ponto_iban": "", "ponto_currency": "EUR", "bank_account": ba2,
+                     "enabled": 0, "sync_status": "Paused", "last_sync_error": "Import refused: GBP rows"},
+                ]
+            )
+            self._fetch([_ponto_acct("au-1", "", "EUR"), _ponto_acct("au-2", "", "EUR")])
+            rows = self._rows()
+            self.assertEqual((rows["au-1"].enabled, rows["au-1"].sync_status), (1, "OK"))
+            self.assertEqual((rows["au-2"].enabled, rows["au-2"].sync_status), (0, "Paused"))
+
+    def test_webhook_failure_on_a_paused_account_keeps_pause_and_reason(self):
+        from verenigingen.verenigingen_payments.ponto.api.webhook import _update_account_sync_status
+
+        with singleton_backup("Ponto Settings"):
+            ba = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [{"ponto_account_id": "wf-1", "ponto_iban": "", "ponto_currency": "EUR", "bank_account": ba,
+                  "enabled": 0, "sync_status": "Paused", "last_sync_error": "the pause reason"}]
+            )
+            _update_account_sync_status("wf-1", status="Failed", error="ibanity 500")
+            row = self._rows()["wf-1"]
+            self.assertEqual((row.sync_status, row.last_sync_error), ("Paused", "the pause reason"))
+            self.assertIsNotNone(row.last_sync_failure_time)

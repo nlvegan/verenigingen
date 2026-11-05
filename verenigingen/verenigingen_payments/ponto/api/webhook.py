@@ -152,10 +152,6 @@ def _update_account_sync_status(
             return False
         mapping_name = mapping.name
 
-        if mapping.sync_status == "Paused":
-            # A pause carries the reason staff must see (#2125); a webhook must not erase it.
-            return True
-
         # Build atomic update based on status
         update_fields = {"sync_status": status}
 
@@ -167,8 +163,16 @@ def _update_account_sync_status(
             update_fields["last_sync_failure_time"] = now_datetime()
             update_fields["last_sync_error"] = error
 
+        if mapping.sync_status == "Paused":
+            # A pause carries the reason staff must see (#2125); a webhook must not erase it,
+            # so status and error stay. A real failure is still timestamped.
+            update_fields = {k: v for k, v in update_fields.items() if k == "last_sync_failure_time"}
+
         # Atomic update - no read-modify-write race condition
-        frappe.db.set_value("Ponto Bank Account Mapping", mapping_name, update_fields, update_modified=False)
+        if update_fields:
+            frappe.db.set_value(
+                "Ponto Bank Account Mapping", mapping_name, update_fields, update_modified=False
+            )
         frappe.db.commit()
 
         frappe.logger().debug(f"Updated sync status for account {account_id}: {status}")

@@ -20,6 +20,10 @@ from frappe.model.document import Document
 from frappe.utils import get_url, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+    IMPORT_REFUSED,
+    PontoConfigurationService,
+)
 from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import (
     _normalise_iban,
     mapping_pause_reason,
@@ -284,6 +288,27 @@ class PontoSettings(Document):
         row.last_sync_error = reason
         row.last_sync_failure_time = now_datetime()
 
+    @staticmethod
+    def _respect_concurrent_pauses(settings):
+        """Carry pauses written to the database since `settings` was loaded into the rows
+        about to be saved, so the save cannot un-pause them (pause_mapping does not bump
+        `modified`, so the timestamp check cannot catch it)."""
+        for row in settings.bank_account_mappings:
+            if row.sync_status == "Paused" or not row.name:
+                continue
+            db = frappe.db.get_value(
+                "Ponto Bank Account Mapping",
+                row.name,
+                ["enabled", "sync_status", "last_sync_error", "last_sync_failure_time"],
+                as_dict=True,
+            )
+            if db and db.sync_status == "Paused":
+                row.enabled, row.sync_status = db.enabled, "Paused"
+                row.last_sync_error, row.last_sync_failure_time = (
+                    db.last_sync_error,
+                    db.last_sync_failure_time,
+                )
+
     def _audit_mappings(self, settings) -> list:
         """
         Pause every mapping whose Bank Account is shared or in the wrong currency; resume
@@ -300,7 +325,8 @@ class PontoSettings(Document):
             reason = mapping_pause_reason(row.bank_account, row.ponto_currency, links[row.bank_account])
             if reason:
                 self._pause_row(row, reason)
-            elif row.sync_status == "Paused":
+            elif row.sync_status == "Paused" and not (row.last_sync_error or "").startswith(IMPORT_REFUSED):
+                # Only a pause THIS audit set may lift itself. An import refusal needs a person.
                 row.enabled, row.sync_status, row.last_sync_error = 1, "OK", None
         return [
             (row.ponto_account_name or row.ponto_account_id, row.last_sync_error)
@@ -324,13 +350,6 @@ class PontoSettings(Document):
         try:
             from verenigingen.verenigingen_payments.ponto.clients.accounts_client import PontoAccountsClient
 
-            # Clean up any existing duplicates first (by Ponto account ID)
-            duplicates_removed = self.cleanup_duplicate_mappings()
-            if duplicates_removed:
-                # Security: @high_security_api decorator - admin settings cleanup
-                self.save(ignore_permissions=True)
-                frappe.db.commit()
-
             # Get company from Verenigingen Settings
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
             company = verenigingen_settings.company
@@ -347,8 +366,11 @@ class PontoSettings(Document):
             client = PontoAccountsClient()
             ponto_accounts = client.list_accounts()
 
-            # Get fresh settings after all API calls are done
+            # Get fresh settings after all API calls are done. Every write below goes through
+            # THIS copy and the final save, so it is loaded last, and the duplicate cleanup
+            # runs on it instead of saving the caller's possibly stale `self` (#2125).
             settings = frappe.get_single("Ponto Settings")
+            settings.cleanup_duplicate_mappings()
 
             by_id = {row.ponto_account_id: row for row in settings.bank_account_mappings}
             iban_holders = self._iban_holders(ponto_accounts, settings.bank_account_mappings)
@@ -385,6 +407,7 @@ class PontoSettings(Document):
                     else:
                         self._pause_row(row, outcome["pause_reason"])
 
+            self._respect_concurrent_pauses(settings)
             paused = self._audit_mappings(settings)
             bank_account_errors = [f"{name}: {reason}" for name, reason in paused]
 
@@ -491,9 +514,6 @@ class PontoSettings(Document):
             )
 
         try:
-            from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
-                PontoConfigurationService,
-            )
             from verenigingen.verenigingen_payments.ponto.services.transaction_import_service import (
                 import_new_transactions,
             )
@@ -588,7 +608,7 @@ class PontoSettings(Document):
         Returns:
             List of enabled Ponto Bank Account Mapping rows
         """
-        return [row for row in self.bank_account_mappings if row.enabled and row.sync_status != "Paused"]
+        return [row for row in self.bank_account_mappings if PontoConfigurationService.is_active(row)]
 
     def get_mapping_for_ponto_account(self, ponto_account_id: str) -> Optional[object]:
         """
@@ -616,7 +636,7 @@ class PontoSettings(Document):
             Bank Account name or None if not mapped
         """
         mapping = self.get_mapping_for_ponto_account(ponto_account_id)
-        if mapping and mapping.enabled and mapping.sync_status != "Paused":
+        if mapping and PontoConfigurationService.is_usable(mapping):
             return mapping.bank_account
         return None
 
@@ -681,7 +701,26 @@ class PontoSettings(Document):
             )
             self.last_status_refresh = now_datetime()
 
-            self.save()
+            # Direct write of just these fields: self.save() would write this possibly stale
+            # copy of the mappings over a pause set meanwhile (#2125).
+            frappe.db.set_value(
+                "Ponto Settings",
+                "Ponto Settings",
+                {
+                    field: self.get(field)
+                    for field in (
+                        "organization_name",
+                        "organization_id",
+                        "onboarding_complete",
+                        "payments_activated",
+                        "payment_requests_activated",
+                        "payments_activation_requested",
+                        "payment_requests_activation_requested",
+                        "last_status_refresh",
+                    )
+                },
+            )
+            PontoConfigurationService.clear_cache()
 
             # Build status message
             env = "Sandbox" if self.sandbox_mode else "Production"

@@ -504,6 +504,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "ponto_executed_unbookable": {
+        "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request whose Ponto "
+        "account mapping is paused or disabled, so no Payment Entry may be booked against it. The money "
+        "has moved: check the bank and book the payment by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS
     # =========================================================================
@@ -759,6 +768,7 @@ NOTIFICATION_KEYS = {
 REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
+        "ponto_executed_unbookable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
         "payment_failure_final",

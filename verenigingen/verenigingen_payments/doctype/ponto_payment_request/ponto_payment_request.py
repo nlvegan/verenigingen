@@ -40,6 +40,39 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
 )
 
 
+def alert_executed_unbookable(doc, reason):
+    """Tell staff, once per row, that Ponto executed a payment we may not book (#2125)."""
+    from frappe.utils import escape_html, flt
+
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    marker = "PONTO-EXECUTED-UNBOOKABLE"
+    if frappe.db.exists(
+        "Notification Log",
+        {"document_type": doc.doctype, "document_name": doc.name, "subject": ["like", f"{marker}%"]},
+    ):
+        return
+    subject = f"{marker}: {doc.doctype} {doc.name} was paid at Ponto but cannot be booked"
+    details = (
+        f"{marker}: {doc.doctype} {doc.name} reported EXECUTED by Ponto (EUR {flt(doc.amount):,.2f}, "
+        f"Ponto id {doc.ponto_payment_id}), but its Ponto account {doc.ponto_account} cannot be used: "
+        f"{reason}. No Payment Entry was made and the request was not changed. "
+        "Action required: check the bank, and book the payment by hand."
+    )
+    delivery = notify_administrators(
+        subject=subject,
+        message=f"<p>{escape_html(details)}</p>",
+        notification_key="ponto_executed_unbookable",  # literal: key discovery greps for it
+        document_type=doc.doctype,
+        document_name=doc.name,
+        exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+        staff_alert=True,
+    )
+    frappe.log_error(
+        title="Ponto payment executed but cannot be booked", message=f"{details}\nNotification: {delivery}"
+    )
+
+
 class PontoPaymentRequest(Document):
     """Controller for Ponto Payment Request DocType."""
 
@@ -225,6 +258,12 @@ class PontoPaymentRequest(Document):
             new_status = map_request_status(payment.status) or self.status
             if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
                 return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
+            if (
+                new_status == "Executed"
+                and self.status != "Executed"
+                and self._alert_if_executed_unbookable()
+            ):
+                return {"status": self.status}  # paused account: staff alerted, doc untouched (#2125)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
@@ -305,6 +344,7 @@ class PontoPaymentRequest(Document):
         bank_account = None
         for mapping in settings.bank_account_mappings:
             if mapping.ponto_account_id == self.ponto_account:
+                self._refuse_unusable_mapping(mapping)
                 bank_account = mapping.bank_account
                 break
 
@@ -372,6 +412,46 @@ class PontoPaymentRequest(Document):
             )
 
         return bank_account, company, paid_from, party_type, party
+
+    def _alert_if_executed_unbookable(self) -> bool:
+        """Ponto says EXECUTED but this request's mapping is paused or disabled (#2125).
+
+        The Payment Entry would book against a shared or wrong-currency GL, so it is refused,
+        but the money has moved: tell staff ONCE, naming the row and amount, and leave the
+        row untouched (not Executed, not Paid, no Payment Entry). Returns True if handled.
+
+        Alerts and returns instead of raising, like the #1848 cancelled-row alert: a raise
+        would be rolled back by the caller's savepoint together with the Notification Log,
+        and the hourly poll would write a new Error Log row every hour. A mapping that is
+        simply missing still falls through to the prerequisites' own error.
+        """
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        settings = frappe.get_single("Ponto Settings")
+        mapping = next(
+            (m for m in settings.bank_account_mappings if m.ponto_account_id == self.ponto_account), None
+        )
+        if not mapping or (mapping.get("enabled") and mapping.get("sync_status") != "Paused"):
+            return False
+        alert_executed_unbookable(self, PontoConfigurationService.unusable_reason(mapping))
+        return True
+
+    def _refuse_unusable_mapping(self, mapping):
+        """A paused (or disabled) account's Bank Account may be shared or in the wrong currency:
+        never book a Payment Entry against it (#2125). Names the pause reason."""
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        if mapping.get("sync_status") == "Paused" or not mapping.get("enabled"):
+            frappe.throw(
+                _("Ponto account {0} cannot be used: {1}").format(
+                    self.ponto_account, PontoConfigurationService.unusable_reason(mapping)
+                ),
+                title=_("Ponto Account Paused"),
+            )
 
     @as_system_update
     def create_payment_entry(self):
@@ -442,6 +522,9 @@ class PontoPaymentRequest(Document):
         """
         if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
             return False  # cancelled row: finance alerted, doc untouched (#1848)
+
+        if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_unbookable():
+            return False  # paused account: staff alerted, doc untouched (#2125)
 
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False
