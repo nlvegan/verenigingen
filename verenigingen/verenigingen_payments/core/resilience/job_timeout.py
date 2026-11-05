@@ -21,10 +21,14 @@ def exception_chain(exc):
 
 
 def is_job_timeout(exc) -> bool:
-    """True when ``exc`` is, or was raised while handling or from, an RQ timeout.
+    """True when ``exc`` is an RQ timeout, or has one on its ``__cause__``/``__context__`` chain.
 
-    The chain is walked because client wrappers re-raise a fresh exception from the
-    original (the Ponto clients do, #1924), which hides the timeout one level down.
+    The chain is walked because a client wrapper catches the timeout and raises a fresh
+    exception inside its ``except`` (the Ponto clients do, without ``from``, #1924), so
+    the timeout survives only as ``__context__``.
+
+    Consequence: a retry-wrapped call made from inside an ``except JobTimeoutException:``
+    block fails fast, because ``__context__`` holds the timeout. That fails closed.
     """
     return any(isinstance(e, BaseTimeoutException) for e in exception_chain(exc))
 

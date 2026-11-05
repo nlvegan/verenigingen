@@ -21,13 +21,27 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def _chained_timeout():
-    """A client wrapper's re-raise: a plain error whose cause is the RQ timeout (#1924)."""
+    """Explicit ``raise ... from``: sets BOTH ``__cause__`` and ``__context__``."""
     try:
         try:
             raise JobTimeoutException("Task exceeded maximum timeout value (180 seconds)")
         except JobTimeoutException as timeout:
             raise RuntimeError("API call failed") from timeout
     except RuntimeError as wrapped:
+        return wrapped
+
+
+def _implicitly_chained_timeout(wrapper_type=RuntimeError, message="API call failed"):
+    """The Ponto client shape (#1924): raised inside ``except``, no ``from``.
+
+    Sets ``__context__`` ONLY (``__cause__`` is None), so a cause-only walk misses it.
+    """
+    try:
+        try:
+            raise JobTimeoutException("Task exceeded maximum timeout value (180 seconds)")
+        except JobTimeoutException:
+            raise wrapper_type(message)
+    except wrapper_type as wrapped:
         return wrapped
 
 
@@ -67,11 +81,11 @@ class _Mixin:
             sleep.assert_not_called()
 
     def test_timeout_hidden_in_cause_chain_propagates(self):
-        wrapped = _chained_timeout()
-        flaky, sleep, _, error = self._drive(wrapped)
-        self.assertIs(error, wrapped)
-        self.assertEqual(flaky.attempts, 1)
-        sleep.assert_not_called()
+        for wrapped in (_chained_timeout(), _implicitly_chained_timeout()):
+            flaky, sleep, _, error = self._drive(wrapped)
+            self.assertIs(error, wrapped)
+            self.assertEqual(flaky.attempts, 1)
+            sleep.assert_not_called()
 
     def test_control_transient_error_is_still_retried(self):
         flaky, sleep, result, error = self._drive(self.transient())
@@ -148,6 +162,11 @@ class TestMollieWithRetry(_Mixin, EnhancedTestCase):
     def transient(self):
         return RuntimeError("temporary glitch")
 
+    def test_control_transient_error_is_still_retried(self):
+        # The wrapper writes an Error Log row for the failed first attempt.
+        self.expectErrorLog("temporary glitch")
+        super().test_control_transient_error_is_still_retried()
+
 
 class TestMigrationWithRetry(_Mixin, EnhancedTestCase):
     def wrap(self, func):
@@ -177,3 +196,101 @@ class TestRetryUtilitiesOperation(_Mixin, EnhancedTestCase):
 
     def transient(self):
         return ConnectionError("connection reset by peer")
+
+
+class TestSepaErrorHandlerExecuteWithRetry(_Mixin, EnhancedTestCase):
+    """``SEPAErrorHandler.execute_with_retry`` returns a result dict instead of raising."""
+
+    def wrap(self, func):
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import SEPAErrorHandler
+
+        handler = SEPAErrorHandler()
+        return lambda: handler.execute_with_retry(func)["result"]
+
+    def transient(self):
+        return ConnectionError("connection reset by peer")
+
+    def test_control_transient_error_is_still_retried(self):
+        self.expectErrorLog("connection reset by peer")
+        super().test_control_transient_error_is_still_retried()
+
+
+class TestSepaRetryDecorator(_Mixin, EnhancedTestCase):
+    """``@sepa_retry`` goes through the module-level handler singleton."""
+
+    def wrap(self, func):
+        from verenigingen.verenigingen_payments.utils import sepa_error_handler as module
+
+        patcher = patch.object(module, "_error_handler", module.SEPAErrorHandler())  # Mock justified: fresh singleton per test
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return module.sepa_retry("probe")(func)
+
+    def transient(self):
+        return ConnectionError("connection reset by peer")
+
+    def test_control_transient_error_is_still_retried(self):
+        self.expectErrorLog("connection reset by peer")
+        super().test_control_transient_error_is_still_retried()
+
+
+class TestSmartRetryPolicyExecuteWithClassification(EnhancedTestCase):
+    """Used by ``ResilientHTTPClient``. A bare JobTimeoutException is already
+    non-retryable by classification; a RETRYABLE error raised while handling one
+    (``ConnectionError`` is in ``retryable_errors``) is what the guard catches."""
+
+    def _run(self, first):
+        from verenigingen.verenigingen_payments.core.resilience.retry_policy import SmartRetryPolicy
+
+        flaky = _Flaky(first)
+        flaky.__name__ = "flaky"
+        with patch("time.sleep") as sleep:
+            try:
+                result, error = SmartRetryPolicy().execute_with_classification(flaky), None
+            except Exception as e:
+                result, error = None, e
+        return flaky, sleep, result, error
+
+    def test_retryable_error_wrapping_a_timeout_is_not_retried(self):
+        wrapped = _implicitly_chained_timeout(ConnectionError, "connection reset")
+        flaky, sleep, _, error = self._run(wrapped)
+        self.assertIs(error, wrapped)
+        self.assertEqual(flaky.attempts, 1)
+        sleep.assert_not_called()
+
+    def test_control_plain_connection_error_is_retried(self):
+        flaky, sleep, result, error = self._run(ConnectionError("connection reset"))
+        self.assertIsNone(error)
+        self.assertEqual(result, "ok")
+        self.assertEqual(flaky.attempts, 2)
+
+
+class TestRetryContextShouldRetry(EnhancedTestCase):
+    """The documented caller pattern: ``for attempt in ctx`` + ``ctx.should_retry(e)``."""
+
+    def _loop(self, first):
+        from verenigingen.utils.retry_utilities import RetryContext
+
+        flaky = _Flaky(first)
+        ctx = RetryContext(max_retries=3, base_delay=0.01)
+        with patch("time.sleep"):
+            for _ in ctx:
+                try:
+                    return flaky, flaky(), None
+                except Exception as e:
+                    if ctx.should_retry(e):
+                        continue
+                    return flaky, None, e
+        return flaky, None, None
+
+    def test_job_timeout_is_not_retried(self):
+        timeout = JobTimeoutException("Task exceeded maximum timeout value (180 seconds)")
+        flaky, _, error = self._loop(timeout)
+        self.assertIs(error, timeout)
+        self.assertEqual(flaky.attempts, 1)
+
+    def test_control_transient_error_is_retried(self):
+        flaky, result, error = self._loop(ConnectionError("connection reset by peer"))
+        self.assertIsNone(error)
+        self.assertEqual(result, "ok")
+        self.assertEqual(flaky.attempts, 2)

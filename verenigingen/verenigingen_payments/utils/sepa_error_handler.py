@@ -12,6 +12,7 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.select_options import coerce_select_option
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -229,6 +230,7 @@ class SEPAErrorHandler:
                 }
 
             except Exception as e:
+                reraise_if_job_timeout(e)
                 last_error = e
                 error_category = self.categorize_error(e)
 
