@@ -140,13 +140,21 @@ def _update_account_sync_status(
     """
     try:
         # Check if mapping exists first
-        mapping_name = frappe.db.get_value(
-            "Ponto Bank Account Mapping", {"parent": "Ponto Settings", "ponto_account_id": account_id}, "name"
+        mapping = frappe.db.get_value(
+            "Ponto Bank Account Mapping",
+            {"parent": "Ponto Settings", "ponto_account_id": account_id},
+            ["name", "sync_status"],
+            as_dict=True,
         )
 
-        if not mapping_name:
+        if not mapping:
             frappe.logger().warning(f"No bank account mapping found for Ponto account {account_id}")
             return False
+        mapping_name = mapping.name
+
+        if mapping.sync_status == "Paused":
+            # A pause carries the reason staff must see (#2125); a webhook must not erase it.
+            return True
 
         # Build atomic update based on status
         update_fields = {"sync_status": status}

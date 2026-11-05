@@ -4,7 +4,6 @@ Ponto Settings controller method tests (Tier-1, HTTP boundary stubbed).
 Covers the large untested controller methods of ``PontoSettings`` that the
 existing ponto doctype coverage files skip:
 
-- ``_fix_bank_account_currency`` (real Bank Account / GL Account, no HTTP)
 - ``validate_credentials`` success + failure (token manager stubbed)
 - ``get_active_client_secret`` production branch
 - ``fetch_ponto_accounts`` add / update / bank-account-error branches
@@ -50,82 +49,6 @@ def _ponto_account(iban, acc_id, currency="EUR", description="Acct", holder="Hol
         description=description,
         holder_name=holder,
     )
-
-
-class TestFixBankAccountCurrency(EnhancedTestCase):
-    """``_fix_bank_account_currency`` — real Bank Account / GL Account, no HTTP."""
-
-    COMPANY = "_Test Company"
-    BANK_GROUP = "Bank Accounts - _TC"
-
-    def setUp(self):
-        super().setUp()
-        frappe.set_user("Administrator")
-        self.settings = frappe.get_single("Ponto Settings")
-        self._suffix = frappe.generate_hash(length=8)
-
-    def tearDown(self):
-        frappe.db.rollback()
-        super().tearDown()
-
-    def _make_gl_account(self, currency="EUR"):
-        acct = frappe.new_doc("Account")
-        acct.account_name = f"Ponto Cov Bank {self._suffix}"
-        acct.company = self.COMPANY
-        acct.parent_account = self.BANK_GROUP
-        acct.account_type = "Bank"
-        acct.account_currency = currency
-        acct.insert(ignore_permissions=True)
-        return acct.name
-
-    def _make_bank_account(self, gl_account):
-        bank_name = frappe.get_value("Bank", {}, "name")
-        if not bank_name:
-            bank = frappe.new_doc("Bank")
-            bank.bank_name = f"Ponto Cov Inst {self._suffix}"
-            bank.insert(ignore_permissions=True)
-            bank_name = bank.name
-        ba = frappe.new_doc("Bank Account")
-        ba.account_name = f"Ponto Cov BA {self._suffix}"
-        ba.bank = bank_name
-        ba.account = gl_account
-        ba.company = self.COMPANY
-        ba.is_company_account = 1
-        ba.insert(ignore_permissions=True)
-        return ba.name
-
-    def test_currency_mismatch_is_fixed(self):
-        """A GL account whose currency differs from Ponto is updated + True."""
-        gl = self._make_gl_account(currency="EUR")
-        ba = self._make_bank_account(gl)
-        result = self.settings._fix_bank_account_currency(ba, "USD")
-        self.assertTrue(result)
-        self.assertEqual(frappe.db.get_value("Account", gl, "account_currency"), "USD")
-
-    def test_matching_currency_is_noop(self):
-        """Matching currency returns False and leaves the GL account untouched."""
-        gl = self._make_gl_account(currency="EUR")
-        ba = self._make_bank_account(gl)
-        result = self.settings._fix_bank_account_currency(ba, "EUR")
-        self.assertFalse(result)
-        self.assertEqual(frappe.db.get_value("Account", gl, "account_currency"), "EUR")
-
-    def test_no_linked_gl_account_returns_false(self):
-        """Bank Account with no linked GL Account cannot be checked -> False."""
-        gl = self._make_gl_account(currency="EUR")
-        ba = self._make_bank_account(gl)
-        # Blank the link directly in DB (bypasses mandatory validation) so the
-        # in-controller `if not bank_account.account` guard is exercised.
-        frappe.db.set_value("Bank Account", ba, "account", "")
-        result = self.settings._fix_bank_account_currency(ba, "USD")
-        self.assertFalse(result)
-
-    def test_unknown_bank_account_swallows_error(self):
-        """A nonexistent Bank Account is caught and returns False (no raise)."""
-        result = self.settings._fix_bank_account_currency(
-            f"No Such Bank Account {self._suffix}", "EUR"
-        )
-        self.assertFalse(result)
 
 
 class TestValidateCredentials(EnhancedTestCase):
@@ -260,8 +183,9 @@ class TestFetchPontoAccounts(EnhancedTestCase):
             self.assertIn("NL91ABNA0417164300", ibans)
 
     def test_existing_account_is_updated(self):
-        """An account whose IBAN is already mapped is updated, not re-added."""
+        """An account whose Ponto ID is already mapped is updated, not re-added (#2125: ID is the identity)."""
         with singleton_backup("Ponto Settings"):
+            real_ba = self._make_real_bank_account()
             settings = frappe.get_single("Ponto Settings")
             settings.sandbox_mode = 1
             settings.sandbox_client_id = "sandbox-id"
@@ -273,17 +197,14 @@ class TestFetchPontoAccounts(EnhancedTestCase):
                     "ponto_iban": "NL91ABNA0417164300",
                     "ponto_account_name": "Old Name",
                     "ponto_currency": "EUR",
+                    "bank_account": real_ba,
                     "enabled": 1,
                 },
             )
             settings.save()
 
             fresh = frappe.get_single("Ponto Settings")
-            accounts = [
-                _ponto_account(
-                    "NL91ABNA0417164300", "acct-new-id", description="Updated Name"
-                )
-            ]
+            accounts = [_ponto_account("NL91ABNA0417164300", "acct-old", description="Updated Name")]
             fake_client = MagicMock()
             fake_client.list_accounts.return_value = accounts
             with patch.object(fresh, "validate_credentials", return_value=True), patch(
@@ -292,45 +213,10 @@ class TestFetchPontoAccounts(EnhancedTestCase):
                 result = fresh.fetch_ponto_accounts()
             self.assertEqual(result["added"], 0)
             self.assertEqual(result["updated"], 1)
-            # Existing-IBAN path must NOT create a new bank account.
             mock_create.assert_not_called()
             reloaded = frappe.get_single("Ponto Settings")
-            row = reloaded.bank_account_mappings[0]
-            self.assertEqual(row.ponto_account_name, "Updated Name")
-            self.assertEqual(row.ponto_account_id, "acct-new-id")
-
-    def test_existing_account_currency_mismatch_is_fixed(self):
-        """Update path fixes the linked Bank Account currency when it differs."""
-        with singleton_backup("Ponto Settings"):
-            real_ba = self._make_real_bank_account()  # GL currency EUR
-            gl = frappe.db.get_value("Bank Account", real_ba, "account")
-            settings = frappe.get_single("Ponto Settings")
-            settings.sandbox_mode = 1
-            settings.sandbox_client_id = "sandbox-id"
-            settings.bank_account_mappings = []
-            settings.append(
-                "bank_account_mappings",
-                {
-                    "ponto_account_id": "acct-cur",
-                    "ponto_iban": "NL91ABNA0417164300",
-                    "ponto_currency": "EUR",
-                    "bank_account": real_ba,
-                    "enabled": 1,
-                },
-            )
-            settings.save()
-
-            fresh = frappe.get_single("Ponto Settings")
-            # Incoming Ponto account reports USD -> controller should fix GL account.
-            accounts = [_ponto_account("NL91ABNA0417164300", "acct-cur", currency="USD")]
-            fake_client = MagicMock()
-            fake_client.list_accounts.return_value = accounts
-            with patch.object(fresh, "validate_credentials", return_value=True), patch(
-                ACCOUNTS_CLIENT, return_value=fake_client
-            ):
-                result = fresh.fetch_ponto_accounts()
-            self.assertEqual(result["updated"], 1)
-            self.assertEqual(frappe.db.get_value("Account", gl, "account_currency"), "USD")
+            self.assertEqual(len(reloaded.bank_account_mappings), 1)
+            self.assertEqual(reloaded.bank_account_mappings[0].ponto_account_name, "Updated Name")
 
     def test_bank_account_creation_error_is_collected(self):
         """A failed bank-account creation is recorded in bank_account_errors."""

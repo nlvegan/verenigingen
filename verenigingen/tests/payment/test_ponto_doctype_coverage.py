@@ -136,7 +136,7 @@ class TestPontoSettings(EnhancedTestCase):
         settings.bank_account_mappings = original_mappings
 
     def test_cleanup_duplicate_mappings(self):
-        """Should remove duplicate IBAN mappings."""
+        """Should remove duplicate mappings of the same Ponto account ID (#2125: not by IBAN)."""
         settings = frappe.get_single("Ponto Settings")
         # Save original and test with temporary data
         original_mappings = list(settings.bank_account_mappings or [])
@@ -148,7 +148,7 @@ class TestPontoSettings(EnhancedTestCase):
         )
         settings.append(
             "bank_account_mappings",
-            {"ponto_iban": "NL91ABNA0417164300", "enabled": 1, "ponto_account_id": "a2"},
+            {"ponto_iban": "NL91ABNA0417164300", "enabled": 1, "ponto_account_id": "a1"},
         )
         settings.append(
             "bank_account_mappings",

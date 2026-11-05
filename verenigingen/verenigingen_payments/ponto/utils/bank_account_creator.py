@@ -142,13 +142,19 @@ def create_gl_account(
     Raises:
         PontoIntegrationError: If GL account creation fails
     """
-    # Check if account already exists
-    existing = frappe.db.exists(
-        "Account",
-        {"account_name": account_name, "company": company},
-    )
+    # Reuse by name only when nothing else owns it: a GL account that already has a Bank
+    # Account, or a different currency, belongs to another Ponto account (#2125).
+    existing = frappe.db.get_value("Account", {"account_name": account_name, "company": company}, "name")
     if existing:
-        frappe.logger().info(f"GL Account already exists: {existing}")
+        existing_currency = frappe.db.get_value("Account", existing, "account_currency")
+        if existing_currency != currency or frappe.db.exists("Bank Account", {"account": existing}):
+            raise PontoIntegrationError(
+                message=(
+                    f"GL Account {existing} ({existing_currency}) already exists and cannot be reused "
+                    f"for a {currency} Ponto account"
+                ),
+                details={"account_name": account_name},
+            )
         return existing
 
     try:
@@ -210,12 +216,6 @@ def create_bank_account_record(
     Raises:
         PontoIntegrationError: If bank account creation fails
     """
-    # Check if Bank Account already exists by IBAN
-    existing = frappe.db.exists("Bank Account", {"iban": iban})
-    if existing:
-        frappe.logger().info(f"Bank Account already exists for IBAN {iban}: {existing}")
-        return existing
-
     try:
         bank_account = frappe.new_doc("Bank Account")
         bank_account.account_name = account_name
@@ -224,7 +224,8 @@ def create_bank_account_record(
         bank_account.company = company
         bank_account.is_company_account = 1
         bank_account.is_default = 0
-        bank_account.iban = iban
+        if iban:
+            bank_account.iban = iban
         bank_account.currency = currency
 
         result = secure_document_operation(
@@ -256,9 +257,14 @@ def create_ponto_bank_account(
     ponto_account,
     company: str,
     parent_account: str = None,
+    record_iban: bool = True,
 ) -> Dict:
     """
     Create GL Account, Bank, and Bank Account for a Ponto account.
+
+    Always creates: matching an existing Bank Account is the caller's job
+    (``resolve_bank_account_for_ponto_account``). ``record_iban=False`` leaves the
+    Bank Account's IBAN blank, for a Ponto IBAN that several accounts share.
 
     Args:
         ponto_account: PontoAccount dataclass with id, iban, holder_name, description, currency
@@ -280,17 +286,19 @@ def create_ponto_bank_account(
             )
 
         # Extract bank info from IBAN
-        iban = ponto_account.iban
+        iban = ponto_account.iban or ""
         bank_info = identify_bank_from_iban(iban)
 
         # Generate account name from Ponto account info
         account_display_name = (
             ponto_account.description or ponto_account.holder_name or f"Ponto Account {iban[-4:]}"
         )
-        gl_account_name = f"{bank_info['bank_name']} - {account_display_name}"
-
         # Currency from Ponto or default to EUR
         currency = getattr(ponto_account, "currency", "EUR") or "EUR"
+        # Name unique per Ponto account: description and IBAN can both repeat (#2125).
+        gl_account_name = (
+            f"{bank_info['bank_name']} - {account_display_name} ({currency} {str(ponto_account.id)[:8]})"
+        )
 
         # Step 1: Create Bank record (raises PontoIntegrationError on failure)
         bank_name = get_or_create_bank(bank_info)
@@ -307,7 +315,7 @@ def create_ponto_bank_account(
         bank_account = create_bank_account_record(
             gl_account=gl_account,
             bank_name=bank_name,
-            iban=iban,
+            iban=iban if record_iban else "",
             account_name=gl_account_name,
             company=company,
             currency=currency,
@@ -333,6 +341,80 @@ def create_ponto_bank_account(
             message=f"Unexpected error creating bank account for Ponto account: {e}",
         )
         return {"success": False, "error": str(e)}
+
+
+def _normalise_iban(iban) -> str:
+    return (iban or "").replace(" ", "").upper()
+
+
+def _gl_currency(bank_account: str) -> Optional[str]:
+    gl = frappe.db.get_value("Bank Account", bank_account, "account")
+    return frappe.db.get_value("Account", gl, "account_currency") if gl else None
+
+
+def resolve_bank_account_for_ponto_account(
+    ponto_account, company: str, shared_iban: bool, claimed: set
+) -> Dict:
+    """
+    Find or create the ERPNext Bank Account for ONE Ponto account (#2125).
+
+    No fallback matching. An existing Bank Account is adopted only when the Ponto
+    account has a non-empty IBAN that no other Ponto account carries, exactly one Bank
+    Account has that IBAN, it is unclaimed, in this company, and its GL currency equals
+    the Ponto currency. Any other IBAN hit is a ``pause_reason``; no hit creates a new
+    Bank Account + GL Account in the Ponto currency.
+
+    Returns ``{"bank_account", "created"}`` or ``{"pause_reason"}``.
+    """
+    iban = _normalise_iban(ponto_account.iban)
+    currency = ponto_account.currency or "EUR"
+    if iban and not shared_iban:
+        candidates = frappe.get_all("Bank Account", filters={"iban": iban}, pluck="name")
+        if candidates:
+            return _adopt_or_pause(candidates, iban, currency, company, claimed)
+    result = create_ponto_bank_account(ponto_account, company, record_iban=bool(iban) and not shared_iban)
+    if result.get("success"):
+        return {"bank_account": result["bank_account"], "created": True}
+    return {"pause_reason": f"Could not create a {currency} Bank Account: {result.get('error')}"}
+
+
+def _adopt_or_pause(candidates, iban, currency, company, claimed) -> Dict:
+    if len(candidates) > 1:
+        return {
+            "pause_reason": f"{len(candidates)} Bank Accounts carry IBAN {iban}; link the right one by hand"
+        }
+    name = candidates[0]
+    if name in claimed:
+        return {
+            "pause_reason": f"Bank Account {name} (IBAN {iban}) is already linked to another Ponto account"
+        }
+    if frappe.db.get_value("Bank Account", name, "company") != company:
+        return {"pause_reason": f"Bank Account {name} (IBAN {iban}) belongs to another company"}
+    gl_currency = _gl_currency(name)
+    if gl_currency != currency:
+        return {
+            "pause_reason": (
+                f"Bank Account {name} (IBAN {iban}) has GL currency {gl_currency}, "
+                f"but the Ponto account is {currency}"
+            )
+        }
+    return {"bank_account": name, "created": False}
+
+
+def mapping_pause_reason(bank_account: str, ponto_currency: str, links_to_it: int) -> Optional[str]:
+    """Why a mapping's linked Bank Account cannot receive imports, or None if it can."""
+    if links_to_it > 1:
+        return (
+            f"Bank Account {bank_account} is shared by {links_to_it} Ponto accounts. Clear the Bank "
+            "Account field of the ones that do not belong to it and retrieve accounts again"
+        )
+    gl_currency = _gl_currency(bank_account)
+    if gl_currency != ponto_currency:
+        return (
+            f"Bank Account {bank_account} has GL currency {gl_currency}, but the Ponto account is "
+            f"{ponto_currency}. Clear the Bank Account field and retrieve accounts again"
+        )
+    return None
 
 
 def get_parent_bank_account_group(company: str) -> Optional[str]:
