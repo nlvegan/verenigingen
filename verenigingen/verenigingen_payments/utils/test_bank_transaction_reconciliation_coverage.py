@@ -859,7 +859,6 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             f"{bt.custom_processing_status!r}; comments={self._bt_comments(bt.name)}",
         )
         self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
-        self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
 
         # The deploy-critical artifact: the option must exist on the DEPLOYED Custom
         # Field, not merely in the working copy of fixtures/custom_field.json. On a

@@ -131,6 +131,27 @@ class TestReconcilePoolAppOwnedMarker(BTRBase):
         it["invoice"].reload()
         self.assertEqual(flt(it["invoice"].outstanding_amount), 30.0)
 
+    def test_a_failed_sepa_batch_reconcile_leaves_the_draft_in_the_pool(self):
+        """"Fully Reconciled" is terminal now, so the SEPA dashboard may only write it when
+        the batch really reconciled (review of 7237b9461). A batch whose invoice was
+        cancelled fails validation; the draft must stay retryable."""
+        from verenigingen.verenigingen_payments.api.sepa_reconciliation import (
+            _process_sepa_transaction_conservative_internal,
+        )
+        from verenigingen.verenigingen_payments.utils.bank_transaction_status import pool_filters
+
+        it = self._make_member_with_invoice(first_name="P2082Sepa", grand_total=30.0)
+        batch = self._make_batch([it])
+        it["invoice"].cancel()
+        bt = self._make_bank_transaction(deposit=flt(batch.total_amount), description="SEPA DD batch")
+
+        result = _process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+        self.assertEqual(result["processing_result"]["type"], "validation_failed", f"fixture: {result}")
+        bt.reload()
+        self.assertNotEqual(bt.custom_processing_status, "Fully Reconciled")
+        self.assertIn(bt.name, frappe.get_all("Bank Transaction", filters=pool_filters(), pluck="name"))
+
     def test_the_summary_counts_a_pool_reconciled_draft_as_reconciled(self):
         before = get_reconciliation_summary(from_date=today(), to_date=today())
         self._reconciled_draft("P2082Sum")
