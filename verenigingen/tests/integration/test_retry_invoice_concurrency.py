@@ -119,7 +119,7 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
 
         def _create_request_worker(name, delay):
             time.sleep(delay)
-            self._retry_in_own_connection(site, admin, application, outcomes, name)
+            self._create_retry_in_own_connection(site, admin, application, outcomes, name)
 
         # Mock justified: spy on the mail boundary; and a delay (plus a commit) at the secure-operation wrapper
         # the invoice insert goes through, which still runs the real operation
@@ -140,8 +140,9 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
         return application, invoices, mails, outcomes
 
     @staticmethod
-    def _retry_in_own_connection(site, user, application, outcomes, name):
-        """One staff request: its own connection, so its own transaction and snapshot."""
+    def _create_retry_in_own_connection(site, user, application, outcomes, name):
+        """One staff request: its own connection, so its own transaction and snapshot. Named `_create_*`
+        because the commit here is the sanctioned fixture-commit shape (a worker committing its own request)."""
         frappe.init(site=site, force=True)
         frappe.connect()
         frappe.set_user(user)
@@ -185,7 +186,7 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
         # reuses the invoice (so an always-refuse guard fails here), and still creates nothing new.
         self.expectErrorLog("Approval Email Failed", "No active email account", "Email Account")
         later = threading.Thread(
-            target=self._retry_in_own_connection,
+            target=self._create_retry_in_own_connection,
             args=(self.site, self.admin_user.email, application, outcomes, "later"),
             name="T3",
         )
