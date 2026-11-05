@@ -128,6 +128,9 @@ class TestSepaManagersNeverReachAdministrator(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        self.addCleanup(
+            frappe.db.set_value, "User", "Administrator", "email", frappe.db.get_value("User", "Administrator", "email"), update_modified=False
+        )
         self.admin_email = "administrator-2036@example.org"
         frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
         self.holder = "sm-live-2036@example.org"

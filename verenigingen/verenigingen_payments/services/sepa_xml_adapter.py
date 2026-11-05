@@ -398,7 +398,10 @@ class SEPAXMLAdapter:
             )
 
         except Exception as e:
-            frappe.logger().error(f"Failed to send SEPA validation alert: {str(e)}")
+            frappe.log_error(
+                title="SEPA validation alert failed",
+                message=f"Batch {batch_name}: {e}\n{frappe.get_traceback(with_context=False)}",
+            )
 
     def _build_creditor_from_settings(self, settings: dict) -> SEPACreditor:
         """Build SEPACreditor from SEPA configuration settings."""

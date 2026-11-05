@@ -348,6 +348,9 @@ class TestValidationAlertRecipients(EnhancedTestCase):
             frappe.db.get_single_value("Verenigingen Settings", "stuck_schedule_notification_emails") or "",
         )
         frappe.db.set_single_value("Verenigingen Settings", "stuck_schedule_notification_emails", "")
+        self.addCleanup(
+            frappe.db.set_value, "User", "Administrator", "email", frappe.db.get_value("User", "Administrator", "email"), update_modified=False
+        )
         self.admin_email = "administrator-2036@example.org"
         frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
         self.holder = "va-live-2036@example.org"

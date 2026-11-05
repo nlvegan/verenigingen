@@ -92,6 +92,14 @@ class TestGetRecipientsByRoles(EnhancedTestCase):
 
     def test_administrator_is_never_a_recipient(self):
         """#2036: Administrator holds System Manager but is not in active use (staff alerts never go to it)."""
+        self.addCleanup(
+            frappe.db.set_value,
+            "User",
+            "Administrator",
+            "email",
+            frappe.db.get_value("User", "Administrator", "email"),
+            update_modified=False,
+        )
         admin_email = "administrator-2036@example.org"
         frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
         user = self._make_enabled_user("not-admin", "System Manager")
