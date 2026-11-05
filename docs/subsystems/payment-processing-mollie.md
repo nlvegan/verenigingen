@@ -171,7 +171,6 @@ Mollie test suite at `vereinigingen_payments/mollie/tests/`:
 - Payment context resolver, payment entry factory tests
 - Customer creation concurrency, failed payment tests
 
-Test runner: `run_mollie_e2e_tests.sh`
 Contract tests: `tests/contracts/mollie-contracts.json`
 
 ## Key File Locations
