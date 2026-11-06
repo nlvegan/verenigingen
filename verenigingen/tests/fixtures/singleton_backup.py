@@ -180,12 +180,6 @@ class SingletonBackup:
                     field_values[field.fieldname] = getattr(doc, field.fieldname, None)
 
             self._backups[doctype_name] = field_values
-            self._child_backups[doctype_name] = {
-                f.fieldname: (f.options, self._child_rows(doctype_name, f.fieldname, f.options))
-                for f in meta.fields
-                if f.fieldtype in _TABLE_FIELDTYPES
-            }
-
             # Backup password fields separately (they're encrypted)
             password_values = {}
             for fieldname in password_fields:
@@ -200,6 +194,10 @@ class SingletonBackup:
                     pass
 
             self._password_backups[doctype_name] = password_values
+
+            # Last, and on its own: a failure capturing a child table must not cost the
+            # password backup above (the restore would then skip those fields).
+            self._backup_child_tables(doctype_name, meta)
 
             get_harness_logger("singleton-backup").debug(
                 "Backed up %s (%d fields, %d passwords)",
@@ -308,6 +306,18 @@ class SingletonBackup:
             )
 
 
+    def _backup_child_tables(self, doctype_name: str, meta) -> None:
+        try:
+            self._child_backups[doctype_name] = {
+                f.fieldname: (f.options, self._child_rows(doctype_name, f.fieldname, f.options))
+                for f in meta.fields
+                if f.fieldtype in _TABLE_FIELDTYPES
+            }
+        except Exception as e:
+            get_harness_logger("singleton-backup").warning(
+                "Failed to back up child tables of %s: %s", doctype_name, e
+            )
+
     @staticmethod
     def _child_rows(doctype_name: str, fieldname: str, child_doctype: str) -> List[Dict[str, Any]]:
         return frappe.get_all(
@@ -332,6 +342,12 @@ class SingletonBackup:
 
         for fieldname, (child_doctype, rows) in self._child_backups.get(doctype_name, {}).items():
             frappe.db.delete(child_doctype, _child_filters(doctype_name, fieldname))
+            # Also by NAME: a captured row that a test moved to another parentfield/parent is not
+            # matched by the filter above, and re-inserting its name would raise IntegrityError
+            # after the delete, leaving the table half restored (and, since the error aborts
+            # `_restore_singleton`, the scalar and password restore skipped).
+            if rows:
+                frappe.db.delete(child_doctype, {"name": ("in", [r["name"] for r in rows])})
             with suspend_insert_capture():
                 for row in rows:
                     frappe.get_doc({**row, "doctype": child_doctype}).db_insert()
