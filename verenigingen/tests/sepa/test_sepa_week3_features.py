@@ -110,15 +110,17 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         """Clean up test data from database"""
         # List of tables to clean up with their filter conditions
         cleanup_tables = [
-            ("SEPA_Distributed_Lock", "lock_owner LIKE 'test_%'"),
-            ("SEPA_Rollback_Operation", "operation_id LIKE 'TEST_%'"),
-            ("SEPA_Notification_Log", "notification_id LIKE 'TEST_%'"),
+            ("SEPA_Distributed_Lock", "lock_owner LIKE 'test\\_%'"),
+            ("SEPA_Rollback_Operation", "operation_id LIKE 'TEST\\_%'"),
+            ("SEPA_Notification_Log", "notification_id LIKE 'TEST\\_%'"),
         ]
 
         for table_name, condition in cleanup_tables:
             try:
                 # Check if table exists before trying to delete
-                if frappe.db.table_exists(f"tab{table_name}"):
+                # table_exists() adds the "tab" prefix itself; passing "tab..." made this
+                # guard always False, so this cleanup never ran (#2120).
+                if frappe.db.table_exists(table_name):
                     frappe.db.sql(f"DELETE FROM `tab{table_name}` WHERE {condition}")
             except Exception:
                 pass  # Silently ignore if table doesn't exist or other errors
@@ -127,6 +129,61 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             frappe.db.commit()
         except Exception:
             pass
+
+    def test_cleanup_does_not_treat_underscore_as_wildcard(self):
+        """#2120: `LIKE 'test_%'` / `'TEST_%'` also matched `testing...` ids.
+
+        Rows are inserted with raw SQL because these three tables are raw (no DocType).
+        Each table gets a survivor (`testing_...`) and a control (`test_...`) that the
+        cleanup must still delete, so an over-narrow fix cannot pass.
+        """
+        from verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables import ensure_sepa_ops_tables
+
+        ensure_sepa_ops_tables()
+        suffix = frappe.generate_hash(length=8)
+        now_ts = now()
+        for prefix in ("testing_", "test_"):
+            key = f"{prefix}{suffix}"
+            frappe.db.sql(
+                """INSERT INTO `tabSEPA_Distributed_Lock`
+                (name, creation, modified, lock_id, resource, lock_owner, acquired_at, expires_at, lock_type)
+                VALUES (%(k)s, %(t)s, %(t)s, %(k)s, %(k)s, %(k)s, %(t)s, %(t)s, 'exclusive')""",
+                {"k": key, "t": now_ts},
+            )
+        for prefix in ("TESTING_", "TEST_"):
+            key = f"{prefix}{suffix}"
+            frappe.db.sql(
+                """INSERT INTO `tabSEPA_Rollback_Operation`
+                (name, creation, modified, operation_id, batch_name, reason, scope, initiated_by, initiated_at)
+                VALUES (%(k)s, %(t)s, %(t)s, %(k)s, %(k)s, 'x', 'x', 'Administrator', %(t)s)""",
+                {"k": key, "t": now_ts},
+            )
+            frappe.db.sql(
+                """INSERT INTO `tabSEPA_Notification_Log`
+                (name, creation, modified, notification_id, notification_type, priority)
+                VALUES (%(k)s, %(t)s, %(t)s, %(k)s, 'x', 'x')""",
+                {"k": key, "t": now_ts},
+            )
+
+        self.cleanup_test_data()
+
+        def remaining(table, column, key):
+            return frappe.db.sql(f"SELECT COUNT(*) FROM `tab{table}` WHERE {column} = %s", key)[0][0]
+
+        try:
+            self.assertEqual(remaining("SEPA_Distributed_Lock", "lock_owner", f"test_{suffix}"), 0)
+            self.assertEqual(remaining("SEPA_Rollback_Operation", "operation_id", f"TEST_{suffix}"), 0)
+            self.assertEqual(remaining("SEPA_Notification_Log", "notification_id", f"TEST_{suffix}"), 0)
+            self.assertEqual(remaining("SEPA_Distributed_Lock", "lock_owner", f"testing_{suffix}"), 1)
+            self.assertEqual(remaining("SEPA_Rollback_Operation", "operation_id", f"TESTING_{suffix}"), 1)
+            self.assertEqual(remaining("SEPA_Notification_Log", "notification_id", f"TESTING_{suffix}"), 1)
+        finally:
+            for table, column, key in (
+                ("SEPA_Distributed_Lock", "lock_owner", f"testing_{suffix}"),
+                ("SEPA_Rollback_Operation", "operation_id", f"TESTING_{suffix}"),
+                ("SEPA_Notification_Log", "notification_id", f"TESTING_{suffix}"),
+            ):
+                frappe.db.sql(f"DELETE FROM `tab{table}` WHERE {column} = %s", key)
 
     # ========================================================================
     # Race Condition Prevention Tests
