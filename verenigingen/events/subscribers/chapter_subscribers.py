@@ -154,6 +154,9 @@ def handle_membership_notifications(event_name, event_data, is_bulk_import=False
         if not chapter:
             return
 
+        if not _membership_event_still_holds(chapter_name, member, action):
+            return
+
         chapter = frappe.get_doc("Chapter", chapter_name)
         member_doc = frappe.get_doc("Member", member)
 
@@ -199,6 +202,9 @@ def handle_member_role_updates(event_name, event_data, is_bulk_import=False, **k
             frappe.logger("events").info(
                 f"Skipping chapter member role update: Member {member} no longer exists"
             )
+            return
+
+        if not _membership_event_still_holds(chapter_name, member, action):
             return
 
         member_doc = frappe.get_doc("Member", member)
@@ -339,6 +345,26 @@ def handle_website_updates(event_name, event_data, is_bulk_import=False, **kwarg
 
 
 # Helper functions for specific operations
+
+
+def _membership_event_still_holds(chapter_name, member, action):
+    """Whether the join/leave this job was queued for is still true (#2137).
+
+    A rollback to a savepoint (assign_with_cleanup #1793, the MijnRood sync #2067) undoes
+    the Chapter Member row but not a job queued for it, so the job must check the row.
+    An unknown action is left to the caller's own branches.
+    """
+    in_chapter = bool(
+        frappe.db.exists(
+            "Chapter Member",
+            {"parent": chapter_name, "parenttype": "Chapter", "member": member, "enabled": 1},
+        )
+    )
+    if action == "joined":
+        return in_chapter
+    if action == "left":
+        return not in_chapter
+    return True
 
 
 def _sync_board_role_profile(volunteer):
