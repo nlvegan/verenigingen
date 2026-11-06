@@ -421,13 +421,15 @@ class MemberImportService(StatelessService):
             # fields being imported (e.g. a pre-existing broken link elsewhere on
             # the Member), so the reason has to travel back to the caller — and
             # into the Error Log, which this branch used to skip.
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Update Validation Error Row {row_num}")
+            frappe.log_error(
+                title=f"CSV Import Update Validation Error Row {row_num}", message=frappe.get_traceback()
+            )
             return _failure_status(e), member_name
 
         except Exception as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Update failed for {member_name} - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Update Error Row {row_num}")
+            frappe.log_error(title=f"CSV Import Update Error Row {row_num}", message=frappe.get_traceback())
             return _failure_status(e), member_name
 
     def _acquire_advisory_lock(self, lock_name: str, row_num: Any) -> bool:
@@ -637,13 +639,15 @@ class MemberImportService(StatelessService):
         except frappe.ValidationError as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Validation error - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Validation Error Row {row_num}")
+            frappe.log_error(
+                title=f"CSV Import Validation Error Row {row_num}", message=frappe.get_traceback()
+            )
             return _failure_status(e), None
 
         except Exception as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Creation failed - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Error Row {row_num}")
+            frappe.log_error(title=f"CSV Import Error Row {row_num}", message=frappe.get_traceback())
             return _failure_status(e), None
 
         finally:

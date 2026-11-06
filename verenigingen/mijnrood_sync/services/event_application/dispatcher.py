@@ -100,7 +100,9 @@ class MijnRoodEventApplicationService(StatefulService):
             frappe.db.rollback()
             error_msg = str(e)[:500]
             self.logger.error("Non-resumable DB error applying event %s: %s", event_name, error_msg)
-            frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
+            frappe.log_error(
+                title=f"MijnRood Event Application Failed: {event_name}", message=frappe.get_traceback()
+            )
             self._record_event_failure(event, error_msg)
             raise
 
@@ -125,7 +127,9 @@ class MijnRoodEventApplicationService(StatefulService):
 
             error_msg = str(e)[:500]
             self.logger.error("Failed to apply event %s: %s", event_name, error_msg)
-            frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
+            frappe.log_error(
+                title=f"MijnRood Event Application Failed: {event_name}", message=frappe.get_traceback()
+            )
 
             self._record_event_failure(event, error_msg)
             return {"success": False, "message": error_msg}
