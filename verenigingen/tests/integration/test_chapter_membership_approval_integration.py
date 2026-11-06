@@ -505,7 +505,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             member.name, "Standard Member", None, None, True, False, applied_chapter=self.test_chapter.name
         )
 
-        # 5. Verify BOTH chapter memberships are now Active
+        # 5. Verify the applied chapter is Active and the other stays Pending
         active_count = frappe.db.count(
             "Chapter Member",
             {"member": member.name, "status": "Active"}

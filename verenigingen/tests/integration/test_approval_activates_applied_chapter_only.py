@@ -59,6 +59,32 @@ class TestApprovalActivatesAppliedChapterOnly(ApprovalCase):
             "the other chapter's undecided request stays Pending",
         )
 
+    def test_reviewer_chosen_chapter_pending_row_is_activated(self):
+        """Application names chapter X, the reviewer approves into B and B holds a stale Pending row: the
+        maintainer ruling (#2064) activates B (develop did) as well as X. add_member returns already_exists
+        and leaves the row, so only the activation step can flip it."""
+        member = self._quit_member()
+        create_pending_chapter_membership(member, self.old_chapter.name)  # probe shortcut, see docstring
+        self.assertEqual(_applied_chapter_row_state(self.old_chapter.name, member.name).status, "Pending", "premise")
+        name = self._stage_and_confirm()  # names self.chapter
+
+        result = self._approve_as(name, chapter=self.old_chapter.name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(_applied_chapter_row_state(self.chapter.name, member.name).status, "Active", "the applied chapter")
+        self.assertEqual(_applied_chapter_row_state(self.old_chapter.name, member.name).status, "Active", "the reviewer's chapter")
+
+    def test_reviewer_chosen_chapter_pending_row_is_activated_when_application_named_none(self):
+        member = self._quit_member()
+        create_pending_chapter_membership(member, self.old_chapter.name)  # probe shortcut, see docstring
+        self.assertEqual(_applied_chapter_row_state(self.old_chapter.name, member.name).status, "Pending", "premise")
+        name = self._stage_and_confirm(selected_chapter="", city=f"Nowhere{frappe.generate_hash(length=6)}")
+
+        result = self._approve_as(name, chapter=self.old_chapter.name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(_applied_chapter_row_state(self.old_chapter.name, member.name).status, "Active", "the reviewer's chapter")
+
     def test_terminated_members_old_request_stays_inactive(self):
         """Control, real flow: request_to_join, quit (the termination inactivates the row), reapply."""
         from verenigingen.verenigingen.doctype.chapter.managers.member_manager import MemberManager

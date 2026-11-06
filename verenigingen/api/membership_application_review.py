@@ -163,8 +163,9 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        # already_exists is the ordinary case of approving with the applicant's own chapter (its
-        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # already_exists is the ordinary case of approving with the applicant's own chapter or a chapter
+        # holding the member's Pending row (add_member leaves that row; _activate_pending_chapter_memberships
+        # flips the applied and the reviewer's chapter afterwards), so only other outcomes are failures. The
         # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
         # nowhere anyone reads (#1797).
         if not result.get("success") and result.get("action") != "already_exists":
@@ -604,6 +605,10 @@ def _approve_membership_application_locked(
     # Activate the Pending row materialise_member wrote for the application's own chapter; Pending rows
     # in other chapters are undecided join requests and stay as they are (#2064).
     _activate_pending_chapter_memberships(member, applied_chapter)
+    if chapter and chapter != applied_chapter:
+        # assign_member_to_chapter left an existing Pending row in the reviewer's chapter as it was
+        # (add_member returns already_exists); the reviewer assigning it is the decision (#2064).
+        _activate_pending_chapter_memberships(member, chapter)
 
     # Get invoice and membership type docs for downstream steps
     invoice = None
