@@ -8,13 +8,18 @@ leave on that Member's behalf.
 Fixture note: the unlinked state is built by clearing Member.user with db_set (the state of a
 legacy record whose email matches a User); that is the state under test, not a stand-in for a
 flow. Callers are plain "Verenigingen Member" users, never Administrator, except the control.
+
+No test drives `Chapter.leave_chapter` (the whitelisted endpoint): measured on test_site_7, it
+answers success False ("Not allowed via controller permission check") even for the LINKED member
+with the Chapter Board Member profile, on develop code too, so an email-only caller's refusal there
+proves nothing. The manager-level leave tests carry the check.
 """
 
 import frappe
 
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter, leave_chapter
+from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter
 
 REFUSAL = "You don't have permission to perform this action"
 
@@ -36,6 +41,11 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
         member.db_set("status", "Active")
         self.create_test_user_with_roles(email=email, roles=["Verenigingen Member"])
         member.db_set("user", email if linked else None)
+        # Least-privileged caller that clears @high_security_api on the whitelisted endpoints (#1862);
+        # without a profile the tier gate refuses BEFORE the check under test runs.
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        assign_role_profile_to_user(email, "Verenigingen Chapter Board Member")
         return frappe._dict(member=member, user=email)
 
     def _chapter_member_row_2069(self, member):
@@ -45,14 +55,6 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
             ["status", "enabled"],
             as_dict=True,
         )
-
-    def _seat_in_chapter_2069(self, member, status="Active", enabled=1):
-        chapter = frappe.get_doc("Chapter", self.chapter.name)
-        chapter.append(
-            "members",
-            {"member": member.name, "member_name": member.full_name, "status": status, "enabled": enabled},
-        )
-        chapter.save()
 
     def test_join_refuses_user_matching_only_by_email(self):
         result = ChapterMembershipManager.join_chapter(
@@ -82,15 +84,12 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
 
     def test_join_via_whitelisted_endpoint_refuses_email_only_user(self):
         with self.as_user(self.unlinked.user):
-            try:
-                response = join_chapter(
-                    member_name=self.unlinked.member.name,
-                    chapter_name=self.chapter.name,
-                    introduction="hi",
-                )
-            except frappe.PermissionError:
-                response = {"success": False}
-        self.assertFalse(response["success"])
+            response = join_chapter(
+                member_name=self.unlinked.member.name,
+                chapter_name=self.chapter.name,
+                introduction="hi",
+            )
+        self.assertEqual(response, {"success": False, "added": False})
         self.assertIsNone(self._chapter_member_row_2069(self.unlinked.member))
 
     def test_linked_member_can_still_join(self):
@@ -114,7 +113,7 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
         self.assertTrue(result["success"], result)
 
     def test_leave_refuses_user_matching_only_by_email(self):
-        self._seat_in_chapter_2069(self.unlinked.member)
+        self.add_member_to_test_chapter(self.unlinked.member.name, self.chapter.name)
         result = ChapterMembershipManager.leave_chapter(
             member_id=self.unlinked.member.name,
             chapter_name=self.chapter.name,
@@ -126,22 +125,9 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
         row = self._chapter_member_row_2069(self.unlinked.member)
         self.assertEqual((row.status, row.enabled), ("Active", 1))
 
-    def test_leave_via_whitelisted_endpoint_refuses_email_only_user(self):
-        self._seat_in_chapter_2069(self.unlinked.member)
-        with self.as_user(self.unlinked.user):
-            try:
-                response = leave_chapter(
-                    member_name=self.unlinked.member.name, chapter_name=self.chapter.name, leave_reason="x"
-                )
-            except frappe.PermissionError:
-                response = {"success": False}
-        self.assertFalse(response["success"])
-        row = self._chapter_member_row_2069(self.unlinked.member)
-        self.assertEqual((row.status, row.enabled), ("Active", 1))
-
     def test_linked_member_can_still_leave(self):
         """Control: a row exists for the wrong behaviour to find, and the linked user leaves it."""
-        self._seat_in_chapter_2069(self.linked.member)
+        self.add_member_to_test_chapter(self.linked.member.name, self.chapter.name)
         result = ChapterMembershipManager.leave_chapter(
             member_id=self.linked.member.name,
             chapter_name=self.chapter.name,
@@ -150,4 +136,4 @@ class TestChapterMembershipManagerUserLink(EnhancedTestCase):
         )
         self.assertTrue(result["success"], result)
         row = self._chapter_member_row_2069(self.linked.member)
-        self.assertTrue(row is None or row.enabled == 0 or row.status != "Active", row)
+        self.assertEqual(row.enabled, 0)
