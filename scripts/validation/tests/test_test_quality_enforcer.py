@@ -721,8 +721,10 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # `frappe.flags.ignore_permissions = True` -- a real permission
         # bypass -- with nothing more than a comment); the count here is
         # unaffected since every annotated site used an enumerated name.
-        self.assertEqual(221, len(self.findings), "finding count moved")
-        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
+        # 221 -> 218 findings, 199 -> 197 keys (#2099): deleting the dead `tests/test_harness.py`
+        # removed its 3 baselined findings (2 DATABASE MOCK + 1 BUSINESS LOGIC MOCK, 2 keys).
+        self.assertEqual(218, len(self.findings), "finding count moved")
+        self.assertEqual(197, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them

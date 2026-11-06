@@ -170,8 +170,6 @@ verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_honors_canceled_status_from_mollie_data::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_no_subscription_status_change_without_subscription_id::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/test_delete_audit_selftest.py::DeleteAuditControl.test_5_negative_a_failed_pre_delete_read_is_unverifiable::DATABASE MOCK::2
-verenigingen/tests/test_harness.py::TestEnvironment._setup_frappe_mocks::DATABASE MOCK::2
-verenigingen/tests/test_harness.py::test_business_workflows::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_authorized_user_can_use_bypass_validations::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/unit/utils/test_security_utilities.py::TestSecureDocumentOperationAuthorization.test_unauthorized_user_cannot_request_escalation::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/utils/csv/test_base_csv_import.py::TestBeforeSubmitGuardIntegration.test_guard_prevents_docstatus_write::PERMISSION BYPASS::2
