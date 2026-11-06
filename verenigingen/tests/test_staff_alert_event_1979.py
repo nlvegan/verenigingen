@@ -456,7 +456,9 @@ class TestStaffAlertEvent(FrappeTestCase):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
         self.assertEqual(
-            set(marked), {SEEDED_KEY, "termination_overdue", INFO_KEY}, "control: all three keys were found"
+            set(marked),
+            {SEEDED_KEY, "termination_overdue", INFO_KEY, "mijnrood_disabled_default_type"},
+            "control: every literal-key call site was found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")

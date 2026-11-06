@@ -465,3 +465,125 @@ class TestApplyTimeSafetyNet(MijnRoodApplicationCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value(SUBMISSION, web_form, "status"), "Pending Review")
         self.assertEqual(len(self._members_of_email()), 1)
+
+
+ALERT_KEY = "mijnrood_disabled_default_type"
+
+
+class TestDisabledDefaultMembershipType(MijnRoodApplicationCase):
+    """#2094: the type MijnRood applications get is the site's default; when it is disabled the application
+    is still staged (maintainer ruling) and staff are told once, so a reviewer can pick a valid type.
+
+    Real flows throughout: the type is disabled through its own save, the New event is applied by the real
+    service, the alert is the real notify_administrators and is read back from Staff Alert Event rows
+    (MyISAM: they survive rollback, so every test removes its own in cleanup). Only SMTP is stubbed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.mijnrood_sync.services.event_application import application_sync_service as svc
+
+        from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
+        from verenigingen.tests.test_notification_registry_seed_1959 import _rows
+
+        # A site installed before the key existed has no row until migrate seeds it (#2037); seed the way
+        # migrate does and put the Single's rows back exactly as they were (singleton_backup skips child
+        # tables, #2029).
+        self._baseline_rows = [dict(r.as_dict()) for r in _rows().values()]
+        self.addCleanup(self._put_back_rows)
+        ensure_notification_registry_rows()
+        self._alert_claim = svc.disabled_type_alert_claim_key(self.membership_type.name)
+        frappe.cache.delete(self._alert_claim)
+        self.addCleanup(frappe.cache.delete, self._alert_claim)
+        self.addCleanup(self._delete_alert_events)
+
+    def _put_back_rows(self):
+        config = frappe.get_single("Verenigingen Email Configuration")
+        config.notification_types = []
+        for row in self._baseline_rows:
+            config.append(
+                "notification_types",
+                {k: v for k, v in row.items() if k not in ("name", "creation", "modified", "idx")},
+            )
+        config.save()
+
+    def _delete_alert_events(self):
+        # MyISAM: the delete is not transactional, so it needs no commit
+        frappe.db.delete("Staff Alert Event", {"notification_key": ALERT_KEY})
+
+    def _disable(self, membership_type):
+        doc = frappe.get_doc("Membership Type", membership_type.name)
+        doc.is_active = 0
+        doc.save()
+        self.assertEqual(frappe.db.get_value("Membership Type", membership_type.name, "is_active"), 0)
+
+    def _alerts(self):
+        return frappe.get_all(
+            "Staff Alert Event",
+            {"notification_key": ALERT_KEY},
+            ["name", "subject", "outcome", "recipient_count", "requires_action"],
+        )
+
+    def test_disabled_default_type_is_staged_with_that_type_and_one_alert(self):
+        self._disable(self.membership_type)
+
+        _application, name = self._stage()
+
+        record = frappe.get_doc(SUBMISSION, name)
+        self.assertEqual(record.status, "Pending Review")
+        self.assertEqual(record.membership_type, self.membership_type.name)
+        (alert,) = self._alerts()
+        self.assertIn(self.membership_type.name, alert.subject)
+        self.assertEqual(alert.outcome, "Delivered", alert)
+        self.assertEqual(alert.requires_action, 1)
+
+    def test_a_second_applicant_within_the_window_raises_no_second_alert(self):
+        self._disable(self.membership_type)
+        self._stage()
+        other = self._application_row(email=self._fresh_applicant_email())
+
+        _application, second = self._stage(other)
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, second, "status"), "Pending Review")
+        self.assertEqual(len(self._alerts()), 1)
+
+    def test_an_active_default_type_is_staged_with_no_alert(self):
+        _application, name = self._stage()
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "membership_type"), self.membership_type.name)
+        self.assertEqual(self._alerts(), [])
+
+    def test_a_changed_event_that_lands_on_a_disabled_default_type_alerts_too(self):
+        application, name = self._stage()
+        self.assertEqual(self._alerts(), [])
+        self._disable(self.membership_type)
+        event = self._sync_event("Changed", "admin_membership_application", dict(application, city="Zeist"))
+
+        result = self._apply_sync_event(event)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._alerts()), 1)
+
+    def test_a_blank_default_type_is_not_reported_as_disabled(self):
+        self._set_setting("default_membership_type", None)
+
+        self._stage()
+
+        self.assertEqual(self._alerts(), [])
+
+    def test_a_board_member_can_approve_the_staged_application_into_another_valid_type(self):
+        """Least-privileged real caller; the staged row's own type is the disabled one."""
+        other_type = self.factory.ensure_membership_type(
+            f"Approval Type B {frappe.generate_hash(length=6)}", {"amount": 25.00, "billing_period": "Monthly"}
+        )
+        other_type.get_or_create_membership_item()
+        self._disable(self.membership_type)
+        _application, name = self._stage()
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+
+        result = self._approve_as(name, user=board.user, membership_type=other_type.name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
+        (member,) = self._members_of_email()
+        self.assertEqual(member.status, "Active")

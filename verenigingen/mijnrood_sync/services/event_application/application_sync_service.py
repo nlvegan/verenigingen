@@ -36,6 +36,7 @@ from verenigingen.services.member.application.application_record import (
     record_external_application,
     update_pending_application,
 )
+from verenigingen.services.member.application.short_application_confirm import _type_is_active
 from verenigingen.utils.service_logger import get_service_logger
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.application_sync")
@@ -44,6 +45,14 @@ logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_applicat
 SUBMISSION = "Membership Application Submission"
 SOURCE = "MijnRood"
 APPLICATION_ID_PREFIX = "MR-APP-"
+DISABLED_TYPE_ALERT_KEY = "mijnrood_disabled_default_type"
+DISABLED_TYPE_REALERT_SECONDS = 24 * 3600
+
+
+def disabled_type_alert_claim_key(membership_type: str) -> str:
+    """The Redis key that holds the once-a-day claim for the disabled-type alert of one type."""
+    return frappe.cache.make_key(f"{DISABLED_TYPE_ALERT_KEY}:{membership_type}")
+
 
 # MijnRood row columns -> the application payload keys the member helpers read (the full form's shape).
 _PAYLOAD_FIELDS = (
@@ -59,6 +68,38 @@ _PAYLOAD_FIELDS = (
     "country",
     "iban",
 )
+
+
+def _send_disabled_type_alert(membership_type: str, application_name: str) -> bool:
+    """Raise the staff alert; True when at least one notification was actually created."""
+    from frappe.utils import escape_html
+
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    result = notify_administrators(
+        subject=f"MijnRood applications use a disabled membership type: {membership_type}",
+        message=(
+            f"<p>A MijnRood application ({escape_html(application_name)}) was staged with the membership "
+            f"type <b>{escape_html(membership_type)}</b>, the default set in Verenigingen Settings. "
+            "That type is disabled or no longer exists.</p>"
+            "<p>Action required: choose a valid membership type when you approve the application, and "
+            "change the default membership type in Verenigingen Settings. This alert repeats at most once "
+            "a day while the setting stays wrong.</p>"
+        ),
+        notification_key="mijnrood_disabled_default_type",  # literal: key discovery greps for it
+        document_type=SUBMISSION,
+        document_name=application_name,
+        event_reference=f"mijnrood_disabled_default_type:{membership_type}",
+        # ruling 2026-11-01: staff alerts never go to Administrator
+        exclude_users=["Administrator"],
+        staff_alert=True,
+    )
+    result = result or {}
+    return (
+        bool(result.get("success"))
+        and not result.get("skipped")
+        and bool(result.get("notifications_created"))
+    )
 
 
 class MijnRoodApplicationSyncService:
@@ -168,6 +209,7 @@ class MijnRoodApplicationSyncService:
         payload = self._application_payload(row_data, new_data.get("preferred_division_id"))
         name = record_external_application(SOURCE, payload["email"], payload, application_id)
         self.logger.info("Staged application %s from MijnRood row %s", name, new_data.get("id"))
+        self._alert_if_type_disabled(payload, name)
         return {
             "success": True,
             "message": _("Application created as {0} (pending review)").format(name),
@@ -225,7 +267,32 @@ class MijnRoodApplicationSyncService:
 
         payload = self._application_payload(row_data, new_data.get("preferred_division_id"))
         update_pending_application(application, payload)
+        self._alert_if_type_disabled(payload, application_name)
         return {"success": True, "message": _("Application {0} updated").format(application_name)}
+
+    def _alert_if_type_disabled(self, payload: dict, application_name: str) -> None:
+        """Tell staff once a day when the application sits on a membership type that is no longer active (#2094).
+
+        The type is the site's default (``_application_payload``), so it is the setting that is wrong, not
+        the applicant: the application is staged anyway (maintainer ruling) and the reviewer picks a valid
+        type at approval. A blank type is not "disabled" and is left alone. The alert must never undo the
+        staging, so a failure here is logged and swallowed.
+        """
+        membership_type = payload.get("selected_membership_type")
+        if not membership_type or _type_is_active(membership_type):
+            return
+        claim = disabled_type_alert_claim_key(membership_type)
+        try:
+            # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
+            if not frappe.cache.set(claim, "1", ex=DISABLED_TYPE_REALERT_SECONDS, nx=True):
+                return
+            delivered = _send_disabled_type_alert(membership_type, application_name)
+        except Exception:
+            frappe.cache.delete(claim)  # so the next application tries again
+            frappe.log_error(title="MijnRood disabled-type alert failed", message=frappe.get_traceback())
+            return
+        if not delivered:
+            frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
 
     def promote_application_member(
         self,
