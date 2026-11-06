@@ -65,7 +65,9 @@ def emit_event(
         # enqueue params -- they leaked into **kwargs and were forwarded to the
         # subscriber -- so deduplicate=True + a per-subscriber job_id are the real dedup.
         #
-        # NOTE: enqueue_after_commit is deliberately NOT the default here. It is correct for a
+        # NOTE: enqueue_after_commit is deliberately NOT the default here (opt in via
+        # after_commit; chapter membership events do, because their subscribers mail and
+        # grant roles for a state a rollback can undo, #2137). It is correct for a
         # single-purpose emitter (see invoice_events.py), but this generic emitter fans
         # out from many document hooks, and deferring dispatch to commit-time triggers a
         # reproducible order-dependence lock-timeout in the shared-process test shard

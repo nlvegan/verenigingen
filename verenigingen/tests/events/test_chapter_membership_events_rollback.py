@@ -114,7 +114,10 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
         self.assertEqual(self._welcome_mails(), [], "no welcome for a chapter the member is not in")
 
     def test_job_queued_for_a_join_is_held_until_commit(self):
-        """The enqueue itself: membership jobs wait for the commit, other chapter events do not."""
+        """The enqueue itself: membership jobs wait for the commit, other chapter events do not.
+
+        Pins the kwarg only; that a commit fires the jobs, a full rollback drops them and a
+        savepoint rollback keeps them was shown by a probe, not by this test."""
         jobs = self._capture_jobs(lambda: self._add_member())
         self.assertEqual(len(jobs), 3)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
@@ -179,34 +182,36 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
         self._run_jobs([j for j in jobs if j["method"].endswith("handle_member_role_updates")])
         self.assertTrue(self._has_role(user.name))
 
-    def test_refused_assign_with_cleanup_sends_no_farewell(self):
-        """#1793's own rollback: a refused move must leave no farewell or welcome behind.
+    def test_disabled_row_still_counts_as_joined(self):
+        """Pins develop's behaviour for a member whose row is disabled (#1842 is undecided).
 
-        A non-Active member is refused by the add AFTER the cleanup removed them from
-        their current chapter; everything rolls back, so they are still in it. Probe
-        shortcut: the status is set with db_set after joining, standing in for a
-        member who became Suspended.
+        Real flow: add_member(enabled=False) writes a Chapter Member row with enabled=0.
+        Its join job was welcomed and granted the role before #2137, and still is: the
+        re-check is on row EXISTENCE, so an `enabled=1` re-check would redden this.
         """
-        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
-
-        target = self.create_test_chapter(
-            chapter_name=f"Rollback Target {frappe.generate_hash(length=6)}",
-            postal_codes="1000-9999",
-            published=1,
-        )
-        self.assertTrue(self._add_member()["success"])
-        frappe.db.set_value("Member", self.member.name, "status", "Suspended")
-
-        result = {}
+        if not frappe.db.exists("Role", "Chapter Member"):
+            frappe.get_doc({"doctype": "Role", "role_name": "Chapter Member"}).insert()
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": f"rollback.dis.{frappe.generate_hash(length=6)}@test.invalid",
+                "first_name": "Disabled",
+                "send_welcome_email": 0,
+            }
+        ).insert()
+        self.track_doc("User", user.name)
+        frappe.db.set_value("Member", self.member.name, "user", user.name)  # probe shortcut: link only
+        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
         jobs = self._capture_jobs(
-            lambda: result.update(ChapterAssignmentService().assign_with_cleanup(self.member.name, target.name))
+            lambda: chapter_doc.member_manager.add_member(self.member.name, enabled=False, notify=False)
         )
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": self.chapter.name, "member": self.member.name}, "enabled"
+        )
+        self.assertEqual(row, 0, "precondition: the row exists and is disabled")
+        self.assertTrue(jobs, "precondition: the join was emitted")
 
-        self.assertFalse(result.get("success"), "precondition: the move was refused")
-        self.assertEqual(self._enabled_rows(), 1, "precondition: still in the old chapter")
-
-        # Whatever the refused move queued (today remove_member flips `enabled` without
-        # dropping the row, so the member-set diff emits nothing) must not mail anyone.
         self._run_jobs(jobs)
 
-        self.assertEqual(self._welcome_mails(), [], "no farewell: the member never left")
+        self.assertEqual(len(self._welcome_mails()), 1)
+        self.assertTrue(self._has_role(user.name))

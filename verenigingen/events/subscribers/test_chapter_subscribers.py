@@ -235,6 +235,7 @@ class TestChapterSubscribers(EnhancedTestCase):
         member, _user = self._make_member_with_user()
         self._persist_member_email(member, "bulkmember")
         chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)  # #2137: a join job needs the row it was queued for
         event = {"chapter": chapter.name, "member": member.name, "action": "joined"}
 
         with self._no_import_flags():
@@ -447,6 +448,7 @@ class TestChapterSubscribers(EnhancedTestCase):
         member, _user = self._make_member_with_user()
         email = self._persist_member_email(member, "welcome")
         chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)  # #2137: a join job needs the row it was queued for
         with self._no_import_flags():
             with self._patch_email_service() as svc:
                 with self._assert_no_swallowed_error():
@@ -458,6 +460,27 @@ class TestChapterSubscribers(EnhancedTestCase):
                 kwargs = self._send_kwargs(svc)
                 self.assertEqual(kwargs.get("notification_key"), "chapter_member_joined")
                 self.assertEqual(kwargs.get("recipients"), [email])
+
+    def test_membership_jobs_ignore_an_event_the_database_no_longer_backs(self):
+        """#2137 control for the fixtures above: no row -> no welcome and no role; a row ->
+        no farewell. Those fixtures used to hand-build events with no matching row, which
+        a rolled-back assignment also produces."""
+        self._ensure_role("Chapter Member")
+        member, user = self._make_member_with_user()
+        self._persist_member_email(member, "ghost")
+        chapter = self._new_chapter()
+        joined = {"chapter": chapter.name, "member": member.name, "action": "joined"}
+        with self._no_import_flags():
+            with self._patch_email_service() as svc:
+                cs.handle_membership_notifications("e", joined)
+                cs.handle_member_role_updates("e", joined)
+                svc.send_templated_email.assert_not_called()
+            self.assertNotIn("Chapter Member", [r.role for r in frappe.get_doc("User", user.name).roles])
+
+            self._setup_chapter_member(chapter, member)
+            with self._patch_email_service() as svc:
+                cs.handle_membership_notifications("e", {**joined, "action": "left"})
+                svc.send_templated_email.assert_not_called()
 
     def test_membership_notification_left_farewell(self):
         member, _user = self._make_member_with_user()
@@ -528,6 +551,7 @@ class TestChapterSubscribers(EnhancedTestCase):
         self._ensure_role("Chapter Member")
         member, user = self._make_member_with_user()
         chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)  # #2137: a join job needs the row it was queued for
         cs.handle_member_role_updates(
             "member.joined",
             {"chapter": chapter.name, "member": member.name, "action": "joined"},
@@ -549,6 +573,7 @@ class TestChapterSubscribers(EnhancedTestCase):
         self._grant_role_profile(user.name, "Verenigingen Volunteer")
 
         chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)  # #2137: a join job needs the row it was queued for
         cs.handle_member_role_updates(
             "member.joined",
             {"chapter": chapter.name, "member": member.name, "action": "joined"},
@@ -559,13 +584,16 @@ class TestChapterSubscribers(EnhancedTestCase):
         self._ensure_role("Chapter Member")
         member, user = self._make_member_with_user()
         chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)  # #2137: a join job needs the row it was queued for
         # First grant the role
         cs.handle_member_role_updates(
             "member.joined",
             {"chapter": chapter.name, "member": member.name, "action": "joined"},
         )
         self.assertIn("Chapter Member", [r.role for r in frappe.get_doc("User", user.name).roles])
-        # Now leave (member has no Chapter Member rows in any chapter)
+        # Now leave: the row is gone (#2137: a leave job needs the row's absence)
+        frappe.db.delete("Chapter Member", {"parent": chapter.name, "member": member.name})
+        self.assertFalse(frappe.db.exists("Chapter Member", {"parent": chapter.name, "member": member.name}))
         cs.handle_member_role_updates(
             "member.left",
             {"chapter": chapter.name, "member": member.name, "action": "left"},
@@ -581,10 +609,12 @@ class TestChapterSubscribers(EnhancedTestCase):
         chapter_b = self.create_test_chapter(chapter_name=f"Sub Chapter B {frappe.generate_hash(length=6)}")
         # Member belongs to chapter_b (enabled Chapter Member row)
         self._setup_chapter_member(chapter_b, member)
+        self._setup_chapter_member(chapter_a, member)  # #2137: a join job needs the row it was queued for
         cs.handle_member_role_updates(
             "member.joined",
             {"chapter": chapter_a.name, "member": member.name, "action": "joined"},
         )
+        frappe.db.delete("Chapter Member", {"parent": chapter_a.name, "member": member.name})
         # Leave chapter_a -> still in chapter_b -> role retained
         cs.handle_member_role_updates(
             "member.left",

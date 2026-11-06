@@ -351,19 +351,20 @@ def _membership_event_still_holds(chapter_name, member, action):
     """Whether the join/leave this job was queued for is still true (#2137).
 
     A rollback to a savepoint (assign_with_cleanup #1793, the MijnRood sync #2067) undoes
-    the Chapter Member row but not a job queued for it, so the job must check the row.
+    the Chapter Member row but not a job queued for it, so the job checks the row.
+    Row EXISTENCE, not `enabled`: whether a disabled row (a non-Active member) counts as
+    membership is #1842's product call, so this keeps develop's behaviour for it.
     An unknown action is left to the caller's own branches.
     """
-    in_chapter = bool(
+    row_exists = bool(
         frappe.db.exists(
-            "Chapter Member",
-            {"parent": chapter_name, "parenttype": "Chapter", "member": member, "enabled": 1},
+            "Chapter Member", {"parent": chapter_name, "parenttype": "Chapter", "member": member}
         )
     )
     if action == "joined":
-        return in_chapter
+        return row_exists
     if action == "left":
-        return not in_chapter
+        return not row_exists
     return True
 
 
