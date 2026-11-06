@@ -239,7 +239,8 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         from verenigingen.api.membership_application_review import _approve_membership_application_locked
 
         _approve_membership_application_locked(
-            member.name, member.selected_membership_type, None, None, True, False
+            member.name, member.selected_membership_type, None, None, True, False,
+            applied_chapter=self.test_chapter,
         )
 
         # Verify member was approved
