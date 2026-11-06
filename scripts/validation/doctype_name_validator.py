@@ -274,6 +274,8 @@ def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
     """
     known: dict[str, str] = {}
     # Same resolver as #1839: the checkout's own name comes from its pyproject.toml.
+    # None (no/unparseable pyproject.toml in the checkout) means no app matches, so every
+    # app, this one included, falls back to the bench's copy: the pre-#1903 behaviour.
     local_app = DocTypeLoader._local_app_name(REPO_ROOT)
     for app_name in REQUIRED_APPS:
         app_dir = REPO_ROOT if app_name == local_app else bench_apps / app_name
