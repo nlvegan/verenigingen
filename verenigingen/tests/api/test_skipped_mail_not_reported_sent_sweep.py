@@ -16,6 +16,7 @@ the notification methods read (not a persisted Membership Termination Request), 
 Mollie payment is a ``frappe._dict`` with the fields the notifier reads.
 """
 
+import re
 from unittest.mock import patch
 
 import frappe
@@ -62,7 +63,14 @@ class _Recorder:
         self._add("debug", msg)
 
     def sent_lines(self):
-        return [m for _lvl, m in self.lines if "sent" in m.lower()]
+        # Word boundary: "consent" / "present" must not count as "sent"
+        return [m for _lvl, m in self.lines if re.search(r"\bsent\b", m, re.I)]
+
+    def skip_lines(self):
+        return [(lvl, m) for lvl, m in self.lines if re.search(r"\bskipped\b", m, re.I)]
+
+    def bad_lines(self):
+        return [(lvl, m) for lvl, m in self.lines if lvl in ("warning", "error")]
 
 
 class TestSkippedMailNotReportedSent(VereningingenTestCase):
@@ -114,10 +122,15 @@ class TestSkippedMailNotReportedSent(VereningingenTestCase):
         self.assertTrue(rec.sent_lines(), "control: a real send is logged as sent")
 
         configure_notification_key(key, 0, 0)
+        errors = frappe.db.count("Error Log")
         with recorder_target() as rec:
             run()
         self.assertEqual(queued_mail_count(email), before + 1, "a skipped run must queue nothing")
         self.assertEqual(rec.sent_lines(), [], "a skipped mail must not be logged as sent")
+        # The opposite harm: a deliberate skip is neither an error nor a failure
+        self.assertEqual(frappe.db.count("Error Log"), errors, "a skip must not write an Error Log row")
+        self.assertEqual(rec.bad_lines(), [], "a skip must not be logged as a warning or error")
+        self.assertEqual([lvl for lvl, _m in rec.skip_lines()], ["info"], "one info line says it was skipped")
 
     class _swap_frappe_logger:
         # Mock justified: the logging boundary (see module docstring).

@@ -15,7 +15,10 @@ import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
-from verenigingen.tests.utils.reminder_mail_state import configure_notification_key
+from verenigingen.tests.utils.reminder_mail_state import (
+    configure_notification_key,
+    ensure_outgoing_email_account,
+)
 
 
 class TestCommunicationManagerCoverage(VereningingenTestCase):
@@ -132,6 +135,7 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
 
     def test_notify_board_of_member_joined_with_disabled_key_returns_false(self):
         """A skip (key disabled) queues nothing, so the 'was it queued' return must be False (#2096)."""
+        ensure_outgoing_email_account(self)
         self._enable_notifications()
         self._make_template("chapter_board_member_joined")
         own_notification_keys(self, "chapter_member_joined")

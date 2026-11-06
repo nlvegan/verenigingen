@@ -929,7 +929,7 @@ def _mail_information_request(application, info_needed) -> bool:
 
 
 def _notify_rejection_reporting_failure(application, sanitized) -> bool:
-    """Mail the applicant; False (and an Error Log row) when the mail failed or the service raised.
+    """Mail the applicant; False when the mail was skipped (no Error Log row), failed or the service raised (one).
 
     The rejection stays committed either way: the decision is made, a mail is a side effect, and rolling
     back would make the reviewer redo a decision because an SMTP-side service failed. The reviewer is told
@@ -945,6 +945,10 @@ def _notify_rejection_reporting_failure(application, sanitized) -> bool:
         frappe.log_error(
             title=f"Rejection mail raised for application {application.name}", message=frappe.get_traceback()
         )
+        return False
+    if result.skip_reason:
+        # Emails off, key disabled, cooldown or opt-out: nothing was sent, and that is not an error, but the
+        # reviewer must still be told the applicant got no mail (#2096)
         return False
     if result.success:
         return True

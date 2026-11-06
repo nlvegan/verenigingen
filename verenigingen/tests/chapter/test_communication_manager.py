@@ -23,7 +23,10 @@ import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
-from verenigingen.tests.utils.reminder_mail_state import configure_notification_key
+from verenigingen.tests.utils.reminder_mail_state import (
+    configure_notification_key,
+    ensure_outgoing_email_account,
+)
 
 
 class TestCommunicationManager(VereningingenTestCase):
@@ -288,6 +291,7 @@ class TestCommunicationManager(VereningingenTestCase):
     def test_send_chapter_newsletter_with_disabled_key_counts_nothing_as_sent(self):
         """EmailService reports a disabled key as a *successful* skip. The newsletter must not
         count that as sent, in the result it returns to the UI or in the chapter Comment."""
+        ensure_outgoing_email_account(self)  # else a send is refused, and the test passes vacuously
         self._make_email_template(name="chapter_newsletter")
         self._add_member_row(self.member)
         configure_notification_key("chapter_generic_notification", 0, 0)
@@ -304,9 +308,11 @@ class TestCommunicationManager(VereningingenTestCase):
             filters={"reference_doctype": "Chapter", "reference_name": self.chapter.name},
             pluck="content",
         )
+        self.assertIn("Newsletter sent: 'Skipped Subject' to 0 recipients", comments)
         self.assertFalse([c for c in comments if "to 1 recipients" in (c or "")], comments)
 
     def test_notify_board_member_added_with_disabled_key_returns_false(self):
+        ensure_outgoing_email_account(self)
         self._make_email_template(name="board_member_added")
         member, volunteer = self._make_volunteer(first="NotifyAddSkipped")
         configure_notification_key("chapter_board_added", 0, 0)
