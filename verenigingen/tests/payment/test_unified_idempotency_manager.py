@@ -160,7 +160,7 @@ class TestUnifiedIdempotencyManagerDB(FrappeTestCase):
     def test_pending_refund_detected_from_mollie(self):
         """A Mollie refund with no matching Payment Entry becomes a pending refund."""
         payment = _FakePayment(
-            refunds=[{"id": "re_pending1", "amount": {"value": "10.00"}, "createdAt": "2026-01-01"}]
+            refunds=[{"id": "re_pending1", "amount": {"value": "10.00"}, "createdAt": "2026-01-01", "status": "refunded"}]
         )
         client = _FakeMollieClient(payment=payment)
         result = PaymentIdempotencyCheckResult(self.payment_id)
@@ -347,7 +347,7 @@ class TestUnifiedIdempotencyManagerWildcardEscaping(_RefundFixtureMixin, Enhance
         self._make_refund_payment_entry(f"{payment_id_a}_refund_{refund_id}")
 
         payment = _FakePayment(
-            refunds=[{"id": refund_id, "amount": {"value": "10.00"}, "createdAt": "2026-01-01"}]
+            refunds=[{"id": refund_id, "amount": {"value": "10.00"}, "createdAt": "2026-01-01", "status": "refunded"}]
         )
         client = _FakeMollieClient(payment=payment)
         result = PaymentIdempotencyCheckResult(payment_id_b)
