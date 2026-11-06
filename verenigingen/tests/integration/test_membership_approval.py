@@ -41,6 +41,7 @@ def approve_core(
     notes=None,
     create_invoice=True,
     activate_as_volunteer=False,
+    applied_chapter=None,
 ):
     """Run the approval core on a Pending Member.
 
@@ -51,7 +52,8 @@ def approve_core(
     test_member_approval_permissions.
     """
     return _approve_membership_application_locked(
-        member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+        member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer,
+        applied_chapter=applied_chapter,
     )
 
 
@@ -228,6 +230,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                         member_name=member.name,
                         membership_type=self.membership_type.name,
                         chapter=self.chapter.name,
+                        applied_chapter=self.chapter.name,
                         notes="Integration test approval",
                         create_invoice=True
                     )
@@ -416,6 +419,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     member_name=member.name,
                     membership_type=self.membership_type.name,
                     chapter=self.chapter.name,
+                    applied_chapter=self.chapter.name,
                     notes="Round-3 control: leave-then-reapprove",
                     create_invoice=False,
                 )

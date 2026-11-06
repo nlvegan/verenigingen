@@ -97,26 +97,23 @@ def _sanitize_text_fields(text_fields):
     return sanitized
 
 
-def _activate_pending_chapter_memberships(member):
-    """Activate any Chapter Member rows that are 'Pending' for this member.
+def _activate_pending_chapter_memberships(member, applied_chapter):
+    """Activate the Pending Chapter Member row of the chapter the application was for.
 
-    The membership application form creates Chapter Member rows in status
-    ``Pending`` at submit time (when the applicant picks a chapter). On
-    approval, those rows must be flipped to ``Active`` so the member's
-    chapter assignment is real. The deprecated ``MemberLifecycleService``
-    had this step in ``_perform_post_approval_setup``; it now lives here
-    so the canonical approval path is behaviourally complete.
+    ``materialise_member`` writes that row Pending when the application names a chapter (since #1765 the
+    application form writes no row at submit time); approval flips it to ``Active`` so the member's chapter
+    assignment is real. Only that chapter's row is touched (#2064): a Pending row in any OTHER chapter is a
+    request that chapter's board has not decided (``request_to_join``), and approving an application does not
+    decide it. No applied chapter (the applicant named none) means nothing to activate.
 
-    Note on Chapter Member SQL: it is a child table on Chapter, so the
-    chapter name lives in ``parent`` (not in a ``chapter`` column).
-    Filtering by ``member`` + ``status='Pending'`` finds every pending row
-    for the member regardless of which chapter it belongs to - in practice
-    a member usually has at most one, but multi-chapter applications exist.
+    Note on Chapter Member SQL: it is a child table on Chapter, so the chapter name lives in ``parent``.
 
     Errors are logged but do not fail the approval - the membership and
     invoice have already been created at the call site, and a follow-up
     chapter manual activation is recoverable.
     """
+    if not applied_chapter:
+        return
     try:
         from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
@@ -124,9 +121,9 @@ def _activate_pending_chapter_memberships(member):
             """
             SELECT parent AS chapter
             FROM `tabChapter Member`
-            WHERE member = %s AND status = 'Pending'
+            WHERE member = %s AND parent = %s AND status = 'Pending'
             """,
-            (member.name,),
+            (member.name, applied_chapter),
             as_dict=True,
         )
         for row in pending:
@@ -166,8 +163,9 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        # already_exists is the ordinary case of approving with the applicant's own chapter (its
-        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # already_exists is the ordinary case of approving with the applicant's own chapter or a chapter
+        # holding the member's Pending row (add_member leaves that row; _activate_pending_chapter_memberships
+        # flips the applied and the reviewer's chapter afterwards), so only other outcomes are failures. The
         # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
         # nowhere anyone reads (#1797).
         if not result.get("success") and result.get("action") != "already_exists":
@@ -521,7 +519,7 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
 
 
 def _approve_membership_application_locked(
-    member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+    member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer, applied_chapter=None
 ):
     """Core approval logic, run by approve_application while it holds the per-application advisory lock.
 
@@ -604,13 +602,13 @@ def _approve_membership_application_locked(
         # member by validate_chapter_permission_or_throw.
         member.db_set("current_chapter", member.current_chapter, update_modified=False)
 
-    # Activate any pre-existing pending Chapter Member rows. The application
-    # form creates a Chapter Member row in status "Pending" when the applicant
-    # chooses a chapter at submit time. The deprecated MemberLifecycleService
-    # had this step; the canonical path needs it too so members don't lose
-    # their chapter assignment on approval. T4.1 §2.3 - ported here before
-    # the lifecycle service is deleted.
-    _activate_pending_chapter_memberships(member)
+    # Activate the Pending row materialise_member wrote for the application's own chapter; Pending rows
+    # in other chapters are undecided join requests and stay as they are (#2064).
+    _activate_pending_chapter_memberships(member, applied_chapter)
+    if chapter and chapter != applied_chapter:
+        # assign_member_to_chapter left an existing Pending row in the reviewer's chapter as it was
+        # (add_member returns already_exists); the reviewer assigning it is the decision (#2064).
+        _activate_pending_chapter_memberships(member, chapter)
 
     # Get invoice and membership type docs for downstream steps
     invoice = None
@@ -720,7 +718,13 @@ def _approve_application_locked(
             }
         )
         response = _approve_membership_application_locked(
-            member.name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+            member.name,
+            membership_type,
+            chapter,
+            notes,
+            create_invoice,
+            activate_as_volunteer,
+            applied_chapter=application.chapter,
         )
         if response.get("invoice_failed"):
             # Staff can retry only a marked application (#1900); create_invoice=False is never marked.

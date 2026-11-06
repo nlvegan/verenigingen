@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.utils.retry_utilities import (
     DEADLOCK_BASE_DELAY,
     DEADLOCK_MAX_RETRIES,
@@ -80,8 +81,8 @@ class TestWithDeadlockRetry(unittest.TestCase):
         self.assertEqual(result, "success")
         self.assertEqual(call_count, 1)
 
-    @patch("verenigingen.utils.retry_utilities.time.sleep")
-    def test_retries_on_deadlock_error(self, mock_sleep):
+    @patch_module_sleep("verenigingen.utils.retry_utilities")
+    def test_retries_on_deadlock_error(self, mock_time):
         """Should retry on deadlock error and eventually succeed"""
         call_count = 0
 
@@ -97,7 +98,7 @@ class TestWithDeadlockRetry(unittest.TestCase):
         self.assertEqual(result, "success")
         self.assertEqual(call_count, 3)
         # Should have slept twice (before retry 2 and 3)
-        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_time.sleep.call_count, 2)
 
     @patch("verenigingen.utils.retry_utilities.time.sleep")
     def test_raises_after_max_retries_exhausted(self, mock_sleep):
