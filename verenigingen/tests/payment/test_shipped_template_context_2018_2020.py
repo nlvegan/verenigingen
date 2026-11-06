@@ -78,10 +78,10 @@ class TestShippedTemplateContext(EnhancedTestCase):
         had_one = frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1})
         _outcomes.TestPaymentReminderOutcomes._ensure_outgoing_account(self)
         if not had_one:
-            self.addCleanup(self._remove_outgoing_account, "Test Outgoing")
+            self.addCleanup(self._cleanup_outgoing_account, "Test Outgoing")
 
     @staticmethod
-    def _remove_outgoing_account(name):
+    def _cleanup_outgoing_account(name):
         if frappe.db.exists("Email Account", name):
             frappe.delete_doc("Email Account", name, force=True, ignore_permissions=True)
         frappe.db.commit()  # the account was committed by nothing; but a rollback must not resurrect it
