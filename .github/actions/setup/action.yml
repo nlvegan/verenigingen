@@ -141,6 +141,38 @@ runs:
         path: /tmp/wkhtmltox.deb
         key: wkhtmltox-0.12.6.1-2-jammy-amd64
 
+    # The apt mirror is not down when a shard fails here, it is SLOW. Measured
+    # over 37 shards that failed `apt-get install` on 2026-11-06: the mirror was
+    # reachable and serving at ~25-45 kB/s, so the 13.6 MB install was still
+    # downloading when the 300 s backstop below killed it (7.6-13.3 MB fetched).
+    # Healthy shards of the same runs fetched the same 13.6 MB in 1-2 s. The
+    # wkhtmltopdf install pulls a further ~10 MB of fonts from the same mirror
+    # under its own 300 s budget, so trimming the package list alone would only
+    # move the failure one command later.
+    #
+    # So the .debs are cached and a warm shard fetches nothing from the mirror.
+    # Keyed per runner image and ISO week: within a week every shard restores
+    # the same set; a new week starts from the previous week's set (restore-keys)
+    # and only downloads what changed. Safe to reuse: apt checks every cached
+    # .deb against the hashes in the signed index it has just fetched, and
+    # re-downloads any that do not match, so a stale or bad file is never
+    # installed. Only `*.deb` is cached - apt's `partial/` subdirectory belongs to
+    # its sandbox user and would make the save step fail on an unreadable path.
+    - name: Compute apt archive cache key
+      id: apt-cache-key
+      shell: bash
+      run: |
+        echo "prefix=apt-archives-${ImageOS:-unknown}-" >> "$GITHUB_OUTPUT"
+        echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache apt archives
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/apt-archives/*.deb
+        key: ${{ steps.apt-cache-key.outputs.prefix }}${{ steps.apt-cache-key.outputs.week }}
+        restore-keys: |
+          ${{ steps.apt-cache-key.outputs.prefix }}
+
     - name: Install System Dependencies
       shell: bash
       run: |
@@ -163,6 +195,13 @@ runs:
         Acquire::http::Timeout "30";
         Acquire::https::Timeout "30";
         APTCONF
+
+        # Every apt invocation below downloads into, and reuses, the cached
+        # archive directory (see the "Cache apt archives" step).
+        APT_ARCHIVES="$HOME/.cache/apt-archives"
+        mkdir -p "$APT_ARCHIVES/partial"
+        echo "cached .debs restored: $(find "$APT_ARCHIVES" -maxdepth 1 -name '*.deb' | wc -l)"
+        echo "Dir::Cache::Archives \"$APT_ARCHIVES/\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archive-cache >/dev/null
 
         # Wall-clock backstop, after erpnext's run_ci_step()
         # (.github/helper/install.sh). Composite-action steps cannot take
@@ -192,12 +231,16 @@ runs:
 
         apt_get remove -y mysql-server mysql-client || true
 
+        # mariadb-client: this action calls `mariadb` to prepare the database.
+        # libmariadb-dev: frappe pins mysqlclient, which builds against it.
+        # Not installed, although frappe's CI template does: redis-server (Redis
+        # is the job's service containers; nothing here runs a host redis) and
+        # libcups2-dev (only pycups needs it, and no app in the bench depends on
+        # pycups). Those two pulled 29 of the 37 packages, 8.5 of the 13.3 MB.
         if ! apt_get install -y \
-          libcups2-dev \
-          redis-server \
           mariadb-client \
           libmariadb-dev; then
-          echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable or too slow from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
           exit 1
         fi
 
@@ -231,7 +274,17 @@ runs:
           exit 1
         fi
 
-        apt_get install -y "$WKHTMLTOX_DEB"
+        # Its font dependencies (~10 MB) come from the same mirror, so this
+        # install fails the same way as the one above and says so the same way.
+        if ! apt_get install -y "$WKHTMLTOX_DEB"; then
+          echo "::error::apt-get install of wkhtmltopdf's dependencies failed or timed out. The Ubuntu mirror is unreachable or too slow from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          exit 1
+        fi
+
+        # Drop superseded versions so the weekly cache does not keep growing.
+        # Local only: autoclean reads the index fetched above, no download.
+        apt_get autoclean -y || true
+        echo "cached .debs to save: $(find "$APT_ARCHIVES" -maxdepth 1 -name '*.deb' | wc -l)"
 
     - name: Initialize Bench Environment
       shell: bash
