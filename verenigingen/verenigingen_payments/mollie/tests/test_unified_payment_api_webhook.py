@@ -270,9 +270,14 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(captured.get("amount"), 12.50)
 
     def test_refund_route_passes_mollies_createdAt_as_the_reversal_date_2138(self):
-        """#2138: the route read ``created_at``, so a Mollie-shaped refund was booked on today's date."""
+        """#2138: the route read ``created_at``, so a Mollie-shaped refund was booked on today's date.
+
+        The payload is Mollie's real refund shape (docs.mollie.com/reference/get-refund): camelCase
+        ``paymentId`` and ``createdAt``. A ``payment_id`` key here would hide that the route did
+        not read ``paymentId`` and refused the refund as "Missing payment_id".
+        """
         payload = (
-            '{"resource":"refund","id":"re_date_1","payment_id":"tr_date_1",'
+            '{"resource":"refund","id":"re_date_1","paymentId":"tr_date_1",'
             '"amount":{"value":"5.00","currency":"EUR"},"createdAt":"2026-03-03T10:00:00+00:00"}'
         )
         SVC = (
@@ -285,6 +290,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         )
         with install_fake_request(payload), patch(AUTH_PATH), patch(SVC, return_value=fake):
             unified_payment_api.handle_refund_webhook()
+        self.assertEqual(captured.get("payment_id"), "tr_date_1", "the route must read Mollie's paymentId")
         self.assertEqual(captured.get("reversal_date"), "2026-03-03")
 
     def test_a_booking_failure_returns_500_so_mollie_retries(self):

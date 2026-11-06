@@ -94,7 +94,10 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
     top_id = _top_level_id(webhook_data)
 
     return {
-        "payment_id": _nested_id(webhook_data, "payment") or webhook_data.get("payment_id"),
+        # Mollie's refund and chargeback objects name the parent payment ``paymentId`` (#2138).
+        "payment_id": _nested_id(webhook_data, "payment")
+        or webhook_data.get("payment_id")
+        or webhook_data.get("paymentId"),
         "refund_id": (
             top_id
             if "refund" in resource
