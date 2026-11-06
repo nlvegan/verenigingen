@@ -63,7 +63,6 @@ verenigingen/api/donor_auto_creation_management.py::simulate_auto_creation::1
 verenigingen/api/donor_auto_creation_management.py::test_customer_eligibility::1
 verenigingen/api/donor_auto_creation_management.py::update_auto_creation_settings::1
 verenigingen/api/dues_invoice_workflow.py::generate_missing_invoices::1
-verenigingen/api/email_template_manager.py::create_comprehensive_email_templates::1
 verenigingen/api/email_template_manager.py::get_email_template::1
 verenigingen/api/email_template_manager.py::send_template_email::1
 verenigingen/api/fix_stuck_dues_schedule.py::check_and_notify_stuck_schedules::2
