@@ -333,10 +333,10 @@ def _is_outage(exc):
     """True for failures that say Ponto (or the path to it) is down or throttling.
 
     Classified on exception CLASSES, never message text, and from the ROOT CAUSE outward:
-    the first decisive exception wins. The client wrappers (``get_payment``,
-    ``get_payment_request``) catch everything and re-raise a fresh ``PontoAPIError`` WITHOUT
-    ``status_code`` (#1924), so the outermost exception always looks status-less; only the
-    root still says 404 or 503. This stays correct whether or not #1924 is ever fixed.
+    the first decisive exception wins. Since #1924 the client wrappers (``get_payment``,
+    ``get_payment_request``) let typed Ponto errors pass through unwrapped, so they keep their
+    ``status_code`` and subclass; only non-Ponto failures are wrapped (``PontoAPIError from e``,
+    status-less). The root-first walk still holds for both shapes.
 
     * outage: ``PontoRateLimitError`` (429), ``PontoAuthenticationError`` (401, the token is
       shared by every row; maintainer ruling), ``requests.RequestException`` (transport, and
@@ -345,8 +345,8 @@ def _is_outage(exc):
       three consecutive ones are needed to stop a run), ``ConnectionError``/``TimeoutError``,
       and a ``PontoAPIError`` with status >= 500;
     * data: a ``PontoAPIError`` with a lower status (404, 400, 422 ...) and anything
-      unrecognised, including a status-less ``PontoAPIError`` with nothing deeper (a parse
-      failure such as "Missing 'id'").
+      unrecognised, including a status-less ``PontoAPIError`` with nothing deeper (a wrapped
+      non-Ponto failure such as a parse error "Missing 'id'").
 
     Root-first matters: a handler that re-raises a different error while handling the first
     (the usual wrapper shape) leaves the root as the only honest witness.
@@ -362,8 +362,9 @@ def _is_outage(exc):
 
 
 def _is_not_found(exc):
-    """True when the root cause is a Ponto 404. Root-first, like ``_is_outage``: the client
-    wrappers re-raise a status-less ``PontoAPIError``, so only the root still knows the status."""
+    """True when the root cause is a Ponto 404. Root-first, like ``_is_outage``: typed Ponto
+    errors pass through the client wrappers unwrapped (#1924) and a wrapped non-Ponto failure
+    is status-less, so the first status found walking from the root is the honest one."""
     for e in reversed(list(_causes(exc))):
         if isinstance(e, PontoAPIError) and e.status_code is not None:
             return e.status_code == 404
