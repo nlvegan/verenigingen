@@ -499,35 +499,22 @@ class DuesScheduleCreationService(StatelessService):
             </p>
             """
 
-            # Role holders by user NAME; create_system_notification drops Administrator (#2107).
-            # (frappe.get_roles takes a user, not a role: the old query matched nobody.)
-            role_holders = frappe.get_all(
-                "Has Role",
-                filters={
-                    "role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]],
-                    "parenttype": "User",
-                },
-                pluck="parent",
-            )
-            admin_users = frappe.get_all(
-                "User",
-                filters={"enabled": 1, "user_type": "System User", "name": ["in", role_holders or [""]]},
-                pluck="name",
-            )
-            admin_users = admin_users[:5]  # Limit to 5 admins to avoid spam
+            # Configurable audience (registered key, admin roles as fallback); never the Administrator
+            # user, which is not in active use (#2107).
+            from verenigingen.utils.notification_helpers import notify_administrators
 
-            from verenigingen.utils.notification_helpers import create_system_notification
-
-            result = create_system_notification(
-                admin_users,
+            result = notify_administrators(
                 subject,
                 message,
+                notification_key="dues_schedule_creation_failed",
+                default_roles=list(Roles.ADMIN_PAIR),
+                exclude_users=("Administrator",),
+                staff_alert=True,
                 document_type="Membership",
                 document_name=membership_name,
-                from_user="Administrator",
             )
             self.logger.info(
-                f"[DUES SCHEDULE] Created {result['notifications_created']}/{len(admin_users)} failure alerts for {member_name}"
+                f"[DUES SCHEDULE] Created {result['notifications_created']} failure alerts for {member_name}"
             )
 
         except Exception as alert_error:

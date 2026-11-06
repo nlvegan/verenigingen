@@ -38,14 +38,14 @@ def _get_email_config_service():
         return None
 
 
-def get_financial_admin_emails(notification_key=None):
+def get_financial_admin_emails(notification_key=None, default_roles=None):
     """Get email addresses for financial administrators
 
     The shared staff resolver in key-first mode (utils.notification_helpers):
     1. the notification key's own recipients (Verenigingen Email Configuration)
     2. Email Configuration admin emails, only when configured
     3. Verenigingen Payments Settings.financial_admin_emails
-    4. enabled holders of the admin roles (Roles.ADMIN_PAIR)
+    4. enabled holders of ``default_roles`` (default: the admin roles, Roles.ADMIN_PAIR)
 
     The Administrator user is never a recipient (it is not in active use), and there is no
     literal fallback address (#2002). Recipients are resolved whatever the key's enabled state (EmailService skips a
@@ -56,10 +56,11 @@ def get_financial_admin_emails(notification_key=None):
         recipients = resolve_admin_recipients(
             notification_key=notification_key,
             extra_emails=_payments_settings_recipients(),
+            default_roles=default_roles,
             exclude_users=("Administrator",),
             key_first=True,
         )
-        reason = "no recipient is configured and no enabled user holds an admin role"
+        reason = "no recipient is configured and no enabled user holds the role"
     except Exception as e:
         recipients = []
         reason = f"the recipient lookup failed: {e}\n{frappe.get_traceback(with_context=False)}"

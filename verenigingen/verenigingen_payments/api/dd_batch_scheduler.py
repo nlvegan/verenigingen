@@ -9,7 +9,6 @@ from frappe.utils import add_days, add_to_date, get_weekday, getdate, now_dateti
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -27,6 +26,7 @@ from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
     _describe_what_was_lost,
     create_optimal_batches,
 )
+from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_financial_admin_emails
 
 
 def daily_batch_optimization():
@@ -394,7 +394,9 @@ def send_batch_creation_notification(result):
         # Get finance team members
         # The key's own recipients first (seeded: Financial Manager), then enabled Financial
         # Manager holders; never the Administrator user (#2093).
-        finance_emails = _resolve_batch_alert_recipients()
+        finance_emails = get_financial_admin_emails(
+            "sepa_batch_scheduler_alert", default_roles=[Roles.FINANCIAL_MANAGER]
+        )
 
         if not finance_emails:
             return
@@ -466,50 +468,6 @@ def send_batch_creation_notification(result):
 
     except Exception as e:
         frappe.log_error(f"Error sending batch notification: {str(e)}", "Batch Notification Error")
-
-
-def _resolve_batch_alert_recipients():
-    """Who the batch-creation alert goes to, for the email and the in-app notification alike.
-
-    Nobody resolving is not silent: one Error Log row per key per day (#2107, as #2093 did for the
-    sibling SEPA alerts)."""
-    recipients = resolve_admin_recipients(
-        notification_key="sepa_batch_scheduler_alert",
-        default_roles=[Roles.FINANCIAL_MANAGER],
-        exclude_users=("Administrator",),
-        key_first=True,
-    )
-    if not recipients:
-        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import _log_no_recipients_once
-
-        _log_no_recipients_once(
-            "sepa_batch_scheduler_alert", "no recipient is configured and no enabled user holds the role"
-        )
-    return recipients
-
-
-def create_system_notification(result):
-    """Create in-system notification for batch creation"""
-    try:
-        recipients = _resolve_batch_alert_recipients()
-        if not recipients:
-            return
-
-        # Recipients are emails; the helper addresses by User name and drops Administrator (#2107).
-        from verenigingen.utils.notification_helpers import create_system_notification as notify
-
-        batch_names = result.get("batch_names")
-        notify(
-            recipients,
-            f"Auto-created {result['batches_created']} DD batches",
-            f"{result['batches_created']} Direct Debit batches were created automatically and await review.",
-            document_type="Direct Debit Batch",
-            document_name=batch_names[0] if batch_names else None,
-            from_user="Administrator",
-        )
-
-    except Exception as e:
-        frappe.log_error(f"Error creating system notification: {str(e)}", "System Notification Error")
 
 
 @standard_api(operation_type=OperationType.REPORTING)

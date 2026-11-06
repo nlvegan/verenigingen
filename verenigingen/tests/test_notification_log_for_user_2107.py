@@ -33,7 +33,7 @@ from verenigingen.verenigingen_payments.utils.sepa_notification_manager import S
 KEY = "sepa_batch_scheduler_alert"
 
 
-def _log_users(subject):
+def _users_logged_2107(subject):
     return frappe.get_all("Notification Log", filters={"subject": subject}, pluck="for_user")
 
 
@@ -46,14 +46,14 @@ class _Base(EnhancedTestCase):
         frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
         self.suffix = frappe.generate_hash(length=6)
 
-    def _make_user(self, label, roles):
+    def _user_2107(self, label, roles):
         email = f"{label}-2107-{self.suffix}@example.org".lower()
         self.create_test_user(email, roles=roles)
         return email
 
     def _make_drifted_user(self, roles):
         """Probe shortcut (see module docstring): a user whose email differs from their name."""
-        name = self._make_user("drift", roles)
+        name = self._user_2107("drift", roles)
         drifted_email = f"other-2107-{self.suffix}@example.org"
         frappe.db.set_value("User", name, "email", drifted_email, update_modified=False)
         self.assertNotEqual(frappe.db.get_value("User", name, "email"), name, "control: email != name")
@@ -61,7 +61,7 @@ class _Base(EnhancedTestCase):
 
 
 class TestSepaNotificationManagerSystemChannel(_Base):
-    def _deliver(self, recipients):
+    def _deliver_2107(self, recipients):
         subject = f"sepa2107 {frappe.generate_hash(length=8)}"
         result = SEPANotificationManager()._create_system_notification(
             {"subject": subject, "message": "m"}, recipients, {}
@@ -69,21 +69,21 @@ class TestSepaNotificationManagerSystemChannel(_Base):
         return subject, result
 
     def test_every_recipient_form_lands_on_a_user_name_and_administrator_gets_none(self):
-        user = self._make_user("plain", [Roles.FINANCIAL_MANAGER])
+        user = self._user_2107("plain", [Roles.FINANCIAL_MANAGER])
         drifted_name, drifted_email = self._make_drifted_user([Roles.FINANCIAL_MANAGER])
-        subject, result = self._deliver([user, drifted_email, "Administrator", self.admin_email])
-        self.assertCountEqual(_log_users(subject), [user, drifted_name])
+        subject, result = self._deliver_2107([user, drifted_email, "Administrator", self.admin_email])
+        self.assertCountEqual(_users_logged_2107(subject), [user, drifted_name])
         self.assertTrue(result["success"], result)
         self.assertEqual(result["recipients_count"], 2, result)
 
     def test_only_administrator_creates_nothing(self):
-        subject, result = self._deliver(["Administrator", self.admin_email])
-        self.assertEqual(_log_users(subject), [])
+        subject, result = self._deliver_2107(["Administrator", self.admin_email])
+        self.assertEqual(_users_logged_2107(subject), [])
         self.assertFalse(result["success"], result)
 
 
 class TestAnalyticsAlertRuleSystemNotification(_Base):
-    def _rule(self, *recipients):
+    def _analytics_rule_2107(self, *recipients):
         rule = frappe.get_doc(
             {
                 "doctype": "Analytics Alert Rule",
@@ -105,44 +105,85 @@ class TestAnalyticsAlertRuleSystemNotification(_Base):
         return rule
 
     def test_recipients_by_name_reach_users_and_administrator_gets_none(self):
-        user = self._make_user("plain", [Roles.FINANCIAL_MANAGER])
+        user = self._user_2107("plain", [Roles.FINANCIAL_MANAGER])
         drifted_name, _ = self._make_drifted_user([Roles.FINANCIAL_MANAGER])
-        rule = self._rule(user, drifted_name, "Administrator")
+        rule = self._analytics_rule_2107(user, drifted_name, "Administrator")
         rule.send_notifications({"metric": "Total Members", "value": 5, "threshold": 0})
-        self.assertCountEqual(_log_users(f"Analytics Alert: {rule.rule_name}"), [user, drifted_name])
+        self.assertCountEqual(_users_logged_2107(f"Analytics Alert: {rule.rule_name}"), [user, drifted_name])
 
 
 class TestDuesScheduleFailureAlert(_Base):
-    def _alert(self):
-        member = f"MEM-2107-{self.suffix}"
-        DuesScheduleCreationService()._create_failure_alert(member, "MS-2107", "boom", "Validation", 3)
-        return f"Dues Schedule Creation Failed - {member}"
+    """The alert goes to the registered key's own audience (#2107, ruling of 2026-11-01), by User name."""
 
-    def _eligible(self):
-        holders = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]], "parenttype": "User"},
-            pluck="parent",
-        )
+    DUES_KEY = "dues_schedule_creation_failed"
+
+    def setUp(self):
+        super().setUp()
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        # A role made for this test: the audience is exactly its enabled holders, whatever the site holds.
+        self.role = f"Dues2107 {self.suffix}"
+        frappe.get_doc({"doctype": "Role", "role_name": self.role}).insert()
+        self.track_doc("Role", self.role)
+        _put_key_row(self.DUES_KEY, "Role-Based", recipient_roles=self.role)
+        self.member = f"MEM-2107-{self.suffix}"
+        self.membership = f"MS-2107-{self.suffix}"
+        self.subject = f"Dues Schedule Creation Failed - {self.member}"
+        self.addCleanup(frappe.db.delete, "Staff Alert Event", {"reference_name": self.membership})
+
+    def _raise_failure_alert_2107(self):
+        DuesScheduleCreationService()._create_failure_alert(self.member, self.membership, "boom", "Validation", 3)
+
+    def _event_outcomes(self):
         return frappe.get_all(
-            "User",
-            filters={"enabled": 1, "user_type": "System User", "name": ["in", holders or [""]]},
-            pluck="name",
+            "Staff Alert Event", filters={"reference_name": self.membership}, pluck="outcome"
         )
 
-    def test_the_alert_reaches_role_holders_and_not_administrator(self):
-        user = self._make_user("sysmgr", [Roles.SYSTEM_MANAGER])
-        eligible = self._eligible()
-        self.assertIn("Administrator", eligible, "control: Administrator is a candidate")
-        self.assertIn(user, eligible, "control: the fixture user is a candidate")
-        recipients = _log_users(self._alert())
-        self.assertNotIn("Administrator", recipients)
-        self.assertTrue(set(recipients) <= set(eligible), recipients)
-        # Capped at 5 (spam guard). The old query (frappe.get_roles(<role>)) matched nobody at all.
-        self.assertTrue(1 <= len(recipients) <= 5, recipients)
+    def test_exactly_the_key_audience_by_name_and_never_administrator(self):
+        plain = self._user_2107("dues", [self.role])
+        drifted_name, _ = self._make_drifted_user([self.role])
+        decoy = self._user_2107("decoy", [Roles.SYSTEM_MANAGER])
+        gone = f"dues-gone-2107-{self.suffix}@example.org"
+        self.create_test_user(gone, roles=[self.role], enabled=0)
+        admin = frappe.get_doc("User", "Administrator")
+        admin.append("roles", {"role": self.role})
+        admin.save()
+        self.addCleanup(frappe.db.delete, "Has Role", {"parent": "Administrator", "role": self.role})
+        holders = frappe.get_all("Has Role", filters={"role": self.role, "parenttype": "User"}, pluck="parent")
+        self.assertCountEqual(holders, [plain, drifted_name, gone, "Administrator"], "control: the audience")
+        self.assertIn(decoy, frappe.get_all("Has Role", filters={"role": Roles.SYSTEM_MANAGER}, pluck="parent"))
+        self._raise_failure_alert_2107()
+        self.assertCountEqual(_users_logged_2107(self.subject), [plain, drifted_name])
+        self.assertEqual(self._event_outcomes(), ["Delivered"])
+
+    def test_a_key_with_no_holders_falls_back_to_the_admin_roles_without_administrator(self):
+        decoy = self._user_2107("fallback", [Roles.SYSTEM_MANAGER])
+        expected = [
+            name
+            for name in frappe.get_all(
+                "User",
+                filters={"enabled": 1, "name": ["!=", "Administrator"]},
+                pluck="name",
+            )
+            if set(frappe.get_roles(name)) & set(Roles.ADMIN_PAIR)
+        ]
+        self.assertIn(decoy, expected, "control: the fixture user is eligible")
+        self._raise_failure_alert_2107()
+        self.assertCountEqual(_users_logged_2107(self.subject), expected)
+
+    def test_nobody_resolving_leaves_a_trace_not_silence(self):
+        """Staff Alert Event (MyISAM) is the trace: outcome 'No recipient', and the alert needs action."""
+        frappe.db.delete("Has Role", {"role": ["in", [self.role, *Roles.ADMIN_PAIR]]})
+        self._raise_failure_alert_2107()
+        self.assertEqual(_users_logged_2107(self.subject), [])
+        self.assertEqual(self._event_outcomes(), ["No recipient"])
+        self.assertEqual(
+            frappe.get_all("Staff Alert Event", filters={"reference_name": self.membership}, pluck="requires_action"),
+            [1],
+        )
 
 
-class TestDdBatchSchedulerSystemNotification(_Base):
+class TestDdBatchSchedulerRecipients(_Base):
     def setUp(self):
         super().setUp()
         rows = _snapshot_rows()
@@ -155,45 +196,24 @@ class TestDdBatchSchedulerSystemNotification(_Base):
         frappe.clear_cache(doctype="Verenigingen Payments Settings")
         _put_key_row(KEY, "Role-Based", recipient_roles=Roles.FINANCIAL_MANAGER)
         self.count = 7000 + int(self.suffix[:3], 16) % 1000
-        self.subject = f"Auto-created {self.count} DD batches"
 
-    def _result(self):
+    def _batch_result_2107(self):
         return {"batches_created": self.count, "total_invoices": 1, "batch_names": ["DD-2107"]}
 
     def _no_recipient_rows(self):
         return frappe.db.count("Error Log", {"method": sbn.NO_RECIPIENTS_LOG_TITLE})
-
-    def test_notifies_enabled_financial_managers_by_name_never_administrator_or_disabled(self):
-        finance = self._make_user("fm", [Roles.FINANCIAL_MANAGER])
-        gone = f"fm-gone-2107-{self.suffix}@example.org"
-        self.create_test_user(gone, roles=[Roles.FINANCIAL_MANAGER], enabled=0)
-        admin = frappe.get_doc("User", "Administrator")
-        admin.append("roles", {"role": Roles.FINANCIAL_MANAGER})
-        admin.save()
-        self.addCleanup(frappe.db.delete, "Has Role", {"parent": "Administrator", "role": Roles.FINANCIAL_MANAGER})
-        self.assertIn(
-            "Administrator",
-            frappe.get_all("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent"),
-            "control: Administrator holds the role",
-        )
-        sched.create_system_notification(self._result())
-        self.assertIn(finance, _log_users(self.subject))
-        self.assertNotIn("Administrator", _log_users(self.subject))
-        self.assertNotIn(gone, _log_users(self.subject))
 
     def test_nobody_resolving_leaves_one_error_log_row_not_silence(self):
         frappe.db.delete("Has Role", {"role": Roles.FINANCIAL_MANAGER})
         before = self._no_recipient_rows()
         self.expectErrorLog(sbn.NO_RECIPIENTS_LOG_TITLE)
         with self.assertErrorLog(sbn.NO_RECIPIENTS_LOG_TITLE):
-            sched.create_system_notification(self._result())
-        self.assertEqual(_log_users(self.subject), [])
+            sched.send_batch_creation_notification(self._batch_result_2107())
         self.assertEqual(self._no_recipient_rows(), before + 1)
 
-    def test_the_email_path_also_says_so_when_nobody_resolves(self):
+    def test_a_disabled_key_with_nobody_resolving_is_not_an_error(self):
+        _put_key_row(KEY, "Role-Based", recipient_roles=Roles.FINANCIAL_MANAGER, enabled=0)
         frappe.db.delete("Has Role", {"role": Roles.FINANCIAL_MANAGER})
         before = self._no_recipient_rows()
-        self.expectErrorLog(sbn.NO_RECIPIENTS_LOG_TITLE)
-        with self.assertErrorLog(sbn.NO_RECIPIENTS_LOG_TITLE):
-            sched.send_batch_creation_notification(self._result())
-        self.assertEqual(self._no_recipient_rows(), before + 1)
+        sched.send_batch_creation_notification(self._batch_result_2107())
+        self.assertEqual(self._no_recipient_rows(), before)

@@ -10,8 +10,7 @@ verenigingen/verenigingen_payments/api/dd_batch_scheduler.py has two layers:
 
 2. The ORCHESTRATION layer (covered here): daily_batch_optimization() and its
    advisory-lock wrapper, run_batch_creation_now(), get_batch_optimization_stats(),
-   and the notification builders (send_batch_creation_notification /
-   create_system_notification).
+   and the notification builder (send_batch_creation_notification).
 
 Tests run as Administrator (the test default), which satisfies the
 @critical_api / @require_sepa_permission gates.
@@ -302,7 +301,7 @@ class TestBatchOptimizationStats(_SchedulerOrchestrationBase):
 
 
 class TestSchedulerNotificationBuilders(_SchedulerOrchestrationBase):
-    """send_batch_creation_notification / create_system_notification.
+    """send_batch_creation_notification.
 
     These are best-effort side-channels wrapped in try/except - they must not
     raise even with a minimal result payload, and the email path is mocked at the
@@ -335,25 +334,15 @@ class TestSchedulerNotificationBuilders(_SchedulerOrchestrationBase):
     def test_send_batch_creation_notification_skips_when_no_audience(self):
         # With no finance-manager users, the builder must return before touching
         # the email service -- never construct a body or mail an empty recipient
-        # list. (Previously this asserted `assertTrue(x or not x)`, a tautology.)
-        frappe.db.delete("Has Role", {"role": self.FINANCE_ROLE})
-        with patch.object(sched, "get_email_service") as get_email:
-            sched.send_batch_creation_notification(self._minimal_result())
-        get_email.assert_not_called()
-
-    def test_create_system_notification_no_audience_creates_no_log(self):
-        # With no finance-manager users, create_system_notification must not
-        # create any Notification Log row. (Previously this asserted nothing.) The audience is the
-        # key's own recipients first (#2093), so pin the key's row to the role whose holders we delete;
-        # nobody resolving leaves one Error Log row (#2107).
+        # list. (Previously this asserted `assertTrue(x or not x)`, a tautology.) The audience is the
+        # key's own recipients first (#2093), so pin the key's row to the role whose holders we delete:
+        # a site whose row still holds the stock admin pair would otherwise resolve recipients (#2107).
         from verenigingen.tests.payment.test_sepa_literal_recipients import _put_key_row
 
         _put_key_row("sepa_batch_scheduler_alert", "Role-Based", recipient_roles=self.FINANCE_ROLE)
         frappe.db.delete("Has Role", {"role": self.FINANCE_ROLE})
         frappe.cache().delete_value("sepa_no_recipients_logged:sepa_batch_scheduler_alert")
-        before = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
         self.expectErrorLog("SEPA notification recipients")
-        with self.assertErrorLog("SEPA notification recipients"):
-            sched.create_system_notification(self._minimal_result())
-        after = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
-        self.assertEqual(after, before)
+        with patch.object(sched, "get_email_service") as get_email:
+            sched.send_batch_creation_notification(self._minimal_result())
+        get_email.assert_not_called()

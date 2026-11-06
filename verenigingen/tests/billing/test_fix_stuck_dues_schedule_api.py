@@ -243,12 +243,18 @@ class TestFixStuckDuesScheduleAPI(VereningingenTestCase):
         frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
         recipient = f"stuck-2107-{frappe.generate_hash(length=6)}@example.org"
         self.create_test_user(recipient, roles=["System Manager"])
+        # A user whose name differs from their email (Frappe forces name == email on save, so the column
+        # is written directly: probe shortcut). A writer that sets for_user=<email> fails the Link check.
+        drifted = f"stuck-drift-2107-{frappe.generate_hash(length=6)}@example.org"
+        drifted_email = f"stuck-other-2107-{frappe.generate_hash(length=6)}@example.org"
+        self.create_test_user(drifted, roles=["System Manager"])
+        frappe.db.set_value("User", drifted, "email", drifted_email, update_modified=False)
         previous = frappe.db.get_single_value("Verenigingen Settings", "stuck_schedule_notification_emails")
         self.addCleanup(
             frappe.db.set_single_value, "Verenigingen Settings", "stuck_schedule_notification_emails", previous
         )
         frappe.db.set_single_value(
-            "Verenigingen Settings", "stuck_schedule_notification_emails", f"{recipient},{admin_email}"
+            "Verenigingen Settings", "stuck_schedule_notification_emails", f"{recipient},{drifted_email},{admin_email}"
         )
         self._force_stuck(self._make_schedule(billing_frequency="Daily"))
         self.expectErrorLog("Stuck Schedule", "Enhanced Stuck Schedule Alert Sent")
@@ -260,7 +266,7 @@ class TestFixStuckDuesScheduleAPI(VereningingenTestCase):
             filters={"subject": ["like", "% Stuck Dues Schedules"], "creation": [">=", marker]},
             pluck="for_user",
         )
-        self.assertEqual(logs, [recipient])
+        self.assertCountEqual(logs, [recipient, drifted])
         self.assertEqual(
             frappe.db.count("Error Log", {"method": ["like", "Failed to create notification%"]}),
             errors_before,
