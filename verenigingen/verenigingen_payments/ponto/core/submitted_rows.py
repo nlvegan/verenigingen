@@ -305,6 +305,30 @@ UNBOOKABLE_DELIVERED_MARK = "PONTO-UNBOOKABLE-DELIVERED"
 UNBOOKABLE_BLOCKED_MARK = "PONTO-EXECUTED-BLOCKED"
 
 
+CONFLICT_MARKER = "PONTO-PAYMENT-ENTRY-CONFLICT"
+CONFLICT_TITLE = "Ponto payment executed but a Payment Entry conflicts"
+CONFLICT_UNDELIVERED_TITLE = "Ponto payment-entry-conflict alert was NOT DELIVERED to anyone"
+CONFLICT_DELIVERED_MARK = "PONTO-CONFLICT-DELIVERED"
+CONFLICT_BLOCKED_MARK = "PONTO-PAYMENT-ENTRY-CONFLICT-BLOCKED"
+
+_UNBOOKABLE_KIND = frappe._dict(
+    marker=UNBOOKABLE_MARKER,
+    title=UNBOOKABLE_TITLE,
+    undelivered_title=UNBOOKABLE_UNDELIVERED_TITLE,
+    delivered_mark=UNBOOKABLE_DELIVERED_MARK,
+    blocked_mark=UNBOOKABLE_BLOCKED_MARK,
+    subject="was paid at Ponto but cannot be booked",
+)
+_CONFLICT_KIND = frappe._dict(
+    marker=CONFLICT_MARKER,
+    title=CONFLICT_TITLE,
+    undelivered_title=CONFLICT_UNDELIVERED_TITLE,
+    delivered_mark=CONFLICT_DELIVERED_MARK,
+    blocked_mark=CONFLICT_BLOCKED_MARK,
+    subject="was paid at Ponto but a Payment Entry conflicts",
+)
+
+
 def alert_executed_unbookable(doc, reason):
     """Tell staff, once, that Ponto executed a payment this row may not book (#2125).
 
@@ -313,29 +337,6 @@ def alert_executed_unbookable(doc, reason):
     survives their pruning, and an alert nobody received is retried on every call but loudly logged
     ONCE. The row itself is never changed; a Comment records why it is blocked.
     """
-    frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
-    if _alert_state_exists(doc, UNBOOKABLE_DELIVERED_MARK):
-        return
-    notified = frappe.db.get_value(
-        "Notification Log",
-        {
-            "document_type": doc.doctype,
-            "document_name": doc.name,
-            "subject": ["like", f"{UNBOOKABLE_MARKER}%"],
-        },
-        "name",
-        for_update=True,
-    )
-    logged = frappe.db.exists(
-        "Error Log",
-        {"method": UNBOOKABLE_TITLE, "error": ["like", f"{UNBOOKABLE_MARKER}: {doc.doctype} {doc.name} %"]},
-    )
-    if notified:
-        _note_alert_state(doc, UNBOOKABLE_DELIVERED_MARK, "a Notification Log exists for this alert")
-        if logged:
-            return
-    _note_alert_state(doc, UNBOOKABLE_BLOCKED_MARK, f"Ponto reports EXECUTED; blocked: {reason}")
-
     details = (
         f"{UNBOOKABLE_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto "
         f"(EUR {flt(doc.amount):,.2f}, Ponto id {doc.ponto_payment_id}), but its Ponto account "
@@ -345,12 +346,56 @@ def alert_executed_unbookable(doc, reason):
         "itself. Do NOT also book the payment by hand; if you already did, enter the request name as "
         "the Payment Entry's Reference No so it is linked instead of booked twice."
     )
+    _alert_blocked_once(doc, _UNBOOKABLE_KIND, f"Ponto reports EXECUTED; blocked: {reason}", details)
+
+
+def alert_payment_entry_conflict(doc, reason, entries):
+    """Tell staff, once, that Ponto executed a payment whose Payment Entry situation is ambiguous
+    (#2125): a same-Reference entry that differs, a draft, or several. Nothing is booked and the
+    row is not changed, so the hourly poll does not write a new Error Log row each time."""
+    names = ", ".join(entries)
+    details = (
+        f"{CONFLICT_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto "
+        f"(EUR {flt(doc.amount):,.2f}, Ponto id {doc.ponto_payment_id}), but it cannot be booked "
+        f"safely: {reason}. Conflicting Payment Entr{'y' if len(entries) == 1 else 'ies'}: {names}. "
+        "No Payment Entry was made and the request was not changed. Action required: open the "
+        "Payment Entry named above and either correct it (party, amount, company, currency, "
+        "submit a draft) or cancel it, so exactly one matching entry carries this request name as "
+        "its Reference No. The next status refresh then links it, or books one if none is left."
+    )
+    _alert_blocked_once(doc, _CONFLICT_KIND, f"Ponto reports EXECUTED; blocked: {reason}", details)
+
+
+def _alert_blocked_once(doc, kind, block_text, details):
+    frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
+    if _alert_state_exists(doc, kind.delivered_mark):
+        return
+    notified = frappe.db.get_value(
+        "Notification Log",
+        {
+            "document_type": doc.doctype,
+            "document_name": doc.name,
+            "subject": ["like", f"{kind.marker}%"],
+        },
+        "name",
+        for_update=True,
+    )
+    logged = frappe.db.exists(
+        "Error Log",
+        {"method": kind.title, "error": ["like", f"{kind.marker}: {doc.doctype} {doc.name} %"]},
+    )
+    if notified:
+        _note_alert_state(doc, kind.delivered_mark, "a Notification Log exists for this alert")
+        if logged:
+            return
+    _note_alert_state(doc, kind.blocked_mark, block_text)
+
     delivery = {"skipped": "already notified"}
     if not notified:
         from verenigingen.utils.notification_helpers import notify_administrators
 
         delivery = notify_administrators(
-            subject=f"{UNBOOKABLE_MARKER}: {doc.doctype} {doc.name} was paid at Ponto but cannot be booked",
+            subject=f"{kind.marker}: {doc.doctype} {doc.name} {kind.subject}",
             message=f"<p>{escape_html(details)}</p>",
             notification_key="ponto_executed_unbookable",  # literal: key discovery greps for it
             document_type=doc.doctype,
@@ -359,8 +404,8 @@ def alert_executed_unbookable(doc, reason):
             staff_alert=True,
         )
         if delivery.get("notifications_created"):
-            _note_alert_state(doc, UNBOOKABLE_DELIVERED_MARK, "alert delivered")
-        elif not _undelivered_logged(doc, UNBOOKABLE_MARKER, UNBOOKABLE_UNDELIVERED_TITLE):
-            _log_undelivered(details, delivery, UNBOOKABLE_KEY, UNBOOKABLE_UNDELIVERED_TITLE)
+            _note_alert_state(doc, kind.delivered_mark, "alert delivered")
+        elif not _undelivered_logged(doc, kind.marker, kind.undelivered_title):
+            _log_undelivered(details, delivery, UNBOOKABLE_KEY, kind.undelivered_title)
     if not logged:
-        frappe.log_error(title=UNBOOKABLE_TITLE, message=f"{details}\nNotification: {delivery}")
+        frappe.log_error(title=kind.title, message=f"{details}\nNotification: {delivery}")

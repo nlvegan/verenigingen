@@ -35,6 +35,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
     alert_executed_on_cancelled_row,
     alert_executed_unbookable,
+    alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
     refuse_unless_system_update,
@@ -226,12 +227,8 @@ class PontoPaymentRequest(Document):
             new_status = map_request_status(payment.status) or self.status
             if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
                 return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
-            if (
-                new_status == "Executed"
-                and self.status != "Executed"
-                and self._alert_if_executed_unbookable()
-            ):
-                return {"status": self.status}  # paused account: staff alerted, doc untouched (#2125)
+            if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_blocked():
+                return {"status": self.status}  # blocked: staff alerted, doc untouched (#2125)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
@@ -421,35 +418,111 @@ class PontoPaymentRequest(Document):
                 title=_("Ponto Account Paused"),
             )
 
-    def _link_existing_payment_entry(self, party) -> bool:
+    def _alert_if_executed_blocked(self) -> bool:
+        """Paused mapping, or an ambiguous Payment Entry situation: alert staff, change nothing."""
+        return self._alert_if_executed_unbookable() or self._alert_if_payment_entry_conflict()
+
+    def _alert_if_payment_entry_conflict(self) -> bool:
+        """Ponto says EXECUTED and a same-Reference Payment Entry makes booking ambiguous (#2125).
+
+        Decided BEFORE the status moves, like the paused-mapping alert: a raise (or a return
+        inside the caller's savepoint) would roll the alert back or leave the row Executed with
+        no Payment Entry, and the hourly poll would write Error Log rows forever. Prerequisites
+        that cannot be resolved fall through to their own error."""
+        if self.payment_entry:
+            return False
+        logged = len(frappe.local.message_log)
+        try:
+            _, company, _, _, party = self._validate_payment_entry_prerequisites()
+        except frappe.ValidationError:
+            del frappe.local.message_log[logged:]
+            return False
+        verdict = self._payment_entry_verdict(party, company)
+        if verdict.action != "conflict":
+            return False
+        alert_payment_entry_conflict(self, verdict.reason, verdict.entries)
+        return True
+
+    def _payment_entry_verdict(self, party, company):
+        """Classify the Payment Entries that carry this request as Reference No (cancelled ones
+        are ignored): ``none`` (book), ``link`` (one matching submitted entry) or ``conflict``."""
+        entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": self.name, "docstatus": ["in", [0, 1]]},
+            fields=[
+                "name",
+                "docstatus",
+                "party",
+                "paid_amount",
+                "payment_type",
+                "company",
+                "paid_from_account_currency",
+            ],
+            order_by="creation asc, name asc",
+        )
+        names = [e.name for e in entries]
+        if not entries:
+            return frappe._dict(action="none", entries=[])
+        drafts = [e.name for e in entries if e.docstatus == 0]
+        if drafts:
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_(
+                    "a draft Payment Entry carries this request as its Reference No; booking "
+                    "beside it would double-book once the draft is submitted"
+                ),
+            )
+        if len(entries) > 1:
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_("more than one submitted Payment Entry carries this request as its Reference No"),
+            )
+        e = entries[0]
+        if (
+            e.party != party
+            or flt(e.paid_amount) != flt(self.amount)
+            or e.payment_type != "Pay"
+            or e.company != company
+            or e.paid_from_account_currency != self.currency
+        ):
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_(
+                    "the Payment Entry carrying this request as its Reference No differs in "
+                    "party, amount, payment type, company or currency"
+                ),
+            )
+        return frappe._dict(action="link", entries=names)
+
+    def _link_existing_payment_entry(self, party, company) -> bool:
         """Link, instead of booking again, a submitted Payment Entry that already carries this
         request as its Reference No (#2125).
 
         An executed payment on a paused account is not booked; staff may book it by hand while
         it is blocked. Once the pause clears, the next refresh would book it a second time.
-        Linking is right when party and amount match: the money is booked exactly once and the
-        request ends Executed. A same-Reference entry that does NOT match is neither safe to
-        link nor safe to book beside, so it is refused for a person to look at.
+        Linking is right when it matches exactly. Anything ambiguous was alerted before the
+        status moved (``_alert_if_payment_entry_conflict``); reaching it here means a race, so
+        it is refused rather than booked beside.
         """
-        existing = frappe.db.get_value(
-            "Payment Entry",
-            {"reference_no": self.name, "docstatus": 1},
-            ["name", "party", "paid_amount"],
-            as_dict=True,
-        )
-        if not existing:
+        verdict = self._payment_entry_verdict(party, company)
+        if verdict.action == "none":
             return False
-        if existing.party != party or flt(existing.paid_amount) != flt(self.amount):
+        if verdict.action == "conflict":
             frappe.throw(
                 _(
-                    "Payment Entry {0} already carries {1} as its Reference No but differs in party or "
-                    "amount. Not booking again; correct or cancel it first."
-                ).format(existing.name, self.name),
+                    "Payment Entry {0} already carries {1} as its Reference No but conflicts: {2}. "
+                    "Not booking again; correct or cancel it first."
+                ).format(", ".join(verdict.entries), self.name, verdict.reason),
                 title=_("Payment Entry Conflict"),
             )
-        self.payment_entry = existing.name
+        self.payment_entry = verdict.entries[0]
         self.save()
-        frappe.logger().info(f"Linked existing Payment Entry {existing.name} to Ponto payment {self.name}")
+        frappe.logger().info(
+            f"Linked existing Payment Entry {self.payment_entry} to Ponto payment {self.name}"
+        )
         return True
 
     @as_system_update
@@ -469,7 +542,7 @@ class PontoPaymentRequest(Document):
 
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
 
-        if self._link_existing_payment_entry(party):
+        if self._link_existing_payment_entry(party, company):
             return
 
         from erpnext.accounts.party import get_party_account
@@ -525,8 +598,8 @@ class PontoPaymentRequest(Document):
         if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
             return False  # cancelled row: finance alerted, doc untouched (#1848)
 
-        if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_unbookable():
-            return False  # paused account: staff alerted, doc untouched (#2125)
+        if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_blocked():
+            return False  # blocked: staff alerted, doc untouched (#2125)
 
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False

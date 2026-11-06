@@ -652,6 +652,36 @@ class TestStalePausesAreNotOverwritten(PontoIdentityBase):
             row = self._rows()["st-1"]
             self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
 
+    def test_fetch_does_not_overwrite_a_pause_set_while_it_runs(self):
+        """A pause landing during account creation (after the fetch loaded the mappings)."""
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+        from verenigingen.verenigingen_payments.ponto.utils import bank_account_creator as creator
+
+        with singleton_backup("Ponto Settings"):
+            ba = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [{"ponto_account_id": "st-1", "ponto_iban": "", "ponto_currency": "EUR",
+                  "bank_account": ba, "enabled": 1}]
+            )
+            real_create = creator.create_ponto_bank_account
+
+            def create_and_pause(*args, **kwargs):
+                PontoConfigurationService.pause_mapping("st-1", "Import refused: concurrent")
+                return real_create(*args, **kwargs)
+
+            client = MagicMock()
+            client.list_accounts.return_value = [_ponto_acct("st-1", "", "EUR"), _ponto_acct("st-2", "", "EUR", "New")]
+            settings = frappe.get_single("Ponto Settings")
+            with patch(TOKEN_MANAGER, return_value=MagicMock()), patch(
+                ACCOUNTS_CLIENT, return_value=client
+            ), patch.object(creator, "create_ponto_bank_account", side_effect=create_and_pause):
+                settings.fetch_ponto_accounts()
+            rows = self._rows()
+            self.assertEqual((rows["st-1"].enabled, rows["st-1"].sync_status), (0, "Paused"))
+            self.assertEqual(rows["st-2"].sync_status, "OK")
+
     def _create_committed_mapping(self):
         """Commit a mapping so a SEPARATE process sees it. Load-bearing, as in
         test_core_client_permission_oracle._create_test_login_password."""

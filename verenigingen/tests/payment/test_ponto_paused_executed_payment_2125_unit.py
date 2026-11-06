@@ -308,16 +308,18 @@ class TestExecutedPaymentIsNeverBookedTwice(_PontoPaymentRequestFixtures, Enhanc
         row = frappe.db.get_value("Ponto Payment Request", req.name, ["status", "payment_entry"], as_dict=True)
         self.assertEqual((row.status, row.payment_entry), ("Executed", pe))
 
-    def test_a_conflicting_entry_with_this_reference_is_refused_not_duplicated(self):
-        """Same Reference No but another amount: not safe to link, not safe to book again."""
+    def test_the_booking_backstop_refuses_a_conflicting_entry_if_a_race_reaches_it(self):
+        """The refresh path alerts before the status moves (TestPaymentEntryConflictAlert). This calls
+        ``create_payment_entry`` directly, as a race past that check would: it must still refuse to
+        link or to book beside a same-Reference entry that differs.
+
+        Probe shortcut, stated: the amount is rewritten with db.set_value on the hand-booked entry."""
         req, pe = self._hand_booked("Conflicting")
         frappe.db.set_value("Payment Entry", pe, "paid_amount", 54.0)
-        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
-            self.expectErrorLog(f"Ponto status refresh failed: {req.name}")
-            with self.assertRaises(frappe.ValidationError):
-                req.refresh_status()
+        with self.assertRaises(frappe.ValidationError):
+            req.create_payment_entry()
         self.assertEqual(self._entries(req), [pe])
-        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Signed")
+        self.assertFalse(frappe.db.get_value("Ponto Payment Request", req.name, "payment_entry"))
 
     def test_alert_text_says_resolve_the_pause_and_not_to_book_by_hand(self):
         self.expectErrorLog(MARKER, ALERT_TITLE)
@@ -350,3 +352,201 @@ class TestExecutedPaymentIsNeverBookedTwice(_PontoPaymentRequestFixtures, Enhanc
         )
         self.assertEqual(len(comments), 1, comments)
         self.assertIn("shared bank account X", comments[0])
+
+
+CONFLICT_MARKER = "PONTO-PAYMENT-ENTRY-CONFLICT"
+CONFLICT_TITLE = "Ponto payment executed but a Payment Entry conflicts"
+
+
+class TestPaymentEntryConflictAlert(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """F2/F3 (#2125, #1848, #1931): a same-Reference Payment Entry that is not exactly the one
+    this payment needs is ambiguous. Nothing is booked, the row stays as it is, and staff get ONE
+    loud alert -- not two Error Log rows every hourly poll. Driven through the real
+    ``refresh_status`` path; Payment Entries are real inserts/submits unless a test says otherwise."""
+
+    AMOUNT = 66.0
+
+    def tearDown(self):
+        PontoConfigurationService.clear_cache()
+        super().tearDown()
+
+    def _make_request(self, hint, amount=None):
+        return self._create_ponto_request(
+            self._create_supplier(hint), status="Signed", amount=amount or self.AMOUNT, track_priority=6
+        )
+
+    def _make_payment_entry(self, req, party=None, amount=None, submit=True):
+        """A real Payment Entry carrying ``req.name`` as Reference No (what staff would book by hand)."""
+        from erpnext.accounts.party import get_party_account
+
+        _, company, paid_from, party_type, req_party = req._validate_payment_entry_prerequisites()
+        party = party or req_party
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Pay"
+        pe.company = company
+        pe.party_type = party_type
+        pe.party = party
+        pe.paid_from = paid_from
+        pe.paid_to = get_party_account(party_type, party, company)
+        pe.mode_of_payment = "Bank Transfer"
+        pe.paid_from_account_currency = req.currency
+        pe.paid_to_account_currency = req.currency
+        pe.paid_amount = amount or req.amount
+        pe.received_amount = amount or req.amount
+        pe.reference_no = req.name
+        pe.reference_date = frappe.utils.today()
+        pe.insert()
+        if submit:
+            pe.submit()
+        self.factory.track_document("Payment Entry", pe.name, priority=6)
+        return pe
+
+    def _poll(self, req):
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.reload()
+            return req.refresh_status()
+
+    def _row(self, req):
+        return frappe.db.get_value("Ponto Payment Request", req.name, ["status", "payment_entry"], as_dict=True)
+
+    def _conflict_alerts(self, req):
+        return frappe.get_all(
+            "Notification Log",
+            filters={
+                "document_type": req.doctype,
+                "document_name": req.name,
+                "subject": ["like", f"{CONFLICT_MARKER}%"],
+            },
+            fields=["subject", "email_content", "for_user"],
+        )
+
+    def _error_logs(self):
+        return frappe.db.count("Error Log", {"method": CONFLICT_TITLE, "error": ["like", f"{CONFLICT_MARKER}%"]})
+
+    def _assert_one_alert_and_untouched(self, req, entry_names):
+        self.expectErrorLog(CONFLICT_MARKER, CONFLICT_TITLE, "Payment Entry Conflict")
+        errors_before = self._error_logs()
+        counts = []
+        for _ in range(3):
+            result = self._poll(req)
+            self.assertEqual(result["status"], "Signed")
+            counts.append(len(self._conflict_alerts(req)))
+        self.assertGreater(counts[0], 0, "staff must be alerted")
+        self.assertEqual(counts, [counts[0]] * 3, "3 polls must give exactly one alert")
+        self.assertLessEqual(self._error_logs() - errors_before, 1)
+        self.assertEqual(self._row(req), {"status": "Signed", "payment_entry": None})
+        alerts = self._conflict_alerts(req)
+        self.assertEqual(len({a.for_user for a in alerts}), len(alerts), "one per recipient")
+        text = alerts[0].subject + (alerts[0].email_content or "")
+        self.assertIn(req.name, text)
+        self.assertIn("66.00", text)
+        for name in entry_names:
+            self.assertIn(name, text)
+        self.assertIn("Action required", text)
+        self.assertEqual(
+            sorted(frappe.get_all("Payment Entry", filters={"reference_no": req.name, "docstatus": ["<", 2]}, pluck="name")),
+            sorted(entry_names),
+            "nothing was booked beside the existing entries",
+        )
+
+    def test_a_differing_amount_alerts_once_across_three_polls(self):
+        req = self._make_request("ConflictAmount")
+        pe = self._make_payment_entry(req, amount=self.AMOUNT - 1)
+        self._assert_one_alert_and_untouched(req, [pe.name])
+
+    def test_a_different_party_with_the_same_amount_is_a_conflict(self):
+        """F4 mutant: party check dropped -> this entry would be linked as if it were ours."""
+        req = self._make_request("PartyA")
+        other = self._create_supplier("PartyB")
+        pe = self._make_payment_entry(req, party=other.name)
+        self._assert_one_alert_and_untouched(req, [pe.name])
+
+    def test_the_poll_entry_point_alerts_the_same_way(self):
+        from verenigingen.verenigingen_payments.ponto.services.status_poll_service import _refresh_one
+
+        req = self._make_request("ConflictPoll")
+        pe = self._make_payment_entry(req, amount=self.AMOUNT - 1)
+        self.expectErrorLog(CONFLICT_MARKER, CONFLICT_TITLE)
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            self.assertEqual(_refresh_one("Ponto Payment Request", req.name), "ok")
+        self.assertTrue(self._conflict_alerts(req))
+        self.assertIn(pe.name, self._conflict_alerts(req)[0].email_content)
+        self.assertEqual(self._row(req), {"status": "Signed", "payment_entry": None})
+
+    def test_a_draft_entry_is_a_conflict_not_a_second_booking(self):
+        req = self._make_request("ConflictDraft")
+        draft = self._make_payment_entry(req, submit=False)
+        self.assertEqual(frappe.db.get_value("Payment Entry", draft.name, "docstatus"), 0)
+        self._assert_one_alert_and_untouched(req, [draft.name])
+
+    def test_two_submitted_entries_are_a_conflict_never_pick_first(self):
+        req = self._make_request("ConflictTwo")
+        first = self._make_payment_entry(req)
+        second = self._make_payment_entry(req)
+        self._assert_one_alert_and_untouched(req, [first.name, second.name])
+
+    def test_a_cancelled_entry_is_ignored_and_a_new_one_is_booked(self):
+        """F3 control + F4 mutant (docstatus filter dropped: the cancelled entry would be linked
+        or counted as a conflict)."""
+        req = self._make_request("ConflictCancelled")
+        old = self._make_payment_entry(req)
+        old.cancel()
+        result = self._poll(req)
+        self.assertEqual(result["status"], "Executed")
+        row = self._row(req)
+        self.assertEqual(row.status, "Executed")
+        self.assertTrue(row.payment_entry)
+        self.assertNotEqual(row.payment_entry, old.name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", row.payment_entry, "docstatus"), 1)
+        self.assertEqual(self._conflict_alerts(req), [])
+
+    def _assert_shortcut_field_is_a_conflict(self, hint, field, value):
+        """Probe shortcut, stated: the submitted entry is made by the real flow and ONE field is then
+        rewritten with db.set_value (a real Payment Entry of another type/company is not buildable
+        on the shared test company), so the claim is about the filter, not about reachability."""
+        req = self._make_request(hint)
+        pe = self._make_payment_entry(req)
+        frappe.db.set_value("Payment Entry", pe.name, field, value)
+        self._assert_one_alert_and_untouched(req, [pe.name])
+
+    def test_a_receive_entry_is_a_conflict(self):
+        self._assert_shortcut_field_is_a_conflict("ConflictType", "payment_type", "Receive")
+
+    def test_another_company_is_a_conflict(self):
+        self._assert_shortcut_field_is_a_conflict("ConflictCompany", "company", "_Other Co")
+
+    def test_another_paid_from_currency_is_a_conflict(self):
+        self._assert_shortcut_field_is_a_conflict("ConflictCurrency", "paid_from_account_currency", "USD")
+
+    def test_an_exact_match_is_still_linked_with_no_alert(self):
+        """Control: the tightened filter must not refuse the legitimate hand-booked entry."""
+        req = self._make_request("ConflictControl")
+        pe = self._make_payment_entry(req)
+        result = self._poll(req)
+        self.assertEqual(result["status"], "Executed")
+        self.assertEqual(self._row(req), {"status": "Executed", "payment_entry": pe.name})
+        self.assertEqual(self._conflict_alerts(req), [])
+
+
+class TestDeliveredMarkerSurvivesNotificationPruning(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """F4: the DELIVERED comment is what keeps an alert from being re-sent once its Notification
+    Log rows are pruned."""
+
+    def tearDown(self):
+        PontoConfigurationService.clear_cache()
+        super().tearDown()
+
+    def test_no_redelivery_after_the_notification_logs_are_deleted(self):
+        req = self._create_ponto_request(self._create_supplier("Pruned"), status="Signed", amount=31.0)
+        PontoConfigurationService.pause_mapping(self.TEST_PONTO_ACCOUNT_ID, "shared bank account X")
+        filters = {"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{MARKER}%"]}
+        with self.assertErrorLog(ALERT_TITLE), patch(
+            PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")
+        ):
+            req.refresh_status()
+        self.assertTrue(frappe.db.count("Notification Log", filters), "control: it was delivered")
+        frappe.db.delete("Notification Log", filters)
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.reload()
+            req.refresh_status()
+        self.assertEqual(frappe.db.count("Notification Log", filters), 0, "the alert was delivered again")
