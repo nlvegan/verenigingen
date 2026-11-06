@@ -252,13 +252,15 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
         )
 
         sent_count = 0
+        failed_count = 0
+        skipped_reasons = {}
 
         for agreement in agreements:
             days_remaining = frappe.utils.date_diff(agreement.end_date, today())
 
             try:
                 email_service = get_email_service()
-                email_service.send_simple_email(
+                result = email_service.send_simple_email(
                     recipients=[agreement.donor_email],
                     subject=_("Your Periodic Donation Agreement is Expiring Soon"),
                     message=get_renewal_reminder_email(agreement, days_remaining),
@@ -266,6 +268,19 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                     reference_name=agreement.name,
                     notification_key="periodic_donation_expiry",
                 )
+
+                # A skip (cooldown, disabled key, opt-out) or a failed queueing is not a
+                # send: do not log it as sent or count it (#2044)
+                if result.skip_reason:
+                    skipped_reasons[result.skip_reason] = skipped_reasons.get(result.skip_reason, 0) + 1
+                    continue
+                if not result.success:
+                    failed_count += 1
+                    frappe.log_error(
+                        title="Agreement Renewal Reminder Not Sent",
+                        message=f"{agreement.agreement_number}: {result.error_message}",
+                    )
+                    continue
 
                 # Log the reminder (frappe has no module-level add_comment; it is a
                 # Document method)
@@ -277,6 +292,7 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                 sent_count += 1
 
             except Exception as e:
+                failed_count += 1
                 frappe.log_error(
                     f"Failed to send renewal reminder for {agreement.agreement_number}: {str(e)}\n{traceback.format_exc()}",
                     "Agreement Renewal Reminder Error",
@@ -287,8 +303,13 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
         return OperationResult.ok(
             {
                 "sent_count": sent_count,
+                "skipped_count": sum(skipped_reasons.values()),
+                "failed_count": failed_count,
+                "skipped_reasons": skipped_reasons,
             },
-            message=_("{0} renewal reminders sent").format(sent_count),
+            message=_("{0} renewal reminders sent, {1} skipped, {2} failed").format(
+                sent_count, sum(skipped_reasons.values()), failed_count
+            ),
         )
 
     except Exception as e:

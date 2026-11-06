@@ -37,7 +37,6 @@ verenigingen/api/anbi_operations.py::export_belastingdienst_report::1
 verenigingen/api/anbi_operations.py::generate_anbi_report::1
 verenigingen/api/anbi_operations.py::get_anbi_statistics::1
 verenigingen/api/anbi_operations.py::get_donor_anbi_data::1
-verenigingen/api/anbi_operations.py::send_consent_requests::2
 verenigingen/api/anbi_operations.py::update_anbi_consent::1
 verenigingen/api/anbi_operations.py::update_donor_tax_identifiers::1
 verenigingen/api/anbi_operations.py::validate_bsn::1
