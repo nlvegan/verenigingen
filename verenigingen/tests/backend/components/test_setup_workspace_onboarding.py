@@ -308,9 +308,9 @@ class TestSetupWorkspace(FrappeTestCase):
         Appends real Workspace Link rows (probe shortcut: rows added directly, not
         through the install flow) inside a savepoint that is rolled back after.
         """
-        report = frappe.db.get_value("Report", {"ref_doctype": "Member"}, "name") or frappe.db.get_value(
-            "Report", {}, "name"
-        )
+        # A Member report: its name never collides with a DocType, which the
+        # "doctype named as report" control below relies on.
+        report = frappe.db.get_value("Report", {"ref_doctype": "Member"}, "name")
         page = frappe.db.get_value("Page", {}, "name")
         self.assertTrue(report and page, "site must have a Report and a Page to link to")
 
@@ -327,6 +327,9 @@ class TestSetupWorkspace(FrappeTestCase):
             # not as the type the link claims.
             "T2151 drop report named as doctype": ("Report", "Member"),
             "T2151 drop doctype named as report": ("DocType", report),
+            # No blank-link_type probe: Workspace.save refuses a link_to without a link_type
+            # ("Link Type must be set first"), so that row cannot exist in a saved workspace.
+            # The cleanup's blank -> DocType default only ever meets Card Breaks without link_to.
         }
         # Workspace.save validates links, so dangling rows go in below the controller.
         for idx, (label, (link_type, link_to)) in enumerate(probes.items(), start=1000):
