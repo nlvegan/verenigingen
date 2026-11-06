@@ -200,16 +200,30 @@ class TestSingletonBackupTwoTablesOfOneChildDoctype(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        # The site's own rows cannot be relied on: a fresh install (CI) has an EMPTY
+        # settings_dropdown. So this class backs up whatever is there, seeds two rows in each
+        # table itself, and the outer backup's restore (which commits) puts the site back as found.
+        outer = SingletonBackup(NAVBAR)
+        outer.backup()
+        self.addCleanup(outer.restore)
+        for fieldname in NAVBAR_FIELDS:
+            for i in range(2):
+                frappe.get_doc(
+                    {
+                        "doctype": "Navbar Item",
+                        "name": frappe.generate_hash(length=10),
+                        "parent": NAVBAR,
+                        "parenttype": NAVBAR,
+                        "parentfield": fieldname,
+                        "idx": 1000 + i,
+                        "item_label": f"T2091 {fieldname} {i}",
+                        "item_type": "Route",
+                        "route": "/app",
+                    }
+                ).db_insert()
         self._snapshot = {f: _navbar_rows(f) for f in NAVBAR_FIELDS}
         for fieldname in NAVBAR_FIELDS:
-            self.assertGreater(len(self._snapshot[fieldname]), 0, f"precondition: {fieldname} has rows")
-        self.addCleanup(self._put_site_back)
-
-    def _put_site_back(self):
-        frappe.db.delete("Navbar Item", {"parent": NAVBAR})
-        for fieldname in NAVBAR_FIELDS:
-            for row in self._snapshot[fieldname]:
-                frappe.get_doc({**row, "doctype": "Navbar Item"}).db_insert()
+            self.assertGreaterEqual(len(self._snapshot[fieldname]), 2, f"precondition: {fieldname} has rows")
 
     def test_both_tables_of_a_shared_child_doctype_come_back_whole(self):
         with singleton_backup(NAVBAR):
