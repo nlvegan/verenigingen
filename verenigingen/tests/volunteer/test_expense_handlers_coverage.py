@@ -356,18 +356,26 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
                 eh.notify_expense_approvers(ec)
             svc.send_simple_email.assert_called_once()
             recipients = svc.send_simple_email.call_args.kwargs.get("recipients")
-            self.assertEqual(len(recipients), 1)
-            # The recipient must be a real email belonging to a user holding the
-            # (correctly-spelled) Verenigingen Administrator role.
-            recipient_user = frappe.db.get_value("User", {"email": recipients[0]}, "name")
-            self.assertIsNotNone(recipient_user, recipients)
-            self.assertTrue(
-                frappe.db.exists(
-                    "Has Role",
-                    {"parent": recipient_user, "role": "Verenigingen Administrator", "parenttype": "User"},
-                ),
-                "fallback recipient must hold the Verenigingen Administrator role",
-            )
+            # #2095: the fallback reaches EVERY enabled holder (the key's seeded row names the admin
+            # pair), not an arbitrary first Verenigingen Administrator, and never Administrator.
+            self.assertTrue(recipients)
+            self.assertEqual(len(recipients), len(set(recipients)))
+            self.assertNotIn("Administrator", recipients)
+            for email in recipients:
+                recipient_user = frappe.db.get_value("User", {"email": email}, "name")
+                self.assertIsNotNone(recipient_user, email)
+                self.assertNotEqual(recipient_user, "Administrator")
+                self.assertTrue(
+                    frappe.db.exists(
+                        "Has Role",
+                        {
+                            "parent": recipient_user,
+                            "role": ["in", ["Verenigingen Administrator", "System Manager"]],
+                            "parenttype": "User",
+                        },
+                    ),
+                    "fallback recipient must hold an admin role",
+                )
 
     def test_notify_department_approver_fallback(self):
         """No employee approver, but the employee's Department has an expense
@@ -415,7 +423,10 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
             self.skipTest("No Company")
         # Transaction-local: removes the tier-3 fallback for this test only; the
         # FrappeTestCase rollback restores every Has Role row at tearDown.
-        frappe.db.delete("Has Role", {"role": "Verenigingen Administrator", "parenttype": "User"})
+        # #2095: the fallback is the key's admin pair, so System Manager holders go too.
+        frappe.db.delete(
+            "Has Role", {"role": ["in", ["Verenigingen Administrator", "System Manager"]], "parenttype": "User"}
+        )
         emp = self._make_employee(company)  # no expense_approver, no department
         ec = self._make_expense_claim(emp, company)
         with self._patch_email_service() as svc:

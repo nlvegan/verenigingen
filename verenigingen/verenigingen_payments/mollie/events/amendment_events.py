@@ -7,6 +7,7 @@ Event-driven handlers for syncing Mollie subscriptions when membership amendment
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 
 
 def _sync_status_update_for_result(result):
@@ -127,16 +128,13 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         member = frappe.get_doc("Member", membership.member)
 
         # Get administrator emails
-        admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER]
-
-        admin_emails = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", admin_roles], "parenttype": "User"},
-            fields=["parent"],
-            distinct=True,
+        # The key's own recipients first, then enabled holders' emails; never Administrator (#2095).
+        recipients = resolve_admin_recipients(
+            notification_key="contribution_sync_failed",
+            default_roles=[Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER],
+            exclude_users=("Administrator",),
+            key_first=True,
         )
-
-        recipients = [admin["parent"] for admin in admin_emails]
 
         if not recipients:
             frappe.logger().warning("No administrators found to notify about Mollie sync issue")
