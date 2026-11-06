@@ -372,6 +372,85 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self._retry(application)
         self.assertFalse(self._marker(application), "a successful retry clears the marker")
 
+    def _give_the_applicant_a_user(self):
+        """An existing User makes the core's account step link it and COMMIT (the commit under test)."""
+        user_doc = frappe.get_doc(
+            {"doctype": "User", "email": self.email, "first_name": "Marker", "send_welcome_email": 0}
+        ).insert()  # as the suite's Administrator
+        self.track_doc("User", user_doc.name)
+
+    def _approve_failing_after_the_core_commit(self, application, user=None):
+        """Approve (invoice broken) and fail AFTER the core's own commit, then drop everything uncommitted.
+
+        The core's account step really commits (member_user_account_service links an EXISTING User and
+        commits, Pattern 1), so the applicant gets a User first. The later failure stands in for a crash or a
+        worker kill: `_build_approval_response` runs after that commit. Then `frappe.db.rollback()` discards
+        what a dying request would lose, so the reads that follow see only what was COMMITTED."""
+        from verenigingen.api import membership_application_review as review
+
+        self._give_the_applicant_a_user()
+        self._make_invoicing_fail()
+        # Mock justified: execution-context fault injection standing in for a crash after the core's commit
+        with patch.object(review, "_build_approval_response", side_effect=RuntimeError("crash after commit")):
+            with self.assertRaises(RuntimeError):
+                self._approve_as(
+                    application,
+                    user=user,
+                    create_invoice=True,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                )
+        frappe.db.rollback()
+
+    def _assert_committed_approved_and_marked(self, application):
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, application, "status"),
+            "Approved",
+            "control: the core's commit really persisted the approval, so the crash fell AFTER it",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", frappe.db.get_value(SUBMISSION, application, "member"), "user"),
+            self.email,
+            "control: the account step's own commit is the one that ran",
+        )
+        self.assertTrue(
+            self._marker(application),
+            "an Approved application with a failed invoice must carry its retry marker in the DATABASE",
+        )
+
+    def test_the_marker_is_committed_with_the_approval_even_if_the_request_dies_after_the_core_commit(self):
+        """#2055: the marker used to be written after the core returned, i.e. after the core's mid-operation
+        commit, so a failure in between left Approved + failed invoice + NO marker (never in the retry list)."""
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application)
+        self._assert_committed_approved_and_marked(application)
+
+    def test_the_marker_survives_the_same_crash_for_the_least_privileged_approver(self):
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application, user=board.user)
+        self._assert_committed_approved_and_marked(application)
+
+    def test_a_crash_after_the_core_commit_does_not_mark_an_approval_without_a_requested_invoice(self):
+        """Control: the early marker is only for a REQUESTED invoice that failed (create_invoice=False is
+        never marked), so the fix cannot be 'always mark'."""
+        from verenigingen.api import membership_application_review as review
+
+        application = self._stage_and_confirm()
+        self._give_the_applicant_a_user()
+        # Mock justified: execution-context fault injection standing in for a crash after the core's commit
+        with patch.object(review, "_build_approval_response", side_effect=RuntimeError("crash after commit")):
+            with self.assertRaises(RuntimeError):
+                self._approve_as(
+                    application,
+                    create_invoice=False,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                )
+        frappe.db.rollback()
+        self.assertEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertFalse(self._marker(application))
+
     def test_a_failed_retry_keeps_the_marker(self):
         application, _member = self._approved_with_failed_invoice()  # invoicing stays broken
         self._retry(application)
