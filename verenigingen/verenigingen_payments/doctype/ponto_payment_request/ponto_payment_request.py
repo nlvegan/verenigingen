@@ -433,17 +433,17 @@ class PontoPaymentRequest(Document):
             return False
         logged = len(frappe.local.message_log)
         try:
-            _, company, _, _, party = self._validate_payment_entry_prerequisites()
+            _, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
         except frappe.ValidationError:
             del frappe.local.message_log[logged:]
             return False
-        verdict = self._payment_entry_verdict(party, company)
+        verdict = self._payment_entry_verdict(party, company, paid_from, party_type)
         if verdict.action != "conflict":
             return False
         alert_payment_entry_conflict(self, verdict.reason, verdict.entries)
         return True
 
-    def _payment_entry_verdict(self, party, company):
+    def _payment_entry_verdict(self, party, company, paid_from, party_type):
         """Classify the Payment Entries that carry this request as Reference No (cancelled ones
         are ignored): ``none`` (book), ``link`` (one matching submitted entry) or ``conflict``."""
         entries = frappe.get_all(
@@ -452,7 +452,9 @@ class PontoPaymentRequest(Document):
             fields=[
                 "name",
                 "docstatus",
+                "party_type",
                 "party",
+                "paid_from",
                 "paid_amount",
                 "payment_type",
                 "company",
@@ -481,7 +483,9 @@ class PontoPaymentRequest(Document):
             )
         e = entries[0]
         if (
-            e.party != party
+            e.party_type != party_type
+            or e.party != party
+            or e.paid_from != paid_from
             or flt(e.paid_amount) != flt(self.amount)
             or e.payment_type != "Pay"
             or e.company != company
@@ -492,12 +496,12 @@ class PontoPaymentRequest(Document):
                 entries=names,
                 reason=_(
                     "the Payment Entry carrying this request as its Reference No differs in "
-                    "party, amount, payment type, company or currency"
+                    "party, paying bank account, amount, payment type, company or currency"
                 ),
             )
         return frappe._dict(action="link", entries=names)
 
-    def _link_existing_payment_entry(self, party, company) -> bool:
+    def _link_existing_payment_entry(self, party, company, paid_from, party_type) -> bool:
         """Link, instead of booking again, a submitted Payment Entry that already carries this
         request as its Reference No (#2125).
 
@@ -507,7 +511,7 @@ class PontoPaymentRequest(Document):
         status moved (``_alert_if_payment_entry_conflict``); reaching it here means a race, so
         it is refused rather than booked beside.
         """
-        verdict = self._payment_entry_verdict(party, company)
+        verdict = self._payment_entry_verdict(party, company, paid_from, party_type)
         if verdict.action == "none":
             return False
         if verdict.action == "conflict":
@@ -542,7 +546,7 @@ class PontoPaymentRequest(Document):
 
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
 
-        if self._link_existing_payment_entry(party, company):
+        if self._link_existing_payment_entry(party, company, paid_from, party_type):
             return
 
         from erpnext.accounts.party import get_party_account

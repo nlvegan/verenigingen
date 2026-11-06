@@ -518,6 +518,78 @@ class TestPaymentEntryConflictAlert(_PontoPaymentRequestFixtures, EnhancedTestCa
     def test_another_paid_from_currency_is_a_conflict(self):
         self._assert_shortcut_field_is_a_conflict("ConflictCurrency", "paid_from_account_currency", "USD")
 
+    def _make_other_eur_bank_gl(self, like_account):
+        """A second, real, leaf Bank GL in the same company and currency as ``like_account``."""
+        src = frappe.db.get_value(
+            "Account", like_account, ["company", "parent_account", "account_currency"], as_dict=True
+        )
+        acc = frappe.new_doc("Account")
+        acc.account_name = "Other Ponto Bank GL 2125"
+        acc.company = src.company
+        acc.parent_account = src.parent_account
+        acc.account_type = "Bank"
+        acc.account_currency = src.account_currency
+        acc.insert(ignore_if_duplicate=True)
+        self.factory.track_document("Account", acc.name, priority=-1)
+        return acc.name
+
+    def test_another_eur_bank_gl_is_a_conflict(self):
+        """#2125 ruling: exact identity. Shortcut, stated: a real entry is made from the mapped GL
+        and its paid_from is then moved with db.set_value to a real second EUR bank GL (currency
+        and company still match, so only the paid_from comparison can catch it)."""
+        req = self._make_conflict_request("ConflictPaidFrom")
+        pe = self._make_conflict_entry(req)
+        other = self._make_other_eur_bank_gl(pe.paid_from)
+        self.assertNotEqual(other, pe.paid_from)
+        frappe.db.set_value("Payment Entry", pe.name, "paid_from", other)
+        self._assert_one_alert_and_untouched(req, [pe.name])
+
+    def test_a_party_type_mismatch_is_a_conflict(self):
+        """A Customer and a Supplier can share a name. Shortcut, stated: party_type rewritten."""
+        self._assert_shortcut_field_is_a_conflict("ConflictPartyType", "party_type", "Customer")
+
+    def test_conflict_alert_is_not_redelivered_after_the_notification_logs_are_deleted(self):
+        """N2a: the CONFLICT kind's DELIVERED comment keeps its alert from being re-sent once the
+        Notification Logs are pruned (clone of the paused-kind pruning test)."""
+        req = self._make_conflict_request("ConflictPruned")
+        pe = self._make_conflict_entry(req, amount=self.AMOUNT - 1)
+        with self.assertErrorLog(CONFLICT_TITLE):
+            self._poll_executed(req)
+        self.assertTrue(self._conflict_alerts(req), "control: it was delivered")
+        frappe.db.delete(
+            "Notification Log",
+            {"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{CONFLICT_MARKER}%"]},
+        )
+        self._poll_executed(req)
+        self.assertEqual(self._conflict_alerts(req), [], "the conflict alert was delivered again")
+        self.assertEqual(self._request_row(req), {"status": "Signed", "payment_entry": None})
+        self.assertEqual(frappe.get_all("Payment Entry", filters={"reference_no": req.name, "docstatus": 1}, pluck="name"), [pe.name])
+
+    def test_the_webhook_handler_alerts_once_and_links_nothing(self):
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
+            handle_payment_request_closed,
+        )
+
+        """N2b: the webhook entrypoint must run the conflict check, not only the paused one."""
+        req = self._make_conflict_request("ConflictWebhook")
+        pe = self._make_conflict_entry(req, amount=self.AMOUNT - 1)
+        self.expectErrorLog(CONFLICT_MARKER, CONFLICT_TITLE)
+        payload = json.loads(
+            PontoTestDataFactory.create_payment_request_closed_webhook(
+                payment_id=req.ponto_payment_id, status=PaymentStatus.EXECUTED
+            )
+        )
+        for _ in range(2):
+            result = handle_payment_request_closed(payload)
+            self.assertNotIn(req.name, result.get("updated_requests") or [])
+        self.assertEqual(len(self._conflict_alerts(req)), len({a.for_user for a in self._conflict_alerts(req)}))
+        self.assertTrue(self._conflict_alerts(req), "staff must be alerted")
+        self.assertEqual(self._request_row(req), {"status": "Signed", "payment_entry": None})
+        self.assertEqual(
+            frappe.get_all("Payment Entry", filters={"reference_no": req.name, "docstatus": ["<", 2]}, pluck="name"),
+            [pe.name],
+        )
+
     def test_an_exact_match_is_still_linked_with_no_alert(self):
         """Control: the tightened filter must not refuse the legitimate hand-booked entry."""
         req = self._make_conflict_request("ConflictControl")
@@ -550,3 +622,4 @@ class TestDeliveredMarkerSurvivesNotificationPruning(_PontoPaymentRequestFixture
             req.reload()
             req.refresh_status()
         self.assertEqual(frappe.db.count("Notification Log", filters), 0, "the alert was delivered again")
+
