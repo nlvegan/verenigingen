@@ -4,6 +4,7 @@ from frappe.utils import add_days, today
 from frappe.utils.background_jobs import enqueue
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -51,17 +52,14 @@ def notify_about_orphaned_records():
 
         # Get recipients from Verenigingen Settings
         settings = frappe.get_single("Verenigingen Settings")
-        recipients = []
-
         # Add appropriate roles or specific users as recipients
-        membership_managers = frappe.get_all(
-            "Has Role", filters={"role": Roles.VERENIGINGEN_STAFF, "parenttype": "User"}, fields=["parent"]
+        # The key's own recipients first, then enabled Staff holders; never Administrator (#2095).
+        recipients = resolve_admin_recipients(
+            notification_key="system_stuck_schedules",
+            default_roles=[Roles.VERENIGINGEN_STAFF],
+            exclude_users=("Administrator",),
+            key_first=True,
         )
-
-        for manager in membership_managers:
-            user = frappe.get_doc("User", manager.parent)
-            if user.enabled and user.email:
-                recipients.append(user.email)
 
         # Also add any specific emails configured in settings
         if hasattr(settings, "orphaned_report_recipients") and settings.orphaned_report_recipients:
