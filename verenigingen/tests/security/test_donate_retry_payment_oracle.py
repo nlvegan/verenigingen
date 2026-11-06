@@ -75,12 +75,13 @@ try:
         "unknown_noemail": (unknown, ""),
         "forbidden_noemail": (donation.name, ""),
         "owner": (donation.name, owner_email),
+        "owner_padded_upper": (donation.name, "  " + owner_email.upper() + "  "),
     }
     out = {}
     with patch.object(PublicDonationService, "process_mollie_payment", mollie), \
          patch.object(RateLimitEngine, "check_rate_limit", return_value=unthrottled):
         # Warm-up: the first request on a cold process fills Redis/meta caches.
-        for name, email in (cases["unknown"], cases["forbidden"], cases["owner"]):
+        for name, email in (cases["unknown"], cases["forbidden"], cases["owner"], cases["owner_padded_upper"]):
             client.post(path, data={"donation_id": name, "donor_email": email}, headers=headers)
         for key, (name, email) in cases.items():
             before = error_log_rows()
@@ -171,8 +172,11 @@ class TestDonateRetryPaymentOracle(EnhancedTestCase):
             with self.subTest(case=key):
                 self.assertEqual(self.out[key]["mollie_calls"], 0)
                 self.assertNotIn("pay.mollie.test", self.out[key]["location"])
-        self.assertEqual(self.out["owner"]["mollie_calls"], 1)
-        self.assertIn("pay.mollie.test", self.out["owner"]["location"])
+        for key in ("owner", "owner_padded_upper"):
+            with self.subTest(case=key):
+                self.assertEqual(self.out[key]["mollie_calls"], 1)
+                self.assertEqual(self.out[key]["status"], 302)
+                self.assertIn("pay.mollie.test", self.out[key]["location"])
 
     def test_no_refusal_carries_an_existence_message(self):
         for key in ("unknown", "forbidden", "unknown_noemail", "forbidden_noemail"):
@@ -182,3 +186,42 @@ class TestDonateRetryPaymentOracle(EnhancedTestCase):
                     self.assertIn("Unable to retry payment", self.out[key][channel])
                 for _method, error in self.out[key]["error_logs"]:
                     self.assertNotRegex(error, r"(?i)does not exist")
+
+
+class TestRequireDonorEmailOnFile(EnhancedTestCase):
+    """Direct call: the request layer may trim the email before the service sees it, so the
+    service's own strip()/lower() is only observable here."""
+
+    def test_padded_upper_case_owner_email_is_accepted_and_a_stranger_refused(self):
+        from verenigingen.services.donation.public_donation_service import PublicDonationService
+
+        donor = frappe.get_doc(
+            {
+                "doctype": "Donor",
+                "donor_name": "Retry Direct",
+                "donor_type": "Individual",
+                "donor_email": "retry.direct@example.com",
+                "currency": "EUR",
+            }
+        )
+        donor.flags.ignore_customer_sync = True
+        donor.insert()
+        self.track_doc("Donor", donor.name)
+        donation = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "donor": donor.name,
+                "donation_date": frappe.utils.today(),
+                "amount": 10.0,
+                "mode_of_payment": "Mollie",
+                "status": "One-time",
+                "donation_purpose_type": "General",
+                "paid": 0,
+            }
+        ).insert()
+        self.track_doc("Donation", donation.name)
+
+        check = PublicDonationService._require_donor_email_on_file
+        check(donation.name, "  RETRY.Direct@Example.COM  ")
+        with self.assertRaises(frappe.ValidationError):
+            check(donation.name, "stranger@example.com")

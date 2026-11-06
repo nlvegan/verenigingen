@@ -691,10 +691,12 @@ class PublicDonationService(StatelessService):
         """Refuse a retry unless the caller supplied the donor's own email (#969).
 
         Always two queries (Donation -> donor, then Donor -> email), whether or not the
-        Donation exists, and a plain ``raise`` so nothing is queued in ``message_log``:
-        an unknown id and a not-owned one are indistinguishable (#2097). The filter dict
-        on the Donor read matters: ``get_value("Donor", "", ...)`` would read a row.
-        A non-string id is refused first (``get_value`` reads a dict as filters).
+        Donation exists (the Donor read runs even with no donor to look up), and a plain
+        ``raise`` so nothing is queued in ``message_log``: an unknown id and a not-owned
+        one are indistinguishable (#2097). The refusal itself is decided by the final
+        ``if``; the filter dict on the Donor read only keeps an empty name from being
+        treated as a lookup by name. A non-string id is not queried at all
+        (``get_value`` reads a dict as filters).
 
         Does not close the timing side-channel against the owner's own request, which
         reaches Mollie -- see retry_payment_impl's docstring.
