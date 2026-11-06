@@ -19,7 +19,7 @@ from verenigingen.api.payment_processing import (
 )
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns
+from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns, configure_notification_key
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates, _load_fixture_rows
 
 NEW_TEMPLATES = [
@@ -48,7 +48,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self._ensure_shipped_templates()
         self._configure_email_master(master=1, respect_prefs=1)
         for key in KEYS:
-            self._set_key(key, enabled=1, cooldown=0)
+            configure_notification_key(key, 1, 0)
 
         self.member = self._new_reminder_member("Outcome")
         self.info = {
@@ -103,13 +103,6 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         config.respect_user_preferences = respect_prefs
         config.save()
 
-    def _set_key(self, key, enabled, cooldown):
-        config = frappe.get_single("Verenigingen Email Configuration")
-        row = next(nt for nt in config.notification_types if nt.notification_key == key)
-        row.enabled = enabled
-        row.cooldown_minutes = cooldown
-        config.save()
-
     def _mail_for(self, member, marker=None):
         """Mails handed to frappe.sendmail for this member.
 
@@ -160,14 +153,14 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self.assertEqual(outcome.status, "sent")
 
     def test_disabled_urgent_key_silences_final_notice(self):
-        self._set_key("payment_reminder_urgent", enabled=0, cooldown=0)
+        configure_notification_key("payment_reminder_urgent", 0, 0)
         outcome = self._send_reminder(self.member, "Final Notice")
         self._assert_nothing_went_out(self.member)
         self.assertEqual(outcome.status, "skipped")
         self.assertIn("payment_reminder_urgent", outcome.reason)
 
     def test_disabled_friendly_key_silences_bulk_reminder(self):
-        self._set_key("payment_reminder_friendly", enabled=0, cooldown=0)
+        configure_notification_key("payment_reminder_friendly", 0, 0)
         outcome = self._send_reminder(self.member, "Bulk Reminder")
         self._assert_nothing_went_out(self.member)
         self.assertEqual(outcome.status, "skipped")
@@ -175,14 +168,14 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     def test_fallback_path_honours_disabled_key(self):
         # Template removed -> TEMPLATE_NOT_FOUND -> HTML fallback. It must still obey the key.
         frappe.delete_doc("Email Template", "payment_reminder_final", force=True)
-        self._set_key("payment_reminder_urgent", enabled=0, cooldown=0)
+        configure_notification_key("payment_reminder_urgent", 0, 0)
         outcome = self._send_reminder(self.member, "Final Notice")
         self._assert_nothing_went_out(self.member)
         self.assertEqual(outcome.status, "skipped")
 
     def test_fallback_path_honours_cooldown(self):
         frappe.delete_doc("Email Template", "payment_reminder_final", force=True)
-        self._set_key("payment_reminder_urgent", enabled=1, cooldown=1440)
+        configure_notification_key("payment_reminder_urgent", 1, 1440)
         first = self._send_reminder(self.member, "Final Notice")
         second = self._send_reminder(self.member, "Final Notice")
         self.assertEqual(len(self._mail_for(self.member)), 1, "fallback must record and honour the cooldown")
@@ -207,7 +200,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     # ---- #2015: outcomes ------------------------------------------------
 
     def test_cooldown_skip_is_not_logged_or_reported_as_sent(self):
-        self._set_key("payment_reminder_friendly", enabled=1, cooldown=1440)
+        configure_notification_key("payment_reminder_friendly", 1, 1440)
         first = self._send_reminder(self.member, "Friendly Reminder")
         second = self._send_reminder(self.member, "Friendly Reminder")
         self.assertEqual(len(self._mail_for(self.member)), 1)
@@ -245,7 +238,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
 
     def _bulk_rows(self):
         """one fresh member, one already in cooldown, one with no email"""
-        self._set_key("payment_reminder_friendly", enabled=1, cooldown=1440)
+        configure_notification_key("payment_reminder_friendly", 1, 1440)
         fresh = self._new_reminder_member("Fresh")
         cooled = self._new_reminder_member("Cooled")
         no_email = self._new_reminder_member("Noemail")
@@ -315,7 +308,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     def test_one_board_mail_per_chapter_lists_every_overdue_member(self):
         # Maintainer ruling on #2006: ONE mail per chapter per run. The seeded payment_failure
         # cooldown (per recipient) is kept on, so a per-member mail would reach the board once.
-        self._set_key("payment_failure", enabled=1, cooldown=60)
+        configure_notification_key("payment_failure", 1, 60)
         chapter = self._make_reminder_chapter()
         members = [self.member, self._new_reminder_member("Second"), self._new_reminder_member("Third")]
         board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
@@ -332,7 +325,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         # Ruling: one mail per chapter per run, reaching each of its board members. A person on
         # two boards must get BOTH mails (the payment_failure cooldown stays 60 min), and a re-run
         # inside the window is throttled per chapter.
-        self._set_key("payment_failure", enabled=1, cooldown=60)
+        configure_notification_key("payment_failure", 1, 60)
         chapter_a, chapter_b = self._make_reminder_chapter(), self._make_reminder_chapter()
         member_b = self._new_reminder_member("Other")
         board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
@@ -349,7 +342,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self.assertEqual(second.get("chapter_notifications"), {"sent": 0, "skipped": 2, "failed": 0}, second)
 
     def test_chapter_mail_skipped_when_key_disabled_is_not_counted_as_sent(self):
-        self._set_key("payment_failure", enabled=0, cooldown=0)
+        configure_notification_key("payment_failure", 0, 0)
         chapter = self._make_reminder_chapter()
         board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
         with self._board_patch(board_email):
@@ -373,7 +366,7 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     def test_clear_email_cooldowns_really_clears_a_real_cooldown(self):
         # Control for the helper every cooldown-sensitive test relies on: a cooldown created
         # by a real send must be gone afterwards (a get_keys + delete_value pair deletes nothing).
-        self._set_key("payment_reminder_friendly", enabled=1, cooldown=1440)
+        configure_notification_key("payment_reminder_friendly", 1, 1440)
         self.assertEqual(self._send_reminder(self.member, "Friendly Reminder").status, "sent")
         self.assertEqual(self._send_reminder(self.member, "Friendly Reminder").status, "skipped")
         clear_email_cooldowns()

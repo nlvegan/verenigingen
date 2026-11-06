@@ -97,14 +97,14 @@ class FinancialHistoryBatchProcessor:
 
         # Process payment batches
         last_payment = cls._last_processed.get("payments")
-        if not last_payment or (current_time - get_datetime(last_payment)).seconds >= 30:
+        if not last_payment or (current_time - get_datetime(last_payment)).total_seconds() >= 30:
             if cls._payment_queue:
                 cls._process_payment_batches()
                 cls._last_processed["payments"] = now()
 
         # Process expense batches
         last_expense = cls._last_processed.get("expenses")
-        if not last_expense or (current_time - get_datetime(last_expense)).seconds >= 30:
+        if not last_expense or (current_time - get_datetime(last_expense)).total_seconds() >= 30:
             if cls._expense_queue:
                 cls._process_expense_batches()
                 cls._last_processed["expenses"] = now()

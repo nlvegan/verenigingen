@@ -37,7 +37,6 @@ verenigingen/api/anbi_operations.py::export_belastingdienst_report::1
 verenigingen/api/anbi_operations.py::generate_anbi_report::1
 verenigingen/api/anbi_operations.py::get_anbi_statistics::1
 verenigingen/api/anbi_operations.py::get_donor_anbi_data::1
-verenigingen/api/anbi_operations.py::send_consent_requests::2
 verenigingen/api/anbi_operations.py::update_anbi_consent::1
 verenigingen/api/anbi_operations.py::update_donor_tax_identifiers::1
 verenigingen/api/anbi_operations.py::validate_bsn::1
@@ -63,7 +62,6 @@ verenigingen/api/donor_auto_creation_management.py::simulate_auto_creation::1
 verenigingen/api/donor_auto_creation_management.py::test_customer_eligibility::1
 verenigingen/api/donor_auto_creation_management.py::update_auto_creation_settings::1
 verenigingen/api/dues_invoice_workflow.py::generate_missing_invoices::1
-verenigingen/api/email_template_manager.py::create_comprehensive_email_templates::1
 verenigingen/api/email_template_manager.py::get_email_template::1
 verenigingen/api/email_template_manager.py::send_template_email::1
 verenigingen/api/fix_stuck_dues_schedule.py::check_and_notify_stuck_schedules::2
@@ -313,7 +311,6 @@ verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donation_state::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
 verenigingen/templates/pages/manage_donations.py::update_recurring_donation::2
-verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_effective_fee_for_member::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
 verenigingen/templates/pages/membership_adjustment.py::send_membership_type_change_notification::1

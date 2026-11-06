@@ -281,6 +281,25 @@ class TestCircuitBreakerStateMachine(EnhancedTestCase):
         self.assertFalse(self.handler.check_circuit_breaker())
         self.assertEqual(self.handler.circuit_breaker["state"], "open")
 
+    def test_open_moves_to_half_open_when_last_failure_is_a_day_old(self):
+        """#2079: ``timedelta.seconds`` is the seconds part only, so a failure 1 day +
+        10 s ago read as 10 s and the breaker stayed open for ever."""
+        for _ in range(5):
+            self.handler.record_failure(Exception("timeout"))
+        self.handler.circuit_breaker["last_failure_time"] = now_datetime() - timedelta(days=1, seconds=10)
+        self.assertTrue(self.handler.check_circuit_breaker())
+        self.assertEqual(self.handler.circuit_breaker["state"], "half_open")
+
+    def test_open_stays_open_when_last_failure_is_in_the_future(self):
+        """#2079: a future stamp (clock stepped back) read as ~86400 s and recovered at once."""
+        for _ in range(5):
+            self.handler.record_failure(Exception("timeout"))
+        # Further ahead than recovery_timeout, or an abs() wrong fix would also stay open.
+        ahead = self.handler.circuit_breaker["recovery_timeout"] + 100
+        self.handler.circuit_breaker["last_failure_time"] = now_datetime() + timedelta(seconds=ahead)
+        self.assertFalse(self.handler.check_circuit_breaker())
+        self.assertEqual(self.handler.circuit_breaker["state"], "open")
+
     def test_half_open_allows_limited_calls(self):
         self.handler.circuit_breaker["state"] = "half_open"
         self.handler.circuit_breaker["failure_count"] = 0
