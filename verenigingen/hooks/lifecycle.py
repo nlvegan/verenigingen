@@ -114,6 +114,10 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
 auth_hooks = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
 
+# Run at the start of every background job (after frappe.local.job is set). Keeps a job whose
+# user was deleted from recursing in _() (#1970).
+before_job = ["verenigingen.utils.job_language.mark_language_resolved_for_vanished_user"]
+
 # Run when the application starts
 # Used for startup verification of critical infrastructure
 on_startup = [
