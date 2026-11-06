@@ -21,6 +21,13 @@ import frappe
 from frappe.utils import get_bench_path
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import (
+    mollie_settings_override,
+)
+from verenigingen.verenigingen_payments.utils.webhook_security import (
+    WebhookAuthenticationError,
+    _validate_test_mode_safety,
+)
 
 _API = "/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api."
 _ID_LENGTH = 900
@@ -119,10 +126,9 @@ class TestBogusSignatureErrorLog(EnhancedTestCase):
         super().setUpClass()
         # The subprocess runs a real WSGI app; the rows it writes live in the shared site DB,
         # so drop any cached dedupe state from earlier runs first.
-        for key in frappe.cache.get_keys("webhook_error_log_once:*") or []:
-            frappe.cache.delete_value(key)
-        for key in frappe.cache.get_keys("mollie_webhook_failure:*") or []:
-            frappe.cache.delete_value(key)
+        frappe.cache.delete_keys("webhook_error_log_once:")
+        frappe.cache.delete_keys("mollie_webhook_failure:")
+        frappe.cache.delete_keys("mollie_signature_failed:")
         cls.out = _run_requests()
 
     def test_three_bogus_signature_requests_write_a_bounded_number_of_rows(self):
@@ -157,3 +163,37 @@ class TestBogusSignatureErrorLog(EnhancedTestCase):
         self.assertEqual(got["statuses"][1:], [429, 429, 429], got)
         self.assertLessEqual(sum(1 for t in got["titles"] if t.lower().startswith("mollie webhook rate limit")), 1, got["titles"])
         self.assertEqual(got["rows_holding_a_full_id"], 0, got)
+
+
+class TestTestModeCriticalRowIsDeduped(EnhancedTestCase):
+    """Mollie test_mode on a site that is not a development site refuses every webhook (#2136).
+
+    ``_validate_test_mode_safety`` returns early on a developer_mode site, which is what the test
+    sites are, so the branch is forced here: developer_mode off, test_mode on, no staging override.
+    Both conf keys are restored afterwards.
+    """
+
+    def test_repeated_refusals_write_one_critical_row(self):
+        saved = {k: frappe.conf.get(k) for k in ("developer_mode", "allow_mollie_test_mode")}
+        frappe.conf["developer_mode"] = 0
+        frappe.conf.pop("allow_mollie_test_mode", None)
+        frappe.cache.delete_keys("webhook_error_log_once:")
+        mark = frappe.utils.now_datetime()
+        try:
+            with mollie_settings_override(test_mode=True):
+                for _ in range(3):
+                    # Control: the refusal itself still happens on every call.
+                    with self.assertRaises(WebhookAuthenticationError):
+                        _validate_test_mode_safety()
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    frappe.conf.pop(key, None)
+                else:
+                    frappe.conf[key] = value
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Mollie Security - CRITICAL", "creation": [">=", mark]},
+            pluck="name",
+        )
+        self.assertEqual(len(rows), 1, rows)

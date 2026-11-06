@@ -618,9 +618,6 @@ verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_don
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_subscription::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_client_info::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_payment_status::1
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_chargeback_webhook::2
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_payment_webhook::2
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_refund_webhook::2
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::initiate_refund::2
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::test_webhook_processing::1
 verenigingen/verenigingen_payments/mollie/api/webhooks.py::handle_mollie_payment_webhook::1
@@ -632,7 +629,6 @@ verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger.clea
 verenigingen/verenigingen_payments/mollie/utils/logging.py::MollieLogger.error::1
 verenigingen/verenigingen_payments/mollie/utils/security.py::WebhookSecurityManager._load_security_settings::1
 verenigingen/verenigingen_payments/mollie/utils/unified_payment_entry_creator.py::create_unified_payment_entry::1
-verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::authenticate_mollie_webhook::1
 verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_bulk_payments::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_payment::1
