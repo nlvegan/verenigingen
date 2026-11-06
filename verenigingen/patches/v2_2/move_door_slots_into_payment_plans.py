@@ -13,10 +13,11 @@ template (any billing frequency) and its amount options name the plan's template
 
 Idempotent: a door that already has plan rows is skipped. The door's old allow_custom_amount is NOT
 migrated: the dues template's own contribution mode and allow_custom_amount decide it now. That, and
-two other changes, alter what a migrated door accepts, so each such door is REPORTED (a printed line
+other changes, alter what a migrated door accepts, so each such door is REPORTED (a printed line
 and an Info comment on the door): a Fixed template with presets (presets are now ignored), a door that
-took any amount whose template no longer does, and a slot whose template is billed on another period
-than the slot said (the plan bills the template's period).
+took any amount whose template no longer does, a door that offered only presets whose Income-Based or
+free-amount Flexible template now takes any amount, and a slot whose template is billed on another
+period than the slot said (the plan bills the template's period).
 """
 
 import frappe
@@ -38,7 +39,8 @@ def execute():
         if not door.plans:
             notes = migrate_door(door)
             reported += _report_door(door, notes)
-    print(f"Door payment plans: {reported} door(s) changed what they accept, see the Info comment on each.")
+    if reported:
+        print(f"Door payment plans: {reported} door(s) changed what they accept, see the Info comment on each.")
 
 
 def _report_door(door, notes) -> int:
@@ -93,7 +95,20 @@ def _behaviour_changes(door, slots) -> list[str]:
             notes.append(f"{len(presets)} preset amount(s) on Fixed template {template} are now ignored")
         if old_custom and (mode == "Fixed" or (mode == "Flexible" and not allow_custom)):
             notes.append(f"{template} ({mode}) no longer takes a free amount, which the door did")
+        if not old_custom:
+            notes.extend(_looser_notes(template, mode, allow_custom, presets))
     return notes
+
+
+def _looser_notes(template, mode, allow_custom, presets) -> list[str]:
+    """The door offered only its presets; the template now takes a free amount (the stricter cases
+    are the other branch of _behaviour_changes)."""
+    if mode == "Income-Based":
+        note = f"{template} (Income-Based) now takes any amount at or above the minimum"
+        return [note + (", and its preset amount(s) are no longer offered" if presets else "")]
+    if mode == "Flexible" and allow_custom:
+        return [f"{template} (Flexible) now takes a free amount, which the door did not"]
+    return []
 
 
 def legacy_slots(door) -> dict:

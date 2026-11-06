@@ -178,6 +178,32 @@ class TestMoveDoorSlotsIntoPaymentPlans(ApplicationDoorMixin, VereningingenUnitT
             self.assertIn(f"Door {door}:", printed)
         self.assertIn("4 door(s) changed what they accept", printed)
 
+    def test_a_template_that_now_takes_any_amount_is_reported(self):
+        """Looser, not stricter: the door only offered its presets (allow_custom_amount 0), the plan's
+        template takes any amount at or above the minimum."""
+        income_based = self._plan_template("Monthly", mode="Income-Based")
+        flexible_custom = self._plan_template("Monthly", mode="Flexible", allow_custom_amount=1)
+        flexible_presets_only = self._plan_template("Monthly", mode="Flexible", allow_custom_amount=0)
+        presets = [{"frequency": "Monthly", "amount": 8}]
+        income = self._old_shape_door(
+            monthly_dues_template=income_based, allow_custom_amount=0, amount_options=presets
+        )
+        flexible = self._old_shape_door(
+            monthly_dues_template=flexible_custom, allow_custom_amount=0, amount_options=presets
+        )
+        control = self._old_shape_door(
+            monthly_dues_template=flexible_presets_only, allow_custom_amount=0, amount_options=presets
+        )
+        self._run_reporting()
+        self.assertIn("now takes any amount", " ".join(self._notes_on(income)))
+        self.assertIn("preset amount(s) are no longer offered", " ".join(self._notes_on(income)))
+        self.assertIn("now takes a free amount", " ".join(self._notes_on(flexible)))
+        self.assertEqual(self._notes_on(control), [], "control: presets-only before and after")
+
+    def test_a_clean_run_prints_no_summary_line(self):
+        self._old_shape_door(monthly_dues_template=self.monthly)  # Flexible + custom: unchanged
+        self.assertNotIn("changed what they accept", self._run_reporting())
+
     def test_running_it_again_reports_nothing_new(self):
         fixed = self._plan_template("Monthly", mode="Fixed", dues_rate=15)
         door = self._old_shape_door(monthly_dues_template=fixed, allow_custom_amount=1)
