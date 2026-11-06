@@ -15,6 +15,7 @@ import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
+from verenigingen.tests.utils.reminder_mail_state import configure_notification_key
 
 
 class TestCommunicationManagerCoverage(VereningingenTestCase):
@@ -128,6 +129,21 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
         result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
         self.assertTrue(result, "an active board member + enabled setting must queue a notification")
         self.assertEqual(queued_mail_count(board_email), queued_before + 1)
+
+    def test_notify_board_of_member_joined_with_disabled_key_returns_false(self):
+        """A skip (key disabled) queues nothing, so the 'was it queued' return must be False (#2096)."""
+        self._enable_notifications()
+        self._make_template("chapter_board_member_joined")
+        own_notification_keys(self, "chapter_member_joined")
+        self._seat_board_member(first="JoinSkip")
+        board_email = self.chapter.board_members[0].email
+        queued_before = queued_mail_count(board_email)
+        configure_notification_key("chapter_member_joined", 0, 0)
+
+        result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
+
+        self.assertIs(result, False)
+        self.assertEqual(queued_mail_count(board_email), queued_before)
 
     def test_notify_board_of_member_left_with_board_returns_true(self):
         self._enable_notifications()

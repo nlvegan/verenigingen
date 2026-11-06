@@ -23,6 +23,7 @@ import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
+from verenigingen.tests.utils.reminder_mail_state import configure_notification_key
 
 
 class TestCommunicationManager(VereningingenTestCase):
@@ -281,6 +282,38 @@ class TestCommunicationManager(VereningingenTestCase):
             "Comment", {"reference_doctype": "Chapter", "reference_name": self.chapter.name}
         )
         self.assertGreater(comments_after, comments_before)
+
+    # ===================================================== a skipped mail is not a sent one (#2096)
+
+    def test_send_chapter_newsletter_with_disabled_key_counts_nothing_as_sent(self):
+        """EmailService reports a disabled key as a *successful* skip. The newsletter must not
+        count that as sent, in the result it returns to the UI or in the chapter Comment."""
+        self._make_email_template(name="chapter_newsletter")
+        self._add_member_row(self.member)
+        configure_notification_key("chapter_generic_notification", 0, 0)
+        queued_before = queued_mail_count(self.member.email)
+
+        result = self.chapter.communication_manager.send_chapter_newsletter(
+            "Skipped Subject", "body", recipient_filter="members"
+        )
+
+        self.assertEqual(queued_mail_count(self.member.email), queued_before, "nothing may be queued")
+        self.assertEqual(result["sent_count"], 0, "a skipped batch is not a sent batch")
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Chapter", "reference_name": self.chapter.name},
+            pluck="content",
+        )
+        self.assertFalse([c for c in comments if "to 1 recipients" in (c or "")], comments)
+
+    def test_notify_board_member_added_with_disabled_key_returns_false(self):
+        self._make_email_template(name="board_member_added")
+        member, volunteer = self._make_volunteer(first="NotifyAddSkipped")
+        configure_notification_key("chapter_board_added", 0, 0)
+        queued_before = queued_mail_count(member.email)
+
+        self.assertIs(self.manager.notify_board_member_added(volunteer.name, "Some Role"), False)
+        self.assertEqual(queued_mail_count(member.email), queued_before)
 
     # ===================================================== create_email_communication
 
