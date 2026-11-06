@@ -94,6 +94,13 @@ CACHE_CLEARING_METHODS = {
 }
 
 
+_TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
+
+
+def _child_filters(doctype_name: str, fieldname: str) -> Dict[str, str]:
+    return {"parent": doctype_name, "parenttype": doctype_name, "parentfield": fieldname}
+
+
 class SingletonBackup:
     """
     Backup and restore singleton DocType values.
@@ -107,12 +114,11 @@ class SingletonBackup:
     those hooks used to give it is done explicitly instead, per
     `CACHE_CLEARING_METHODS`.
 
-    Child tables are still not backed up at all: `_backup_singleton` skips the
-    `Table` fieldtype, so rows a test adds to one survive the restore -- measured,
-    one leftover `Ponto Bank Account Mapping` row on `test_site_3`, though whether
-    a row survives depends on which module wrote last. Unchanged by #537, and
-    untested either way; `test_ponto_doctype_coverage_extra` has a docstring
-    claiming the mappings are restored, and they are not.
+    Child tables ARE backed up and restored (#2091): the raw rows of every `Table` /
+    `Table MultiSelect` field are captured, and `restore()` deletes whatever the test left
+    and re-inserts the captured rows with their original names. They used to be skipped, so a
+    test that replaced `Verenigingen Email Configuration.notification_types` left the
+    replacement behind, and the restore's own commit made it permanent for the rest of the shard.
     """
 
     def __init__(self, *doctype_names: str):
@@ -125,6 +131,7 @@ class SingletonBackup:
         self.doctype_names = doctype_names
         self._backups: Dict[str, Dict[str, Any]] = {}
         self._password_backups: Dict[str, Dict[str, str]] = {}
+        self._child_backups: Dict[str, Dict[str, Any]] = {}
 
     def backup(self) -> None:
         """
@@ -173,6 +180,11 @@ class SingletonBackup:
                     field_values[field.fieldname] = getattr(doc, field.fieldname, None)
 
             self._backups[doctype_name] = field_values
+            self._child_backups[doctype_name] = {
+                f.fieldname: (f.options, self._child_rows(doctype_name, f.fieldname, f.options))
+                for f in meta.fields
+                if f.fieldtype in _TABLE_FIELDTYPES
+            }
 
             # Backup password fields separately (they're encrypted)
             password_values = {}
@@ -242,6 +254,8 @@ class SingletonBackup:
             if field_values:
                 frappe.db.set_single_value(doctype_name, dict(field_values))
 
+            self._restore_child_tables(doctype_name)
+
             # Restore password fields
             password_values = self._password_backups.get(doctype_name, {})
             for fieldname, value in password_values.items():
@@ -293,6 +307,35 @@ class SingletonBackup:
                 "Failed to restore %s: %s", doctype_name, e
             )
 
+
+    @staticmethod
+    def _child_rows(doctype_name: str, fieldname: str, child_doctype: str) -> List[Dict[str, Any]]:
+        return frappe.get_all(
+            child_doctype,
+            filters=_child_filters(doctype_name, fieldname),
+            fields=["*"],
+            order_by="idx asc",
+            limit_page_length=0,
+        )
+
+    def _restore_child_tables(self, doctype_name: str) -> None:
+        """Replace each child table with the rows captured by `backup()`, names included.
+
+        Raw delete + `db_insert`, like the scalar restore, so no controller hook runs. The
+        document cache is dropped because the rows changed underneath it.
+
+        The re-insert runs under `suspend_insert_capture()`: inside an `EnhancedTestCase` body the
+        captured-insert drain would otherwise claim the restored rows as "created by this test" and
+        delete them at teardown, leaving the table EMPTY (measured: 88 rows -> 0 after one test).
+        """
+        from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+        for fieldname, (child_doctype, rows) in self._child_backups.get(doctype_name, {}).items():
+            frappe.db.delete(child_doctype, _child_filters(doctype_name, fieldname))
+            with suspend_insert_capture():
+                for row in rows:
+                    frappe.get_doc({**row, "doctype": child_doctype}).db_insert()
+        frappe.clear_document_cache(doctype_name, doctype_name)
 
     @staticmethod
     def _clear_derived_caches(doctype_name: str) -> None:
