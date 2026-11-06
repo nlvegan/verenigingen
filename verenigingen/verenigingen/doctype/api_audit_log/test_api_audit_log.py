@@ -17,13 +17,43 @@ class TestAPIAuditLog(unittest.TestCase):
     def setUp(self):
         """Set up test data"""
         # Clean up any existing test entries
-        frappe.db.delete("API Audit Log", {"event_id": ["like", "test_%"]})
+        frappe.db.delete("API Audit Log", {"event_id": ["like", "test\\_%"]})
         frappe.db.commit()
 
     def tearDown(self):
         """Clean up test data"""
-        frappe.db.delete("API Audit Log", {"event_id": ["like", "test_%"]})
+        frappe.db.delete("API Audit Log", {"event_id": ["like", "test\\_%"]})
         frappe.db.commit()
+
+    @staticmethod
+    def _cleanup_audit_event(event_id):
+        # Commits: setUp/tearDown commit the survivor row, so an uncommitted delete would leak it.
+        frappe.db.delete("API Audit Log", {"event_id": event_id})
+        frappe.db.commit()
+
+    def test_cleanup_only_deletes_literal_test_underscore_prefix(self):
+        """#2120: `LIKE 'test_%'` treated `_` as a wildcard and also deleted `testing...` rows."""
+        event_id = f"testing_survivor_{frappe.generate_hash(length=8)}"
+        audit_doc = frappe.new_doc("API Audit Log")
+        audit_doc.update(
+            {
+                "event_id": event_id,
+                "timestamp": now(),
+                "event_type": "api_call_success",
+                "severity": "info",
+                "user": "Administrator",
+            }
+        )
+        audit_doc.insert()
+        self.addCleanup(self._cleanup_audit_event, event_id)
+
+        self.setUp()
+        self.tearDown()
+
+        self.assertTrue(
+            frappe.db.exists("API Audit Log", {"event_id": event_id}),
+            f"cleanup deleted {event_id}, which does not start with the literal prefix 'test_'",
+        )
 
     def test_create_basic_audit_entry(self):
         """Test creating a basic audit entry"""
