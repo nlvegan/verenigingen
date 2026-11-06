@@ -531,6 +531,42 @@ class TestPausedMappingsOnMoneyPaths(PontoIdentityBase):
                     doc._validate_payment_entry_prerequisites()
                 self.assertIn("shared bank account X", str(ctx.exception))
 
+    def test_disabled_but_ok_mapping_is_refused_for_payment_entries_and_payments(self):
+        """enabled=0 with sync_status OK is not Paused: only the enabled test refuses it."""
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            create_sepa_payment,
+        )
+
+        with singleton_backup("Ponto Settings"):
+            self._paused(enabled=0, sync_status="OK", last_sync_error=None)
+            doc = frappe.new_doc("Ponto Payment Request")
+            doc.ponto_account = "pm-1"
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                doc._validate_payment_entry_prerequisites()
+            self.assertIn("disabled", str(ctx.exception))
+            with self.assertRaises(PontoIntegrationError) as ctx2:
+                create_sepa_payment("pm-1", 10.0, "Cred", TestIBAN.ABN_AMRO_1, "ref", auto_submit=False)
+            self.assertIn("disabled", str(ctx2.exception))
+
+    def test_default_supplier_account_skips_an_enabled_row_without_a_bank_account(self):
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            create_payment_for_supplier,
+        )
+
+        with singleton_backup("Ponto Settings"):
+            ba = self._make_manual_bank_account("", "EUR")
+            self._prepare(
+                [
+                    {"ponto_account_id": "da-a", "ponto_iban": "", "ponto_currency": "EUR", "enabled": 1},
+                    {"ponto_account_id": "da-b", "ponto_iban": "", "ponto_currency": "EUR",
+                     "bank_account": ba, "enabled": 1},
+                ]
+            )
+            supplier = self._make_supplier_with_iban()
+            doc = create_payment_for_supplier(supplier, 5.0, "ref", auto_submit=False)
+            self.assertEqual(doc.ponto_account, "da-b")
+
     def test_getters_use_the_same_rule(self):
         from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
             PontoConfigurationService as Config,
@@ -616,35 +652,67 @@ class TestStalePausesAreNotOverwritten(PontoIdentityBase):
             row = self._rows()["st-1"]
             self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
 
-    def test_fetch_does_not_overwrite_a_pause_set_while_it_runs(self):
-        """A pause landing during account creation (after the fetch loaded the mappings)."""
-        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
-            PontoConfigurationService,
+    def _create_committed_mapping(self):
+        """Commit a mapping so a SEPARATE process sees it. Load-bearing, as in
+        test_core_client_permission_oracle._create_test_login_password."""
+        ba = self._make_manual_bank_account("", "EUR")
+        self._prepare(
+            [{"ponto_account_id": "tx-1", "ponto_iban": "", "ponto_currency": "EUR",
+              "bank_account": ba, "enabled": 1}]
         )
-        from verenigingen.verenigingen_payments.ponto.utils import bank_account_creator as creator
+        frappe.db.commit()
 
-        with singleton_backup("Ponto Settings"):
-            ba = self._make_manual_bank_account("", "EUR")
-            self._prepare(
-                [{"ponto_account_id": "st-1", "ponto_iban": "", "ponto_currency": "EUR",
-                  "bank_account": ba, "enabled": 1}]
+    def _create_final_commit(self):
+        frappe.db.commit()
+
+    def _pause_in_another_connection(self, account_id):
+        """Pause AND COMMIT from a second process (own DB connection)."""
+        import os
+        import subprocess
+        import sys
+        import textwrap
+
+        from frappe.utils import get_bench_path
+
+        script = textwrap.dedent(
+            f"""
+            import frappe
+            frappe.init(site={frappe.local.site!r})
+            frappe.connect()
+            from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+                PontoConfigurationService,
             )
-            real_create = creator.create_ponto_bank_account
+            assert PontoConfigurationService.pause_mapping({account_id!r}, "Import refused: other connection")
+            frappe.db.commit()
+            frappe.destroy()
+            """
+        )
+        done = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=os.path.join(get_bench_path(), "sites"),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
 
-            def create_and_pause(*args, **kwargs):
-                PontoConfigurationService.pause_mapping("st-1", "Import refused: concurrent")
-                return real_create(*args, **kwargs)
-
-            client = MagicMock()
-            client.list_accounts.return_value = [_ponto_acct("st-1", "", "EUR"), _ponto_acct("st-2", "", "EUR", "New")]
-            settings = frappe.get_single("Ponto Settings")
-            with patch(TOKEN_MANAGER, return_value=MagicMock()), patch(
-                ACCOUNTS_CLIENT, return_value=client
-            ), patch.object(creator, "create_ponto_bank_account", side_effect=create_and_pause):
-                settings.fetch_ponto_accounts()
-            rows = self._rows()
-            self.assertEqual((rows["st-1"].enabled, rows["st-1"].sync_status), (0, "Paused"))
-            self.assertEqual(rows["st-2"].sync_status, "OK")
+    def test_a_pause_committed_by_another_connection_is_not_lost(self):
+        """REPEATABLE READ: after this connection's first read, a plain read never sees a pause
+        another connection commits. The fetch loaded its mappings from that snapshot, so only a
+        locking read can see the pause; without it the final save restores enabled=1 / OK."""
+        with singleton_backup("Ponto Settings"):
+            self._create_committed_mapping()
+            snapshot = lambda: frappe.db.get_value(  # noqa: E731
+                "Ponto Bank Account Mapping", {"ponto_account_id": "tx-1"}, "sync_status"
+            )
+            self.assertEqual(snapshot(), "OK")  # this transaction's snapshot starts here
+            self._pause_in_another_connection("tx-1")
+            self.assertEqual(snapshot(), "OK", "control: a plain read does NOT see the other pause")
+            self._fetch([_ponto_acct("tx-1", "", "EUR")])
+            self._create_final_commit()
+            row = self._rows()["tx-1"]
+            self.assertEqual((row.enabled, row.sync_status), (0, "Paused"))
+            self.assertEqual(row.last_sync_error, "Import refused: other connection")
 
     def test_audit_pause_resumes_but_an_import_refusal_does_not(self):
         with singleton_backup("Ponto Settings"):

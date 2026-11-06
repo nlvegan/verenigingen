@@ -12,6 +12,11 @@ Driven through the real paths: refresh_status (UI button), the hourly poll's
 """
 
 import json
+import os
+import subprocess
+import sys
+import textwrap
+import time
 from unittest.mock import patch
 
 import frappe
@@ -133,3 +138,215 @@ class TestExecutedPaymentOnPausedAccount(_PontoPaymentRequestFixtures, EnhancedT
             req.refresh_status()
         self.assertEqual(self._alerts(req), [])
         self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Executed")
+
+
+ALERT_TITLE = "Ponto payment executed but cannot be booked"
+UNDELIVERED_TITLE = "Ponto executed-unbookable alert was NOT DELIVERED to anyone"
+
+
+class TestUnbookableAlertDelivery(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """N1: the alert reuses the #1848 machinery: once per row, locked, loud if undelivered."""
+
+    def tearDown(self):
+        PontoConfigurationService.clear_cache()
+        super().tearDown()
+
+    def _error_logs(self, title):
+        return frappe.db.count("Error Log", {"method": title, "error": ["like", f"{MARKER}: %"]})
+
+    def test_undelivered_alert_writes_one_loud_row_across_many_refreshes(self):
+        """Key unseeded (counts as disabled): nobody can be notified. The poll retries hourly,
+        but Error Log must get ONE row of each kind, not one per retry."""
+        self.expectErrorLog(MARKER, ALERT_TITLE, UNDELIVERED_TITLE)
+        req = self._create_ponto_request(self._create_supplier("Undelivered"), status="Signed", amount=77.0)
+        PontoConfigurationService.pause_mapping(self.TEST_PONTO_ACCOUNT_ID, "shared bank account X")
+        before = (self._error_logs(ALERT_TITLE), self._error_logs(UNDELIVERED_TITLE))
+        # Disable the key's row in place and restore that one value in `finally`. Emptying the whole
+        # singleton under singleton_backup leaked: the harness drain commits the open transaction.
+        child = frappe.get_meta("Verenigingen Email Configuration").get_field("notification_types").options
+        row_filters = {"parent": "Verenigingen Email Configuration", "notification_key": "ponto_executed_unbookable"}
+        self.assertTrue(frappe.db.exists(child, row_filters), "control: the key is seeded")
+        self._set_key_enabled(child, row_filters, 0)
+        try:
+            for _ in range(4):
+                with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+                    req.reload()
+                    req.refresh_status()
+        finally:
+            self._set_key_enabled(child, row_filters, 1)
+        after = (self._error_logs(ALERT_TITLE), self._error_logs(UNDELIVERED_TITLE))
+        self.assertEqual(after[0] - before[0], 1, "one Error Log row for the alert, not one per refresh")
+        self.assertEqual(after[1] - before[1], 1, "one 'nobody was notified' row, not one per refresh")
+        self.assertEqual(self._notification_logs(req), 0, "control: nothing was delivered")
+
+    def _set_key_enabled(self, child, row_filters, value):
+        frappe.db.set_value(child, row_filters, "enabled", value)
+        frappe.clear_document_cache("Verenigingen Email Configuration", "Verenigingen Email Configuration")
+
+    def _notification_logs(self, req):
+        return frappe.db.count(
+            "Notification Log",
+            {"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{MARKER}%"]},
+        )
+
+    def _create_committed_request(self):
+        """Commit a request so SEPARATE processes see it. The commit is load-bearing (see
+        test_core_client_permission_oracle._create_test_login_password): the subprocesses open
+        their own connections and would not see this test's open transaction."""
+        req = self._create_ponto_request(self._create_supplier("Concurrent"), status="Signed", amount=88.0)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_alert_rows, req.name)
+        return req
+
+    def _cleanup_alert_rows(self, name):
+        frappe.db.delete("Notification Log", {"document_type": "Ponto Payment Request", "document_name": name})
+        frappe.db.delete("Comment", {"reference_doctype": "Ponto Payment Request", "reference_name": name})
+        frappe.db.commit()
+
+    def _make_alerter_process(self, name, hold_seconds):
+        """A separate process (own DB connection) that raises the alert. ``hold_seconds`` delays
+        the delivery INSIDE the alert, so the first process holds its transaction open and the
+        second arrives while it is still running."""
+        from frappe.utils import get_bench_path
+
+        sites_dir = os.path.join(get_bench_path(), "sites")
+        script = textwrap.dedent(
+            f"""
+            import time
+            import frappe
+            frappe.init(site={frappe.local.site!r})
+            frappe.connect()
+            frappe.set_user("Administrator")
+            import verenigingen.utils.notification_helpers as nh
+            real = nh.notify_administrators
+            def slow(*a, **kw):
+                time.sleep({hold_seconds})
+                return real(*a, **kw)
+            nh.notify_administrators = slow
+            from verenigingen.verenigingen_payments.doctype.ponto_payment_request.ponto_payment_request import (
+                alert_executed_unbookable,
+            )
+            doc = frappe.get_doc("Ponto Payment Request", {name!r})
+            alert_executed_unbookable(doc, "shared bank account X")
+            frappe.db.commit()
+            frappe.destroy()
+            """
+        )
+        return subprocess.Popen(
+            [sys.executable, "-c", script], cwd=sites_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+    def test_two_concurrent_alerters_produce_one_alert(self):
+        self.expectErrorLog(MARKER, ALERT_TITLE, UNDELIVERED_TITLE)
+        req = self._create_committed_request()
+        first = self._make_alerter_process(req.name, hold_seconds=4)
+        time.sleep(1.5)  # the first is now inside the alert, holding its row lock
+        second = self._make_alerter_process(req.name, hold_seconds=0)
+        outputs = [p.communicate(timeout=120) for p in (first, second)]
+        self.assertEqual((first.returncode, second.returncode), (0, 0), outputs)
+        frappe.db.rollback()  # leave the transaction's snapshot: see what the processes committed
+        logs = frappe.get_all(
+            "Notification Log",
+            filters={"document_type": req.doctype, "document_name": req.name, "subject": ["like", f"{MARKER}%"]},
+            pluck="for_user",
+        )
+        self.assertTrue(logs, "control: the alert was delivered")
+        self.assertEqual(len(set(logs)), len(logs), f"the alert reached a recipient twice: {logs}")
+
+
+class TestExecutedPaymentIsNeverBookedTwice(_PontoPaymentRequestFixtures, EnhancedTestCase):
+    """N2: the alert tells staff to resolve the pause. Once resolved, the next refresh must not
+    book a second Payment Entry for money already booked by hand."""
+
+    def tearDown(self):
+        PontoConfigurationService.clear_cache()
+        super().tearDown()
+
+    def _set_mapping(self, **values):
+        frappe.db.set_value(
+            "Ponto Bank Account Mapping",
+            {"parent": "Ponto Settings", "ponto_account_id": self.TEST_PONTO_ACCOUNT_ID},
+            values,
+        )
+        PontoConfigurationService.clear_cache()
+
+    def _hand_booked(self, hint):
+        """A request whose money is already booked: a real submitted Payment Entry carrying the
+        request name as Reference No, but NOT linked to the request.
+
+        Probe shortcut, stated: the PE is made by running the real booking once on a usable
+        mapping, then the request is set back to Signed / unlinked with db.set_value, standing
+        in for 'staff booked it by hand and the request never learned of it'."""
+        req = self._create_ponto_request(
+            self._create_supplier(hint), status="Signed", amount=55.0, track_priority=6
+        )
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.refresh_status()
+        req.reload()
+        pe = req.payment_entry
+        self.assertTrue(pe, "control: the real booking made a Payment Entry")
+        self.factory.track_document("Payment Entry", pe, priority=6)
+        frappe.db.set_value(req.doctype, req.name, {"status": "Signed", "payment_entry": None})
+        req.reload()
+        return req, pe
+
+    def _entries(self, req):
+        return frappe.get_all("Payment Entry", filters={"reference_no": req.name, "docstatus": 1}, pluck="name")
+
+    def test_unpausing_links_the_hand_booked_entry_instead_of_booking_again(self):
+        self.expectErrorLog(MARKER, ALERT_TITLE)
+        req, pe = self._hand_booked("HandBooked")
+        self._set_mapping(enabled=0, sync_status="Paused", last_sync_error="shared bank account X")
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.refresh_status()
+        self.assertEqual(self._entries(req), [pe], "control: paused refresh booked nothing")
+        self._set_mapping(enabled=1, sync_status="OK", last_sync_error=None)
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.reload()
+            req.refresh_status()
+        self.assertEqual(self._entries(req), [pe], "a second Payment Entry was booked for the same payment")
+        row = frappe.db.get_value("Ponto Payment Request", req.name, ["status", "payment_entry"], as_dict=True)
+        self.assertEqual((row.status, row.payment_entry), ("Executed", pe))
+
+    def test_a_conflicting_entry_with_this_reference_is_refused_not_duplicated(self):
+        """Same Reference No but another amount: not safe to link, not safe to book again."""
+        req, pe = self._hand_booked("Conflicting")
+        frappe.db.set_value("Payment Entry", pe, "paid_amount", 54.0)
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            self.expectErrorLog(f"Ponto status refresh failed: {req.name}")
+            with self.assertRaises(frappe.ValidationError):
+                req.refresh_status()
+        self.assertEqual(self._entries(req), [pe])
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "status"), "Signed")
+
+    def test_alert_text_says_resolve_the_pause_and_not_to_book_by_hand(self):
+        self.expectErrorLog(MARKER, ALERT_TITLE)
+        req = self._create_ponto_request(self._create_supplier("Text"), status="Signed", amount=12.0)
+        PontoConfigurationService.pause_mapping(self.TEST_PONTO_ACCOUNT_ID, "shared bank account X")
+        with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+            req.refresh_status()
+        text = frappe.get_all(
+            "Notification Log",
+            filters={"document_name": req.name, "subject": ["like", f"{MARKER}%"]},
+            pluck="email_content",
+        )[0]
+        self.assertIn("next", text)
+        self.assertIn("do not also book", text.lower())
+        self.assertIn("Reference No", text)
+
+    def test_the_row_gets_a_comment_naming_the_block(self):
+        self.expectErrorLog(MARKER, ALERT_TITLE)
+        req = self._create_ponto_request(self._create_supplier("Comment"), status="Signed", amount=13.0)
+        PontoConfigurationService.pause_mapping(self.TEST_PONTO_ACCOUNT_ID, "shared bank account X")
+        for _ in range(2):
+            with patch(PAY_CLIENT_PATH, return_value=_mock_ponto_get_payment_client("executed")):
+                req.reload()
+                req.refresh_status()
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": req.doctype, "reference_name": req.name, "comment_type": "Info",
+                     "content": ["like", "%Ponto reports EXECUTED; blocked:%"]},
+            pluck="content",
+        )
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn("shared bank account X", comments[0])

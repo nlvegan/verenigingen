@@ -26,7 +26,7 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_url
+from frappe.utils import flt, get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
@@ -34,43 +34,11 @@ from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
     alert_executed_on_cancelled_row,
+    alert_executed_unbookable,
     as_system_update,
     as_system_update_from_db,
     refuse_unless_system_update,
 )
-
-
-def alert_executed_unbookable(doc, reason):
-    """Tell staff, once per row, that Ponto executed a payment we may not book (#2125)."""
-    from frappe.utils import escape_html, flt
-
-    from verenigingen.utils.notification_helpers import notify_administrators
-
-    marker = "PONTO-EXECUTED-UNBOOKABLE"
-    if frappe.db.exists(
-        "Notification Log",
-        {"document_type": doc.doctype, "document_name": doc.name, "subject": ["like", f"{marker}%"]},
-    ):
-        return
-    subject = f"{marker}: {doc.doctype} {doc.name} was paid at Ponto but cannot be booked"
-    details = (
-        f"{marker}: {doc.doctype} {doc.name} reported EXECUTED by Ponto (EUR {flt(doc.amount):,.2f}, "
-        f"Ponto id {doc.ponto_payment_id}), but its Ponto account {doc.ponto_account} cannot be used: "
-        f"{reason}. No Payment Entry was made and the request was not changed. "
-        "Action required: check the bank, and book the payment by hand."
-    )
-    delivery = notify_administrators(
-        subject=subject,
-        message=f"<p>{escape_html(details)}</p>",
-        notification_key="ponto_executed_unbookable",  # literal: key discovery greps for it
-        document_type=doc.doctype,
-        document_name=doc.name,
-        exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
-        staff_alert=True,
-    )
-    frappe.log_error(
-        title="Ponto payment executed but cannot be booked", message=f"{details}\nNotification: {delivery}"
-    )
 
 
 class PontoPaymentRequest(Document):
@@ -453,6 +421,37 @@ class PontoPaymentRequest(Document):
                 title=_("Ponto Account Paused"),
             )
 
+    def _link_existing_payment_entry(self, party) -> bool:
+        """Link, instead of booking again, a submitted Payment Entry that already carries this
+        request as its Reference No (#2125).
+
+        An executed payment on a paused account is not booked; staff may book it by hand while
+        it is blocked. Once the pause clears, the next refresh would book it a second time.
+        Linking is right when party and amount match: the money is booked exactly once and the
+        request ends Executed. A same-Reference entry that does NOT match is neither safe to
+        link nor safe to book beside, so it is refused for a person to look at.
+        """
+        existing = frappe.db.get_value(
+            "Payment Entry",
+            {"reference_no": self.name, "docstatus": 1},
+            ["name", "party", "paid_amount"],
+            as_dict=True,
+        )
+        if not existing:
+            return False
+        if existing.party != party or flt(existing.paid_amount) != flt(self.amount):
+            frappe.throw(
+                _(
+                    "Payment Entry {0} already carries {1} as its Reference No but differs in party or "
+                    "amount. Not booking again; correct or cancel it first."
+                ).format(existing.name, self.name),
+                title=_("Payment Entry Conflict"),
+            )
+        self.payment_entry = existing.name
+        self.save()
+        frappe.logger().info(f"Linked existing Payment Entry {existing.name} to Ponto payment {self.name}")
+        return True
+
     @as_system_update
     def create_payment_entry(self):
         """
@@ -469,6 +468,9 @@ class PontoPaymentRequest(Document):
             return  # Already created
 
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
+
+        if self._link_existing_payment_entry(party):
+            return
 
         from erpnext.accounts.party import get_party_account
 

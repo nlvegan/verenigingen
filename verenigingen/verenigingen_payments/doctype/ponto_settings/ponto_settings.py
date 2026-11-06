@@ -296,11 +296,14 @@ class PontoSettings(Document):
         for row in settings.bank_account_mappings:
             if row.sync_status == "Paused" or not row.name:
                 continue
+            # FOR UPDATE: under REPEATABLE READ a plain read answers from this transaction's
+            # snapshot and never sees a pause another connection committed since.
             db = frappe.db.get_value(
                 "Ponto Bank Account Mapping",
                 row.name,
                 ["enabled", "sync_status", "last_sync_error", "last_sync_failure_time"],
                 as_dict=True,
+                for_update=True,
             )
             if db and db.sync_status == "Paused":
                 row.enabled, row.sync_status = db.enabled, "Paused"
