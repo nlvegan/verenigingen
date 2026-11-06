@@ -209,6 +209,14 @@ class MemberImportService(StatelessService):
         if row_data.get("iban"):
             member_doc.iban = row_data["iban"]
             member_doc.payment_method = "Bank Transfer"
+            # MijnRood/CSV rows carry an IBAN but no holder, and the holder is mandatory on
+            # the IBAN history row an IBAN change writes. Same default as approval (#1988),
+            # maintainer ruling 2026-11-04 for #2022; a holder already on the Member is kept.
+            from verenigingen.services.member.approval.application_helpers import (
+                default_blank_account_holder,
+            )
+
+            default_blank_account_holder(member_doc)
 
         # Handle dues rate
         self._set_dues_rate_fields(member_doc, row_data)
