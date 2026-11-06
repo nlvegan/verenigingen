@@ -28,12 +28,12 @@ from unittest.mock import MagicMock, patch
 
 import paramiko
 
-from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.mijnrood_sync.sftp_client import (
     DEFAULT_MAX_DOWNLOAD_BYTES,
     FileTooLargeError,
     MijnRoodSFTPClient,
 )
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 
 
 class _Attrs:

@@ -45,7 +45,12 @@ def patch_module_sleep(module_or_path, sleep=None, **sleep_kwargs):
 
 @contextmanager
 def patch_thread_sleep(recorder):
-    """Route ``time.sleep`` to ``recorder`` for the calling thread only."""
+    """Route ``time.sleep`` to ``recorder`` for the calling thread only.
+
+    The owner is the thread that ENTERS the patch. Sleeps on any other thread, including
+    threads the code under test starts itself (e.g. a ThreadPoolExecutor), run for real
+    and are not recorded, so assert only on sleeps taken on the calling thread.
+    """
     owner = threading.get_ident()
     real_sleep = time.sleep
 

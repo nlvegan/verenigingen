@@ -384,7 +384,8 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
         row = result["results"][0]
         self.assertEqual(row["status"], "success")
         self.assertEqual(row["new_subscription_id"], "sub_new")
-        # Guard against accidental real sleeps in the orchestration path.
+        # Guard against the module's own sleeps in the orchestration path (the patch covers
+        # this module's ``time`` only, not sleeps reached through other modules).
         self.assertEqual(fake_time.sleep.call_count, 0)
 
     # ------------------------------------------------------------------

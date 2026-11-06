@@ -47,7 +47,7 @@ class TestScopedSleep(unittest.TestCase):
     def test_module_patch_records_only_the_module(self):
         with patch_module_sleep(_Module) as fake_time:
             _Module.nap(1.0)
-            stray_ran = _stray_thread_sleeps_once(1.0)  # real 1s sleep on the other thread
+            stray_ran = _stray_thread_sleeps_once(0.01)  # real sleep on the other thread
         self.assertTrue(stray_ran)
         self.assertEqual(fake_time.sleep.call_args_list, [unittest.mock.call(1.0)])
 
@@ -61,7 +61,8 @@ class TestScopedSleep(unittest.TestCase):
         recorded = []
         with patch_module_sleep(f"{__name__}._Module", recorded.append):
             _Module.nap(2.0)
-            _stray_thread_sleeps_once(0.01)
+            stray_ran = _stray_thread_sleeps_once(0.01)
+        self.assertTrue(stray_ran)
         self.assertEqual(recorded, [2.0])
 
     def test_thread_patch_records_only_the_calling_thread(self):
