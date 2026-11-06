@@ -135,13 +135,17 @@ def safe_extract_date(webhook_data: Dict[str, Any], date_field: str = "created_a
 
     Args:
         webhook_data: Parsed webhook JSON payload
-        date_field: Field name to extract date from
+        date_field: Field name to extract date from. Mollie's resources spell
+            these camelCase (``createdAt``), so that spelling is read when the
+            snake_case key is absent (#2138).
 
     Returns:
         Date string in YYYY-MM-DD format or None
     """
     try:
-        date_value = webhook_data.get(date_field)
+        head, *tail = date_field.split("_")
+        camel_field = head + "".join(part.capitalize() for part in tail)
+        date_value = webhook_data.get(date_field) or webhook_data.get(camel_field)
         if date_value:
             # Extract date part (first 10 characters for YYYY-MM-DD)
             return date_value[:10] if len(date_value) >= 10 else None
