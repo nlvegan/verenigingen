@@ -194,7 +194,10 @@ class TestStaffRecipients2095(EnhancedTestCase):
             name="CAR-2095", membership=membership.name, amendment_type="Fee Change", requested_amount=None
         )
         self.expectErrorLog("Mollie Sync Failed")  # the handler logs the failure it reports, by design
-        with self.mail() as mail:
+        # handle_mollie_sync_failure commits (contribution_amendment_request.py ~444); un-patched,
+        # that commit made this test's setUp (key rows deleted, Administrator email rewritten)
+        # permanent on the site, and later modules in a shard then skipped those alerts (#2095 review).
+        with self.mail() as mail, patch.object(frappe.db, "commit"):
             ContributionAmendmentRequest.handle_mollie_sync_failure(stand_in, "boom")
         # The request's own alert never included finance: System Manager + Verenigingen Administrator.
         self.check(mail, reaches=("sm_only", "va_only"), misses=("fm_only", "staff_only"))

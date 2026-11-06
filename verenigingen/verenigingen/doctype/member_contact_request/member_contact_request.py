@@ -10,8 +10,9 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 def contact_request_key(urgency):
     """Urgent requests have their own key: their audience adds System Managers (#2095)."""
-    notification_key = {"Urgent": "contact_request_urgent"}.get(urgency, "contact_request_new")
-    return notification_key
+    # Both keys stay literal values of the dict so the key-discovery walker sees them (#2095 review).
+    notification_key_by_urgency = {"Urgent": "contact_request_urgent", "Normal": "contact_request_new"}
+    return notification_key_by_urgency.get(urgency, notification_key_by_urgency["Normal"])
 
 
 class MemberContactRequest(Document):
