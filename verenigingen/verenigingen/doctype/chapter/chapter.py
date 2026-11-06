@@ -1210,7 +1210,11 @@ def join_chapter(member_name: str, chapter_name: str, introduction: str = None, 
         user_email=frappe.session.user,
     )
 
-    return {"success": result.get("success", False), "added": result.get("action") == "added"}
+    response = {"success": result.get("success", False), "added": result.get("action") == "added"}
+    if result.get("action") == "not_active":
+        # #2021: tell the member why nothing was written (the message carries no status).
+        response["message"] = result.get("message")
+    return response
 
 
 @frappe.whitelist()

@@ -517,6 +517,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
 
         created_count = 0
         updated_count = 0
+        failures = []
 
         for template_data in templates:
             template_name = template_data["name"]
@@ -562,16 +563,25 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                         created_count += 1
                         frappe.logger().info(f"Created email template: {template_name}")
                     else:
+                        failures.append(f"{template_name}: {'; '.join(result.errors)}")
                         frappe.log_error(
-                            f"Failed to create email template {template_name}: {'; '.join(result.errors)}"
+                            title="Email Template Error",
+                            message=f"Failed to create email template {template_name}: {'; '.join(result.errors)}",
                         )
 
             except Exception as e:
+                failures.append(f"{template_name}: {str(e)}")
                 frappe.log_error(
-                    f"Failed to create/update template '{template_name}': {str(e)}", "Email Template Error"
+                    title="Email Template Error",
+                    message=f"Failed to create/update template '{template_name}': {str(e)}",
                 )
 
         frappe.db.commit()
+
+        if failures:
+            # One bad template must not stop the others (they were committed above), but the
+            # caller must not be told the run succeeded (#1880).
+            return OperationResult.fail(message=_("Failed to create email templates"), errors=failures)
 
         data = {
             "created": created_count,
