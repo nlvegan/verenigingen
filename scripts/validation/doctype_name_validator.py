@@ -138,6 +138,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bench_resolution import find_bench_root  # noqa: E402
+from doctype_loader import DocTypeLoader  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -266,10 +267,18 @@ def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
 
     Scoped to ``REQUIRED_APPS`` so the same tree yields the same census on every
     bench; see the note on that constant.
+
+    This app is read from the checkout the validator runs in (``REPO_ROOT``), not
+    the bench's installed copy, so a worktree that adds a DocType sees it (#1903,
+    as #1839 did for ``DocTypeLoader``). Every other app comes from the bench.
     """
     known: dict[str, str] = {}
+    # Same resolver as #1839: the checkout's own name comes from its pyproject.toml.
+    # None (no/unparseable pyproject.toml in the checkout) means no app matches, so every
+    # app, this one included, falls back to the bench's copy: the pre-#1903 behaviour.
+    local_app = DocTypeLoader._local_app_name(REPO_ROOT)
     for app_name in REQUIRED_APPS:
-        app_dir = bench_apps / app_name
+        app_dir = REPO_ROOT if app_name == local_app else bench_apps / app_name
         if not (app_dir / "pyproject.toml").exists():
             continue
         for json_file in app_dir.rglob("**/doctype/*/*.json"):
@@ -282,7 +291,7 @@ def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
             except (OSError, ValueError):
                 continue
             if data.get("doctype") == "DocType" and data.get("name"):
-                known.setdefault(data["name"], app_dir.name)
+                known.setdefault(data["name"], app_name)
     return known
 
 

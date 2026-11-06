@@ -595,6 +595,15 @@ class AccountCreationRequest(Document):
             self.reload()
 
             frappe.logger().error(f"Account creation request failed: {self.name} - {error_message}")
+            # frappe.logger() reaches only logs/frappe.log, which nobody reads (#2066). The Error Log
+            # row is written after the commit above, so it never leaves the failure status unsaved.
+            frappe.log_error(
+                title=f"Account Creation Request failed: {self.name}",
+                message=(
+                    f"Request {self.name} ({self.request_type} {self.source_record}) failed at stage "
+                    f"{stage or 'unknown'}: {error_message}"
+                ),
+            )
 
         except Exception as e:
             # Critical: If we can't even mark as failed, log to error log
