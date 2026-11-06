@@ -38,13 +38,14 @@ def _get_email_config_service():
         return None
 
 
-def get_financial_admin_emails(notification_key=None, default_roles=None):
+def get_financial_admin_emails(notification_key=None, default_roles=None, include_payments_settings=True):
     """Get email addresses for financial administrators
 
     The shared staff resolver in key-first mode (utils.notification_helpers):
     1. the notification key's own recipients (Verenigingen Email Configuration)
     2. Email Configuration admin emails, only when configured
-    3. Verenigingen Payments Settings.financial_admin_emails
+    3. Verenigingen Payments Settings.financial_admin_emails (unless ``include_payments_settings`` is False:
+       an alert whose audience was ruled to be the key row and then ``default_roles`` alone, #2107)
     4. enabled holders of ``default_roles`` (default: the admin roles, Roles.ADMIN_PAIR)
 
     The Administrator user is never a recipient (it is not in active use), and there is no
@@ -55,7 +56,7 @@ def get_financial_admin_emails(notification_key=None, default_roles=None):
     try:
         recipients = resolve_admin_recipients(
             notification_key=notification_key,
-            extra_emails=_payments_settings_recipients(),
+            extra_emails=_payments_settings_recipients() if include_payments_settings else (),
             default_roles=default_roles,
             exclude_users=("Administrator",),
             key_first=True,

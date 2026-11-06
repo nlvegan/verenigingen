@@ -395,7 +395,9 @@ def send_batch_creation_notification(result):
         # The key's own recipients first (seeded: Financial Manager), then enabled Financial
         # Manager holders; never the Administrator user (#2093).
         finance_emails = get_financial_admin_emails(
-            "sepa_batch_scheduler_alert", default_roles=[Roles.FINANCIAL_MANAGER]
+            "sepa_batch_scheduler_alert",
+            default_roles=[Roles.FINANCIAL_MANAGER],
+            include_payments_settings=False,  # #2093 audience: key row, then Financial Managers
         )
 
         if not finance_emails:

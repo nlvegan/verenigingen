@@ -529,7 +529,6 @@ verenigingen/verenigingen_payments/api/balance_transaction_processing.py::search
 verenigingen/verenigingen_payments/api/dd_batch_optimizer.py::create_dd_batch_document::2
 verenigingen/verenigingen_payments/api/dd_batch_optimizer.py::validate_member_eligibility_for_billing::5
 verenigingen/verenigingen_payments/api/dd_batch_scheduler.py::_daily_batch_optimization_impl::1
-verenigingen/verenigingen_payments/api/dd_batch_scheduler.py::create_system_notification::2
 verenigingen/verenigingen_payments/api/dd_batch_scheduler.py::get_batch_optimization_stats::1
 verenigingen/verenigingen_payments/api/dd_batch_scheduler.py::is_batch_creation_day::1
 verenigingen/verenigingen_payments/api/dd_batch_scheduler.py::run_batch_creation_now::1
@@ -690,7 +689,6 @@ verenigingen/verenigingen_payments/utils/sepa_config_manager.py::SEPAConfigManag
 verenigingen/verenigingen_payments/utils/sepa_input_validation.py::validate_sepa_batch_params::1
 verenigingen/verenigingen_payments/utils/sepa_input_validation.py::validate_single_sepa_invoice::1
 verenigingen/verenigingen_payments/utils/sepa_mandate_service.py::SEPAMandateService.get_sequence_types_batch::1
-verenigingen/verenigingen_payments/utils/sepa_notification_manager.py::SEPANotificationManager._create_system_notification::1
 verenigingen/verenigingen_payments/utils/sepa_notifications.py::check_and_send_expiry_notifications::1
 verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser._parse_transaction_status::1
 verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser.parse::1
