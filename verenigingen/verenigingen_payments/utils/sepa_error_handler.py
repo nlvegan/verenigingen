@@ -150,7 +150,7 @@ class SEPAErrorHandler:
             # Check if recovery timeout has passed
             if (
                 self.circuit_breaker["last_failure_time"]
-                and (now - self.circuit_breaker["last_failure_time"]).seconds
+                and (now - self.circuit_breaker["last_failure_time"]).total_seconds()
                 >= self.circuit_breaker["recovery_timeout"]
             ):
                 self.circuit_breaker["state"] = "half_open"
