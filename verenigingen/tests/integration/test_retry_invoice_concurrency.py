@@ -90,14 +90,18 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
                 print(f"cleanup of {member} failed: {error}")
         frappe.db.commit()
 
-    def test_two_retries_at_once_create_one_invoice_and_one_mail(self):
+    def _race_two_retries(self, send):
+        """Two staff retry the same failed approval at once; ``send`` stands in for the mail boundary.
+
+        Returns (application, invoices, mails, outcomes): the submitted invoices of the applicant, every mail
+        the boundary was asked to send, and each worker's return value or exception.
+        """
         application, member = self._create_committed_failed_approval()
         customer = frappe.db.get_value("Member", member, "customer")
         admin = self.admin_user.email
         site = self.site
         mails, outcomes, held = [], {}, []
         real_secure = application_payments.secure_document_operation
-        real_send = EmailService._send_email_internal
 
         def _create_after_midop_commit(*args, **kwargs):
             if threading.current_thread().name == "T1" and not held:
@@ -111,21 +115,11 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
 
         def spy_send(service, *args, **kwargs):
             mails.append(kwargs)
-            return real_send(service, *args, **kwargs)
+            return send(service, *args, **kwargs)
 
         def _create_request_worker(name, delay):
             time.sleep(delay)
-            frappe.init(site=site, force=True)
-            frappe.connect()
-            frappe.set_user(admin)
-            try:
-                outcomes[name] = retry_application_invoice(application)
-                frappe.db.commit()
-            except Exception as error:
-                frappe.db.rollback()
-                outcomes[name] = error
-            finally:
-                frappe.destroy()
+            self._create_retry_in_own_connection(site, admin, application, outcomes, name)
 
         # Mock justified: spy on the mail boundary; and a delay (plus a commit) at the secure-operation wrapper
         # the invoice insert goes through, which still runs the real operation
@@ -143,8 +137,65 @@ class TestConcurrentInvoiceRetry(ApprovalCase):
 
         frappe.db.rollback()  # end this connection's old snapshot before reading what the workers committed
         invoices = frappe.get_all("Sales Invoice", {"customer": customer, "docstatus": 1}, pluck="name")
+        return application, invoices, mails, outcomes
+
+    @staticmethod
+    def _create_retry_in_own_connection(site, user, application, outcomes, name):
+        """One staff request: its own connection, so its own transaction and snapshot. Named `_create_*`
+        because the commit here is the sanctioned fixture-commit shape (a worker committing its own request)."""
+        frappe.init(site=site, force=True)
+        frappe.connect()
+        frappe.set_user(user)
+        try:
+            outcomes[name] = retry_application_invoice(application)
+            frappe.db.commit()
+        except Exception as error:
+            frappe.db.rollback()
+            outcomes[name] = error
+        finally:
+            frappe.destroy()
+
+    def test_two_retries_at_once_create_one_invoice_and_one_mail(self):
+        _application, invoices, mails, outcomes = self._race_two_retries(EmailService._send_email_internal)
         applicant_mails = [m for m in mails if m.get("recipients") and self.email in m["recipients"]]
         self.assertEqual(len(invoices), 1, f"exactly one invoice. outcomes: {outcomes}")
         self.assertEqual(len(applicant_mails), 1, f"exactly one mail. outcomes: {outcomes}")
         self.assertIsInstance(outcomes["second"], frappe.ValidationError, f"the loser is refused: {outcomes}")
         self.assertTrue(outcomes["first"]["invoice"], outcomes)
+
+    def test_two_retries_while_the_mail_fails_still_create_one_invoice(self):
+        """#2090: the marker is cleared only once the mail went out, so when the mail fails the loser gets past
+        the marker check. It must still see the winner's committed invoice and be refused, not create a second."""
+
+        def failing_send(service, *args, **kwargs):
+            raise frappe.OutgoingEmailError("mail is down (#2090)")
+
+        self.expectErrorLog("Approval Email Failed", "mail is down")
+        application, invoices, mails, outcomes = self._race_two_retries(failing_send)
+
+        self.assertEqual(len(invoices), 1, f"the member was billed twice. outcomes: {outcomes}")
+        self.assertTrue(mails, "control: the mail boundary was reached, so the mail really failed")
+        self.assertFalse(outcomes["first"]["mail_sent"], outcomes)
+        self.assertIsInstance(outcomes["second"], frappe.ValidationError, f"the loser is refused: {outcomes}")
+        # The deliberate refusal, not a DoesNotExistError from loading an invoice outside this snapshot
+        # (also a ValidationError, also naming the invoice).
+        self.assertIn("was created a moment ago", str(outcomes["second"]), outcomes)
+        self.assertIn(outcomes["first"]["invoice"], str(outcomes["second"]), "the refusal names the invoice")
+
+        # Accept side, across connections: a retry STARTED after the winner committed is not refused. It
+        # reuses the invoice (so an always-refuse guard fails here), and still creates nothing new.
+        self.expectErrorLog("Approval Email Failed", "No active email account", "Email Account")
+        later = threading.Thread(
+            target=self._create_retry_in_own_connection,
+            args=(self.site, self.admin_user.email, application, outcomes, "later"),
+            name="T3",
+        )
+        later.start()
+        later.join(timeout=90)
+        frappe.db.rollback()
+        self.assertIsInstance(outcomes["later"], dict, f"a later retry was refused: {outcomes}")
+        self.assertEqual(outcomes["later"]["invoice"], outcomes["first"]["invoice"], outcomes)
+        customer = frappe.db.get_value("Sales Invoice", outcomes["first"]["invoice"], "customer")
+        self.assertEqual(
+            len(frappe.get_all("Sales Invoice", {"customer": customer, "docstatus": 1}, pluck="name")), 1
+        )
