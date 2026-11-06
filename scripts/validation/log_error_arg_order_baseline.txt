@@ -313,7 +313,6 @@ verenigingen/templates/pages/manage_donations.py::get_recent_donations::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donation_state::1
 verenigingen/templates/pages/manage_donations.py::get_recurring_donations::1
 verenigingen/templates/pages/manage_donations.py::update_recurring_donation::2
-verenigingen/templates/pages/member_portal.py::get_payment_status::1
 verenigingen/templates/pages/membership_adjustment.py::get_effective_fee_for_member::1
 verenigingen/templates/pages/membership_adjustment.py::get_member_fee_history::1
 verenigingen/templates/pages/membership_adjustment.py::send_membership_type_change_notification::1
