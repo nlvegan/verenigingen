@@ -99,6 +99,12 @@ class BTRBase(EnhancedTestCase):
         # fields and Mollie config (logs, never throws on missing Mollie accounts).
         self.mgr = PaymentReconciliationManager()
 
+    def _run_pool(self):
+        """Run the reconcile pool over today's rows on the shared EUR bank account."""
+        return self.mgr.reconcile_bank_transactions(
+            bank_account=self._eur_bank_account, from_date=today(), to_date=today()
+        )
+
     # ---- infra -------------------------------------------------------------
 
     @classmethod

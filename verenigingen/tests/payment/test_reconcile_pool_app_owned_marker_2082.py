@@ -20,11 +20,6 @@ from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation im
 
 
 class TestReconcilePoolAppOwnedMarker(BTRBase):
-    def _run_pool(self):
-        return self.mgr.reconcile_bank_transactions(
-            bank_account=self._eur_bank_account, from_date=today(), to_date=today()
-        )
-
     def _comments(self, bt, containing):
         return [
             c
