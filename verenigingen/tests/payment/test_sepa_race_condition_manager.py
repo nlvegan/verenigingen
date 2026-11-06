@@ -27,6 +27,7 @@ drops the System Manager role within a controlled ``set_user``-free block to
 exercise the denial branch.
 """
 
+import time
 import unittest
 import unittest.mock
 from datetime import timedelta
@@ -307,20 +308,57 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
             "exponential_base": 2.0,
         }
 
+    def _failing_op_with_stray_sleep(self):
+        """An op that always fails, and on its first call makes ANOTHER thread
+        call ``time.sleep(1)`` while the sleep patch is active (#2155).
+
+        Deterministic stand-in for the stray CI thread that flooded the
+        recorded list: the other thread's sleep must never be recorded.
+        """
+        import threading
+
+        go, done = threading.Event(), threading.Event()
+
+        def stray_thread():
+            go.wait(10)
+            time.sleep(1)  # the OTHER thread's sleep
+            done.set()
+
+        thread = threading.Thread(target=stray_thread, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(go.set)
+
+        def always_fail():
+            if not go.is_set():
+                go.set()
+                done.wait(10)
+            raise RuntimeError("boom")
+
+        return always_fail
+
+    def _record_module_sleeps(self, module, recorded):
+        """Replace only ``module``'s own ``time`` reference, so the module's
+        sleeps are recorded without touching the process-global ``time.sleep``
+        that other threads call. Other ``time`` attributes (``time.time``)
+        still delegate to the real module."""
+        fake_time = unittest.mock.Mock(wraps=time)
+        fake_time.sleep = recorded.append
+        return unittest.mock.patch.object(module, "time", fake_time)
+
     def test_sleep_delays_exact_schedule(self):
         import verenigingen.verenigingen_payments.utils.sepa_race_condition_manager as rcm
 
         recorded = []
 
-        def always_fail():
-            raise RuntimeError("boom")
+        always_fail = self._failing_op_with_stray_sleep()
 
         # retry_failed_operation is wrapped by @handle_api_error: an exhausted
         # retry raises SEPAError internally which the decorator converts into a
         # failure result (it does not propagate) AND logs an Error Log row. We
         # only care about the sleep schedule here, so mark that log as expected.
         self.expectErrorLog("Operation failed after")
-        with unittest.mock.patch.object(rcm.time, "sleep", side_effect=recorded.append):
+        with self._record_module_sleeps(rcm, recorded):
             self.manager.retry_failed_operation(always_fail)
 
         # 5 attempts -> sleeps before attempts 2..5 (i.e. after failures 0..3):
@@ -338,11 +376,10 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
         }
         recorded = []
 
-        def always_fail():
-            raise RuntimeError("boom")
+        always_fail = self._failing_op_with_stray_sleep()
 
         self.expectErrorLog("Operation failed after")
-        with unittest.mock.patch.object(rcm.time, "sleep", side_effect=recorded.append):
+        with self._record_module_sleeps(rcm, recorded):
             self.manager.retry_failed_operation(always_fail)
 
         # nominal 1, 2, 4, 8 -> capped at 3 -> 1, 2, 3, 3.
