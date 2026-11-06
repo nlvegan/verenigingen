@@ -11,44 +11,27 @@ writes stand in for any step.
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import today
 
 from verenigingen.services.billing.dues_schedule_creation_service import DuesScheduleCreationService
 from verenigingen.services.termination.termination_integration import cancel_membership_safe
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.schedule_frequency_fixture import ScheduleFrequencyFixtureMixin
 from verenigingen.verenigingen.doctype.membership.membership import (
     _cancel_linked_dues_schedule,
     cancel_membership,
 )
 
 
-class TestCancelMembershipDuesSchedule(VereningingenTestCase):
+class TestCancelMembershipDuesSchedule(ScheduleFrequencyFixtureMixin, VereningingenTestCase):
     def setUp(self):
         super().setUp()
-        self.member = self.create_test_member(
-            first_name="CancelSched",
-            last_name=f"Member{frappe.generate_hash(length=4)}",
-            email=f"cancelsched.{frappe.generate_hash(length=6)}@test.invalid",
-            status="Active",
-            auto_create_customer=True,
-        )
-        self.member.reload()
+        self.member = self._create_schedule_test_member("CancelSched")
 
     def _cs_submit_membership(self, billing_period, skip_schedule=False):
-        membership_type = self.create_test_membership_type(billing_period=billing_period)
-        template = frappe.db.get_value(
-            "Membership Dues Schedule", {"is_template": 1, "membership_type": membership_type.name}
+        return self._submit_membership_via_template(
+            self.member, billing_period, billing_period, skip_schedule=skip_schedule
         )
-        template_doc = frappe.get_doc("Membership Dues Schedule", template)
-        template_doc.billing_frequency = billing_period
-        template_doc.save()
-        membership = self.create_test_membership(
-            member=self.member.name, membership_type=membership_type.name
-        )
-        membership.start_date = add_days(today(), -120)
-        membership.flags.skip_dues_schedule_creation = skip_schedule
-        membership.submit()
-        return membership
 
     def _cs_schedules(self, **filters):
         return frappe.get_all(
@@ -113,18 +96,8 @@ class TestCancelMembershipDuesSchedule(VereningingenTestCase):
     def test_cancelling_one_member_does_not_touch_another_members_schedule(self):
         """Control: only the cancelled membership's own schedule is cancelled."""
         first = self._cs_submit_membership("Monthly")
-        other = self.create_test_member(
-            first_name="Other",
-            last_name=f"Member{frappe.generate_hash(length=4)}",
-            email=f"other.{frappe.generate_hash(length=6)}@test.invalid",
-            status="Active",
-            auto_create_customer=True,
-        )
-        other.reload()
-        other_type = self.create_test_membership_type(billing_period="Monthly")
-        other_membership = self.create_test_membership(member=other.name, membership_type=other_type.name)
-        other_membership.start_date = add_days(today(), -120)
-        other_membership.submit()
+        other = self._create_schedule_test_member("Other")
+        other_membership = self._submit_membership_via_template(other, "Monthly", "Monthly")
         self.assertEqual(
             frappe.db.count(
                 "Membership Dues Schedule", {"membership": other_membership.name, "status": "Active"}
@@ -186,6 +159,7 @@ class TestCancelMembershipDuesSchedule(VereningingenTestCase):
         membership must then not be reported cancelled."""
         first = self._cs_submit_membership("Monthly")
         self.expectErrorLog("Secure Operation Failed")
+        self.expectErrorLog("Dues Schedule Termination Security")
         user_email = f"cs_nowrite_{frappe.generate_hash(length=6)}@example.com"
         self.create_test_user(user_email, roles=[])
 
