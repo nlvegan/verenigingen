@@ -43,9 +43,9 @@ class ChapterBoardMember(Document):
         Chapter save. A row naming a Chapter that does not exist now raises
         DoesNotExistError here instead of inserting as an orphan.
         """
-        self._flush_board_access_for(self.volunteer)
+        self._flush_board_access_for(self.volunteer, inserting=True)
 
-    def _flush_board_access_for(self, *volunteers):
+    def _flush_board_access_for(self, *volunteers, inserting=False):
         """Recalculate board access for volunteers whose seat a standalone row write changed.
 
         Shared by after_insert, on_update and after_delete (#1922, #1953); all run only when
@@ -54,6 +54,14 @@ class ChapterBoardMember(Document):
         """
         volunteers = [v for v in dict.fromkeys(volunteers) if v]
         if not (self.parent and self.parenttype == "Chapter" and volunteers):
+            return
+        if not inserting and not frappe.db.exists("Chapter", self.parent):
+            # An orphan row (its Chapter is gone) must stay deletable and editable, and its
+            # holder must still lose the access it conferred. The flush needs a Chapter only
+            # for its per-chapter profile mapping; withdrawal needs none. (An orphan INSERT
+            # is still refused, #1922.)
+            for volunteer in volunteers:
+                _withdraw_access_without_chapter(volunteer)
             return
         board_manager = frappe.get_doc("Chapter", self.parent).board_manager
         for volunteer in volunteers:
@@ -175,6 +183,20 @@ class ChapterBoardMember(Document):
             reference_doctype="Chapter Board Member",
             reference_name=self.name,
         )
+
+
+def _withdraw_access_without_chapter(volunteer: str) -> None:
+    """Recalculate a volunteer's board access when the row's Chapter no longer exists (#1953).
+
+    Profile first, then the role, for the same reason as BoardManager's flush (#211).
+    """
+    from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+
+    member = frappe.db.get_value("Volunteer", volunteer, "member")
+    user = frappe.db.get_value("Member", member, "user") if member else None
+    if user:
+        sync_user_role_profile(user)
+    withdraw_board_member_role_if_unseated(volunteer)
 
 
 def withdraw_board_member_role_if_unseated(volunteer: str, exclude_row: str = None) -> None:

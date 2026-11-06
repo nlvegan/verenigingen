@@ -14,6 +14,7 @@ as in the #1922 and #1969 suites.
 """
 
 import json
+from unittest import mock
 
 import frappe
 
@@ -172,13 +173,93 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
             self.assertTrue(frappe.db.exists("Chapter Board Member", second) and frappe.db.get_value("Chapter Board Member", second, "is_active"))
             self._assert_seated_1953(person.user, "still seated on the other board")
 
-    def test_an_unrelated_edit_of_a_live_row_keeps_the_access(self):
+    def test_an_unrelated_edit_of_a_live_row_keeps_the_access_and_runs_no_flush(self):
+        """The changed-fields gate: a notes-only edit must not flush (no User saves, no locks)."""
+        from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+            ChapterBoardMember,
+        )
+
         person = self._person_1953("Notes")
         row = self._seat_1953(person)
         doc = frappe.get_doc("Chapter Board Member", row)
         doc.notes = "just a note"
-        doc.save()
+        # Mock justified: wraps= counts the real calls; behaviour unchanged.
+        with mock.patch.object(
+            ChapterBoardMember, "_flush_board_access_for", autospec=True, side_effect=ChapterBoardMember._flush_board_access_for
+        ) as flush:
+            doc.save()
+        flush.assert_not_called()
         self._assert_seated_1953(person.user)
+
+        doc = frappe.get_doc("Chapter Board Member", row)
+        doc.chapter_role = self._chapter_role_1953("Treasurer")
+        with mock.patch.object(
+            ChapterBoardMember, "_flush_board_access_for", autospec=True, side_effect=ChapterBoardMember._flush_board_access_for
+        ) as flush:
+            doc.save()
+        self.assertEqual(flush.call_count, 1, "control: a role change does flush")
+
+    def test_an_orphan_row_stays_deletable_and_editable_and_its_holder_loses_access(self):
+        """Probe shortcut: the row is orphaned by pointing ``parent`` at a missing Chapter with
+        ``db.set_value`` (what a Chapter deletion leaves behind)."""
+        for label, end in (
+            ("Orph1", lambda r: frappe.delete_doc("Chapter Board Member", r)),
+            ("Orph2", self._deactivate_1953),
+        ):
+            person = self._person_1953(label)
+            row = self._seat_1953(person)
+            self._assert_seated_1953(person.user)
+            frappe.db.set_value(
+                "Chapter Board Member", row, "parent", f"Gone {frappe.generate_hash(length=6)}",
+                update_modified=False,
+            )
+
+            end(row)
+
+            self._assert_withdrawn_1953(person.user)
+            if label == "Orph1":
+                self.assertFalse(frappe.db.exists("Chapter Board Member", row), "the orphan row is gone")
+
+    def test_a_failed_withdrawal_is_not_swallowed_by_the_assignment_service(self):
+        """The failure is injected BELOW every swallowing layer (BoardManager._log_or_reraise
+        and the service's per-row except): the two manager steps do nothing, so the real
+        post-condition raises BoardAccessWithdrawalError, which must reach the caller."""
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        person = self._person_1953("Fail")
+        self._seat_1953(person)
+        base = "verenigingen.verenigingen.doctype.chapter.managers.board_manager.BoardManager."
+        # Mock justified: removes the real withdrawal at the manager boundary to force the failure.
+        with mock.patch(base + "_sync_role_profile_for_volunteer"), mock.patch(
+            base + "_withdraw_board_role_if_unseated"
+        ):
+            with self.assertRaises(BoardAccessWithdrawalError):
+                ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
+
+        # The direct call above ended `row` before raising; the reassignment gets its own seat.
+        other = self._person_1953("Fail2")
+        other_row = self._seat_1953(other)
+        with mock.patch(base + "_sync_role_profile_for_volunteer"), mock.patch(
+            base + "_withdraw_board_role_if_unseated"
+        ):
+            result = ChapterAssignmentService().assign_with_cleanup(other.member, self.chapter.name)
+        self.assertFalse(result["success"], f"the reassignment reports the failure: {result}")
+        self.assertEqual(
+            frappe.db.get_value("Chapter Board Member", other_row, "is_active"), 1, "ending rolled back with it"
+        )
+        self._assert_seated_1953(other.user, "access untouched when the withdrawal failed")
+
+    def test_a_deadlock_during_the_withdrawal_propagates_from_the_assignment_service(self):
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        person = self._person_1953("Dead")
+        self._seat_1953(person)
+        base = "verenigingen.verenigingen.doctype.chapter.managers.board_manager.BoardManager."
+        # Mock justified: injects a MariaDB 1213 at the manager boundary.
+        with mock.patch(base + "_withdraw_board_role_if_unseated", side_effect=frappe.QueryDeadlockError):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
 
     def test_a_staffer_keeps_staff_when_the_standalone_seat_ends(self):
         """#1969: Staff (via a staff Team) is a second profile beside the seat's; ending the seat
