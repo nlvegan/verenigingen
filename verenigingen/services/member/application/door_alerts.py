@@ -31,21 +31,34 @@ def alert_if_door_unusable(door, plans, problems):
     if not claim:
         return
     frappe.local.flags.commit = True  # a Guest GET is otherwise rolled back, taking the alert with it
-    pass  # a Guest GET is otherwise rolled back, taking the alert with it
     try:
-        notify_administrators(
+        result = notify_administrators(
             subject=f"Application form {door.title or door.name} cannot be used right now",
             message=_alert_message(door, reason),
             notification_key=NOTIFICATION_KEY,  # literal: key discovery greps for it
             document_type=door.doctype,
             document_name=door.name,
-            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
-            # ruling 2026-11-01: staff alerts never go to Administrator
+            # ruling 2026-11-01: staff alerts never go to Administrator (the delivery layer also excludes it)
+            exclude_users=["Administrator"],
             staff_alert=True,
         )
     except Exception:
         frappe.cache.delete(claim)  # so the next visit tries again
         frappe.log_error(title="Door unavailable alert failed", message=frappe.get_traceback())
+        return
+    if not _was_delivered(result):
+        frappe.cache.delete(claim)  # dropped (key off, nobody to tell): do not hold the alert back for a day
+
+
+def _was_delivered(result) -> bool:
+    """notify_administrators returns success False for no recipient, skipped True for a disabled key or
+    email, and notifications_created 0 when nothing was written."""
+    result = result or {}
+    return (
+        bool(result.get("success"))
+        and not result.get("skipped")
+        and bool(result.get("notifications_created"))
+    )
 
 
 def _claim(door_name, reason):

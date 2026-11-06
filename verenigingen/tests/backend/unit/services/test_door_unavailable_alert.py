@@ -85,6 +85,27 @@ class TestDoorUnavailableAlert(DoorAlertCase):
         [event] = self._door_alert_events(door)
         self.assertEqual(event.requires_action, 1)
 
+    def _set_key_enabled(self, enabled):
+        """Probe shortcut: flips the key's Email Configuration row with a db write (rolled back at teardown)."""
+        row = frappe.db.get_value(
+            "Email Notification Type",
+            {"parent": "Verenigingen Email Configuration", "notification_key": KEY},
+            "name",
+        )
+        frappe.db.set_value("Email Notification Type", row, "enabled", enabled)
+        frappe.clear_document_cache("Verenigingen Email Configuration", "Verenigingen Email Configuration")
+
+    def test_an_alert_dropped_for_a_disabled_key_is_not_lost_for_a_day(self):
+        """The once-a-day claim is released when nothing was delivered, so the alert goes out once the
+        key is switched back on instead of waiting out the 24 h claim."""
+        door, _template = self._broken_door()
+        self._set_key_enabled(0)
+        self._render_door(door)
+        self.assertEqual(self._alerts(door), [], "control: a disabled key delivers nothing")
+        self._set_key_enabled(1)
+        self._render_door(door)
+        self.assertEqual(len(self._alerts(door)), 1)
+
     def test_a_correctly_configured_door_raises_no_alert(self):
         template = self._plan_template("Monthly")
         door = self._door(plans=[{"dues_template": template, "is_default": 1}])
