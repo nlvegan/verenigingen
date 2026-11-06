@@ -232,6 +232,40 @@ class TestFixStuckDuesScheduleAPI(VereningingenTestCase):
 
     # -------------------------------------------------------------- check_and_notify_stuck_schedules
 
+    def test_stuck_alert_addresses_users_by_name_and_never_administrator_2107(self):
+        """Recipients are emails; Administrator's email is not a User name (#2107), so the old
+        hand-written Notification Log insert failed for it and logged an error."""
+        old_admin_email = frappe.db.get_value("User", "Administrator", "email")
+        self.addCleanup(
+            frappe.db.set_value, "User", "Administrator", "email", old_admin_email, update_modified=False
+        )
+        admin_email = "administrator-2107@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        recipient = f"stuck-2107-{frappe.generate_hash(length=6)}@example.org"
+        self.create_test_user(recipient, roles=["System Manager"])
+        previous = frappe.db.get_single_value("Verenigingen Settings", "stuck_schedule_notification_emails")
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "stuck_schedule_notification_emails", previous
+        )
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "stuck_schedule_notification_emails", f"{recipient},{admin_email}"
+        )
+        self._force_stuck(self._make_schedule(billing_frequency="Daily"))
+        self.expectErrorLog("Stuck Schedule", "Enhanced Stuck Schedule Alert Sent")
+        errors_before = frappe.db.count("Error Log", {"method": ["like", "Failed to create notification%"]})
+        marker = frappe.utils.now_datetime()
+        api.check_and_notify_stuck_schedules()
+        logs = frappe.get_all(
+            "Notification Log",
+            filters={"subject": ["like", "% Stuck Dues Schedules"], "creation": [">=", marker]},
+            pluck="for_user",
+        )
+        self.assertEqual(logs, [recipient])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Failed to create notification%"]}),
+            errors_before,
+        )
+
     def test_check_and_notify_runs_and_returns_structured_result(self):
         # Build one critical (Type A, no invoice) stuck schedule and run the
         # notifier. The endpoint always writes an Error Log "alert" (used as its

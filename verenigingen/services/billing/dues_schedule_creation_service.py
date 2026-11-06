@@ -456,9 +456,8 @@ class DuesScheduleCreationService(StatelessService):
             safe_error = html.escape(error)
             safe_error_category = html.escape(error_category)
             # Create notification for administrators
-            notification = frappe.new_doc("Notification Log")
-            notification.subject = f"Dues Schedule Creation Failed - {member_name}"
-            notification.email_content = f"""
+            subject = f"Dues Schedule Creation Failed - {member_name}"
+            message = f"""
             <h3>Dues Schedule Creation Failed After {retry_count} Retries</h3>
 
             <p>A dues schedule could not be created for member <strong>{safe_member_name}</strong>
@@ -500,48 +499,35 @@ class DuesScheduleCreationService(StatelessService):
             </p>
             """
 
-            notification.type = "Alert"
-            notification.document_type = "Membership"
-            notification.document_name = membership_name
-            notification.from_user = "Administrator"
-
-            # Send to administrators
+            # Role holders by user NAME; create_system_notification drops Administrator (#2107).
+            # (frappe.get_roles takes a user, not a role: the old query matched nobody.)
+            role_holders = frappe.get_all(
+                "Has Role",
+                filters={
+                    "role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]],
+                    "parenttype": "User",
+                },
+                pluck="parent",
+            )
             admin_users = frappe.get_all(
                 "User",
-                filters={"enabled": 1, "user_type": "System User"},
-                or_filters=[
-                    ["name", "in", frappe.get_roles(Roles.SYSTEM_MANAGER)],
-                    ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
-                ],
+                filters={"enabled": 1, "user_type": "System User", "name": ["in", role_holders or [""]]},
                 pluck="name",
             )
+            admin_users = admin_users[:5]  # Limit to 5 admins to avoid spam
 
-            # Use secure document operation instead of permission bypass
-            from verenigingen.utils.secure_operations import secure_document_operation
+            from verenigingen.utils.notification_helpers import create_system_notification
 
-            notification_count = 0
-            for admin in admin_users[:5]:  # Limit to 5 admins to avoid spam
-                admin_notification = notification.copy()
-                admin_notification.for_user = admin
-
-                # Secure notification creation with proper permission validation
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=admin_notification,
-                    justification=f"Create dues schedule failure alert for admin {admin} after {retry_count} retries",
-                    required_permissions=["Notification Log:create"],
-                )
-
-                if result.success:
-                    notification_count += 1
-                else:
-                    self.logger.error(
-                        f"[DUES SCHEDULE] Failed to create alert for admin {admin}: "
-                        f"{'; '.join(result.errors)}"
-                    )
-
+            result = create_system_notification(
+                admin_users,
+                subject,
+                message,
+                document_type="Membership",
+                document_name=membership_name,
+                from_user="Administrator",
+            )
             self.logger.info(
-                f"[DUES SCHEDULE] Created {notification_count}/{len(admin_users[:5])} failure alerts for {member_name}"
+                f"[DUES SCHEDULE] Created {result['notifications_created']}/{len(admin_users)} failure alerts for {member_name}"
             )
 
         except Exception as alert_error:

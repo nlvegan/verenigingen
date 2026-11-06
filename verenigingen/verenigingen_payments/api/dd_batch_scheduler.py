@@ -10,7 +10,6 @@ from frappe.utils import add_days, add_to_date, get_weekday, getdate, now_dateti
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -395,12 +394,7 @@ def send_batch_creation_notification(result):
         # Get finance team members
         # The key's own recipients first (seeded: Financial Manager), then enabled Financial
         # Manager holders; never the Administrator user (#2093).
-        finance_emails = resolve_admin_recipients(
-            notification_key="sepa_batch_scheduler_alert",
-            default_roles=[Roles.FINANCIAL_MANAGER],
-            exclude_users=("Administrator",),
-            key_first=True,
-        )
+        finance_emails = _resolve_batch_alert_recipients()
 
         if not finance_emails:
             return
@@ -474,41 +468,45 @@ def send_batch_creation_notification(result):
         frappe.log_error(f"Error sending batch notification: {str(e)}", "Batch Notification Error")
 
 
+def _resolve_batch_alert_recipients():
+    """Who the batch-creation alert goes to, for the email and the in-app notification alike.
+
+    Nobody resolving is not silent: one Error Log row per key per day (#2107, as #2093 did for the
+    sibling SEPA alerts)."""
+    recipients = resolve_admin_recipients(
+        notification_key="sepa_batch_scheduler_alert",
+        default_roles=[Roles.FINANCIAL_MANAGER],
+        exclude_users=("Administrator",),
+        key_first=True,
+    )
+    if not recipients:
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import _log_no_recipients_once
+
+        _log_no_recipients_once(
+            "sepa_batch_scheduler_alert", "no recipient is configured and no enabled user holds the role"
+        )
+    return recipients
+
+
 def create_system_notification(result):
     """Create in-system notification for batch creation"""
     try:
-        # Create notification for Verenigingen Financial Manager role
-        notification = frappe.get_doc(
-            {
-                "doctype": "Notification Log",
-                "subject": f"Auto-created {result['batches_created']} DD batches",
-                "type": "Alert",
-                "document_type": "Direct Debit Batch",
-                "document_name": result.get("batch_names", [None])[0] if result.get("batch_names") else None,
-                "from_user": "Administrator",
-                "for_user": "",  # Will be set per user below
-                "read": 0,
-            }
+        recipients = _resolve_batch_alert_recipients()
+        if not recipients:
+            return
+
+        # Recipients are emails; the helper addresses by User name and drops Administrator (#2107).
+        from verenigingen.utils.notification_helpers import create_system_notification as notify
+
+        batch_names = result.get("batch_names")
+        notify(
+            recipients,
+            f"Auto-created {result['batches_created']} DD batches",
+            f"{result['batches_created']} Direct Debit batches were created automatically and await review.",
+            document_type="Direct Debit Batch",
+            document_name=batch_names[0] if batch_names else None,
+            from_user="Administrator",
         )
-
-        # Get users with Verenigingen Financial Manager role
-        finance_users = frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent")
-
-        for user in finance_users:
-            notification_copy = notification.copy()
-            notification_copy.for_user = user
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            notification_result = secure_document_operation(
-                operation="insert",
-                doc=notification_copy,
-                justification=f"Create system notification for batch creation - user {user} - {result['batches_created']} batches created",
-                required_permissions=["Notification Log:create"],
-            )
-            if not notification_result.success:
-                frappe.log_error(
-                    f"Failed to create notification for user {user}: {'; '.join(notification_result.errors)}",
-                    "Batch Notification Error",
-                )
 
     except Exception as e:
         frappe.log_error(f"Error creating system notification: {str(e)}", "System Notification Error")

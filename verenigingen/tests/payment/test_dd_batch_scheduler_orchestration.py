@@ -343,9 +343,17 @@ class TestSchedulerNotificationBuilders(_SchedulerOrchestrationBase):
 
     def test_create_system_notification_no_audience_creates_no_log(self):
         # With no finance-manager users, create_system_notification must not
-        # create any Notification Log row. (Previously this asserted nothing.)
+        # create any Notification Log row. (Previously this asserted nothing.) The audience is the
+        # key's own recipients first (#2093), so pin the key's row to the role whose holders we delete;
+        # nobody resolving leaves one Error Log row (#2107).
+        from verenigingen.tests.payment.test_sepa_literal_recipients import _put_key_row
+
+        _put_key_row("sepa_batch_scheduler_alert", "Role-Based", recipient_roles=self.FINANCE_ROLE)
         frappe.db.delete("Has Role", {"role": self.FINANCE_ROLE})
+        frappe.cache().delete_value("sepa_no_recipients_logged:sepa_batch_scheduler_alert")
         before = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
-        sched.create_system_notification(self._minimal_result())
+        self.expectErrorLog("SEPA notification recipients")
+        with self.assertErrorLog("SEPA notification recipients"):
+            sched.create_system_notification(self._minimal_result())
         after = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
         self.assertEqual(after, before)
