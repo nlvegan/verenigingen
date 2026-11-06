@@ -310,10 +310,13 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
 
     def _failing_op_with_stray_sleep(self):
         """An op that always fails, and on its first call makes ANOTHER thread
-        call ``time.sleep(1)`` while the sleep patch is active (#2155).
+        call ``time.sleep(1.0)`` while the sleep patch is active (#2155).
 
         Deterministic stand-in for the stray CI thread that flooded the
-        recorded list: the other thread's sleep must never be recorded.
+        recorded list: the other thread's sleep must never be recorded. The
+        stray delay equals the first scheduled delay (1.0, a float), so a "fix"
+        that filters recorded values by type or by value cannot pass. ``self._stray_slept`` is
+        set once the other thread really slept inside the patch window.
         """
         import threading
 
@@ -321,11 +324,12 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
 
         def stray_thread():
             go.wait(10)
-            time.sleep(1)  # the OTHER thread's sleep
+            time.sleep(1.0)  # the OTHER thread's sleep
             done.set()
 
         thread = threading.Thread(target=stray_thread, daemon=True)
         thread.start()
+        self._stray_slept = done
         self.addCleanup(thread.join, 10)
         self.addCleanup(go.set)
 
@@ -360,6 +364,7 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
         self.expectErrorLog("Operation failed after")
         with self._record_module_sleeps(rcm, recorded):
             self.manager.retry_failed_operation(always_fail)
+        self.assertTrue(self._stray_slept.is_set(), "the stray thread never slept: #2155 not reproduced")
 
         # 5 attempts -> sleeps before attempts 2..5 (i.e. after failures 0..3):
         # nominal 1, 2, 4, 8 (none capped at max_delay=10).
@@ -381,6 +386,7 @@ class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
         self.expectErrorLog("Operation failed after")
         with self._record_module_sleeps(rcm, recorded):
             self.manager.retry_failed_operation(always_fail)
+        self.assertTrue(self._stray_slept.is_set(), "the stray thread never slept: #2155 not reproduced")
 
         # nominal 1, 2, 4, 8 -> capped at 3 -> 1, 2, 3, 3.
         self.assertEqual(recorded, [1.0, 2.0, 3.0, 3.0])
