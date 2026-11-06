@@ -25,6 +25,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.verenigingen_payments.utils import sepa_error_handler as seh
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import (
     SEPAErrorHandler,
@@ -347,13 +348,13 @@ class TestExecuteWithRetry(EnhancedTestCase):
             calls.append(1)
             raise Exception("invalid data")  # validation -> no retry
 
-        with patch.object(seh.time, "sleep") as sleep_mock:
+        with patch_module_sleep(seh) as fake_time:
             result = self.handler.execute_with_retry(op)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_category"], "validation")
         self.assertTrue(result["final_attempt"])
         self.assertEqual(len(calls), 1)
-        sleep_mock.assert_not_called()
+        fake_time.sleep.assert_not_called()
 
     def test_retries_then_succeeds(self):
         attempts = []

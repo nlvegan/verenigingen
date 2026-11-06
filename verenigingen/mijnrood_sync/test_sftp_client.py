@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 
 import paramiko
 
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.mijnrood_sync.sftp_client import (
     DEFAULT_MAX_DOWNLOAD_BYTES,
     FileTooLargeError,
@@ -291,8 +292,8 @@ class TestConnectRetry(unittest.TestCase):
             client.connect()
         self.assertEqual(client._open_transport.call_count, 1)
 
-    @patch("verenigingen.mijnrood_sync.sftp_client.time.sleep", return_value=None)
-    def test_transient_error_retries_then_fails(self, _sleep):
+    @patch_module_sleep("verenigingen.mijnrood_sync.sftp_client")
+    def test_transient_error_retries_then_fails(self, _time):
         client = _make_client()
         client._open_transport = MagicMock(side_effect=OSError("network down"))
         client._open_sftp = MagicMock()
@@ -302,7 +303,7 @@ class TestConnectRetry(unittest.TestCase):
         self.assertIn("after 3 attempts", str(cm.exception))
         self.assertEqual(client._open_transport.call_count, 3)
         # backoff slept between the first 2 failures (not after the last)
-        self.assertEqual(_sleep.call_count, 2)
+        self.assertEqual(_time.sleep.call_count, 2)
 
     @patch("verenigingen.mijnrood_sync.sftp_client.time.sleep", return_value=None)
     def test_transient_then_success(self, _sleep):

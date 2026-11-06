@@ -33,6 +33,7 @@ import frappe
 
 from verenigingen.templates.pages import mollie_subscription_recreation as msr
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 
 PATCH_TARGET = "verenigingen.templates.pages.mollie_subscription_recreation.MollieDebugService"
 
@@ -196,12 +197,12 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
 
         # The one inter-attempt sleep is backoff_factor**0 == 1.0s regardless of
         # the factor, so patch time.sleep to keep the test instant.
-        with patch.object(msr.time, "sleep") as slept:
+        with patch_module_sleep(msr) as fake_time:
             with self.assertRaises(RuntimeError):
                 msr.retry_api_call(fn, max_attempts=2, backoff_factor=2.0)
         self.assertEqual(calls["n"], 2)
         # One sleep between the two attempts.
-        self.assertEqual(slept.call_count, 1)
+        self.assertEqual(fake_time.sleep.call_count, 1)
 
     # ------------------------------------------------------------------
     # parse_and_validate_csv - non-Mollie validation branches
@@ -375,7 +376,7 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
             ]
         )
         with self.as_role(self.ADMIN_ROLE):
-            with patch.object(msr.time, "sleep") as slept:
+            with patch_module_sleep(msr) as fake_time:
                 with patch(PATCH_TARGET, fake):
                     result = msr.recreate_subscriptions(payload)
         self.assertEqual(result["status"], "completed")
@@ -384,7 +385,7 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
         self.assertEqual(row["status"], "success")
         self.assertEqual(row["new_subscription_id"], "sub_new")
         # Guard against accidental real sleeps in the orchestration path.
-        self.assertEqual(slept.call_count, 0)
+        self.assertEqual(fake_time.sleep.call_count, 0)
 
     # ------------------------------------------------------------------
     # export_subscriptions_from_customers

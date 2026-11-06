@@ -27,6 +27,7 @@ import frappe
 
 from verenigingen.services.member.account import account_creation_api as api
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_thread_sleep
 
 WAIT_TICK = 3  # the wait loop's sleep; the worker's own throttle sleeps 0.5
 FULL_TIMEOUT_TICKS = 600 // WAIT_TICK
@@ -127,7 +128,7 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
 
         remaining = [{"batch_id": "b2", "batch_number": 2, "request_names": ["x"], "request_count": 1}]
         with (
-            patch("time.sleep", fake_sleep),
+            patch_thread_sleep(fake_sleep),
             patch.object(frappe, "enqueue", fake_enqueue),
             patch.object(api, "AccountCreationManager", worker_cls),
         ):
