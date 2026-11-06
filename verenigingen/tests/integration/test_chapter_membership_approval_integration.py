@@ -440,7 +440,9 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
         # 5. Now approve via the canonical core.
         member.reload()
-        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
+        _approve_membership_application_locked(
+            member.name, "Standard Member", None, None, True, False, applied_chapter=self.test_chapter.name
+        )
 
         # 6. Verify chapter membership status changed to Active.
         chapter_doc.reload()
@@ -457,14 +459,12 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         self.assertEqual(member.application_status, "Approved", "Member should be approved")
         self.assertEqual(member.status, "Active", "Member should be active")
 
-    def test_canonical_approval_handles_multiple_pending_chapters(self):
+    def test_canonical_approval_activates_only_the_applied_pending_chapter(self):
         """
-        Test that the canonical approval path activates ALL pending chapter
-        memberships, not just one.
+        The canonical approval path activates the Pending row of the APPLIED chapter only (#2064);
+        a Pending row in another chapter is an undecided join request and stays Pending.
 
-        Repointed to the canonical API in T4.1 step 4. Verifies the loop in
-        _activate_pending_chapter_memberships correctly processes multiple
-        pending Chapter Member rows for a single member.
+        Repointed to the canonical API in T4.1 step 4. Two Pending rows, one applied chapter.
         """
         from verenigingen.api.membership_application_review import _approve_membership_application_locked
 
@@ -501,7 +501,9 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
         # 4. Approve via the canonical core.
         member.reload()
-        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
+        _approve_membership_application_locked(
+            member.name, "Standard Member", None, None, True, False, applied_chapter=self.test_chapter.name
+        )
 
         # 5. Verify BOTH chapter memberships are now Active
         active_count = frappe.db.count(
@@ -514,12 +516,12 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
 
         self.assertEqual(
-            active_count, 2,
-            f"Both chapter memberships should be Active. Found {active_count} active, {pending_count} pending."
+            frappe.db.get_value("Chapter Member", {"parent": self.test_chapter.name, "member": member.name}, "status"),
+            "Active", "the applied chapter's row is Active"
         )
         self.assertEqual(
-            pending_count, 0,
-            "No chapter memberships should remain Pending after approval."
+            frappe.db.get_value("Chapter Member", {"parent": second_chapter_name, "member": member.name}, "status"),
+            "Pending", f"the other chapter's row stays Pending (found {active_count} active, {pending_count} pending)"
         )
 
     def test_termination_sets_active_chapter_membership_to_inactive(self):
