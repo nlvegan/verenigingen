@@ -11,7 +11,7 @@ literal. The event table is MyISAM, so its rows survive rollback: every test rem
 
 Two documented shortcuts, both inserting a Notification Log row directly because the real flow cannot
 create it: ``test_a_log_row_for_administrator_does_not_count_as_reached`` (``create_system_notification``
-addresses by email and ``admin@example.com`` is not a User name) and
+drops Administrator, so the row can only be inserted directly) and
 ``test_a_disabled_users_log_row_is_not_counted`` (it never creates one for a disabled user).
 """
 
@@ -223,8 +223,8 @@ class TestStaffAlertEvent(FrappeTestCase):
 
     def test_a_log_row_for_administrator_does_not_count_as_reached(self):
         """Probe shortcut: the row is inserted directly, because ``create_system_notification`` cannot
-        create one for Administrator on this bench (it addresses by email, ``admin@example.com`` is not
-        a User name); see the next test for the real flow."""
+        create one for Administrator (it drops that user, #1958), so the "row exists" case needs a
+        direct insert; the next test is the real flow."""
         note = self._note()
         event = staff_alert_events.begin_event(SEEDED_KEY, "s", "direct", "Note", note)
         frappe.get_doc(
@@ -248,9 +248,11 @@ class TestStaffAlertEvent(FrappeTestCase):
         with singleton_backup(CONFIG):
             _set_config_rows([_config_row(SEEDED_KEY, fixed="Administrator")])
             result = self._alert(SEEDED_KEY, note)
+        # Since #1958 + the Administrator ruling the helper drops Administrator: no row, no error.
         self.assertFalse(result.get("notifications_created"), "control: nothing was created")
         event = self._only_event(note)
-        self.assertEqual((event.outcome, event.recipient_count), ("Failed", 0))
+        self.assertEqual(_log_users(event.name), [], "control: no log joins the event")
+        self.assertEqual((event.outcome, event.recipient_count), ("No recipient", 0))
 
     def test_a_user_configured_as_not_counting_is_not_reached_and_the_same_user_otherwise_is(self):
         note_a, note_b = self._note(), self._note()

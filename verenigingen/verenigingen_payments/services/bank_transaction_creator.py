@@ -776,7 +776,9 @@ class BankTransactionCreator:
                     "currency": currency,
                     "reference_number": reference_number,
                     "description": description,
-                    "status": "Unreconciled",
+                    # No "status": ERPNext owns it. validate() makes every draft "Pending"
+                    # and before_submit derives Unreconciled/Reconciled, so any value set
+                    # here is overwritten (erpnext 7526af9b2; #2083 ruling).
                     "unallocated_amount": deposit if deposit > 0 else abs(withdrawal),
                     "allocated_amount": 0.0,
                 }

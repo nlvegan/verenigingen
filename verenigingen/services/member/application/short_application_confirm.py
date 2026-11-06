@@ -42,13 +42,16 @@ def confirmable_submission(submission_name, token):
 
 def submitted_template_still_valid(source, payload) -> bool:
     """The submitted template must still be a template of the type snapshotted at submit, and of
-    the frequency the applicant chose. The full form carries no template: its type must still exist."""
+    the frequency the applicant chose. The full form carries no template: its type must still be
+    active (a disabled one is treated like a vanished one: approval would refuse it, #2070)."""
     if source == "Full Form":
         chosen = payload.get("selected_membership_type")
-        return not chosen or bool(frappe.db.exists("Membership Type", chosen))
+        return not chosen or _type_is_active(chosen)
+    if not _type_is_active(payload.get("membership_type")):
+        return False
     template = payload.get("selected_dues_schedule")
     if not template:  # Housemate: no template, approval falls back to the type's own
-        return bool(payload.get("membership_type"))
+        return True
     row = frappe.db.get_value(
         "Membership Dues Schedule",
         template,
@@ -61,6 +64,11 @@ def submitted_template_still_valid(source, payload) -> bool:
         and row.membership_type == payload.get("membership_type")
         and row.billing_frequency == payload.get("frequency")
     )
+
+
+def _type_is_active(name) -> bool:
+    """One lookup for "exists and is_active": a missing or non-string name reads as not active."""
+    return isinstance(name, str) and bool(frappe.db.get_value("Membership Type", name, "is_active"))
 
 
 def expire(name):
