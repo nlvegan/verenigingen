@@ -291,6 +291,10 @@ def create_system_notification(
     notification preferences - users can disable email delivery for specific
     notification types in their User settings.
 
+    The Administrator user is dropped silently (no log, no error, not counted): staff alerts never go
+    to Administrator (maintainer ruling, 2026-11-01). A call whose only recipient is Administrator
+    returns ``no_valid_recipients``.
+
     Note: For critical alerts requiring guaranteed email delivery, use
     EmailService directly instead of this function.
 
@@ -406,8 +410,13 @@ def create_system_notification(
         "User",
         filters={"enabled": 1},
         or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
-        pluck="email",
+        # Notification Log.for_user is a Link to User, so it needs the user's NAME. Administrator's
+        # name is not its email, and an email there fails the Link check (#1958).
+        pluck="name",
     )
+    # Staff alerts never go to the Administrator user (maintainer ruling, 2026-11-01). Dropped by NAME
+    # here, after the name/email match, so admin@example.com is dropped too. Silent: no log, no error.
+    valid_users = [user for user in valid_users if user != "Administrator"]
 
     if not valid_users:
         frappe.logger().warning(f"No valid/enabled users found for notification: {subject}")

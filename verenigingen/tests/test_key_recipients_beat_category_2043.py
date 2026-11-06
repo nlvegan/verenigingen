@@ -108,8 +108,7 @@ class TestKeyRecipientsBeatCategory(EnhancedTestCase):
 
     def test_control_without_a_key_row_the_same_flow_reaches_the_category(self):
         """The category is the fallback: with the key's row reshaped to nobody, the System Manager is reached."""
-        # The System Manager fallback includes Administrator, whose email is not a User name here.
-        self.expectErrorLog("Notification Creation Error")
+        # The System Manager fallback includes Administrator; create_system_notification drops it (#1958).
         _set_key_row(OVERDUE_KEY, "Role-Based", recipient_roles=None)
         self._make_overdue_request()
         tu.process_overdue_termination_requests()
@@ -194,7 +193,6 @@ class TestKeyRecipientsBeatCategory(EnhancedTestCase):
         Manager category user gets the alert and a Notification Log row proves it."""
         admin_email = "administrator-2043@example.org"
         frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
-        self.expectErrorLog("Notification Creation Error")  # other System Managers, e.g. Administrator itself
         _set_key_row(OVERDUE_KEY, "Fixed", fixed_recipients=admin_email)
         self._make_overdue_request()
         tu.process_overdue_termination_requests()

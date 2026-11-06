@@ -896,8 +896,9 @@ def _read_acr_queue_result(result):
         existing User); ``(None, reason, expected_skip)`` for a refusal, or when nothing
         came back. ``expected_skip`` is True only for a member without an email
         (``NO_EMAIL``, maintainer ruling #1638, PR #1713): callers write no Error Log row
-        for it. An open or retryable-Failed blocking request is NOT a skip: nothing else
-        records it (``mark_failed`` writes no Error Log), and its name is in ``reason``.
+        for it. An open or retryable-Failed blocking request is NOT a skip: the refusal
+        itself is recorded nowhere else (``mark_failed`` logs the original failure once, #2066,
+        not each attempt it blocks), and its name is in ``reason``.
     """
     if result and result.get("success"):
         return (result.get("data") or {}).get("request_name"), None, False
