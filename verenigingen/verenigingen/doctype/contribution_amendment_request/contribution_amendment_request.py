@@ -456,7 +456,7 @@ class ContributionAmendmentRequest(Document):
             email_service = get_email_service()
 
             # Get administrator emails
-            # The key's own recipients first, then enabled admin-role holders' emails; never Administrator (#2095).
+            # The key's own recipients first, then enabled admin-pair holders' emails; never Administrator (#2095).
             recipients = resolve_admin_recipients(
                 notification_key="contribution_sync_failed",
                 default_roles=list(Roles.ADMIN_PAIR),

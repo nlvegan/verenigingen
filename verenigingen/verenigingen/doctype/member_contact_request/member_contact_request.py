@@ -8,6 +8,12 @@ from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
+def contact_request_key(urgency):
+    """Urgent requests have their own key: their audience adds System Managers (#2095)."""
+    notification_key = {"Urgent": "contact_request_urgent"}.get(urgency, "contact_request_new")
+    return notification_key
+
+
 class MemberContactRequest(Document):
     def validate(self):
         """Validate member contact request data"""
@@ -168,6 +174,7 @@ class MemberContactRequest(Document):
             """
 
             # Send notification
+            notification_key = contact_request_key(self.urgency)
             email_service = get_email_service()
             email_service.send_simple_email(
                 recipients=recipients,
@@ -175,7 +182,7 @@ class MemberContactRequest(Document):
                 message=message,
                 reference_doctype=self.doctype,
                 reference_name=self.name,
-                notification_key="contact_request_escalated",
+                notification_key=notification_key,
             )
 
         except Exception as e:
@@ -191,8 +198,9 @@ class MemberContactRequest(Document):
         roles = [Roles.VERENIGINGEN_ADMIN]
         if self.urgency == "Urgent":
             roles.append(Roles.SYSTEM_MANAGER)
+        notification_key = contact_request_key(self.urgency)
         return resolve_admin_recipients(
-            notification_key="contact_request_escalated",
+            notification_key=notification_key,
             default_roles=roles,
             exclude_users=("Administrator",),
             key_first=True,

@@ -46,6 +46,11 @@ from frappe.utils import today
 
 from verenigingen.services.volunteer import expense_handlers as eh
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment.test_sepa_literal_recipients import (
+    _put_key_row,
+    _restore_rows,
+    _snapshot_rows,
+)
 
 EMAIL_FACTORY = "verenigingen.services.communication.email_service.get_email_service"
 ENQUEUE = "verenigingen.services.volunteer.expense_handlers.frappe.enqueue"
@@ -327,6 +332,11 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         dead and an approver-less expense notified NOBODY. This test fails on the
         old code (no send) and passes after the fix.
         """
+        self._pin_expense_key_to_administrators()
+        # Two holders at least, or "every holder" and "an arbitrary first one" cannot be told apart.
+        for prefix in ("holder-a", "holder-b"):
+            holder = self._make_user(prefix)
+            holder.add_roles("Verenigingen Administrator")
         # Sanity: the real role exists and has at least one user — the fallback
         # has something to resolve to.
         self.assertTrue(frappe.db.exists("Role", "Verenigingen Administrator"))
@@ -356,26 +366,30 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
                 eh.notify_expense_approvers(ec)
             svc.send_simple_email.assert_called_once()
             recipients = svc.send_simple_email.call_args.kwargs.get("recipients")
-            # #2095: the fallback reaches EVERY enabled holder (the key's seeded row names the admin
-            # pair), not an arbitrary first Verenigingen Administrator, and never Administrator.
-            self.assertTrue(recipients)
+            # #2095: the fallback is the key's audience (Verenigingen Administrators, as it always was),
+            # and it reaches EVERY enabled holder, not an arbitrary first one; never Administrator.
+            holders = frappe.db.sql(
+                """
+                SELECT DISTINCT u.email FROM `tabHas Role` hr JOIN `tabUser` u ON u.name = hr.parent
+                WHERE hr.role = 'Verenigingen Administrator' AND hr.parenttype = 'User'
+                    AND u.enabled = 1 AND u.name != 'Administrator' AND IFNULL(u.email, '') != ''
+                """,
+                pluck=True,
+            )
+            self.assertTrue(holders)
+            self.assertEqual(set(recipients), set(holders))
             self.assertEqual(len(recipients), len(set(recipients)))
             self.assertNotIn("Administrator", recipients)
-            for email in recipients:
-                recipient_user = frappe.db.get_value("User", {"email": email}, "name")
-                self.assertIsNotNone(recipient_user, email)
-                self.assertNotEqual(recipient_user, "Administrator")
-                self.assertTrue(
-                    frappe.db.exists(
-                        "Has Role",
-                        {
-                            "parent": recipient_user,
-                            "role": ["in", ["Verenigingen Administrator", "System Manager"]],
-                            "parenttype": "User",
-                        },
-                    ),
-                    "fallback recipient must hold an admin role",
-                )
+
+    def _pin_expense_key_to_administrators(self):
+        """The key's row names Verenigingen Administrators, as the registry seeds it (#2095).
+
+        A site migrated before #2095 still holds the old stock pair until the patch runs; the fallback
+        audience is the row's, so pin it rather than depend on which site this runs on.
+        """
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        _put_key_row("expense_approval_request", "Role-Based", recipient_roles="Verenigingen Administrator")
 
     def test_notify_department_approver_fallback(self):
         """No employee approver, but the employee's Department has an expense
@@ -423,10 +437,8 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
             self.skipTest("No Company")
         # Transaction-local: removes the tier-3 fallback for this test only; the
         # FrappeTestCase rollback restores every Has Role row at tearDown.
-        # #2095: the fallback is the key's admin pair, so System Manager holders go too.
-        frappe.db.delete(
-            "Has Role", {"role": ["in", ["Verenigingen Administrator", "System Manager"]], "parenttype": "User"}
-        )
+        self._pin_expense_key_to_administrators()
+        frappe.db.delete("Has Role", {"role": "Verenigingen Administrator", "parenttype": "User"})
         emp = self._make_employee(company)  # no expense_approver, no department
         ec = self._make_expense_claim(emp, company)
         with self._patch_email_service() as svc:

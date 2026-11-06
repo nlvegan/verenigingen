@@ -128,9 +128,11 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         member = frappe.get_doc("Member", membership.member)
 
         # Get administrator emails
-        # The key's own recipients first, then enabled holders' emails; never Administrator (#2095).
+        # Its own key (System Manager, Verenigingen Administrator and Financial Manager; the amendment
+        # request's failure alert has a narrower audience on contribution_sync_failed). The key's own
+        # recipients first, then enabled holders' emails; never Administrator (#2095).
         recipients = resolve_admin_recipients(
-            notification_key="contribution_sync_failed",
+            notification_key="contribution_amendment_sync_failed",
             default_roles=[Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER],
             exclude_users=("Administrator",),
             key_first=True,
