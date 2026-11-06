@@ -298,6 +298,60 @@ class TestSetupWorkspace(FrappeTestCase):
                     f"cleanup left a dangling DocType link: {link.get('label')} -> {link_to}",
                 )
 
+    def _links_present(self, labels):
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        return {link.get("label") for link in workspace.links} & set(labels)
+
+    def test_cleanup_keeps_valid_report_and_page_links_and_drops_dangling_ones(self):
+        """#2151: each link is checked against its OWN link_type, not always DocType.
+
+        Appends real Workspace Link rows (probe shortcut: rows added directly, not
+        through the install flow) inside a savepoint that is rolled back after.
+        """
+        report = frappe.db.get_value("Report", {"ref_doctype": "Member"}, "name") or frappe.db.get_value(
+            "Report", {}, "name"
+        )
+        page = frappe.db.get_value("Page", {}, "name")
+        self.assertTrue(report and page, "site must have a Report and a Page to link to")
+
+        frappe.db.savepoint("t2151")
+        self.addCleanup(frappe.db.rollback, save_point="t2151")
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        probes = {
+            "T2151 keep report": ("Report", report),
+            "T2151 keep page": ("Page", page),
+            "T2151 drop report": ("Report", "T2151 No Such Report"),
+            "T2151 drop page": ("Page", "t2151-no-such-page"),
+            "T2151 drop doctype": ("DocType", "T2151 No Such DocType"),
+            # Control for a "does it exist as ANY type" wrong fix: these names exist, but
+            # not as the type the link claims.
+            "T2151 drop report named as doctype": ("Report", "Member"),
+            "T2151 drop doctype named as report": ("DocType", report),
+        }
+        # Workspace.save validates links, so dangling rows go in below the controller.
+        for idx, (label, (link_type, link_to)) in enumerate(probes.items(), start=1000):
+            frappe.get_doc(
+                {
+                    "doctype": "Workspace Link",
+                    "parent": workspace.name,
+                    "parenttype": "Workspace",
+                    "parentfield": "links",
+                    "idx": idx,
+                    "type": "Link",
+                    "label": label,
+                    "link_type": link_type,
+                    "link_to": link_to,
+                }
+            ).db_insert()
+        self.assertEqual(self._links_present(probes), set(probes), "fixture rows must exist before cleanup")
+
+        setup_mod.cleanup_workspace_links()
+
+        self.assertEqual(
+            self._links_present(probes),
+            {"T2151 keep report", "T2151 keep page"},
+        )
+
     def test_cleanup_workspace_links_idempotent(self):
         setup_mod.cleanup_workspace_links()
         workspace = frappe.get_doc("Workspace", "Verenigingen")
