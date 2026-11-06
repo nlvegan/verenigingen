@@ -96,17 +96,37 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         frappe.db.sql("""
             DELETE FROM `tabVolunteer`
             WHERE volunteer_name LIKE 'ChapterTest%'
-               OR email LIKE 'TEST_volunteer_%@test.invalid'
+               OR email LIKE 'TEST\\_volunteer\\_%@test.invalid'
         """)
 
         # Clean up test members
         frappe.db.sql("""
             DELETE FROM `tabMember`
             WHERE first_name LIKE 'ChapterTest%'
-               OR email LIKE 'TEST_member_%@test.invalid'
+               OR email LIKE 'TEST\\_member\\_%@test.invalid'
         """)
 
         # Note: No commit in test context - FrappeTestCase handles rollback
+
+    def test_cleanup_does_not_delete_rows_outside_the_factory_prefix(self):
+        """#2120: `LIKE 'TEST_member_%@test.invalid'` let each `_` match any char, so
+        `test-member-...` / `test-volunteer-...` rows were deleted too."""
+        uid = frappe.generate_hash(length=8)
+        member_email = f"test-member-{uid}@test.invalid"
+        volunteer_email = f"test-volunteer-{uid}@test.invalid"
+        member = self.create_test_member(first_name="Survivor", last_name="Member", email=member_email)
+        volunteer = self.create_test_volunteer(
+            member_name=member.name,
+            volunteer_name="Survivor Volunteer",
+            email=volunteer_email,
+            _exact_email=True,
+        )
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "email"), volunteer_email)
+
+        self.cleanup_test_data()
+
+        self.assertTrue(frappe.db.exists("Member", member.name), f"cleanup deleted {member_email}")
+        self.assertTrue(frappe.db.exists("Volunteer", volunteer.name), f"cleanup deleted {volunteer_email}")
 
     def test_add_member_method(self):
         """Test directly adding a member to a chapter"""
