@@ -116,6 +116,9 @@ def _emit_team_event(event_name, event_data):
         entity_key="team",
         job_prefix="team",
         bulk_flag="bulk_team_operations",
+        # Subscribers mail, disable accounts and write history for the change, so they must
+        # not run ahead of (or without) the commit that made it (#2144, sibling of #2137).
+        after_commit=True,
     )
 
 
