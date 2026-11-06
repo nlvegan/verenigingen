@@ -233,11 +233,15 @@ runs:
 
         # mariadb-client: this action calls `mariadb` to prepare the database.
         # libmariadb-dev: frappe pins mysqlclient, which builds against it.
-        # Not installed, although frappe's CI template does: redis-server (Redis
-        # is the job's service containers; nothing here runs a host redis) and
-        # libcups2-dev (only pycups needs it, and no app in the bench depends on
-        # pycups). Those two pulled 29 of the 37 packages, 8.5 of the 13.3 MB.
+        # redis-server: never RUN here (Redis is the job's service containers),
+        # but `bench.config.redis.generate_config()` in Initialize Bench
+        # Environment shells out to `redis-server --version` with no fallback,
+        # so the binary must exist. It is not on the runner image.
+        # Not installed, although frappe's CI template does: libcups2-dev (only
+        # pycups needs it, and no app in the bench depends on pycups). It pulled
+        # 25 of the 37 packages, 7.1 of the 13.3 MB.
         if ! apt_get install -y \
+          redis-server \
           mariadb-client \
           libmariadb-dev; then
           echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable or too slow from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
