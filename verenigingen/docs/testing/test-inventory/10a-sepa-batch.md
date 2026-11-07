@@ -16,7 +16,7 @@ return/missing-record), OTHER (smoke/shape/identity/tautology/script).
 | test_dd_batch_pipeline_coverage.py | 31 | 13 | 5 | 9 | 4 |
 | test_dd_batch_scheduler.py | 23 | 12 | 2 | 6 | 3 |
 | test_enhanced_sepa_integration.py | 1* | 0 | 0 | 0 | 1 |
-| test_iban_validator.py | 0 | 0 | 0 | 0 | 0 |
+| test_iban_validator.py (removed in #1939) | 0 | 0 | 0 | 0 | 0 |
 | test_sepa_bank_reconciliation_coverage.py | 20 | 9 | 0 | 11 | 0 |
 | test_sepa_batch_processor_logic.py | 27 | 17 | 0 | 8 | 2 |
 | test_sepa_batch_processor_returns_coverage.py | 9 | 3 | 1 | 5 | 0 |
@@ -39,7 +39,7 @@ its called helpers, not independently collectible test methods.
   weekend), and duplicate detection. The reconciliation-coverage file is 11/20
   edge with zero unhappy — it targets branch coverage of hit/miss/cancelled/
   fall-through paths rather than throws.
-- **Two files carry effectively no live coverage.** `test_iban_validator.py` is
+- **Two files carry effectively no live coverage.** `test_iban_validator.py` (removed in #1939) was
   a pure `import *` bridge to `tests/backend/validation/test_iban_validator.py`
   (outside this domain) — 0 local methods. `test_enhanced_sepa_integration.py`
   is a non-unittest print script that swallows every failure in broad
