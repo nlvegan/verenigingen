@@ -35,6 +35,9 @@ RULED = {
     "payment_failure_final": 0,
     "subscription_cancelled": 0,
     "subscription_suspended": 0,
+    # #2127: dedupe is per door and per reason via a Redis claim (door_alerts docstring), so the key has no
+    # per-recipient cooldown of its own.
+    "door_unavailable": 0,
 }
 
 

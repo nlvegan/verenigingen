@@ -9,27 +9,15 @@ from frappe.utils import flt
 
 # Paths under /word-lid that are not doors.
 RESERVED_SLUGS = {"bevestig"}
-FREQUENCIES = ("Monthly", "Annual")
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 class MembershipApplicationDoor(Document):
     def validate(self):
         self._validate_slug()
-        self._validate_templates()
-        self._validate_has_template()
-
-    def get_template_for(self, frequency: str) -> str | None:
-        return self.get(f"{frequency.lower()}_dues_template") or None
-
-    def minimum_for(self, frequency: str, postal: bool) -> float:
-        template = self.get_template_for(frequency)
-        minimum = 0.0
-        if template:
-            minimum = frappe.db.get_value("Membership Dues Schedule", template, "minimum_amount") or 0
-        if postal:
-            minimum = max(minimum, self.get(f"postal_minimum_{frequency.lower()}") or 0)
-        return float(minimum)
+        self._validate_plans()
+        self._validate_amount_options()
+        self._validate_has_plan()
 
     def hidden(self) -> set[str]:
         return {row.question for row in self.hidden_questions}
@@ -40,38 +28,44 @@ class MembershipApplicationDoor(Document):
         if self.slug in RESERVED_SLUGS:
             frappe.throw(_("Slug {0} is reserved.").format(self.slug))
 
-    def _validate_templates(self):
-        for frequency in FREQUENCIES:
-            template = self.get_template_for(frequency)
-            if template:
-                self._validate_template(template, frequency)
-        self._validate_amount_options()
+    def _validate_plans(self):
+        """A plan is a template of the door's type, offered once; exactly one plan is the default."""
+        templates = [row.dues_template for row in self.plans]
+        for template in set(templates):
+            if templates.count(template) > 1:
+                frappe.throw(_("{0} is offered more than once.").format(template))
+        for row in self.plans:
+            self._validate_template(row.dues_template)
+        defaults = [row for row in self.plans if row.is_default]
+        if self.plans and len(defaults) != 1:
+            frappe.throw(_("Choose exactly one default payment plan."))
 
-    def _validate_template(self, template, frequency):
-        """A slot takes only a template of the door's type billed at the slot's own frequency."""
+    def _validate_template(self, template):
         row = frappe.db.get_value(
             "Membership Dues Schedule",
             template,
-            ["is_template", "membership_type", "billing_frequency"],
+            ["is_template", "membership_type", "contribution_mode", "dues_rate"],
             as_dict=True,
         )
         if not (row and row.is_template):
             frappe.throw(_("{0} is not a dues schedule template.").format(template))
         if row.membership_type != self.membership_type:
             frappe.throw(_("{0} belongs to a different membership type.").format(template))
-        if row.billing_frequency != frequency:
-            frappe.throw(_("{0} is not billed {1}.").format(template, _(frequency).lower()))
+        if (row.contribution_mode or "Fixed") == "Fixed" and flt(row.dues_rate) <= 0:
+            frappe.throw(_("{0} has a fixed contribution but no rate.").format(template))
 
     def _validate_amount_options(self):
-        """Each suggested amount needs a template for its frequency and may not undercut its minimum."""
+        """Each preset belongs to a plan of this door and may not undercut the template's minimum."""
+        planned = {row.dues_template for row in self.plans}
         for option in self.amount_options:
-            if not self.get_template_for(option.frequency):
+            if option.dues_template not in planned:
                 frappe.throw(
-                    _("Row {0}: this door has no {1} dues template.").format(option.idx, _(option.frequency))
+                    _("Row {0}: choose the template of one of the payment plans.").format(option.idx)
                 )
-            if flt(option.amount) < self.minimum_for(option.frequency, postal=False):
+            minimum = frappe.db.get_value("Membership Dues Schedule", option.dues_template, "minimum_amount")
+            if flt(option.amount) < flt(minimum):
                 frappe.throw(_("Row {0}: the amount is below the template minimum.").format(option.idx))
 
-    def _validate_has_template(self):
-        if self.form_shape == "Regular" and not (self.monthly_dues_template or self.annual_dues_template):
-            frappe.throw(_("A regular door needs at least one dues template."))
+    def _validate_has_plan(self):
+        if self.form_shape == "Regular" and not self.plans:
+            frappe.throw(_("A regular door needs at least one payment plan."))
