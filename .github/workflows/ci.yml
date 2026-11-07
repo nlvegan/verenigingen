@@ -26,6 +26,8 @@ concurrency:
   # Added 2026-09-05: develop took ~7 merges in 70 minutes and each fired 5-6
   # workflows with no concurrency group at all, leaving 43 of 83 active runs on
   # develop alone and jobs queued 5h+ without ever being assigned a runner.
+  # merge_group: per-ref is right for the queue - every queue run has its own
+  # gh-readonly-queue/... ref, so queue runs never cancel each other or a PR run.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 

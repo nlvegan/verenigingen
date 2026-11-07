@@ -29,11 +29,14 @@ _WORKFLOWS = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 # becomes required when the queue is enabled (#2184).
 QUEUE_WORKFLOWS = ("ci.yml", "code-validation.yml", "quality-assurance.yml", "server-tests.yml")
 
-# Every way a workflow reads PR-only context: expressions, the runner's env vars, and
-# actions/github-script's `context`. Each is empty or absent on a merge_group run.
+# The PR- and ref-dependent context these workflows read: expressions, the runner's env
+# vars, and actions/github-script's `context`. Each is empty, absent or different on a
+# merge_group run (whose ref is gh-readonly-queue/...). NOT exhaustive: expressions split
+# across lines, toJSON(github.event) and github['head_ref'] are not matched.
 _EVENT_CONDITIONAL = re.compile(
     r"github\.(event_name|head_ref|base_ref|event\.(number|pull_request|issue))"
-    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME)"
+    r"|github\.ref(_name)?\b"
+    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME|REF)\b"
     r"|context\.(issue|payload)"
 )
 _DECISION = "# merge_group:"
@@ -41,10 +44,7 @@ _DECISION = "# merge_group:"
 # key (a trailing comment allowed). The decision comment must sit inside the same
 # step or job as the conditional line. A bare `- ` is NOT a boundary: Markdown
 # bullets inside a run/script block would otherwise end the step early.
-_SCOPE_START = re.compile(
-    r"^\s*- (name|uses|run|id|if|with|env|shell|working-directory|continue-on-error|timeout-minutes):"
-    r"|^  [A-Za-z0-9_-]+:\s*(#.*)?$"
-)
+_SCOPE_START = re.compile(r"^\s*-\s+[A-Za-z_][A-Za-z0-9_-]*:|^  [A-Za-z0-9_-]+:\s*(#.*)?$")
 
 
 def undecided_lines(text: str) -> list[int]:
@@ -81,7 +81,11 @@ def queue_trigger_is_unfiltered(text: str) -> bool:
         start = next(i for i, line in enumerate(lines) if re.match(r"^  merge_group:", line))
     except StopIteration:
         return False
+    if not re.match(r"^  merge_group:\s*(#.*)?$", lines[start]):
+        return False  # flow mapping or inline value: not inspected, so not accepted
     for line in lines[start + 1 :]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
         if re.match(r"^\S|^  \S", line):  # next trigger or top-level key ends the block
             break
         if re.match(r"^\s+(paths|paths-ignore|branches|branches-ignore):", line):
@@ -150,6 +154,60 @@ class TestScannerControls(unittest.TestCase):
             "              issue_number: context.issue.number,\n"
         )
         self.assertEqual(undecided_lines(text), [])
+
+    def test_ref_based_conditions_are_flagged(self):
+        # A queue run's ref is gh-readonly-queue/..., so `github.ref == 'refs/heads/develop'` is false.
+        for form in ("github.ref == 'refs/heads/develop'", "github.ref_name", "$GITHUB_REF"):
+            with self.subTest(form=form):
+                self.assertEqual(undecided_lines(f"    - name: Step\n      run: echo {form}\n"), [2])
+
+    def test_a_decision_in_one_job_does_not_cover_the_next_job(self):
+        text = (
+            "  first:\n"
+            "    steps:\n"
+            "      - name: Step\n"
+            "        # merge_group: decided for this step only\n"
+            "        run: true\n"
+            "  second:\n"
+            "    if: github.event_name == 'push'\n"
+        )
+        self.assertEqual(undecided_lines(text), [7])
+
+    def test_a_step_starting_with_any_key_ends_the_previous_step(self):
+        for key in ("uses", "run", "python"):
+            with self.subTest(key=key):
+                text = (
+                    "      - name: Earlier\n"
+                    "        # merge_group: decided for THIS step only\n"
+                    f"      - {key}: x\n"
+                    "        if: github.event_name == 'pull_request'\n"
+                )
+                self.assertEqual(undecided_lines(text), [4])
+
+    def test_a_comment_that_mentions_pr_context_is_not_a_conditional(self):
+        self.assertEqual(undecided_lines("      # compares github.event_name with push\n"), [])
+
+    def test_prose_mentioning_merge_group_is_not_a_decision(self):
+        text = (
+            "    - name: Step\n"
+            "      # this predates merge_group support\n"
+            "      if: github.event_name == 'pull_request'\n"
+        )
+        self.assertEqual(undecided_lines(text), [3])
+
+    def test_every_filter_kind_under_the_queue_trigger_is_caught(self):
+        for key in ("paths", "paths-ignore", "branches", "branches-ignore"):
+            with self.subTest(key=key):
+                text = f"on:\n  merge_group:\n    types: [checks_requested]\n    {key}:\n      - x\n"
+                self.assertFalse(queue_trigger_is_unfiltered(text))
+
+    def test_a_comment_inside_the_trigger_block_does_not_hide_a_filter(self):
+        text = "on:\n  merge_group:\n    types: [checks_requested]\n  # why\n    paths: [x]\n  push:\n"
+        self.assertFalse(queue_trigger_is_unfiltered(text))
+
+    def test_a_flow_mapping_trigger_is_not_accepted_as_unfiltered(self):
+        text = "on:\n  merge_group: {types: [checks_requested], paths: ['x']}\n"
+        self.assertFalse(queue_trigger_is_unfiltered(text))
 
     def test_a_line_naming_merge_group_is_decided(self):
         text = "      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}\n"
