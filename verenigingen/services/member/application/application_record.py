@@ -101,7 +101,8 @@ def confirm_application(name, token) -> dict:
     if not submission:
         return refusal()
     payload = json.loads(submission.payload)
-    if not submitted_template_still_valid(submission.source, payload):  # ruling R15: the door changed
+    # ruling R15: the door changed
+    if not submitted_template_still_valid(submission.source, payload, submission.door):
         expire(submission.name)
         return refusal()
     existing = frappe.db.get_value(

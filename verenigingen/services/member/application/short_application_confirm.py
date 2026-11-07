@@ -40,14 +40,18 @@ def confirmable_submission(submission_name, token):
     return submission
 
 
-def submitted_template_still_valid(source, payload) -> bool:
+def submitted_template_still_valid(source, payload, door=None) -> bool:
     """The submitted template must still be a template of the type snapshotted at submit, and of
-    the frequency the applicant chose. The full form carries no template: its type must still be
-    active (a disabled one is treated like a vanished one: approval would refuse it, #2070)."""
+    the frequency the applicant chose, and the plan row they chose must still be on the door (#2131:
+    a removed option is refused; an edited one keeps the price the applicant saw). The full form
+    carries no template: its type must still be active (a disabled one is treated like a vanished
+    one: approval would refuse it, #2070)."""
     if source == "Full Form":
         chosen = payload.get("selected_membership_type")
         return not chosen or _type_is_active(chosen)
     if not _type_is_active(payload.get("membership_type")):
+        return False
+    if not _chosen_plan_still_on_door(door, payload.get("plan")):
         return False
     template = payload.get("selected_dues_schedule")
     if not template:  # Housemate: no template, approval falls back to the type's own
@@ -63,6 +67,21 @@ def submitted_template_still_valid(source, payload) -> bool:
         and row.is_template
         and row.membership_type == payload.get("membership_type")
         and row.billing_frequency == payload.get("frequency")
+    )
+
+
+def _chosen_plan_still_on_door(door, plan) -> bool:
+    """A payload without a plan (staged before #2127, or a Housemate) has none to check. Existence only,
+    not whether the plan is offerable now: a changed price or minimum must not refuse (#2131)."""
+    if not plan:
+        return True
+    return bool(
+        isinstance(plan, str)
+        and door
+        and frappe.db.exists(
+            "Membership Application Door Plan",
+            {"name": plan, "parent": door, "parenttype": "Membership Application Door"},
+        )
     )
 
 
