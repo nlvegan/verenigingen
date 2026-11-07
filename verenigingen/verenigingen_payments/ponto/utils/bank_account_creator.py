@@ -23,6 +23,9 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.verenigingen.doctype.member.mixins.payment_mixin import (  # one IBAN normaliser
+    _normalise_iban,
+)
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
 
 # Bank code mappings for Dutch banks
@@ -341,10 +344,6 @@ def create_ponto_bank_account(
             message=f"Unexpected error creating bank account for Ponto account: {e}",
         )
         return {"success": False, "error": str(e)}
-
-
-def _normalise_iban(iban) -> str:
-    return (iban or "").replace(" ", "").upper()
 
 
 def _gl_currency(bank_account: str) -> Optional[str]:
