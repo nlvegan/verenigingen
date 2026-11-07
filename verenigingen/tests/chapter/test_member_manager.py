@@ -473,6 +473,8 @@ class TestMemberManager(VereningingenTestCase):
             status="Active",
         )
         volunteer = self.create_test_volunteer(member_name=board_member.name)
+        # #2208: the seat must belong to the board member, not an auto-built second Member.
+        self.assertEqual(volunteer.member, board_member.name)
         role_name = f"BoardJoinMail{frappe.generate_hash(length=6)}"
         frappe.get_doc(
             {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}

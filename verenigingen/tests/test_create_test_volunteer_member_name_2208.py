@@ -43,3 +43,12 @@ class TestCreateTestVolunteerMemberName(VereningingenTestCase):
 
         self.assertTrue(frappe.db.exists("Member", volunteer.member))
         self.assertEqual(frappe.db.count("Member"), before + 1)
+
+    def test_explicit_member_wins_over_member_name(self):
+        # Conflict: member= is the factory's own spelling and takes precedence.
+        wanted = self.create_test_member()
+        other = self.create_test_member()
+
+        volunteer = self.create_test_volunteer(member=wanted.name, member_name=other.name)
+
+        self.assertEqual(volunteer.member, wanted.name)
