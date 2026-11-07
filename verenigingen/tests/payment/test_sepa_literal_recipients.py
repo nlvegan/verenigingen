@@ -22,6 +22,12 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+# Uncommitted, byte-for-byte (#2159). Names kept: the sibling recipient tests import them from here.
+from verenigingen.tests.utils.notification_state import (
+    restore_notification_rows as _restore_rows,
+    snapshot_notification_rows as _snapshot_rows,
+)
 from verenigingen.utils.notification_helpers import notify_administrators, resolve_admin_recipients
 from verenigingen.verenigingen_payments.api import sepa_batch_notifications as notif
 from verenigingen.verenigingen_payments.monitoring.balance_monitor import AlertType, BalanceMonitor
@@ -38,18 +44,6 @@ def _error_rows_titled(title):
 
 CONFIG_DOCTYPE = "Verenigingen Email Configuration"
 SEPA_KEY = "sepa_batch_error"
-
-
-def _snapshot_rows():
-    """Plain copy of the child rows (hand-rolled; singleton_backup has restored child tables since #2091, #2159)."""
-    fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"]
-    return [{f: r.get(f) for f in fields} for r in frappe.get_single(CONFIG_DOCTYPE).notification_types]
-
-
-def _restore_rows(rows):
-    config = frappe.get_single(CONFIG_DOCTYPE)
-    config.set("notification_types", rows)
-    config.save()
 
 
 def _put_key_row(key, policy, **fields):
