@@ -244,7 +244,8 @@ class PaymentAlertService:
                 message=message,
                 notification_key=notification_key,
             )
-            return result.success
+            # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
+            return result.success and not result.skip_reason
         except Exception as e:
             frappe.logger().warning(f"Failed to send {alert_type} alert email: {e}")
             return False
