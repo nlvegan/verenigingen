@@ -442,6 +442,21 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: reimported-testcase-validator
+        name: 🔁 No module-level TestCase re-import in test modules (#1939)
+        description: >-
+          A test_*.py that binds another module's runnable TestCase at module level
+          (`from x import TestFoo`, `from x import *`, `X = mod.TestFoo`) makes the
+          loader run the donor's tests a second time under the importer. Import the
+          module and use `module.Class` instead. Zero baseline, no allowlist. Runs at
+          pre-push (parses the whole tree, ~30s); CI enforces it through
+          scripts/validation/tests/test_reimported_testcase_validator.py.
+        entry: python scripts/validation/reimported_testcase_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: harness-super-skip-validator
         name: 🧬 Harness super() Skip Guard (ratchet)
         description: >-

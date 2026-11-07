@@ -317,7 +317,6 @@ verenigingen/utils/settings_utils.py::is_mollie_enabled::1
 verenigingen/utils/workspace_content_fixer.py::fix_workspace_content::1
 verenigingen/utils/workspace_content_fixer.py::restore_content_backup::1
 verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest._get_queue_depth::1
-verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.get_application_invoice::1
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::APIAuditLog.create_audit_entry::1
 verenigingen/verenigingen/doctype/brand_settings/brand_settings.py::get_organization_logo::1
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter.get_board_members_optimized::1

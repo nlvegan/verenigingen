@@ -319,7 +319,8 @@ class CommunicationManager(BaseManager):
                 reference_name=self.chapter_name,
                 notification_key=notification_key,
             )
-            return result.success if result else False
+            # A skip (disabled key, cooldown, opt-out) queued nothing (#2096)
+            return bool(result and result.success and not result.skip_reason)
 
         except Exception as e:
             self.log_action(
@@ -637,6 +638,14 @@ class CommunicationManager(BaseManager):
 
             # send_chapter_email returns an OperationResult dataclass (not a dict),
             # so access attributes directly rather than .get().
+            if result.skip_reason:
+                # Cooldown / disabled key / opt-out: nothing went out, so it is neither
+                # logged nor reported as sent (the newsletter counts on this, #2096)
+                self.log_action(
+                    f"Email skipped using template {template.name if template else 'direct'}",
+                    {"recipients_count": len(recipients), "reason": result.skip_reason},
+                )
+                return False
             if result.success:
                 self.log_action(
                     f"Email sent using template {template.name if template else 'direct'}",

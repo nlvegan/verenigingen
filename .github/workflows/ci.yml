@@ -1,6 +1,11 @@
 name: Verenigingen CI
 
 on:
+  # #2184: queue runs. Inert until develop's ruleset enables the merge queue - no
+  # merge_group event fires before that. No `paths:` here on purpose: the queue
+  # needs every required check to REPORT, and a path-skipped workflow reports nothing.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [ main, develop ]
   pull_request:
@@ -21,6 +26,8 @@ concurrency:
   # Added 2026-09-05: develop took ~7 merges in 70 minutes and each fired 5-6
   # workflows with no concurrency group at all, leaving 43 of 83 active runs on
   # develop alone and jobs queued 5h+ without ever being assigned a runner.
+  # merge_group: per-ref is right for the queue - every queue run has its own
+  # gh-readonly-queue/... ref, so queue runs never cancel each other or a PR run.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -100,7 +107,9 @@ jobs:
 
     - name: Upload Trivy scan results to GitHub Security
       uses: github/codeql-action/upload-sarif@v4
-      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      # merge_group excluded: SARIF uploaded for a temporary gh-readonly-queue ref would
+      # open code-scanning alerts on a branch that is deleted minutes later (#2184).
+      if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       with:
         sarif_file: 'trivy-results.sarif'
 

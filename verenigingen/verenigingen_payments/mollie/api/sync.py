@@ -522,7 +522,10 @@ def _notify_subscription_status_change(member, old_status, new_status, subscript
         # otherwise this raised AttributeError on every send and logged a spurious
         # error even when the email went out fine (same class as the sibling fix
         # in payment_webhook.py's payment-failure notifier).
-        if result.success:
+        if result.skip_reason:
+            # Cooldown / disabled key / opt-out: nothing went out (#2096)
+            frappe.logger().info(f"Subscription status notification skipped: {result.skip_reason}")
+        elif result.success:
             frappe.logger().info(f"✅ Subscription status notification sent to {member.email}")
         else:
             frappe.logger().warning(f"⚠️ Failed to send status notification: {result.error_message}")

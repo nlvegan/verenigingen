@@ -880,7 +880,6 @@
  "verenigingen.tests.sepa.test_batch_validation_service_coverage": 14,
  "verenigingen.tests.sepa.test_dd_batch_pipeline_coverage": 22,
  "verenigingen.tests.sepa.test_dd_batch_scheduler": 13,
- "verenigingen.tests.sepa.test_iban_validator": 1,
  "verenigingen.tests.sepa.test_ponto_bank_account_creator": 7,
  "verenigingen.tests.sepa.test_ponto_betaalverzoek_client_unit": 14,
  "verenigingen.tests.sepa.test_ponto_callbacks": 9,
