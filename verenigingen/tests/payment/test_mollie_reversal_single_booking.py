@@ -681,6 +681,57 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.assertIsNotNone(pe, "refund Payment Entry not booked - fixture problem")
         self.assertEqual(getdate(pe.posting_date), getdate("2026-03-04"))
 
+    def _handle_refund(self, created_at, zone="Europe/Amsterdam"):
+        """Run RefundHandler._create_refund_entry on a Mollie-shaped refund (``created_at`` is a
+        STRING in the real SDK) and return (result, refund_id)."""
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.services.handlers.refund_handler import (
+            RefundHandler,
+        )
+
+        refund = SimpleNamespace(
+            id=f"re_h_{frappe.generate_hash(length=8)}",
+            amount={"value": "100.00", "currency": "EUR"},
+            created_at=created_at,
+        )
+        with system_timezone(zone):
+            return RefundHandler(mollie_client=object())._create_refund_entry(self.payment_id, refund), refund.id
+
+    def test_the_refund_handler_books_a_string_created_at_on_the_local_day_2162(self):
+        """19:00 UTC on 3 March is the 3rd in Amsterdam and the 4th in Kolkata (pin-sensitive).
+
+        The old ``refund.created_at.date()`` raised AttributeError on the SDK's string.
+        """
+        result, refund_id = self._handle_refund("2026-03-03T19:00:00+00:00")
+        self.assertEqual(result.get("status"), "processed", result)
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-03"))
+
+    def test_the_refund_handler_survives_an_unreadable_created_at_2162(self):
+        """Garbage must not crash the handler; the refund books on today (and the Error Log says why)."""
+        self.expectErrorLog("Mollie timestamp not parseable")
+        result, refund_id = self._handle_refund("garbage")
+        self.assertEqual(result.get("status"), "processed", result)
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate())
+
+    def test_a_pin_sensitive_utc_refund_books_on_the_local_day_2162(self):
+        """19:00 UTC on 3 March: the 3rd in Amsterdam, the 4th in Kolkata, so a dropped pin goes red."""
+        refund_id = f"re_pin_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            pe = create_refund_payment_entry(
+                donation_doc=self.donation,
+                mollie_payment_id=self.payment_id,
+                refund_id=refund_id,
+                refund_amount=100.0,
+                refund_date="2026-03-03T19:00:00+00:00",
+            )
+        self.assertIsNotNone(pe, "refund Payment Entry not booked - fixture problem")
+        self.assertEqual(getdate(pe.posting_date), getdate("2026-03-03"))
+
     def test_the_sweep_books_a_pending_refund_on_the_local_day_2162(self):
         """The payment-webhook sweep carries ``createdAt`` verbatim as ``refund_date``."""
         forward = create_unified_payment_entry(

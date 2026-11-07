@@ -17,6 +17,8 @@ runs as Administrator). No data is created.
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import frappe
+
 from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils import timezone_utils as tz
@@ -263,12 +265,29 @@ class TestMollieTimestampToLocalDate(VereningingenTestCase):
     def test_a_date_only_string_is_not_shifted(self):
         self.assertEqual(self._local("2026-03-04", "Pacific/Honolulu").isoformat(), "2026-03-04")
 
-    def test_empty_and_garbage_return_none(self):
+    def test_pin_sensitive_instant_follows_the_site_zone(self):
+        """19:00 UTC on 3 March: still the 3rd in Amsterdam, already the 4th in Kolkata.
+
+        Unlike 23:30Z (the 4th in both), a silently dropped pin turns this red on a Kolkata site.
+        """
+        value = "2026-03-03T19:00:00+00:00"
+        self.assertEqual(self._local(value, "Europe/Amsterdam").isoformat(), "2026-03-03")
+        self.assertEqual(self._local(value, "Asia/Kolkata").isoformat(), "2026-03-04")
+
+    def test_empty_returns_none_without_a_log_row(self):
+        before = frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"})
         self.assertIsNone(tz.mollie_timestamp_to_local_date(None))
         self.assertIsNone(tz.mollie_timestamp_to_local_date(""))
-        self.assertIsNone(tz.mollie_timestamp_to_local_date("not-a-timestamp"))
-        self.assertIsNone(tz.mollie_timestamp_to_local_date("2026-13-45"))
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"}), before)
 
+    def test_garbage_returns_none_and_is_written_to_the_error_log(self):
+        self.expectErrorLog("Mollie timestamp not parseable")
+        for garbage in ("not-a-timestamp", "2026-13-45"):
+            before = frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"})
+            self.assertIsNone(tz.mollie_timestamp_to_local_date(garbage))
+            self.assertEqual(
+                frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"}), before + 1
+            )
 
 if __name__ == "__main__":
     unittest.main()

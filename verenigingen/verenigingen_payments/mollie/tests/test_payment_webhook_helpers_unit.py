@@ -254,6 +254,11 @@ class TestSafeExtractDate(unittest.TestCase):
             got = safe_extract_date({"createdAt": "2026-03-04T05:00:00Z"})
         self.assertEqual(got, "2026-03-03")
 
+    def test_pin_sensitive_instant_2162(self):
+        """19:00Z on 3 March: the 3rd in Amsterdam, the 4th in Kolkata; red if the pin is dropped."""
+        with system_timezone("Europe/Amsterdam"):
+            self.assertEqual(safe_extract_date({"createdAt": "2026-03-03T19:00:00+00:00"}), "2026-03-03")
+
     def test_a_date_only_value_is_already_a_local_date_2162(self):
         with system_timezone("Pacific/Honolulu"):
             self.assertEqual(safe_extract_date({"createdAt": "2026-03-04"}), "2026-03-04")

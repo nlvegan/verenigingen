@@ -220,9 +220,10 @@ class RefundHandler:
             }
 
         # Create the refund payment entry
-        refund_date = None
-        if refund.created_at:
-            refund_date = mollie_timestamp_to_local_date(refund.created_at).isoformat()  # #2162
+        # Mollie's SDK hands created_at over as a string; the site-local day (#2162). An
+        # unreadable value leaves refund_date None, which books on today downstream.
+        local_date = mollie_timestamp_to_local_date(refund.created_at)
+        refund_date = local_date.isoformat() if local_date else None
 
         refund_pe = create_refund_payment_entry(
             donation_doc=donation_doc,
