@@ -70,6 +70,16 @@ _PAYLOAD_FIELDS = (
 )
 
 
+def _release_claim(claim: str) -> None:
+    """Drop the once-a-day claim. A Redis error here must not undo the staging either."""
+    try:
+        frappe.cache.delete(claim)
+    except Exception:
+        frappe.log_error(
+            title="MijnRood disabled-type alert claim not released", message=frappe.get_traceback()
+        )
+
+
 def _send_disabled_type_alert(membership_type: str, application_name: str) -> bool:
     """Raise the staff alert; True when at least one notification was actually created."""
     from frappe.utils import escape_html
@@ -89,7 +99,6 @@ def _send_disabled_type_alert(membership_type: str, application_name: str) -> bo
         notification_key="mijnrood_disabled_default_type",  # literal: key discovery greps for it
         document_type=SUBMISSION,
         document_name=application_name,
-        event_reference=f"mijnrood_disabled_default_type:{membership_type}",
         # ruling 2026-11-01: staff alerts never go to Administrator
         exclude_users=["Administrator"],
         staff_alert=True,
@@ -288,11 +297,11 @@ class MijnRoodApplicationSyncService:
                 return
             delivered = _send_disabled_type_alert(membership_type, application_name)
         except Exception:
-            frappe.cache.delete(claim)  # so the next application tries again
             frappe.log_error(title="MijnRood disabled-type alert failed", message=frappe.get_traceback())
+            _release_claim(claim)  # so the next application tries again
             return
         if not delivered:
-            frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
+            _release_claim(claim)  # key off or nobody to tell: do not hold the alert back for a day
 
     def promote_application_member(
         self,

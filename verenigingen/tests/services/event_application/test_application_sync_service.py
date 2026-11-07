@@ -587,3 +587,54 @@ class TestDisabledDefaultMembershipType(MijnRoodApplicationCase):
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Approved")
         (member,) = self._members_of_email()
         self.assertEqual(member.status, "Active")
+
+    def _set_key_enabled(self, enabled):
+        config = frappe.get_single("Verenigingen Email Configuration")
+        (row,) = [r for r in config.notification_types if r.notification_key == ALERT_KEY]
+        row.enabled = enabled
+        config.save()
+
+    def test_an_alert_that_reaches_nobody_releases_the_claim_so_the_next_application_alerts(self):
+        self._disable(self.membership_type)
+        self._set_key_enabled(0)  # real outcome: notify_administrators skips a disabled key
+        self._stage()
+        self.assertFalse(frappe.cache.get(self._alert_claim), "an undelivered alert must not hold the claim")
+        self.assertFalse([a for a in self._alerts() if a.outcome == "Delivered"])
+        self._set_key_enabled(1)
+
+        self._stage(self._application_row(email=self._fresh_applicant_email()))
+
+        self.assertEqual([a.outcome for a in self._alerts() if a.outcome == "Delivered"], ["Delivered"])
+        self.assertTrue(frappe.cache.get(self._alert_claim), "control: the delivered alert holds the claim")
+
+    def test_a_failing_alert_keeps_the_staging_releases_the_claim_and_logs(self):
+        from verenigingen.mijnrood_sync.services.event_application import application_sync_service as svc
+
+        self._disable(self.membership_type)
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": "MijnRood disabled-type alert failed"})
+        # Mock justified: forces the delivery step itself to fail; the staging and claim are real
+        with patch.object(svc, "_send_disabled_type_alert", side_effect=RuntimeError("boom 2094")):
+            _application, name = self._stage()
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        self.assertFalse(frappe.cache.get(self._alert_claim))
+        logged = frappe.get_all(
+            "Error Log", {"method": "MijnRood disabled-type alert failed"}, ["error"], limit=5
+        )
+        self.assertTrue(any("boom 2094" in row.error for row in logged), logged)
+
+    def test_a_redis_error_while_releasing_the_claim_does_not_undo_the_staging(self):
+        from verenigingen.mijnrood_sync.services.event_application import application_sync_service as svc
+
+        self._disable(self.membership_type)
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": "MijnRood disabled-type alert claim not released"})
+        # Mock justified: forces the cache and the delivery step to fail; staging is real
+        with patch.object(svc, "_send_disabled_type_alert", side_effect=RuntimeError("boom")), patch.object(
+            frappe.cache, "delete", side_effect=ConnectionError("redis down")
+        ):
+            result = self._apply_sync_event(
+                self._sync_event("New", "admin_membership_application", self._application_row())
+            )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email, "status": "Pending Review"}), 1)
