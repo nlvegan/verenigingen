@@ -15,6 +15,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_thread_sleep
 from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
     BulkOperationTracker,
 )
@@ -153,7 +154,7 @@ class TestBulkOperationTracker(EnhancedTestCase):
 
         with (
             patch.object(type(tracker), "save", flaky_save),
-            patch("time.sleep", side_effect=lambda s: sleeps.append(s)),
+            patch_thread_sleep(sleeps.append),
         ):
             result = secure_operations.secure_document_operation(
                 operation="save",
