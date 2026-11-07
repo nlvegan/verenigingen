@@ -73,7 +73,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
         ):
             return pg.PontoGateway().process_payment(donation, {})
 
-    def _donation(self):
+    def _make_ponto_donation(self):
         donor = self.create_test_donor(donor_name="Ponto 2182 Donor")
         return self.create_test_donation(amount=12.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0)
 
@@ -84,7 +84,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
             self.track_doc("Ponto Payment Link", name)
 
     def test_api_failure_writes_exactly_one_row_naming_the_link(self):
-        donation = self._donation()
+        donation = self._make_ponto_donation()
         before = self._mark()
 
         result = self._run(_FailingClient(), donation)
@@ -98,7 +98,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
         self.assertIn(API_FAILURE, rows[0].error or "")
 
     def test_donation_writeback_failure_leaves_one_row_with_title_and_traceback(self):
-        donation = self._donation()
+        donation = self._make_ponto_donation()
         before = self._mark()
 
         # Mock justified: no other seam makes the write after a successful submit fail.
@@ -117,7 +117,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
         self.assertIn("Traceback", row.error or "")
 
     def test_insert_refusal_row_has_title_and_message_the_right_way_round(self):
-        donation = self._donation()
+        donation = self._make_ponto_donation()
         before = self._mark()
         refusal = types.SimpleNamespace(success=False, errors=[INSERT_FAILURE])
 
@@ -139,7 +139,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
         Probe shortcut, stated: the row's `modified` is bumped between insert and submit by a
         wrapper around the real secure_document_operation; the controller is not touched.
         """
-        donation = self._donation()
+        donation = self._make_ponto_donation()
         before = self._mark()
         real_op = pg.secure_document_operation
 
