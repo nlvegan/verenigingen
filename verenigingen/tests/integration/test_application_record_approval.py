@@ -156,6 +156,9 @@ class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
             "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
         )
         frappe.db.set_value("Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"})
+        # Approval enforces the TYPE's minimum too, and submit now applies the same floor (#2127): bring the
+        # type down to the 2.5 this helper's 7.50 application was written against.
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 2.5)
         door = self._door(**({"monthly_dues_template": template} | (door_fields or {})))
         data = {
             "first_name": "Anna", "last_name": "Berg", "email": self.email, "address_line1": "Kerkstraat",
@@ -775,6 +778,57 @@ class TestRejectApplication(ApprovalCase):
         )
         self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]}), errors + 1)
         self.assertIn("smtp boom", frappe.get_all("Error Log", {"method": ["like", "Rejection mail failed%"]}, "error", order_by="creation desc", limit=1)[0].error)
+
+    def test_rejection_mail_skipped_by_a_disabled_key_is_reported_not_sent(self):
+        """A disabled notification key is a successful SKIP in EmailService; the reviewer must still be
+        told the applicant got no mail (#2096). The real service runs (spied, as the test above: this
+        harness captures frappe.sendmail, so the Email Queue cannot be read). Control: key on -> a real
+        queue result and mail_sent True; then the key is switched off."""
+        from verenigingen.services.communication.email_service import EmailService
+        from verenigingen.tests.utils.notification_state import own_notification_keys
+        from verenigingen.tests.utils.reminder_mail_state import (
+            configure_notification_key,
+            ensure_outgoing_email_account,
+        )
+
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "member_application_rejected")
+        real_send = EmailService.send_templated_email
+        results = []
+
+        def spy(service, *args, **kwargs):
+            results.append(real_send(service, *args, **kwargs))
+            return results[-1]
+
+        # Mock justified: spy on the mail boundary; the real service still runs
+        with patch.object(EmailService, "send_templated_email", spy):
+            first = self._stage_and_confirm()
+            self.assertTrue(self._reject_as(first)["mail_sent"], "control: an enabled key sends")
+            self.assertIsNone(results[-1].skip_reason, "control: a real send, not a skip")
+            self.assertTrue(results[-1].data.get("queued"))
+
+            configure_notification_key("member_application_rejected", 0, 0)
+            self.email = self._fresh_applicant_email()
+            second = self._stage_and_confirm()
+            errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail%"]})
+            frappe.clear_messages()
+            before = len(frappe.local.message_log)
+
+            result = self._reject_as(second)
+
+        self.assertTrue(results[-1].skip_reason, "precondition: the service reported a skip")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, second, "status"), "Rejected")
+        self.assertFalse(result["mail_sent"], "a skipped mail is not a sent mail")
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Rejection mail%"]}),
+            errors,
+            "a deliberate skip is not an error",
+        )
 
     def test_mail_service_raising_is_reported_logged_and_keeps_the_rejection(self):
         name = self._stage_and_confirm()

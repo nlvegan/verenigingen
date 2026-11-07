@@ -135,7 +135,7 @@ Test files (new): mirror each helper under `verenigingen/verenigingen_payments/t
 
 **Files:**
 - Modify: `verenigingen/utils/validation/iban_validator.py` (additive — append new function + constant; do not touch existing functions)
-- Test: `verenigingen/tests/sepa/test_iban_validator.py` (append cases; this file already exists)
+- Test: `verenigingen/tests/backend/validation/test_iban_validator.py` (append cases; this file already exists)
 
 **Interfaces:**
 - Produces:
@@ -342,7 +342,7 @@ Test files (new): mirror each helper under `verenigingen/verenigingen_payments/t
 - [ ] **Step 2:** Replace `sepa_xml_enhanced_generator._validate_bic` body with canonical `validate_bic(...)["valid"]` (keep returning `bool`).
 - [ ] **Step 3:** In `mollie/utils/validators.py`, change `IBANValidator.validate_iban` (and `_validate_checksum`) internals to delegate to canonical `validate_iban(iban)["valid"]` — **keep the class + method names + bool return** (callers at lines 177, 321, 446 + `payment_processors.py:519` depend on bool). Keep `IBAN_LENGTHS`/`format_iban`/`extract_bank_info` only if still referenced; otherwise delegate `format_iban` to canonical too.
 - [ ] **Step 4:** In `sepa_xml_enhanced_generator`, replace the duplicated creditor/debtor address blocks with `build_postal_address(...)` (0i); replace any local decimal coercion with `safe_decimal`/`quantize_amount` (0h) where it matches.
-- [ ] **Step 5:** Run `tests/test_sepa_xml_compliance.py`, `tests/sepa/test_iban_validator.py`, mollie validator tests, `test_service_layer_validation.py`. Green.
+- [ ] **Step 5:** Run `tests/test_sepa_xml_compliance.py`, `tests/backend/validation/test_iban_validator.py`, mollie validator tests, `test_service_layer_validation.py`. Green.
 - [ ] **Step 6:** Commit `refactor(payments): route IBAN/BIC validation through canonical validator`.
 
 ### Task R3: Bank / MT940 / reconciliation (LIVE money paths) — depends on 0c, 0h

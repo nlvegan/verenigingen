@@ -326,80 +326,7 @@
                         <!-- Payment Plan Details: mode-specific sub-UI rendered here by JS -->
                         <div id="payment-plan-details" class="mb-6" style="display: none;"></div>
 
-                        <!-- Income Calculator (supports both percentage and progressive modes) -->
-                        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator" style="display: none;">
-                            <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
-                            <p class="text-sm text-gray-600 mb-4" id="calculator-description">{{ calculator_description|e }}</p>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                <div class="input-group">
-                                    <label for="calc-monthly-income" class="input-label">{{ _("Monthly Net Income (€)") }}</label>
-                                    <input type="number" class="form-input text-sm" id="calc-monthly-income"
-                                           placeholder="3500" min="0" step="0.01">
-                                </div>
-
-                                <div class="input-group">
-                                    <label for="calc-payment-interval" class="input-label">{{ _("Payment Interval") }}</label>
-                                    <select class="form-input text-sm" id="calc-payment-interval">
-                                        <option value="monthly">{{ _("Monthly") }}</option>
-                                        <option value="quarterly">{{ _("Quarterly") }}</option>
-                                        <option value="annually">{{ _("Annually") }}</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- Standard percentage-based result -->
-                            <div id="calc-result" class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-4" style="display: none;">
-                                <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
-                                <p class="text-lg font-bold">
-                                    <span id="calc-suggested-amount"></span>
-                                    <span id="calc-payment-frequency"></span>
-                                </p>
-                                <p class="text-xs text-green-600 mt-1">
-                                    {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate|e }}%</span> {{ _("of your monthly income") }}
-                                </p>
-                            </div>
-
-                            <!-- Progressive sliding scale result -->
-                            <div id="progressive-calc-result" class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-4" style="display: none;">
-                                <p class="text-sm font-medium mb-2">{{ _("Progressive Contribution Scale") }}</p>
-
-                                <!-- Visual sliding scale -->
-                                <div class="relative h-8 mb-3">
-                                    <div class="absolute w-full h-2 bg-gradient-to-r from-blue-200 via-blue-400 to-blue-600 rounded-full top-3"></div>
-                                    <!-- Position markers -->
-                                    <div class="absolute left-0 top-0 text-xs text-gray-500">{{ _("Min") }}</div>
-                                    <div class="absolute right-0 top-0 text-xs text-gray-500" id="progressive-median-label">{{ _("Median") }}</div>
-                                    <!-- User position indicator -->
-                                    <div id="progressive-position-marker" class="absolute w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md transition-all duration-300" style="top: 5px; left: 50%;"></div>
-                                </div>
-
-                                <!-- Percentage display -->
-                                <div class="text-center mb-3">
-                                    <span class="text-2xl font-bold text-blue-700" id="progressive-percentage">1%</span>
-                                    <span class="text-sm text-blue-600"> {{ _("of your income") }}</span>
-                                </div>
-
-                                <!-- Suggested amount -->
-                                <div class="text-center">
-                                    <p class="text-sm text-blue-600 mb-1">{{ _("Suggested Contribution:") }}</p>
-                                    <p class="text-xl font-bold text-blue-800">
-                                        <span id="progressive-suggested-amount">€0.00</span>
-                                        <span class="text-sm font-normal" id="progressive-payment-frequency"></span>
-                                    </p>
-                                    <p class="text-xs text-blue-500 mt-1">
-                                        (€<span id="progressive-monthly-income">0</span> × <span id="progressive-percentage-detail">1%</span><span id="progressive-billing-multiplier"></span>)
-                                    </p>
-                                </div>
-                            </div>
-
-                            <button type="button" class="w-full text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 shadow-sm" id="apply-calculated-amount" style="display: none; background-color: {{ primary_color|e }};">
-                                {{ _("Use This Amount") }}
-                            </button>
-                            <p class="text-xs text-gray-500 mt-2 text-center" id="calculator-hint">
-                                {{ _("Enter your monthly income above to see a suggested contribution based on your income level.") }}
-                            </p>
-                        </div>
+                        {% include "templates/includes/contribution_calculator.html" %}
 
                         <!-- Hidden fields for form submission -->
                         <input type="hidden" id="membership_type" name="membership_type" required>
@@ -737,6 +664,7 @@
 {% block script %}
 <!-- Load service dependencies first -->
 
+<script src="/assets/verenigingen/js/contribution_calculator.js"></script>
 <script>
 // Initialize the membership application form when Frappe is ready
 frappe.ready(function() {
@@ -1248,13 +1176,7 @@ function initializeCalculator(mode, billingFrequency) {
 
     // Set the payment interval dropdown to match the billing frequency
     if (intervalSelect) {
-        const frequencyMap = {
-            'Monthly': 'monthly',
-            'Quarterly': 'quarterly',
-            'Annual': 'annually',
-            'Annually': 'annually'
-        };
-        intervalSelect.value = frequencyMap[billingFrequency] || 'quarterly';
+        intervalSelect.value = ContributionCalculator.intervalFor(billingFrequency);
     }
 
     // Remove old event listeners by cloning elements
@@ -1267,13 +1189,7 @@ function initializeCalculator(mode, billingFrequency) {
         const newIntervalSelect = intervalSelect.cloneNode(true);
         intervalSelect.parentNode.replaceChild(newIntervalSelect, intervalSelect);
         // Re-set the value after cloning
-        const frequencyMap = {
-            'Monthly': 'monthly',
-            'Quarterly': 'quarterly',
-            'Annual': 'annually',
-            'Annually': 'annually'
-        };
-        newIntervalSelect.value = frequencyMap[billingFrequency] || 'quarterly';
+        newIntervalSelect.value = ContributionCalculator.intervalFor(billingFrequency);
         newIntervalSelect.addEventListener('change', calculateContribution);
     }
     if (applyButton) {
@@ -1291,128 +1207,21 @@ function initializeCalculator(mode, billingFrequency) {
 function calculateContribution() {
     const incomeInput = document.getElementById('calc-monthly-income');
     const intervalSelect = document.getElementById('calc-payment-interval');
-    const calcResult = document.getElementById('calc-result');
-    const progressiveResult = document.getElementById('progressive-calc-result');
-    const applyButton = document.getElementById('apply-calculated-amount');
-    const suggestedAmountSpan = document.getElementById('calc-suggested-amount');
-    const paymentFrequencySpan = document.getElementById('calc-payment-frequency');
-
-    const monthlyIncome = parseFloat(incomeInput.value) || 0;
-    const interval = intervalSelect.value;
     const settings = window.currentCalculatorSettings;
+    const interval = intervalSelect.value;
 
-    if (monthlyIncome <= 0 || !settings) {
-        calcResult.style.display = 'none';
-        progressiveResult.style.display = 'none';
-        applyButton.style.display = 'none';
-        return;
-    }
-
-    // Calculate the contribution
-    let suggestedAmount = 0;
-    const mode = settings.mode;
-    const contributionSettings = settings.settings || {};
-
-    // Interval multipliers
-    const intervalMultipliers = {
-        'monthly': 1,
-        'quarterly': 3,
-        'annually': 12
-    };
-    const multiplier = intervalMultipliers[interval] || 3;
-
-    // Interval display names
+    // The arithmetic and the result display are shared with /word-lid (contribution_calculator.js).
+    const result = settings && ContributionCalculator.compute(
+        settings.settings || {}, settings.mode, parseFloat(incomeInput.value) || 0, interval);
     const intervalNames = {
         'monthly': '{{ _("per month") }}',
         'quarterly': '{{ _("per quarter") }}',
+        'semiannually': '{{ _("every 6 months") }}',
         'annually': '{{ _("per year") }}'
     };
-
-    // Handle both new "Income-Based" mode and legacy modes
-    const isIncomeBasedProgressive = (mode === 'Income-Based' && contributionSettings.calculation_type === 'Progressive');
-    const isLegacyProgressive = (mode === 'Progressive' && contributionSettings.progressive);
-    const isIncomeBasedPercentage = (mode === 'Income-Based' && contributionSettings.calculation_type === 'Percentage');
-
-    if (isIncomeBasedProgressive || isLegacyProgressive) {
-        // Progressive calculation (sliding scale based on income brackets)
-        const prog = contributionSettings.progressive;
-        const referenceIncome = prog.reference_income || 3500;
-        const lowerThreshold = prog.lower_threshold || 2200;
-
-        // Warn if using fallback values (indicates missing configuration)
-        if (!prog.reference_income || !prog.lower_threshold) {
-            console.warn('Progressive calculator using fallback values. Configure progressive_reference_income and progressive_lower_threshold in the dues schedule template.', {
-                reference_income: prog.reference_income || 'fallback: 3500',
-                lower_threshold: prog.lower_threshold || 'fallback: 2200'
-            });
-        }
-
-        // Calculate percentage based on income relative to reference
-        let percentage;
-        if (monthlyIncome <= lowerThreshold) {
-            percentage = 0.5; // Minimum 0.5%
-        } else if (monthlyIncome >= referenceIncome) {
-            percentage = 1.0; // Maximum 1%
-        } else {
-            // Linear interpolation between lower threshold and reference
-            const ratio = (monthlyIncome - lowerThreshold) / (referenceIncome - lowerThreshold);
-            percentage = 0.5 + (ratio * 0.5); // 0.5% to 1%
-        }
-
-        suggestedAmount = (monthlyIncome * percentage / 100) * multiplier;
-
-        // Update progressive display
-        document.getElementById('progressive-percentage').textContent = percentage.toFixed(2) + '%';
-        document.getElementById('progressive-suggested-amount').textContent = '€' + suggestedAmount.toFixed(2);
-        document.getElementById('progressive-payment-frequency').textContent = intervalNames[interval];
-        document.getElementById('progressive-monthly-income').textContent = monthlyIncome.toFixed(0);
-        document.getElementById('progressive-percentage-detail').textContent = percentage.toFixed(2) + '%';
-
-        // Update position marker (0% = left, 100% = right based on income range)
-        const marker = document.getElementById('progressive-position-marker');
-        if (marker) {
-            const position = Math.min(100, Math.max(0, ((monthlyIncome - lowerThreshold) / (referenceIncome - lowerThreshold)) * 100));
-            marker.style.left = position + '%';
-        }
-
-        calcResult.style.display = 'none';
-        progressiveResult.style.display = 'block';
-    } else if (isIncomeBasedPercentage || mode === 'Calculator' || mode === 'Income-Based') {
-        // Percentage-based calculation
-        // Try new structure first, then legacy
-        const percentage = contributionSettings.percentage ||
-                          (contributionSettings.calculator && contributionSettings.calculator.percentage) ||
-                          0.75;
-
-        // Warn if using fallback percentage
-        if (!contributionSettings.percentage && !(contributionSettings.calculator && contributionSettings.calculator.percentage)) {
-            console.warn('Income calculator using fallback percentage (0.75%). Configure income_percentage in the dues schedule template.');
-        }
-
-        suggestedAmount = (monthlyIncome * percentage / 100) * multiplier;
-
-        // Update display
-        suggestedAmountSpan.textContent = '€' + suggestedAmount.toFixed(2);
-        paymentFrequencySpan.textContent = intervalNames[interval];
-        document.getElementById('calc-income-percentage').textContent = percentage + '%';
-
-        calcResult.style.display = 'block';
-        progressiveResult.style.display = 'none';
-    } else {
-        // No calculator for this mode
-        calcResult.style.display = 'none';
-        progressiveResult.style.display = 'none';
-        applyButton.style.display = 'none';
-        return;
-    }
-
-    // Store the calculated amount and show apply button
-    window.calculatedContributionAmount = suggestedAmount;
-    applyButton.style.display = 'block';
-
-    // Hide the hint text
-    const hintText = document.getElementById('calculator-hint');
-    if (hintText) hintText.style.display = 'none';
+    ContributionCalculator.render(result, intervalNames[interval]);
+    // Store the calculated amount for the apply button
+    window.calculatedContributionAmount = result ? result.amount : 0;
 }
 
 function applyCalculatedAmount() {

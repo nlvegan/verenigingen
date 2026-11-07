@@ -106,7 +106,7 @@ class TestAllImports(EnhancedTestCase):
         import verenigingen.tests.fixtures.test_data_factory
 
         # Specific test modules that have utilities
-        import verenigingen.tests.sepa.test_iban_validator
+        import verenigingen.tests.backend.validation.test_iban_validator
         import verenigingen.tests.test_runner
         import verenigingen.tests.utils.base
 

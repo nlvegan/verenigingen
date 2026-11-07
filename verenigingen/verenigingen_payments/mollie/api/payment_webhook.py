@@ -1257,7 +1257,10 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
         # dict-style .get); read its .success flag rather than result.get("status"),
         # otherwise this raised AttributeError on every send and logged a spurious
         # "Payment Notification Error" even when the email went out fine.
-        if result.success:
+        if result.skip_reason:
+            # Cooldown / disabled key / opt-out: nothing went out (#2096)
+            frappe.logger().info(f"Payment failure notification skipped: {result.skip_reason}")
+        elif result.success:
             frappe.logger().info(f"✅ Payment failure notification sent to {member.email}")
         else:
             frappe.logger().warning(f"⚠️ Failed to send payment failure notification: {result.error_message}")
