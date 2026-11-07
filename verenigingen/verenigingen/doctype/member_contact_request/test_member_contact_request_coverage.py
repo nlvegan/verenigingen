@@ -172,17 +172,26 @@ class TestMemberContactRequestController(VereningingenTestCase):
         self.assertIn(getdate(doc.closed_date), (before, after))
 
     def test_resolved_status_syncs_linked_lead_to_converted(self):
+        """A Lead linked by hand (no insert creates one any more, #2174) still follows the request status."""
         if not frappe.db.exists("DocType", "Lead"):
             self.skipTest("CRM Lead doctype not installed")
+        lead = frappe.get_doc(
+            {
+                "doctype": "Lead",
+                "lead_name": "Linked Lead",
+                "email_id": "linked.lead.mcr@example.invalid",
+                "status": "Open",
+                "title": "Linked Lead",
+            }
+        )
+        lead.insert()
+        self.track_doc("Lead", lead.name)
         doc = self._make_request()
+        doc.db_set("crm_lead", lead.name, update_modified=False)
         doc.reload()
-        if not doc.crm_lead:
-            self.skipTest("No CRM lead linked (CRM lead creation failed)")
-        self.track_doc("Lead", doc.crm_lead)
         doc.status = "Resolved"
         doc.save()
-        lead_status = frappe.db.get_value("Lead", doc.crm_lead, "status")
-        self.assertEqual(lead_status, "Converted")
+        self.assertEqual(frappe.db.get_value("Lead", lead.name, "status"), "Converted")
 
     # --------------------------------------------------- assignment changes
     def test_assignment_sets_follow_up_date(self):
@@ -210,8 +219,6 @@ class TestMemberContactRequestController(VereningingenTestCase):
         created = frappe.get_doc("Member Contact Request", result["contact_request"])
         # created_by_portal flag is set by the internal helper path.
         self.assertEqual(created.created_by_portal, 1)
-        if created.crm_lead:
-            self.track_doc("Lead", created.crm_lead)
 
     # ---------------------------------------------- get_member_contact_requests
     def test_get_member_contact_requests_lists_for_member(self):

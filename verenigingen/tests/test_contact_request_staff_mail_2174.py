@@ -18,6 +18,7 @@ import email
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _put_key_row,
     _restore_rows,
@@ -146,3 +147,18 @@ class TestContactRequestStaffMail2174(VereningingenTestCase):
         )
         self.assertIn("&lt;b&gt;bold2174&lt;/b&gt;", html)
         self.assertNotIn("<b>bold2174", html)
+
+    # The rows a site really has: seeded from the registry, no cooldown override (#2174 review F1).
+    # The tests above pin cooldown_minutes=0 themselves, so none saw the registry's default 60 mailing
+    # staff about only the first request each hour.
+    def test_a_second_request_is_mailed_on_the_seeded_row(self):
+        for urgency, key in (("Normal", "contact_request_new"), ("Urgent", "contact_request_urgent")):
+            # setUp's snapshot restores these rows uncommitted; singleton_backup would commit them.
+            config = frappe.get_single(CONFIG)
+            config.set("notification_types", [])
+            config.save()
+            ensure_notification_registry_rows()
+            clear_email_cooldowns()
+            self.assertEqual(frappe.db.get_value("Email Notification Type", {"notification_key": key}, "enabled"), 1)
+            self.assertTrue(self._mailed_to(self._submit(urgency)), f"control: first {key} mail")
+            self.assertTrue(self._mailed_to(self._submit(urgency)), f"second {key} request not mailed")

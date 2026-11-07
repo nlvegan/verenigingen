@@ -701,6 +701,8 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "recipient_roles": "Verenigingen Administrator",
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_urgent": {
         "label": "Urgent Contact Request Received",
@@ -708,6 +710,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to Verenigingen Administrators and System Managers when a member files an urgent contact request.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_response_sent": {
         "label": "Contact Request Response",
