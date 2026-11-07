@@ -17,6 +17,7 @@ import unittest
 
 import frappe
 
+from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 # Doctypes the probe's seat builds are known to leave behind on develop (measured on
@@ -34,6 +35,11 @@ def _row_names_2039():
 class TestSeatHelperRowsAreDrained(unittest.TestCase):
     def _run_probe(self, probe_cls):
         stream = io.StringIO()
+        # The probe's setUpClass builds the shared "Test Region" master (@shared_fixture, never
+        # drained, owned by ensure_test_region). On a cold site that is the probe's first
+        # build, so it would read as a leak (CI shard 10: leaked={'Region': ['test-region']}).
+        # Build it BEFORE the snapshot. Region is the only shared master among WATCHED.
+        ensure_test_region()
         before = _row_names_2039()
         result = unittest.TextTestRunner(stream=stream, verbosity=0).run(
             unittest.defaultTestLoader.loadTestsFromTestCase(probe_cls)
