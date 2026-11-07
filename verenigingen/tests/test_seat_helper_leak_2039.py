@@ -17,7 +17,7 @@ import unittest
 
 import frappe
 
-from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
+from verenigingen.tests.fixtures.region_fixtures import TEST_REGION_DOCNAME, ensure_test_region
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 # Doctypes the probe's seat builds are known to leave behind on develop (measured on
@@ -49,7 +49,7 @@ class TestSeatHelperRowsAreDrained(unittest.TestCase):
         # Shared master only: it is built before the snapshot, so a teardown that DELETED it
         # would vanish from the before/after diff. Check it directly.
         self.assertTrue(
-            frappe.db.exists("Region", "test-region"), "probe teardown removed the shared Test Region master"
+            frappe.db.exists("Region", TEST_REGION_DOCNAME), "probe teardown removed the shared Test Region master"
         )
         # setUpClass builds one class-level Chapter that is never tracked (a separate defect);
         # discount it so the probe reports only what the seat helpers left.
