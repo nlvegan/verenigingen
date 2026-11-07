@@ -1,6 +1,11 @@
 name: Quality Assurance Pipeline
 
 on:
+  # #2184: queue runs. Inert until develop's ruleset enables the merge queue - no
+  # merge_group event fires before that. No `paths:` here on purpose: the queue
+  # needs every required check to REPORT, and a path-skipped workflow reports nothing.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main, develop]
   pull_request:
@@ -417,6 +422,7 @@ jobs:
           echo "🚀 Ready for deployment"
 
       - name: 📝 Comment on PR
+        # merge_group: skipped ON PURPOSE - it comments on the PR, and a queue run has none.
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
