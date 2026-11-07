@@ -1025,10 +1025,15 @@ class PontoGateway(PaymentGateway):
             }
 
         except Exception as e:
-            # A frappe.ValidationError here is the controller's own refusal, which it has
-            # already logged with the link name (#2114); a second row only duplicated it.
-            # Anything else (e.g. the donation write-back) was never logged by anyone.
-            if not isinstance(e, frappe.ValidationError):
+            # PontoCreateError is the controller's refusal AFTER it wrote its own row, which
+            # names the link (#2114); a second row only duplicated it. Every other failure
+            # (a TimestampMismatchError at submit, the donation write-back, ...) was never
+            # logged by anyone, whatever its class.
+            from verenigingen.verenigingen_payments.doctype.ponto_payment_link.ponto_payment_link import (
+                PontoCreateError,
+            )
+
+            if not isinstance(e, PontoCreateError):
                 frappe.log_error(
                     title=f"Ponto payment link creation failed: {donation.name}",
                     message=frappe.get_traceback(),

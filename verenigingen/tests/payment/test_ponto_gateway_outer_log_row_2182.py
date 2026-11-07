@@ -52,15 +52,15 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
             "Ponto payment link creation failed", "Ponto Gateway Error", "Ponto Gateway - Insert Error", "2182"
         )
 
-    def _all_error_names(self):
-        # Marker, not a name set: the table holds thousands of rows. Error Log is
-        # MyISAM, so rows written here are visible regardless of rollback.
-        return frappe.utils.now_datetime()
+    def _mark(self):
+        # The table holds thousands of rows, so remember the newest creation stamp and
+        # count rows strictly after it. Error Log is MyISAM: rows are visible regardless of rollback.
+        return frappe.db.sql("select max(creation) from `tabError Log`")[0][0]
 
     def _new_rows(self, before):
         rows = frappe.get_all(
             "Error Log",
-            filters={"creation": [">=", before]},
+            filters={"creation": [">", before]} if before else {},
             fields=["name", "method", "error"],
         )
         # Ignore unrelated rows (e.g. a worker) - only rows this failure could have written.
@@ -85,7 +85,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
 
     def test_api_failure_writes_exactly_one_row_naming_the_link(self):
         donation = self._donation()
-        before = self._all_error_names()
+        before = self._mark()
 
         result = self._run(_FailingClient(), donation)
 
@@ -99,7 +99,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
 
     def test_donation_writeback_failure_leaves_one_row_with_title_and_traceback(self):
         donation = self._donation()
-        before = self._all_error_names()
+        before = self._mark()
 
         # Mock justified: no other seam makes the write after a successful submit fail.
         with patch.object(donation, "db_set", side_effect=RuntimeError(DB_FAILURE)):
@@ -118,7 +118,7 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
 
     def test_insert_refusal_row_has_title_and_message_the_right_way_round(self):
         donation = self._donation()
-        before = self._all_error_names()
+        before = self._mark()
         refusal = types.SimpleNamespace(success=False, errors=[INSERT_FAILURE])
 
         # Mock justified: secure_document_operation is the app's wrapper and has no seam
@@ -132,3 +132,30 @@ class TestPontoGatewayOuterLogRow(EnhancedTestCase):
         self.assertIn(donation.name, rows[0].method)
         self.assertNotIn(INSERT_FAILURE, rows[0].method, "the dynamic text must not land in the title")
         self.assertIn(INSERT_FAILURE, rows[0].error or "")
+
+    def test_timestamp_mismatch_at_submit_leaves_one_row_with_the_donation_name(self):
+        """A REAL TimestampMismatchError from submit() (a ValidationError the controller never logs).
+
+        Probe shortcut, stated: the row's `modified` is bumped between insert and submit by a
+        wrapper around the real secure_document_operation; the controller is not touched.
+        """
+        donation = self._donation()
+        before = self._mark()
+        real_op = pg.secure_document_operation
+
+        def insert_then_touch(*args, **kwargs):
+            result = real_op(*args, **kwargs)
+            frappe.db.set_value(
+                "Ponto Payment Link", kwargs["doc"].name, "modified", "2099-01-01 00:00:00", update_modified=False
+            )
+            return result
+
+        with patch.object(pg, "secure_document_operation", side_effect=insert_then_touch):
+            result = self._run(_OkClient(), donation)
+
+        self._track_links(donation)
+        self.assertEqual(result["status"], "error")
+        rows = self._new_rows(before)
+        self.assertEqual(len(rows), 1, f"expected one row, got {[r.method for r in rows]}")
+        self.assertIn(donation.name, rows[0].method)
+        self.assertIn("TimestampMismatchError", rows[0].error or "")
