@@ -246,7 +246,7 @@ class TestShortApplicationSubmit(ApplicationDoorMixin, VereningingenUnitTestCase
         self.assertEqual(len(json.loads(row[0].payload)["join_reason_other"]), 140)
 
     def test_unknown_and_disabled_door_look_like_a_validation_failure(self):
-        disabled = self._door(enabled=0, monthly_dues_template=self.door.monthly_dues_template)
+        disabled = self._door(enabled=0, monthly_dues_template=self.door.plans[0].dues_template)
         for slug in ("bestaat-niet", disabled.name):
             response, log = self._submit_form(door=slug)
             self.assertFalse(response["success"])
