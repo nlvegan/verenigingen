@@ -63,7 +63,11 @@ class ChapterMembershipManager:
 
             # Use the chapter's member manager to request membership (pending approval)
             result = chapter_doc.member_manager.request_to_join(  # ast-skip: @property not field
-                member_id=member_id, introduction=introduction, website_url=website_url, notify=True
+                member_id=member_id,
+                introduction=introduction,
+                website_url=website_url,
+                notify=True,
+                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
             )
 
             # Update member tracking fields if successful
@@ -120,7 +124,11 @@ class ChapterMembershipManager:
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
             result = chapter_doc.member_manager.remove_member(  # ast-skip: @property not field
-                member_id=member_id, leave_reason=leave_reason, permanent=permanent, notify=True
+                member_id=member_id,
+                leave_reason=leave_reason,
+                permanent=permanent,
+                notify=True,
+                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
             )
 
             # Update member tracking fields if successful
@@ -148,6 +156,15 @@ class ChapterMembershipManager:
         if not user_email or user_email == "Administrator":
             return True
         return frappe.db.get_value("Member", member_id, "user") == user_email
+
+    @staticmethod
+    def _proved_member_caller(user_email: str) -> bool:
+        """Whether the caller is a real user that `_caller_is_member` just matched by Member.user.
+
+        Only then may the member's own row be written without Chapter:write (#2166, #2165).
+        No caller or Administrator is an internal call: it keeps its own permissions.
+        """
+        return bool(user_email) and user_email != "Administrator"
 
     @staticmethod
     def _with_error_reason(result: Dict[str, Any], member_id: str) -> Dict[str, Any]:
