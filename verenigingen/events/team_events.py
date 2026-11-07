@@ -119,6 +119,8 @@ def _emit_team_event(event_name, event_data):
         # Subscribers mail, disable accounts and write history for the change, so they must
         # not run ahead of (or without) the commit that made it (#2144, sibling of #2137).
         after_commit=True,
+        # One job per volunteer and action: several rows can change in one Team save (#2144).
+        job_id_keys=("volunteer", "action") if event_name == "team_membership_changed" else (),
     )
 
 

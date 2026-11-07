@@ -40,7 +40,6 @@ _add_team_member::4  # clone family, 1 near-identical pair(s)
 _add_team_membership::2  # clone family, 1 near-identical pair(s)
 _align_membership_type_amount::2
 _append_member::2
-_approve::2
 _as_admin::9  # clone family, 36 near-identical pair(s)
 _as_user::3
 _assert_board_access_withdrawn::2
@@ -76,7 +75,6 @@ _cancel_auto_schedules::9  # clone family, 33 near-identical pair(s)
 _chapter_member::2  # clone family, 1 near-identical pair(s)
 _chapter_role::2  # clone family, 1 near-identical pair(s)
 _charge::2
-_capture_jobs::2
 _clean_value::2
 _cleanup::3
 _cleanup_bank_transactions::5  # clone family, 6 near-identical pair(s)
@@ -290,7 +288,7 @@ _has_multi_profile_support::2
 _history_rows::2
 _idem::2
 _index_exists::2
-_insert::3
+_insert::2
 _insert_acr::4  # clone family, 2 near-identical pair(s)
 _insert_amendment::2
 _insert_doc::4  # clone family, 5 near-identical pair(s)
@@ -307,8 +305,6 @@ _is_movement_member::2
 _is_retryable_error::2
 _is_team_member::3  # clone family, 1 near-identical pair(s)
 _isolate_mollie_client::2  # clone family, 1 near-identical pair(s)
-_join::2
-_join_as_member::2
 _leaf_account::2  # clone family, 1 near-identical pair(s)
 _link_bank_transaction_to_payment::2
 _link_member_to_user::3  # clone family, 1 near-identical pair(s)
@@ -565,8 +561,7 @@ _send_kwargs::2  # clone family, 1 near-identical pair(s)
 _send_member_status_notification::2
 _sepa::2
 _service::9
-_set::4
-_run_jobs::2
+_set::3
 _set_anbi::2
 _set_request::2
 _settings::4
@@ -622,7 +617,6 @@ _user::2
 _user_still_in_other_entities::3
 _valid_params::2  # clone family, 1 near-identical pair(s)
 _validate_and_map_data::2  # clone family, 1 near-identical pair(s)
-_suspend::2
 _validate_and_preview_csv::4
 _validate_backend_api_access::2
 _validate_configuration::4

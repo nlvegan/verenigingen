@@ -43,7 +43,7 @@ class _RollbackBase(VereningingenTestCase):
             setattr(frappe.flags, k, v)
         super().tearDown()
 
-    def _capture_jobs(self, action):
+    def _capture_jobs_2144(self, action):
         jobs = []
         real_enqueue = frappe.enqueue
 
@@ -61,7 +61,7 @@ class _RollbackBase(VereningingenTestCase):
             frappe.enqueue = real_enqueue
         return jobs
 
-    def _run_jobs(self, jobs, only=None):
+    def _run_jobs_2144(self, jobs, only=None):
         for job in jobs:
             if only and not job["method"].endswith(only):
                 continue
@@ -81,7 +81,7 @@ class _RollbackBase(VereningingenTestCase):
         """Run ``action`` inside a savepoint, roll it back, return the jobs it queued."""
         savepoint = f"t2144_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(savepoint)
-        jobs = self._capture_jobs(action)
+        jobs = self._capture_jobs_2144(action)
         frappe.db.rollback(save_point=savepoint)
         return jobs
 
@@ -114,46 +114,46 @@ class TestMemberEventsRollback(_RollbackBase):
     def _user_enabled(self):
         return frappe.db.get_value("User", self.user.name, "enabled")
 
-    def _set(self, **values):
+    def _set_2144(self, **values):
         member = frappe.get_doc("Member", self.member.name)
         member.update(values)
         member.save()
 
-    def _suspend(self):
-        self._set(status="Suspended")
+    def _suspend_2144(self):
+        self._set_2144(status="Suspended")
 
-    def _approve(self):
-        self._set(application_status="Approved")
+    def _approve_2144(self):
+        self._set_2144(application_status="Approved")
 
     def test_control_committed_suspension_mails_the_member(self):
-        jobs = self._capture_jobs(self._suspend)
+        jobs = self._capture_jobs_2144(self._suspend_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Suspended")
         with self._mail_boundary() as service:
-            self._run_jobs(jobs, only="handle_lifecycle_notifications")
+            self._run_jobs_2144(jobs, only="handle_lifecycle_notifications")
         service.send_notification.assert_called_once()
 
     def test_rolled_back_suspension_sends_no_mail(self):
-        jobs = self._rolled_back(self._suspend)
+        jobs = self._rolled_back(self._suspend_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
         self.assertTrue(any(j["method"].endswith("handle_lifecycle_notifications") for j in jobs))
         with self._mail_boundary() as service:
-            self._run_jobs(jobs, only="handle_lifecycle_notifications")
+            self._run_jobs_2144(jobs, only="handle_lifecycle_notifications")
         service.send_notification.assert_not_called()
 
     def test_control_committed_approval_mails_the_member(self):
-        jobs = self._capture_jobs(self._approve)
+        jobs = self._capture_jobs_2144(self._approve_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "application_status"), "Approved")
         with self._mail_boundary() as service:
-            self._run_jobs(jobs, only="handle_status_change_notifications")
+            self._run_jobs_2144(jobs, only="handle_status_change_notifications")
         service.send_notification.assert_called_once()
 
     def test_rolled_back_approval_sends_no_mail(self):
         before = frappe.db.get_value("Member", self.member.name, "application_status")
-        jobs = self._rolled_back(self._approve)
+        jobs = self._rolled_back(self._approve_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "application_status"), before)
         self.assertTrue(any(j["method"].endswith("handle_status_change_notifications") for j in jobs))
         with self._mail_boundary() as service:
-            self._run_jobs(jobs, only="handle_status_change_notifications")
+            self._run_jobs_2144(jobs, only="handle_status_change_notifications")
         service.send_notification.assert_not_called()
 
     def test_user_account_job_ignores_a_status_the_member_does_not_have(self):
@@ -162,7 +162,7 @@ class TestMemberEventsRollback(_RollbackBase):
         handle_user_account_updates never disables anyone from a real event today; the
         guard is for when that is fixed."""
         data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs(
+        self._run_jobs_2144(
             [
                 {
                     "method": MEMBER_JOBS + "handle_user_account_updates",
@@ -176,9 +176,9 @@ class TestMemberEventsRollback(_RollbackBase):
 
     def test_control_user_account_job_disables_when_the_member_is_suspended(self):
         """Control for the test above: with the status really held, the user is disabled."""
-        self._suspend()
+        self._suspend_2144()
         data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs(
+        self._run_jobs_2144(
             [
                 {
                     "method": MEMBER_JOBS + "handle_user_account_updates",
@@ -190,8 +190,54 @@ class TestMemberEventsRollback(_RollbackBase):
         )
         self.assertEqual(self._user_enabled(), 0)
 
+    def _seat_in_chapter(self):
+        chapter = self.create_test_chapter(
+            chapter_name=f"Rollback Seat {frappe.generate_hash(length=6)}",
+            postal_codes="1000-9999",
+            published=1,
+        )
+        doc = frappe.get_doc("Chapter", chapter.name)
+        doc.append("members", {"member": self.member.name, "status": "Active", "enabled": 1})
+        doc.save()
+        return frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": self.member.name}, "name"
+        )
+
+    def _chapter_row_status(self, row):
+        return frappe.db.get_value("Chapter Member", row, "status")
+
+    def test_rolled_back_suspension_leaves_the_chapter_membership_active(self):
+        """handle_chapter_assignment_updates deactivates chapter rows on Suspended. The
+        lifecycle event is not registered for that job in production (only
+        member_status_changed is), so the payload is hand-built: probe shortcut, the same
+        shape as the user-account pair."""
+        row = self._seat_in_chapter()
+        jobs = self._rolled_back(self._suspend_2144)
+        self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
+        job = {
+            "method": MEMBER_JOBS + "handle_chapter_assignment_updates",
+            "event_name": "member_lifecycle_changed",
+            "event_data": {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"},
+            "is_bulk_import": False,
+        }
+        self.assertTrue(jobs)
+        self._run_jobs_2144([job])
+        self.assertEqual(self._chapter_row_status(row), "Active", "the member was never suspended")
+
+    def test_control_committed_suspension_deactivates_the_chapter_membership(self):
+        row = self._seat_in_chapter()
+        self._suspend_2144()
+        job = {
+            "method": MEMBER_JOBS + "handle_chapter_assignment_updates",
+            "event_name": "member_lifecycle_changed",
+            "event_data": {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"},
+            "is_bulk_import": False,
+        }
+        self._run_jobs_2144([job])
+        self.assertEqual(self._chapter_row_status(row), "Inactive")
+
     def test_member_jobs_are_held_until_commit(self):
-        jobs = self._capture_jobs(self._suspend) + self._capture_jobs(self._approve)
+        jobs = self._capture_jobs_2144(self._suspend_2144) + self._capture_jobs_2144(self._approve_2144)
         self.assertEqual(len(jobs), 5)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
 
@@ -219,7 +265,7 @@ class TestTeamEventsRollback(_RollbackBase):
         member.user = self.user.name
         member.save(ignore_permissions=True)
         suffix = frappe.generate_hash(length=6)
-        self.team = self._insert(
+        self.team = self._insert_2144(
             {
                 "doctype": "Team",
                 "team_name": f"Rollback Team {suffix}",
@@ -232,13 +278,13 @@ class TestTeamEventsRollback(_RollbackBase):
         self.leader_role = self._team_role(f"Rollback Lead {suffix}", leader=1)
         self.member_role = self._team_role(f"Rollback Member {suffix}", leader=0)
 
-    def _insert(self, values):
+    def _insert_2144(self, values):
         doc = frappe.get_doc(values).insert()
         self.track_doc(doc.doctype, doc.name)
         return doc
 
     def _team_role(self, name, leader):
-        return self._insert(
+        return self._insert_2144(
             {
                 "doctype": "Team Role",
                 "role_name": name,
@@ -249,7 +295,7 @@ class TestTeamEventsRollback(_RollbackBase):
             }
         )
 
-    def _join(self, role):
+    def _join_2144(self, role):
         team = frappe.get_doc("Team", self.team.name)
         team.append(
             "team_members",
@@ -263,11 +309,11 @@ class TestTeamEventsRollback(_RollbackBase):
         )
         team.save()
 
-    def _join_as_member(self):
-        self._join(self.member_role)
+    def _join_as_member_2144(self):
+        self._join_2144(self.member_role)
 
     def _join_as_leader(self):
-        self._join(self.leader_role)
+        self._join_2144(self.leader_role)
 
     def _history(self):
         return frappe.get_all(
@@ -287,14 +333,14 @@ class TestTeamEventsRollback(_RollbackBase):
         )
 
     def test_control_committed_join_writes_history_and_mails(self):
-        jobs = self._capture_jobs(self._join_as_member)
+        jobs = self._capture_jobs_2144(self._join_as_member_2144)
         with self._mail_boundary() as service:
-            self._run_jobs(jobs)
+            self._run_jobs_2144(jobs)
         self.assertEqual(len(self._history()), 1, "a real join must still be recorded")
         service.send_templated_email.assert_called_once()
 
     def test_rolled_back_join_writes_no_history_and_sends_no_mail(self):
-        jobs = self._rolled_back(self._join_as_member)
+        jobs = self._rolled_back(self._join_as_member_2144)
         self.assertEqual(
             frappe.db.count("Team Member", {"parent": self.team.name, "volunteer": self.volunteer.name}), 0
         )
@@ -302,15 +348,15 @@ class TestTeamEventsRollback(_RollbackBase):
         self.assertIn(TEAM_JOBS + "handle_assignment_history_updates", methods)
         self.assertIn(TEAM_JOBS + "handle_membership_notifications", methods)
         with self._mail_boundary() as service:
-            self._run_jobs(jobs)
+            self._run_jobs_2144(jobs)
         self.assertEqual(self._history(), [], "no history for a team the volunteer is not in")
         service.send_templated_email.assert_not_called()
 
     def test_control_committed_leader_gets_the_team_permission(self):
-        jobs = self._capture_jobs(self._join_as_leader)
+        jobs = self._capture_jobs_2144(self._join_as_leader)
         self.assertEqual(frappe.db.get_value("Team", self.team.name, "team_lead"), self.user.name)
         with self._mail_boundary():
-            self._run_jobs(jobs, only="handle_team_lead_permissions")
+            self._run_jobs_2144(jobs, only="handle_team_lead_permissions")
         self.assertTrue(self._team_permission())
 
     def test_rolled_back_leader_gets_no_team_permission_and_no_mail(self):
@@ -318,12 +364,12 @@ class TestTeamEventsRollback(_RollbackBase):
         self.assertFalse(frappe.db.get_value("Team", self.team.name, "team_lead"))
         self.assertTrue(any(j["method"].endswith("handle_team_lead_permissions") for j in jobs))
         with self._mail_boundary() as service:
-            self._run_jobs(jobs)
+            self._run_jobs_2144(jobs)
         self.assertFalse(self._team_permission(), "the volunteer never became lead")
         service.send_templated_email.assert_not_called()
 
     def test_team_jobs_are_held_until_commit(self):
-        jobs = self._capture_jobs(self._join_as_leader)
+        jobs = self._capture_jobs_2144(self._join_as_leader)
         self.assertGreaterEqual(len(jobs), 4)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
 
@@ -338,31 +384,31 @@ class TestTeamEventsRollback(_RollbackBase):
     def test_removal_job_is_skipped_while_the_volunteer_is_still_in_the_team(self):
         """Probe shortcut: hand-built 'removed' payload for a volunteer who is still active
         (a rolled-back removal). Control: the same job after a real deactivation mails."""
-        self._join_as_member()
+        self._join_as_member_2144()
         row = frappe.get_doc("Team", self.team.name).team_members[0]
         stale = self._stale_job(action="removed", from_date=str(row.from_date), old_role=row.team_role)
         with self._mail_boundary() as service:
-            self._run_jobs([stale])
+            self._run_jobs_2144([stale])
         service.send_templated_email.assert_not_called()
 
         team = frappe.get_doc("Team", self.team.name)
         team.team_members[0].is_active = 0
         team.save()
         with self._mail_boundary() as service:
-            self._run_jobs([stale])
+            self._run_jobs_2144([stale])
         service.send_templated_email.assert_called_once()
 
     def test_role_change_job_is_skipped_when_the_row_has_another_role(self):
         """Probe shortcut: hand-built payload naming a role the row does not hold."""
-        self._join_as_member()
+        self._join_as_member_2144()
         row = frappe.get_doc("Team", self.team.name).team_members[0]
         with self._mail_boundary() as service:
-            self._run_jobs(
+            self._run_jobs_2144(
                 [self._stale_job(action="role_changed", role=self.leader_role.name, old_role=row.team_role)]
             )
         service.send_templated_email.assert_not_called()
         with self._mail_boundary() as service:
-            self._run_jobs(
+            self._run_jobs_2144(
                 [self._stale_job(action="role_changed", role=row.team_role, old_role=self.leader_role.name)]
             )
         service.send_templated_email.assert_called_once()
@@ -376,21 +422,21 @@ class TestTeamEventsRollback(_RollbackBase):
 
         jobs = self._rolled_back(self._promote_to_leader)
         self.assertTrue(any(j["event_data"].get("action") == "role_changed" for j in jobs), jobs)
-        self._run_jobs(jobs, only="handle_assignment_history_updates")
+        self._run_jobs_2144(jobs, only="handle_assignment_history_updates")
 
         self.assertEqual(self._history_roles(), before)
 
     def test_control_committed_role_change_completes_the_old_role_and_adds_the_new(self):
         self._join_and_record_history()
-        jobs = self._capture_jobs(self._promote_to_leader)
-        self._run_jobs(jobs, only="handle_assignment_history_updates")
+        jobs = self._capture_jobs_2144(self._promote_to_leader)
+        self._run_jobs_2144(jobs, only="handle_assignment_history_updates")
 
         statuses = {status for status, _ in self._history_roles()}
         self.assertEqual(statuses, {"Completed", "Active"}, self._history_roles())
 
     def _join_and_record_history(self):
-        jobs = self._capture_jobs(self._join_as_member)
-        self._run_jobs(jobs, only="handle_assignment_history_updates")
+        jobs = self._capture_jobs_2144(self._join_as_member_2144)
+        self._run_jobs_2144(jobs, only="handle_assignment_history_updates")
 
     def _promote_to_leader(self):
         team = frappe.get_doc("Team", self.team.name)
@@ -411,10 +457,10 @@ class TestTeamEventsRollback(_RollbackBase):
         """Real shape (test_team_member_lifecycle): a role change is emitted as removed(old
         role) while the volunteer's row, same from_date, now holds the new role. That
         removal is real and must still be processed. Probe shortcut: hand-built payload."""
-        self._join_as_member()
+        self._join_as_member_2144()
         row = frappe.get_doc("Team", self.team.name).team_members[0]
         with self._mail_boundary() as service:
-            self._run_jobs(
+            self._run_jobs_2144(
                 [
                     self._stale_job(
                         action="removed", from_date=row.from_date, old_role=self.leader_role.name
@@ -422,3 +468,31 @@ class TestTeamEventsRollback(_RollbackBase):
                 ]
             )
         service.send_templated_email.assert_called_once()
+
+    def test_two_volunteers_added_in_one_save_get_distinct_job_ids(self):
+        """Jobs deferred to commit with the same job_id overwrite each other, so the last
+        volunteer's payload would run twice and the first never."""
+        other_volunteer = self.create_test_volunteer()
+
+        def join_both():
+            team = frappe.get_doc("Team", self.team.name)
+            for volunteer in (self.volunteer, other_volunteer):
+                team.append(
+                    "team_members",
+                    {
+                        "volunteer": volunteer.name,
+                        "team_role": self.member_role.name,
+                        "from_date": frappe.utils.today(),
+                        "is_active": 1,
+                        "status": "Active",
+                    },
+                )
+            team.save()
+
+        jobs = [
+            j
+            for j in self._capture_jobs_2144(join_both)
+            if j["method"].endswith("handle_membership_notifications")
+        ]
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(len({j["job_id"] for j in jobs}), 2, [j["job_id"] for j in jobs])
