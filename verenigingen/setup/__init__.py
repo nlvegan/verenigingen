@@ -1209,6 +1209,10 @@ def setup_workspace():
     print("✅ Workspace setup completed")
 
 
+# Workspace Link.link_type options whose link_to names a record we can look up.
+WORKSPACE_LINK_TARGET_TYPES = ("DocType", "Page", "Report")
+
+
 def cleanup_workspace_links():
     """Clean up invalid workspace links"""
     try:
@@ -1218,11 +1222,14 @@ def cleanup_workspace_links():
 
         workspace = frappe.get_doc("Workspace", "Verenigingen")
 
-        # Find and remove links to non-existent doctypes
+        # Find and remove links whose target does not exist. Each link is checked
+        # against its OWN link_type: a Report or Page link is not a DocType (#2151).
         links_to_remove = []
         for i, link in enumerate(workspace.links):
             link_to = link.get("link_to")
-            if link_to and not frappe.db.exists("DocType", link_to):
+            link_type = link.get("link_type") or "DocType"
+            checkable = link_type in WORKSPACE_LINK_TARGET_TYPES
+            if link_to and checkable and not frappe.db.exists(link_type, link_to):
                 print(f"   🗑️  Removing invalid link: {link.get('label')} -> {link_to}")
                 links_to_remove.append(i)
 
