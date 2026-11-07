@@ -476,3 +476,153 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         gateway.process_payment.assert_called_once()
         forwarded_form_data = gateway.process_payment.call_args[0][1]
         self.assertEqual(float(forwarded_form_data["amount"]), 30.0)
+
+    def _make_member_invoice_without_contact_email(self, *, link_member_field):
+        """A membership-style invoice as the real writers leave it (#2103).
+
+        Measured on veg11: 438 of 533 coverage-ledger invoices have a blank contact_email
+        (ERPNext fills it only from the customer's primary contact), while 432 carry the
+        `member` field. The factory leaves BOTH blank, so `link_member_field=True` sets
+        `member` with db_set to mirror the real writers (a stand-in for the invoice
+        orchestrator, said here so no claim rests on it); False leaves only `customer`.
+        """
+        member = self.create_test_member(
+            first_name="Invoice", last_name=f"Payer{frappe.generate_hash()[:6]}"
+        )
+        # Mixed case on purpose: the stored email is compared case-insensitively.
+        member.db_set("email", f"Payer.{frappe.generate_hash()[:6]}@Example.COM")
+        member.reload()
+        invoice = self.create_test_sales_invoice(customer=member.name, grand_total=100.0)
+        invoice.db_set("contact_email", None)
+        invoice.db_set("member", member.name if link_member_field else None)
+        invoice.reload()
+        self.assertFalse(invoice.contact_email)
+        return member, invoice
+
+    def _guest_pays(self, invoice, payer_email):
+        gateway = _stub_gateway()
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=invoice.name,
+                    payer_email=payer_email,
+                )
+        return result, gateway
+
+    def test_member_pays_own_invoice_with_blank_contact_email_via_member_field(self):
+        member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        result, gateway = self._guest_pays(invoice, f" {member.email.upper()} ")
+        self.assertTrue(result["success"], result)
+        gateway.process_payment.assert_called_once()
+
+    def test_member_pays_own_invoice_with_blank_contact_email_via_customer(self):
+        member, invoice = self._make_member_invoice_without_contact_email(link_member_field=False)
+        result, gateway = self._guest_pays(invoice, member.email)
+        self.assertTrue(result["success"], result)
+        gateway.process_payment.assert_called_once()
+
+    def test_stranger_is_refused_on_a_member_invoice_with_blank_contact_email(self):
+        """Control: the member's email is the proof, not 'any email'."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        _member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        result, gateway = self._guest_pays(invoice, "stranger@example.com")
+        self.assertFalse(result["success"])
+        gateway.process_payment.assert_not_called()
+
+    def test_another_members_email_is_refused_on_this_members_invoice(self):
+        """Control with a real competing row: a second real Member, not a made-up address."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        _member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        other = self.create_test_member(first_name="Other", last_name=f"Payer{frappe.generate_hash()[:6]}")
+        result, gateway = self._guest_pays(invoice, other.email)
+        self.assertFalse(result["success"])
+        gateway.process_payment.assert_not_called()
+
+    def test_a_customer_shared_by_two_members_proves_nothing(self):
+        """No member field and a customer that two Members point at: ambiguous, so refused."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        member, invoice = self._make_member_invoice_without_contact_email(link_member_field=False)
+        twin = self.create_test_member(first_name="Twin", last_name=f"Payer{frappe.generate_hash()[:6]}")
+        twin.db_set("customer", member.customer)
+        self.assertEqual(frappe.db.count("Member", {"customer": member.customer}), 2)
+        for email in (member.email, twin.email):
+            result, gateway = self._guest_pays(invoice, email)
+            self.assertFalse(result["success"])
+            gateway.process_payment.assert_not_called()
+
+    def test_an_explicit_contact_email_still_wins_over_the_member_email(self):
+        """The billing contact on the invoice is the owner when set; the member's own email is not."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        billing = f"billing-{frappe.generate_hash()[:8]}@example.com"
+        invoice.db_set("contact_email", billing)
+        refused, gateway = self._guest_pays(invoice, member.email)
+        self.assertFalse(refused["success"])
+        gateway.process_payment.assert_not_called()
+        accepted, gateway = self._guest_pays(invoice, billing)
+        self.assertTrue(accepted["success"], accepted)
+
+    def _refusal_signature(self, reference_name, payer_email):
+        """Every channel a Guest can read after one refused call (#2045), as a comparable tuple."""
+        from frappe.database.database import Database
+
+        real_sql = Database.sql
+        counter = {"n": 0}
+
+        def counting_sql(db, *args, **kwargs):
+            counter["n"] += 1
+            return real_sql(db, *args, **kwargs)
+
+        errors_before = set(frappe.get_all("Error Log", pluck="name"))
+        messages_before = len(frappe.local.message_log)
+        gateway = _stub_gateway()
+        with self.as_user("Guest"):
+            with patch(_GATEWAY_FACTORY_PATH, return_value=gateway), patch.object(
+                Database, "sql", counting_sql
+            ):
+                result = self._call_initiate_payment(
+                    reference_doctype="Sales Invoice",
+                    reference_name=reference_name,
+                    payer_email=payer_email,
+                )
+        new_errors = sorted(
+            (row.method, (row.error or "").replace(reference_name, "<REF>"))
+            for row in frappe.get_all("Error Log", fields=["name", "method", "error"])
+            if row.name not in errors_before
+        )
+        gateway.process_payment.assert_not_called()
+        return (
+            result["success"],
+            result["message"],
+            sorted(result),
+            len(frappe.local.message_log) - messages_before,
+            new_errors,
+            counter["n"],
+        )
+
+    def test_unknown_and_forbidden_member_invoice_are_refused_identically(self):
+        """Existence oracle (#2045) on the member-invoice path this fix adds: refusing a stranger on a
+        REAL member invoice (blank contact_email, resolved through the Member) must look exactly like
+        refusing an invoice that does not exist, on every channel, including the query count."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        _member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        self._refusal_signature(invoice.name, "stranger@example.com")  # warm meta caches
+        forbidden = self._refusal_signature(invoice.name, "stranger@example.com")
+        unknown = self._refusal_signature("ACC-SINV-NOPE-2103", "stranger@example.com")
+        self.assertFalse(forbidden[0])
+        self.assertEqual(forbidden, unknown)
+
+    def test_the_member_field_decides_when_the_customer_is_shared_by_two_members(self):
+        """The invoice's own `member` is unambiguous even where its customer is not: the named Member
+        pays, the twin sharing the customer does not."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        member, invoice = self._make_member_invoice_without_contact_email(link_member_field=True)
+        twin = self.create_test_member(first_name="Twin", last_name=f"Payer{frappe.generate_hash()[:6]}")
+        twin.db_set("customer", member.customer)
+        self.assertEqual(frappe.db.count("Member", {"customer": member.customer}), 2)
+        refused, gateway = self._guest_pays(invoice, twin.email)
+        self.assertFalse(refused["success"])
+        gateway.process_payment.assert_not_called()
+        accepted, gateway = self._guest_pays(invoice, member.email)
+        self.assertTrue(accepted["success"], accepted)
