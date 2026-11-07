@@ -336,7 +336,7 @@ class TestAlertingSystemCooldown(EnhancedTestCase):
     def tearDownClass(cls):
         """Control (#2197): no test of this class leaves frappe.sendmail mocked for the next module.
 
-        Runs after every test's tearDown AND cleanups. With the old second patch("frappe.sendmail")
+        Runs after every test's tearDown AND cleanups. With the old stacked sendmail patch
         this fails: the module after this one saw no Email Queue rows at all.
         """
         super().tearDownClass()
