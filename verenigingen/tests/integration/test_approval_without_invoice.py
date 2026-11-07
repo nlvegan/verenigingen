@@ -696,8 +696,8 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         application, member = self._approved_with_failed_invoice()
         self._fix_invoicing()
-        # The master switch is a scalar field, which singleton_backup restores; a notification_types ROW
-        # would not be restored (it skips child tables).
+        # The master switch is a scalar field, which singleton_backup restores (so do the
+        # notification_types rows, since #2091).
         with singleton_backup("Verenigingen Email Configuration"):
             frappe.db.set_single_value("Verenigingen Email Configuration", "master_email_enabled", 0)
             response, mails = self._retry(application)

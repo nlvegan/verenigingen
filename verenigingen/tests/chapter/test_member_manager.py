@@ -488,37 +488,25 @@ class TestMemberManager(VereningingenTestCase):
 
         A key with no Verenigingen Email Configuration row counts as disabled (#1959), so the
         send is skipped unless a row exists. Seed only this key (not the whole registry, which
-        leaked 88 rows while singleton_backup skipped child tables, #2029; fixed in #2091) and restore the original rows afterwards.
+        leaked 88 rows before singleton_backup restored child tables, #2029 / #2091).
 
-        request_to_join commits mid-test, so the seeded row is COMMITTED; an uncommitted restore
-        would then be rolled back by the class rollback. The restore therefore commits too.
+        request_to_join commits mid-test, so the seeded row is COMMITTED and an uncommitted restore
+        would be rolled back by the class rollback. singleton_backup restores byte for byte and
+        commits, which is what is needed here (#2159).
         """
         from verenigingen.notification_registry import NOTIFICATION_KEYS
         from verenigingen.setup.notification_registry_setup import _registry_row
+        from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 
         key = "chapter_join_request_submitted"
-        fields = [
-            f.fieldname
-            for f in frappe.get_meta("Email Notification Type").fields
-            if f.fieldtype != "Section Break"
-        ]
-        config = frappe.get_single("Verenigingen Email Configuration")
-        original = [{f: r.get(f) for f in fields} for r in config.notification_types]
-        self.addCleanup(self._cleanup_config_rows, original)
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
 
-        rows = [r for r in original if r["notification_key"] != key]
-        rows.append({**_registry_row(key, NOTIFICATION_KEYS[key]), "enabled": enabled})
-        config.set("notification_types", rows)
-        config.save()
-
-    @staticmethod
-    def _cleanup_config_rows(rows):
         config = frappe.get_single("Verenigingen Email Configuration")
-        config.set("notification_types", rows)
+        config.set("notification_types", [r for r in config.notification_types if r.notification_key != key])
+        config.append("notification_types", {**_registry_row(key, NOTIFICATION_KEYS[key]), "enabled": enabled})
         config.save()
-        # request_to_join committed the seeded row, so only a committed restore leaves the site
-        # as we found it (#2029; singleton_backup would now do this too, #2159). Named _cleanup_* so the order-dependence scan records it as exempt.
-        frappe.db.commit()
 
     @staticmethod
     def _join_mails_to(address):
