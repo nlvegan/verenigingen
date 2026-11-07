@@ -601,7 +601,8 @@ def send_donation_confirmation_email(donation_id):
             notification_key="donation_confirmation",
         )
 
-        return result.success
+        # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
+        return result.success and not result.skip_reason
 
     except Exception as e:
         # Log error with truncated message to avoid field length issues
@@ -662,7 +663,8 @@ def send_payment_confirmation_email(donation_id):
             notification_key="donation_payment_confirmation",
         )
 
-        return result.success
+        # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
+        return result.success and not result.skip_reason
 
     except Exception as e:
         # Log error with truncated message to avoid field length issues

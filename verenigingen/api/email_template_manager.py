@@ -707,7 +707,8 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
             notification_key=notification_key,
         )
 
-        return result.success
+        # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
+        return result.success and not result.skip_reason
 
     except Exception as e:
         frappe.log_error(f"Failed to send template email '{template_name}': {str(e)}", "Template Email Error")
