@@ -407,6 +407,14 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "dues_schedule_creation_failed": {
+        "label": "Dues Schedule Creation Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Staff alert when creating a member's dues schedule failed after all retries and "
+        "needs a manual fix.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
@@ -821,6 +829,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "termination_pending_approval",
         "expense_approval_request",
         "system_stuck_schedules",
+        "dues_schedule_creation_failed",
         "contribution_sync_failed",
         "contact_request_escalated",
         "contact_request_new",
