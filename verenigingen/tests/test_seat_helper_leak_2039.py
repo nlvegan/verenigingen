@@ -27,19 +27,19 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 WATCHED = ("Member", "Customer", "Chapter", "Region", "Volunteer")
 
 
-def _names():
+def _row_names_2039():
     return {dt: set(frappe.get_all(dt, pluck="name")) for dt in WATCHED}
 
 
 class TestSeatHelperRowsAreDrained(unittest.TestCase):
     def _run_probe(self, probe_cls):
         stream = io.StringIO()
-        before = _names()
+        before = _row_names_2039()
         result = unittest.TextTestRunner(stream=stream, verbosity=0).run(
             unittest.defaultTestLoader.loadTestsFromTestCase(probe_cls)
         )
         self.assertTrue(result.wasSuccessful(), stream.getvalue())
-        after = _names()
+        after = _row_names_2039()
         # setUpClass builds one class-level Chapter that is never tracked (a separate defect);
         # discount it so the probe reports only what the seat helpers left.
         after["Chapter"].discard(getattr(probe_cls, "_test_chapter_name", None))
