@@ -193,19 +193,25 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertEqual(json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))["plan"], monthly_row)
         return door, monthly_row, name
 
-    def test_plan_removed_after_submit_gets_identical_refusal_and_expires(self):
+    def test_plan_removed_after_submit_gets_its_own_message_and_expires(self):
         door, monthly_row, name = self._two_plan_door_and_submission()
         door = frappe.get_doc("Membership Application Door", door.name)
         door.plans = [row for row in door.plans if row.name != monthly_row]
         door.plans[0].is_default = 1
         door.save()
-        reference = self._confirm("does-not-exist")
         members_before = frappe.db.count("Member")
+        bad_token = self._confirm(name, token="0" * 64)
 
         outcome = self._confirm(name)
 
-        self.assertEqual(outcome, reference)
-        self.assertEqual(outcome[0], REFUSAL)
+        self.assertEqual(bad_token[0], REFUSAL)  # an unvalidated token never reaches the plan message
+        self.assertEqual(
+            outcome[0],
+            {
+                "success": False,
+                "message": "The membership option you chose is no longer offered. Please apply again.",
+            },
+        )
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
         self.assertEqual(self._members(), [])
         self.assertEqual(frappe.db.count("Member"), members_before)
