@@ -137,9 +137,12 @@ class DuesScheduleCreationService(StatelessService):
                     retry_count=retry_count,
                 )
 
-            # Check if schedule already exists (idempotency)
+            # Check if a live schedule already exists (idempotency). A Cancelled one does not
+            # count: reporting it as "already exists" left the next membership without a schedule (#1938).
             existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": member_name, "is_template": 0}, "name"
+                "Membership Dues Schedule",
+                {"member": member_name, "is_template": 0, "status": ["!=", "Cancelled"]},
+                "name",
             )
 
             if existing_schedule:
