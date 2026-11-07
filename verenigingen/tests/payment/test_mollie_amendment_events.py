@@ -19,6 +19,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.verenigingen_payments.mollie.events import amendment_events
 
 _SYNC_SERVICE_PATH = (
@@ -43,11 +44,14 @@ class _FakeSyncService:
 
 
 class _FakeEmailService:
+    """Stand-in with EmailService's real method name and return type (#2177: it has no send_email, and
+    returns an OperationResult). Real-service coverage: test_operationresult_callers_2177."""
+
     def __init__(self, result=None):
-        self._result = result or {"success": True}
+        self._result = result or OperationResult.ok({"queued": True})
         self.sent = []
 
-    def send_email(self, **kwargs):
+    def send_simple_email(self, **kwargs):
         self.sent.append(kwargs)
         return self._result
 
@@ -198,6 +202,7 @@ class TestNotifyAdministrators(_AmendmentEventTestBase):
         self.assertIn("Mollie Subscription Sync Issue", sent["subject"])
         self.assertEqual(sent["reference_doctype"], "Contribution Amendment Request")
         self.assertEqual(sent["reference_name"], amendment.name)
+        self.assertEqual(sent["notification_key"], "contribution_amendment_sync_failed")
 
     def test_no_recipients_returns_without_send(self):
         amendment, _, _ = self._make_amendment()
