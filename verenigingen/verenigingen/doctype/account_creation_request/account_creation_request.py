@@ -59,7 +59,6 @@ class AccountCreationRequest(Document):
 
     # Class constants
     MAX_RETRIES = 3  # Maximum number of retry attempts for failed requests
-    ACR_STALENESS_THRESHOLD_HOURS = 24  # Hours after which ACR is considered stale (skip approval emails)
 
     def validate(self):
         """Validate account creation request"""
@@ -142,108 +141,9 @@ class AccountCreationRequest(Document):
         self.completed_at = None
         self.processed_by = None
 
-    def on_update(self):
-        """Handle status changes and trigger notifications"""
-        # Check if status just changed to Completed
-        if self.has_value_changed("status") and self.status == "Completed":
-            self.handle_completion()
-
-    def handle_completion(self):
-        """Handle actions when account creation is completed"""
-        try:
-            # Check if this is a member application approval
-            if self.request_type == "Member":
-                member = frappe.get_doc("Member", self.source_record)
-
-                # Board roles are not granted here (#1672): the pipeline's Phase 3 profile
-                # sync (AccountCreationManager._sync_role_profile) derives them from the
-                # member's seats, now that the user exists.
-
-                # Skip approval emails for CSV-imported members (they have no application_id)
-                # CSV imports set application_id = None explicitly
-                if not member.application_id:
-                    frappe.logger().info(
-                        f"Skipping approval email for member {member.name} - "
-                        f"no application_id (likely CSV-imported)"
-                    )
-                    return
-
-                # Skip approval emails for stale ACRs (older than threshold)
-                # This prevents old/retried ACRs from sending unexpected emails
-                acr_age_hours = self._get_acr_age_in_hours()
-                if acr_age_hours > self.ACR_STALENESS_THRESHOLD_HOURS:
-                    frappe.logger().info(
-                        f"Skipping approval email for member {member.name} - "
-                        f"ACR {self.name} is {acr_age_hours:.1f} hours old (threshold: {self.ACR_STALENESS_THRESHOLD_HOURS}h)"
-                    )
-                    return
-
-                # Only send approval email if this member has an approved application
-                if member.application_status == "Approved":
-                    self.send_member_approval_email(member)
-        except Exception as e:
-            frappe.log_error(
-                f"Error handling account creation completion for {self.name}: {str(e)}",
-                "Account Creation Completion Error",
-            )
-
-    def _get_acr_age_in_hours(self):
-        """Calculate age of this ACR in hours since creation"""
-        from frappe.utils import time_diff_in_hours
-
-        if not self.creation:
-            return 0
-        return time_diff_in_hours(now(), self.creation)
-
-    def send_member_approval_email(self, member):
-        """Send approval email with login credentials when account is ready"""
-        try:
-            from verenigingen.api.membership_application_review import send_approval_notification
-
-            # Get the application invoice
-            invoice = self.get_application_invoice(member)
-
-            if invoice:
-                membership_type = getattr(member, "selected_membership_type", None) or ""
-                send_approval_notification(member, invoice, membership_type)
-                frappe.logger().info(f"Sent approval email for member {member.name} after account creation")
-            else:
-                frappe.logger().warning(
-                    f"No application invoice found for member {member.name}, skipping approval email"
-                )
-        except Exception as e:
-            frappe.log_error(
-                f"Error sending approval email for member {member.name}: {str(e)}", "Approval Email Error"
-            )
-
-    def get_application_invoice(self, member):
-        """Get the application invoice for a member"""
-        try:
-            # Get application invoice from payment history.
-            # Member Payment History has no "invoice_type"/"description" fields; the
-            # onboarding/application invoice is the first membership invoice for the
-            # member (transaction_type == "Membership Invoice"). Pick the earliest by
-            # posting_date so we return the original application invoice.
-            payment_history = getattr(member, "payment_history", None) or []
-
-            membership_rows = [
-                payment
-                for payment in payment_history
-                if getattr(payment, "transaction_type", None) == "Membership Invoice"
-                and getattr(payment, "invoice", None)
-            ]
-
-            if not membership_rows:
-                return None
-
-            earliest = min(
-                membership_rows,
-                key=lambda p: getattr(p, "posting_date", None) or frappe.utils.getdate("9999-12-31"),
-            )
-            return frappe.get_doc("Sales Invoice", earliest.invoice)
-        except Exception as e:
-            frappe.log_error(f"Error getting application invoice: {str(e)}")
-            return None
+    # No approval mail is sent from here (#2041). The applicant's approval mail has two senders only:
+    # approve_application and the staff retry of a failed invoice (#1900). An ACR completing used to send
+    # it a second time when its status was saved as Completed.
 
     def autoname(self):
         """Generate naming for account creation requests"""
