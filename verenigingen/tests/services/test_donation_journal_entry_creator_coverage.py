@@ -375,7 +375,7 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
 
         bt.reload()
         self.assertEqual(bt.docstatus, 0)
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
 
     # -------------------------------------------------------- idempotency
     def test_create_from_mollie_payment_idempotent(self):

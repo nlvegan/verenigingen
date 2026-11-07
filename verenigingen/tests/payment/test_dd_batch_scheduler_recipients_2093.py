@@ -114,6 +114,22 @@ class TestSchedulerAlertRecipients(_Base):
         self.assertNotIn(self.admin_email, recipients)
 
 
+    def test_payments_settings_list_is_not_a_tier_for_the_scheduler_alert(self):
+        """#2107 review: this alert's audience is the key row, then Financial Manager holders (#2093).
+        Payments Settings.financial_admin_emails, a tier for the other SEPA alerts, must not slot in
+        before the Financial Manager fallback (maintainer ruling on #2095: keep the old audience)."""
+        role = frappe.get_doc({"doctype": "Role", "role_name": f"No Holder 2107 {frappe.generate_hash(length=5)}"})
+        role.insert()
+        _put_key_row(KEY, "Role-Based", recipient_roles=role.name)  # a row that resolves nobody
+        frappe.db.set_single_value(
+            "Verenigingen Payments Settings", "financial_admin_emails", "treasurer-2107@example.org"
+        )
+        frappe.clear_cache(doctype="Verenigingen Payments Settings")
+        recipients = self._alert_recipients()
+        self.assertNotIn("treasurer-2107@example.org", recipients)
+        self.assertIn(self.finance, recipients)  # the Financial Manager fallback still reaches a holder
+
+
 class TestSeedAndPatch(_Base):
     def _set_row(self, policy, roles, fixed=None):
         _put_key_row(KEY, policy, recipient_roles=roles, fixed_recipients=fixed)
