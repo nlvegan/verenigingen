@@ -156,6 +156,9 @@ class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
             "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
         )
         frappe.db.set_value("Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"})
+        # Approval enforces the TYPE's minimum too, and submit now applies the same floor (#2127): bring the
+        # type down to the 2.5 this helper's 7.50 application was written against.
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 2.5)
         door = self._door(**({"monthly_dues_template": template} | (door_fields or {})))
         data = {
             "first_name": "Anna", "last_name": "Berg", "email": self.email, "address_line1": "Kerkstraat",

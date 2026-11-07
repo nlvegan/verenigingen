@@ -17,15 +17,17 @@
   "card_text",
   "intro_text",
   "section_dues",
+  "plans",
+  "amount_options",
+  "section_questions",
+  "hidden_questions",
+  "section_legacy",
   "monthly_dues_template",
   "annual_dues_template",
   "column_break_door2",
   "allow_custom_amount",
   "postal_minimum_monthly",
-  "postal_minimum_annual",
-  "amount_options",
-  "section_questions",
-  "hidden_questions"
+  "postal_minimum_annual"
  ],
  "fields": [
   {
@@ -99,43 +101,14 @@
    "label": "Dues"
   },
   {
-   "fieldname": "monthly_dues_template",
-   "fieldtype": "Link",
-   "label": "Monthly Dues Template",
-   "options": "Membership Dues Schedule"
+   "description": "One row per offered plan. The applicant picks one; the default is preselected. The plan's template decides how the amount is chosen.",
+   "fieldname": "plans",
+   "fieldtype": "Table",
+   "label": "Payment Plans",
+   "options": "Membership Application Door Plan"
   },
   {
-   "fieldname": "annual_dues_template",
-   "fieldtype": "Link",
-   "label": "Annual Dues Template",
-   "options": "Membership Dues Schedule"
-  },
-  {
-   "fieldname": "column_break_door2",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "0",
-   "fieldname": "allow_custom_amount",
-   "fieldtype": "Check",
-   "label": "Allow Custom Amount"
-  },
-  {
-   "default": "0",
-   "description": "Minimum applied when the member wants magazine/starter guide on paper",
-   "fieldname": "postal_minimum_monthly",
-   "fieldtype": "Currency",
-   "label": "Postal Minimum (Monthly)",
-   "options": "EUR"
-  },
-  {
-   "default": "0",
-   "fieldname": "postal_minimum_annual",
-   "fieldtype": "Currency",
-   "label": "Postal Minimum (Annual)",
-   "options": "EUR"
-  },
-  {
+   "description": "Extra preset amounts, offered on a plan whose template is Flexible. Each row names the plan's template.",
    "fieldname": "amount_options",
    "fieldtype": "Table",
    "label": "Amount Options",
@@ -151,10 +124,64 @@
    "fieldtype": "Table",
    "label": "Hidden Questions",
    "options": "Membership Application Door Hidden Question"
+  },
+  {
+   "description": "Deprecated: replaced by the payment plans above, read only by the #2127 migration patch.",
+   "fieldname": "section_legacy",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Legacy (deprecated)"
+  },
+  {
+   "fieldname": "monthly_dues_template",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "read_only": 1,
+   "label": "Monthly Dues Template (deprecated)",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "fieldname": "annual_dues_template",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "read_only": 1,
+   "label": "Annual Dues Template (deprecated)",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "fieldname": "column_break_door2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_custom_amount",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "read_only": 1,
+   "label": "Allow Custom Amount (deprecated)"
+  },
+  {
+   "default": "0",
+   "description": "Minimum applied when the member wants magazine/starter guide on paper",
+   "fieldname": "postal_minimum_monthly",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "read_only": 1,
+   "label": "Postal Minimum Monthly (deprecated)",
+   "options": "EUR"
+  },
+  {
+   "default": "0",
+   "fieldname": "postal_minimum_annual",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "read_only": 1,
+   "label": "Postal Minimum Annual (deprecated)",
+   "options": "EUR"
   }
  ],
  "links": [],
- "modified": "2026-10-30 00:00:00.000000",
+ "modified": "2026-11-05 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership Application Door",
