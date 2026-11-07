@@ -19,6 +19,7 @@ import unittest
 from unittest.mock import patch
 
 
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.utils.retry_utilities import (
     ErrorCategory,
     RetryContext,
@@ -247,12 +248,12 @@ class TestRetryContext(unittest.TestCase):
         # attempts 0..3 inclusive -> 4 yields
         self.assertEqual(attempts, [0, 1, 2, 3])
 
-    @patch("verenigingen.utils.retry_utilities.time.sleep", return_value=None)
-    def test_sleeps_only_before_retry_attempts(self, sleep_mock):
+    @patch_module_sleep("verenigingen.utils.retry_utilities")
+    def test_sleeps_only_before_retry_attempts(self, mock_time):
         ctx = RetryContext(max_retries=2, base_delay=0.01)
         list(ctx)
         # No sleep before attempt 0; sleeps before attempts 1 and 2.
-        self.assertEqual(sleep_mock.call_count, 2)
+        self.assertEqual(mock_time.sleep.call_count, 2)
 
     def test_should_retry_false_for_permanent(self):
         ctx = RetryContext(max_retries=3)
