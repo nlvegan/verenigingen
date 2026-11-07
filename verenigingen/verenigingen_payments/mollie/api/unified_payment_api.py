@@ -18,20 +18,24 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
 from verenigingen.verenigingen_payments.utils.payment_services.refund_utility import (
     validate_refund_permissions,
 )
-from verenigingen.verenigingen_payments.utils.webhook_ack import webhook_ack
+from verenigingen.verenigingen_payments.utils.webhook_ack import (
+    first_in_window,
+    log_error_once,
+    short_id,
+    webhook_ack,
+)
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..services.complete_payment_service import CompletePaymentService
 from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
 from ..utils.amount_helpers import extract_amount_value
 
-_LOGGED_ID_LENGTH = 64
-_ERROR_LOG_DEDUPE_SECONDS = 3600
 _ERROR_LOG_DEDUPE_PREFIX = "mollie_webhook_failure:"
 
 
@@ -62,15 +66,30 @@ def _log_webhook_failure_once(detail: Dict[str, Any], *ids: Optional[str]) -> No
     key_ids = "|".join(str(i) for i in ids if i)
     fingerprint = f"{key_ids}|{detail.get('status')}|{http_status}"
     key = _ERROR_LOG_DEDUPE_PREFIX + hashlib.sha256(fingerprint.encode()).hexdigest()
-    if frappe.cache.get_value(key):
+    if not first_in_window(key):
         return
-    frappe.cache.set_value(key, 1, expires_in_sec=_ERROR_LOG_DEDUPE_SECONDS)
     message = frappe.as_json(detail)
     for value in ids:
-        if value and len(str(value)) > _LOGGED_ID_LENGTH:
-            message = message.replace(str(value), str(value)[:_LOGGED_ID_LENGTH])
+        if value and len(str(value)) > len(short_id(value)):
+            message = message.replace(str(value), short_id(value))
     # Keywords, because this app's positional (title, message) order is routinely swapped.
     frappe.log_error(title="Mollie Webhook Processing Error", message=message)
+
+
+def _log_exception_once(
+    title: str, exc: Exception, *ids: Optional[str], with_traceback: bool = False
+) -> None:
+    """The Error Log row for an exception a webhook handler answers with 4xx/5xx (#2136).
+
+    Deduped per (title, caller IP, exception class) per hour, never per id: the id is the
+    caller's to choose, so keying on it would let a caller write a row per request. The first
+    row of the hour still names the (shortened) ids.
+    """
+    named = ", ".join(short_id(i) for i in ids if i)
+    message = f"{title} ({named}): {exc}" if named else f"{title}: {exc}"
+    if with_traceback:
+        message += f"\n{frappe.get_traceback()}"
+    log_error_once(title, message, get_client_ip(), type(exc).__name__)
 
 
 def _refuse_unusable_payload(messages_before: int, reason: str) -> Dict[str, str]:
@@ -157,15 +176,12 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
-        frappe.log_error(f"Mollie webhook error for {payment_id}: {e}", "Mollie Webhook Error")
+        _log_exception_once("Mollie Webhook Error", e, payment_id)
         frappe.response.http_status_code = 400
         return _ack_with_error_log(messages_before)
 
     except Exception as e:
-        frappe.log_error(
-            f"Unexpected webhook error for {payment_id}: {e}\n{frappe.get_traceback()}",
-            "Webhook Processing Error",
-        )
+        _log_exception_once("Webhook Processing Error", e, payment_id, with_traceback=True)
         frappe.response.http_status_code = 500
         return _ack_with_error_log(messages_before)
 
@@ -491,12 +507,12 @@ def handle_refund_webhook():
         return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
-        frappe.log_error(f"Mollie refund webhook error: {e}", "Mollie Refund Webhook Error")
+        _log_exception_once("Mollie Refund Webhook Error", e)
         frappe.response.http_status_code = 400
         return _ack_with_error_log(messages_before)
 
     except Exception as e:
-        frappe.log_error(f"Unexpected refund webhook error: {e}", "Refund Webhook Processing Error")
+        _log_exception_once("Refund Webhook Processing Error", e)
         frappe.response.http_status_code = 500
         return _ack_with_error_log(messages_before)
 
@@ -576,12 +592,12 @@ def handle_chargeback_webhook():
         return {"status": "rate_limited"}
 
     except (MollieWebhookError, MolliePaymentError) as e:
-        frappe.log_error(f"Mollie chargeback webhook error: {e}", "Mollie Chargeback Webhook Error")
+        _log_exception_once("Mollie Chargeback Webhook Error", e)
         frappe.response.http_status_code = 400
         return _ack_with_error_log(messages_before)
 
     except Exception as e:
-        frappe.log_error(f"Unexpected chargeback webhook error: {e}", "Chargeback Webhook Processing Error")
+        _log_exception_once("Chargeback Webhook Processing Error", e)
         frappe.response.http_status_code = 500
         return _ack_with_error_log(messages_before)
 
