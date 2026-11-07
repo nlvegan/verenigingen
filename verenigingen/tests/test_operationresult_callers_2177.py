@@ -23,9 +23,11 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.setup.notification_registry_setup import DEFAULT_COOLDOWN_MINUTES
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.reminder_mail_state import (
     allow_reminder_sends,
+    clear_email_cooldowns,
     ensure_outgoing_email_account,
 )
 from verenigingen.utils.constants import Roles
@@ -88,14 +90,6 @@ class TestOperationResultCallers2177(EnhancedTestCase):
     def _log_lines(self, logger_mock):
         return " | ".join(str(c.args[0]) for c in logger_mock.return_value.info.call_args_list)
 
-    def _error_logs(self, title_part):
-        # The title is `method`, but a swapped (message, title) call puts it in `error`: match either.
-        return frappe.get_all(
-            "Error Log",
-            or_filters=[["method", "like", f"%{title_part}%"], ["error", "like", f"%{title_part}%"]],
-            pluck="name",
-        )
-
     # -- send_test_email -----------------------------------------------------------------------
 
     def test_test_email_button_reports_a_queued_mail_as_success(self):
@@ -127,6 +121,7 @@ class TestOperationResultCallers2177(EnhancedTestCase):
             send_test_email,
         )
 
+        # Mock justified: External Service - the SMTP queueing boundary below EmailService, to force an error
         with patch("frappe.sendmail", side_effect=RuntimeError("smtp boom")):
             result = send_test_email(f"test-2177-{frappe.generate_hash(length=5)}@example.org")
         self.assertFalse(result["success"], result)
@@ -146,35 +141,27 @@ class TestOperationResultCallers2177(EnhancedTestCase):
 
     def test_sync_failure_alert_is_queued_and_logged_without_a_notification_error(self):
         amendment = self._amendment()
-        before = len(self._error_logs("Mollie Sync Notification Error"))
-        logger = self._fail_sync(amendment)
+        with self.assertNoErrorLog(ignore=("Mollie Sync Failed",)):
+            logger = self._fail_sync(amendment)
         self.assertIn(self.holder, self._queued_recipients(amendment.name))
-        self.assertEqual(len(self._error_logs("Mollie Sync Notification Error")), before)
         self.assertIn("Sent failure notification", self._log_lines(logger))
 
     def test_sync_failure_alert_skipped_is_not_logged_as_sent(self):
         amendment = self._amendment()
         self._disable(key=REQUEST_KEY, master=False)
-        before = len(self._error_logs("Mollie Sync Notification Error"))
-        logger = self._fail_sync(amendment)
+        with self.assertNoErrorLog(ignore=("Mollie Sync Failed",)):  # a skip is not an error
+            logger = self._fail_sync(amendment)
         self.assertEqual(self._queued_recipients(amendment.name), [])
         self.assertNotIn("Sent failure notification", self._log_lines(logger))
-        self.assertEqual(len(self._error_logs("Mollie Sync Notification Error")), before)  # a skip is not an error
 
     def test_sync_failure_alert_send_error_is_logged_with_its_message(self):
         amendment = self._amendment()
-        with patch("frappe.sendmail", side_effect=RuntimeError("smtp boom")):
-            logger = self._fail_sync(amendment)
+        self.expectErrorLog("smtp boom")
+        with self.assertErrorLog("smtp boom"):
+            # Mock justified: External Service - the SMTP queueing boundary below EmailService, to force an error
+            with patch("frappe.sendmail", side_effect=RuntimeError("smtp boom")):
+                logger = self._fail_sync(amendment)
         self.assertNotIn("Sent failure notification", self._log_lines(logger))
-        logged = frappe.get_all(
-            "Error Log",
-            or_filters=[
-                ["method", "like", "%Mollie Sync Notification Error%"],
-                ["error", "like", "%Mollie Sync Notification Error%"],
-            ],
-            fields=["method", "error"],
-        )
-        self.assertTrue(any("smtp boom" in f"{r.method} {r.error}" for r in logged), logged)
 
     # -- amendment_events.notify_administrators_of_sync_issue ----------------------------------
 
@@ -189,10 +176,9 @@ class TestOperationResultCallers2177(EnhancedTestCase):
 
     def test_amendment_sync_issue_mail_is_queued_through_the_real_service(self):
         amendment = self._amendment()
-        before = len(self._error_logs("Mollie Amendment Notification Error"))
-        logger = self._notify(amendment)
+        with self.assertNoErrorLog():
+            logger = self._notify(amendment)
         self.assertIn(self.holder, self._queued_recipients(amendment.name))
-        self.assertEqual(len(self._error_logs("Mollie Amendment Notification Error")), before)
         self.assertIn("Sent Mollie subscription sync issue notification", self._log_lines(logger))
 
     def test_amendment_sync_issue_honours_its_notification_key(self):
@@ -204,8 +190,51 @@ class TestOperationResultCallers2177(EnhancedTestCase):
 
     def test_amendment_sync_issue_send_error_is_recorded(self):
         amendment = self._amendment()
-        before = len(self._error_logs("Mollie Amendment Notification"))
-        with patch("frappe.sendmail", side_effect=RuntimeError("smtp boom")):
-            logger = self._notify(amendment)
+        self.expectErrorLog("smtp boom")
+        with self.assertErrorLog("smtp boom"):
+            # Mock justified: External Service - the SMTP queueing boundary below EmailService, to force an error
+            with patch("frappe.sendmail", side_effect=RuntimeError("smtp boom")):
+                logger = self._notify(amendment)
         self.assertNotIn("Sent Mollie subscription sync issue", self._log_lines(logger))
-        self.assertEqual(len(self._error_logs("Mollie Amendment Notification")), before + 1)
+
+    # -- the key's cooldown is per recipient per key: it must be scoped per amendment ------------
+
+    def _seeded_cooldown(self):
+        """The cooldown a migrated site really has (the registry default), not the 0 setUp forces."""
+        config = frappe.get_single(CONFIG)
+        for row in config.notification_types:
+            if row.notification_key in (SYNC_KEY, REQUEST_KEY):
+                row.cooldown_minutes = DEFAULT_COOLDOWN_MINUTES
+        config.save()
+        clear_email_cooldowns()
+        self.assertGreater(DEFAULT_COOLDOWN_MINUTES, 0, "control: the default cooldown is not zero")
+
+    def test_a_second_amendments_sync_issue_alert_is_not_silenced_by_the_first(self):
+        self._seeded_cooldown()
+        first, second = self._amendment(), self._amendment()
+        self._notify(first)
+        self._notify(second)
+        self.assertIn(self.holder, self._queued_recipients(first.name))
+        self.assertIn(self.holder, self._queued_recipients(second.name))
+
+    def test_the_same_amendments_sync_issue_alert_is_throttled_within_the_cooldown(self):
+        self._seeded_cooldown()
+        amendment = self._amendment()
+        self._notify(amendment)
+        self._notify(amendment)
+        self.assertEqual(self._queued_recipients(amendment.name).count(self.holder), 1)
+
+    def test_a_second_amendments_sync_failure_alert_is_not_silenced_by_the_first(self):
+        self._seeded_cooldown()
+        first, second = self._amendment(), self._amendment()
+        self._fail_sync(first)
+        self._fail_sync(second)
+        self.assertIn(self.holder, self._queued_recipients(first.name))
+        self.assertIn(self.holder, self._queued_recipients(second.name))
+
+    def test_the_same_amendments_sync_failure_alert_is_throttled_within_the_cooldown(self):
+        self._seeded_cooldown()
+        amendment = self._amendment()
+        self._fail_sync(amendment)
+        self._fail_sync(amendment)
+        self.assertEqual(self._queued_recipients(amendment.name).count(self.holder), 1)

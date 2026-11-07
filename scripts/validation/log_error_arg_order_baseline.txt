@@ -433,7 +433,6 @@ verenigingen/verenigingen/doctype/brand_settings/brand_settings.py::sync_brand_s
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter._emit_chapter_change_events::1
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter.after_rename::1
 verenigingen/verenigingen/doctype/chapter/managers/board_manager.py::BoardManager._save_chapter_with_board_changes::1
-verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py::ContributionAmendmentRequest.handle_mollie_sync_failure::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_donation_confirmation_email::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_payment_confirmation_email::1
 verenigingen/verenigingen/doctype/donation_campaign/donation_campaign.py::update_campaign_progress::1
@@ -497,7 +496,6 @@ verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_
 verenigingen/verenigingen/doctype/team/team.py::Team._emit_team_change_events::1
 verenigingen/verenigingen/doctype/team/team.py::Team._handle_team_member_changes_atomic::1
 verenigingen/verenigingen/doctype/team_role/team_role.py::TeamRole.cleanup_orphaned_references::2
-verenigingen/verenigingen/doctype/verenigingen_email_configuration/verenigingen_email_configuration.py::send_test_email::1
 verenigingen/verenigingen/doctype/vip_import/vip_import.py::_process_account_creation::2
 verenigingen/verenigingen/doctype/volunteer/volunteer.py::create_volunteer_from_member::1
 verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::calculate_projected_revenue::1

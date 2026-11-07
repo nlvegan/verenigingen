@@ -223,7 +223,9 @@ def send_test_email(recipient: str) -> dict:
         return {"success": False, "error": result.error_message or "Unknown error"}
 
     except Exception as e:
-        frappe.log_error(f"Test email failed: {str(e)}", "Verenigingen Email Configuration Test")
+        frappe.log_error(
+            title="Verenigingen Email Configuration Test", message=f"Test email failed: {str(e)}"
+        )
         return {"success": False, "error": str(e)}
 
 

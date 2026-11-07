@@ -167,6 +167,8 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
             reference_doctype="Contribution Amendment Request",
             reference_name=amendment_doc.name,
             notification_key="contribution_amendment_sync_failed",
+            # Per amendment: the key's per-recipient cooldown must not silence a different amendment.
+            cooldown_scope=amendment_doc.name,
         )
 
         if result.skip_reason:
