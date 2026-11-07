@@ -503,6 +503,10 @@ runs:
         SNAP="${RUNNER_TEMP}/bench-snapshot"
         date -u
         tar --zstd -xf "$SNAP/bench.tar.zst" -C "${GITHUB_WORKSPACE}"
+        # frappe's file logger opens ../logs/<module>.log and <site>/logs/<module>.log without
+        # creating either directory (frappe/utils/logger.py); full mode makes them in
+        # Initialize Bench Environment, which restore skips.
+        mkdir -p "${GITHUB_WORKSPACE}/logs" "${GITHUB_WORKSPACE}/sites/test_site/logs"
         date -u
         CFG="${GITHUB_WORKSPACE}/sites/test_site/site_config.json"
         DB_NAME=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c['db_name'])" "$CFG")
@@ -588,8 +592,9 @@ runs:
           | zstd -T0 -q -o "$SNAP/db.sql.zst"
         cd "${GITHUB_WORKSPACE}"
         # bench is still running, so a log can change mid-read: tar then exits 1 ("file changed as
-        # we read it"). Site logs are excluded and exit 1 alone is tolerated; 2 is a real failure.
-        tar --zstd -cf "$SNAP/bench.tar.zst" --exclude='apps/*/node_modules' --exclude='sites/*/logs' \
+        # we read it"). Site log CONTENTS are excluded (the directory itself is kept) and exit 1
+        # alone is tolerated; 2 is a real failure.
+        tar --zstd -cf "$SNAP/bench.tar.zst" --exclude='apps/*/node_modules' --exclude='sites/*/logs/*' \
           --warning=no-file-changed apps env sites config Procfile || [ $? -eq 1 ]
         ls -la "$SNAP"
 
@@ -600,5 +605,9 @@ runs:
         name: ${{ inputs.snapshot-name }}
         path: ${{ runner.temp }}/bench-snapshot
         compression-level: 0  # already zstd
+        # A "re-run all jobs" re-runs prepare in the same run; without this the second upload
+        # of the same name conflicts. Re-running only failed shards reuses the existing one
+        # (until it expires after a day).
+        overwrite: true
         retention-days: 1
         if-no-files-found: error

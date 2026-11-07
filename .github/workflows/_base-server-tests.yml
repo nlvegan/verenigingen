@@ -120,6 +120,8 @@ jobs:
           erpnext-branch: ${{ inputs.erpnext-branch }}
           enable-coverage: ${{ inputs.enable-coverage }}
           snapshot: 'true'
+          # Per run, so a shard can only ever restore the snapshot built for its own run.
+          snapshot-name: bench-snapshot-${{ github.run_id }}
 
   # Main integration tests
   integration-tests:
@@ -188,6 +190,7 @@ jobs:
         uses: ./.github/actions/setup
         with:
           mode: restore
+          snapshot-name: bench-snapshot-${{ github.run_id }}
           # The exact interpreter the snapshot's venv was built with (see the action's output).
           python-version: ${{ needs.prepare.outputs.python-version }}
           node-version: ${{ inputs.node-version }}
