@@ -7,8 +7,8 @@ seeds too. Only ADDS rows: an existing row (including a disabled one) is never t
 
 Real flow: the handler is looked up in ``hooks.lifecycle.after_migrate`` by name. Probe shortcut:
 the "old site" state is built by deleting rows from the Single directly; a real ``bench migrate``
-was not run. ``singleton_backup`` does not back up child tables (#2029), so the rows are
-snapshotted and restored by ``addCleanup``.
+was not run. the rows are snapshotted and restored by ``addCleanup``
+(``singleton_backup`` has restored child tables since #2091, so this is now redundant; see #2159).
 """
 
 import frappe
@@ -42,7 +42,7 @@ class TestNotificationRegistrySeedOnMigrate(FrappeTestCase):
         self.assertGreaterEqual(len(self.keys), 4, "control: the registry has keys to play with")
 
     def _put_back_snapshot(self):
-        # Not singleton_backup: it skips child tables (#2029). Put back exactly what was there.
+        # Hand-rolled restore, kept although singleton_backup restores child tables since #2091 (#2159).
         config = frappe.get_single(DOCTYPE)
         config.notification_types = []
         for row in self.baseline.values():
