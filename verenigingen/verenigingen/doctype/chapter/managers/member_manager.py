@@ -701,7 +701,12 @@ class MemberManager(BaseManager):
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
 
     def remove_member(
-        self, member_id: str, leave_reason: str = None, permanent: bool = False, notify: bool = True
+        self,
+        member_id: str,
+        leave_reason: str = None,
+        permanent: bool = False,
+        notify: bool = True,
+        acting_as_member: bool = False,
     ) -> Dict:
         """
         Remove or disable a member from this chapter
@@ -711,6 +716,9 @@ class MemberManager(BaseManager):
             leave_reason: Reason for leaving
             permanent: Whether to remove completely or just disable
             notify: Whether to send notification
+            acting_as_member: The caller was already proved to BE `member_id` (Member.user), so
+                the Chapter save skips the permission check: a member's own leave needs no
+                Chapter:write (#2166). Only this member's own row is touched.
 
         Returns:
             Dict with operation result
@@ -748,7 +756,7 @@ class MemberManager(BaseManager):
             # No need to clear a specific primary_chapter field
 
             # Save chapter
-            self.chapter_doc.save()
+            self.chapter_doc.save(ignore_permissions=acting_as_member)
 
             # Update membership history tracking
             if permanent:
