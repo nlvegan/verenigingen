@@ -56,8 +56,12 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # silently falls back to its count-based weight - a table that looks generated but
 # carries no measurements at all.
 GHA_TS = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z ", re.M)
-HEADER = re.compile(rf"^({APP}[\w.]+)\s*$")  # e.g. verenigingen.tests.payment.test_x.TestClass
-DURATION = re.compile(r"\((\d+\.\d+)s\)")
+# e.g. verenigingen.tests.payment.test_x.TestClass. The last component must be a class (capitalised):
+# a logger or traceback line naming a module must not start a span.
+HEADER = re.compile(rf"^({APP}(?:\.\w+)+\.[A-Z]\w*)\s*$")
+# frappe prints >=100s in scientific notation, e.g. "(3.26e+02s)"; the old \d+\.\d+ form missed
+# every one of them (24 lines in 24 shard logs, run 42372760702).
+DURATION = re.compile(r"\((\d+(?:\.\d+)?(?:e[+-]?\d+)?)s\)")
 
 
 def dotted_to_relfile(dotted):
@@ -107,9 +111,15 @@ def measured_elapsed_seconds(log_paths):
 
     GitHub prefixes every job-log line with a timestamp, so a module's cost is the time from
     its first class header to the next module's header (or the "Tests: N" summary). Unlike the
-    printed "(N.NNs)" durations this includes setUpClass and every sub-2s test - measured on
-    run 42372760702, test_payment_history_scalability took ~800s and weighed 59. Classes of one
-    module are summed; a log without timestamps contributes nothing.
+    printed "(N.NNs)" durations this counts every second, including sub-2s tests and the >=100s
+    tests the old DURATION regex could not read - measured on run 42372760702,
+    test_payment_history_scalability took ~800s and weighed 59. Classes of one module are
+    summed; a log without timestamps contributes nothing.
+
+    Known limitation: frappe prints a class header from startTest, i.e. AFTER that class's
+    setUpClass, so setup time is charged to the PREVIOUS class (possibly another module).
+    Per-shard totals stay right; a module's weight can be off by tens of seconds (largest seen:
+    ~87s unprinted in one gap across 24 logs). Exact attribution needs a per-class timing hook.
     """
     best = {}
     for path in log_paths:
