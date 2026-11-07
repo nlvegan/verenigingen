@@ -69,7 +69,7 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         for title in (NO_RECIPIENTS_LOG_TITLE, UNSENT_LOG_TITLE):
             for scope in (SYSADMIN, VADMIN, TECHNICAL_GROUP, BUSINESS_GROUP):
                 frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{title}:{scope}")
-        # singleton_backup does not restore child tables (#2029): own the rows.
+        # Own the rows by hand (kept; singleton_backup has restored child tables since #2091, see #2159).
         rows = _snapshot_rows()
         self.addCleanup(_restore_rows, rows)
         self._set_alert_rows(TECH_KEY, 1)
