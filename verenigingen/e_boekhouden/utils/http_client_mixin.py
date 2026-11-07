@@ -30,6 +30,8 @@ import frappe
 import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 
 @dataclass
 class HTTPClientMetrics:
@@ -211,6 +213,7 @@ class EBoekhoudenHTTPClientMixin:
                     return None
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2112: not a "no token" failure
                 frappe.log_error(title="E-Boekhouden REST", message=f"Error getting session token: {str(e)}")
                 return None
 
