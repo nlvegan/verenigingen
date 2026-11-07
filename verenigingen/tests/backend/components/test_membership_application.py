@@ -318,20 +318,6 @@ class TestMembershipApplication(ApplicationFlowCase):
             # Reapplication scenario - the earlier unconfirmed application is replaced
             self.assertTrue(second_result["success"])
 
-    def test_overdue_detection(self):
-        """Test overdue application detection"""
-        # Create an old application
-        old_data = self.application_data.copy()
-        old_data["email"] = f"old_{self.test_email}"
-        member_name = self._materialised(old_data)
-
-        # Manually set the application date to 3 weeks ago
-        frappe.db.set_value("Member", member_name, "application_date", add_days(now_datetime(), -21))
-
-        # Overdue check function was removed with application_notifications.py
-        # The functionality now lives in api/overdue_application_notifications.py
-        self.assertTrue(True)
-
 
 class TestMembershipApplicationLoad(ApplicationFlowCase):
     """Load testing for membership applications"""
