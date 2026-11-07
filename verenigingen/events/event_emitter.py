@@ -17,6 +17,7 @@ def emit_event(
     job_prefix: str,
     bulk_flag: str | None = None,
     after_commit: bool = False,
+    job_id_keys: tuple = (),
 ):
     """Enqueue background jobs for each subscriber of an event.
 
@@ -31,9 +32,14 @@ def emit_event(
             ``in_bulk_import``, is forwarded as ``is_bulk_import`` kwarg
             to subscribers so they can skip heavy work during bulk ops.
         after_commit: Hold the jobs back until the surrounding transaction commits
-            (a full rollback then drops them). Opt-in per event because the generic
+            (a full rollback then drops them). Opt-in per event: the generic
             default stays immediate, see the NOTE below and #168. A rollback to a
             SAVEPOINT does not drop them: those subscribers must re-check state (#2137).
+            Member, team and chapter-membership events opt in.
+        job_id_keys: event_data keys appended to the job_id, for events that fire once
+            per row within one save (e.g. several volunteers added to one Team). Without
+            them those jobs share an id and, deferred to commit, the last overwrites the
+            others (#2144).
     """
     entity_name = event_data.get(entity_key)
 
@@ -66,7 +72,7 @@ def emit_event(
         # subscriber -- so deduplicate=True + a per-subscriber job_id are the real dedup.
         #
         # NOTE: enqueue_after_commit is deliberately NOT the default here (opt in via
-        # after_commit; chapter membership events do, because their subscribers mail and
+        # after_commit; member, team and chapter membership events do, because their subscribers mail and
         # grant roles for a state a rollback can undo, #2137). It is correct for a
         # single-purpose emitter (see invoice_events.py), but this generic emitter fans
         # out from many document hooks, and deferring dispatch to commit-time triggers a
@@ -77,7 +83,11 @@ def emit_event(
         frappe.enqueue(
             method=subscriber,
             queue="short",
-            job_id=f"{job_prefix}_{event_name}_{entity_name}_{subscriber}",
+            job_id="_".join(
+                [f"{job_prefix}_{event_name}_{entity_name}"]
+                + [str(event_data.get(k)) for k in job_id_keys]
+                + [subscriber]
+            ),
             deduplicate=True,
             enqueue_after_commit=after_commit,
             timeout=300,
