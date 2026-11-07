@@ -45,10 +45,8 @@ class ChapterMembershipManager:
         """
         try:
             # Validate user permissions
-            if user_email and user_email != "Administrator":
-                member_doc = frappe.get_doc("Member", member_id)
-                if user_email != member_doc.email:
-                    return {"success": False, "error": _("You don't have permission to perform this action")}
+            if not ChapterMembershipManager._caller_is_member(user_email, member_id):
+                return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
             if not member_id or not member_id.strip():
@@ -105,10 +103,8 @@ class ChapterMembershipManager:
         """
         try:
             # Validate user permissions
-            if user_email and user_email != "Administrator":
-                member_doc = frappe.get_doc("Member", member_id)
-                if user_email != member_doc.email:
-                    return {"success": False, "error": _("You don't have permission to perform this action")}
+            if not ChapterMembershipManager._caller_is_member(user_email, member_id):
+                return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
             if not member_id or not member_id.strip():
@@ -140,6 +136,18 @@ class ChapterMembershipManager:
         except Exception as e:
             frappe.log_error(f"Error in leave_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _caller_is_member(user_email: str, member_id: str) -> bool:
+        """Whether `user_email` (a User id, despite the name) may act as `member_id`.
+
+        Identified by Member.user ONLY, never Member.email (#2069, #1853 ruling): a User who
+        merely shares an email with a Member must not act as that Member. No caller or
+        Administrator means an internal/trusted call, as before.
+        """
+        if not user_email or user_email == "Administrator":
+            return True
+        return frappe.db.get_value("Member", member_id, "user") == user_email
 
     @staticmethod
     def _with_error_reason(result: Dict[str, Any], member_id: str) -> Dict[str, Any]:

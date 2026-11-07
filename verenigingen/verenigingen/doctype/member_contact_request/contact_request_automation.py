@@ -9,6 +9,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -125,18 +126,13 @@ def escalate_contact_request(request, overdue_days):
     """Escalate a specific contact request"""
 
     # Get managers to escalate to
-    managers = frappe.get_all(
-        "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"}, fields=["parent"]
+    # The key's own recipients first, then enabled Verenigingen Administrators; never Administrator (#2095).
+    manager_emails = resolve_admin_recipients(
+        notification_key="contact_request_escalated",
+        default_roles=[Roles.VERENIGINGEN_ADMIN],
+        exclude_users=("Administrator",),
+        key_first=True,
     )
-
-    if not managers:
-        return
-
-    manager_emails = []
-    for manager in managers:
-        user = frappe.get_doc("User", manager.parent)
-        if user.enabled and user.email:
-            manager_emails.append(user.email)
 
     if manager_emails:
         subject = f"ESCALATION: Overdue Contact Request - {request.subject}"
