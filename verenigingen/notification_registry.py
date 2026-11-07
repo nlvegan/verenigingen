@@ -134,6 +134,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mijnrood_disabled_default_type": {
+        "label": "MijnRood Application Type Disabled (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood application is staged with the site's default membership type "
+        "while that type is disabled or gone. The reviewer must pick another type at approval. At most once "
+        "a day per type while the setting stays wrong. The mail names the type.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -849,6 +858,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "expulsion_report_submitted",
         "payment_plan_request",
         "zabbix_system_alert",
+        "mijnrood_disabled_default_type",
     }
 )
 

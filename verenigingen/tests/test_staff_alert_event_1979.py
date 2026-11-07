@@ -455,12 +455,18 @@ class TestStaffAlertEvent(FrappeTestCase):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
-        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) is the
-        # fourth literal-key call site, and the loop below still demands it is marked staff_alert=True.
+        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) and
+        # mijnrood_disabled_default_type (#2094) are literal-key call sites, and the loop below still demands it is marked staff_alert=True.
         self.assertEqual(
             set(marked),
-            {SEEDED_KEY, "termination_overdue", INFO_KEY, "dues_schedule_creation_failed"},
-            "control: all four keys were found",
+            {
+                SEEDED_KEY,
+                "termination_overdue",
+                INFO_KEY,
+                "dues_schedule_creation_failed",
+                "mijnrood_disabled_default_type",
+            },
+            "control: every literal-key call site was found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")
