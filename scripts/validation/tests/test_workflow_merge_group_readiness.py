@@ -29,11 +29,22 @@ _WORKFLOWS = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 # becomes required when the queue is enabled (#2184).
 QUEUE_WORKFLOWS = ("ci.yml", "code-validation.yml", "quality-assurance.yml", "server-tests.yml")
 
-_EVENT_CONDITIONAL = re.compile(r"github\.event_name|github\.event\.pull_request|github\.base_ref")
+# Every way a workflow reads PR-only context: expressions, the runner's env vars, and
+# actions/github-script's `context`. Each is empty or absent on a merge_group run.
+_EVENT_CONDITIONAL = re.compile(
+    r"github\.(event_name|head_ref|base_ref|event\.(number|pull_request|issue))"
+    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME)"
+    r"|context\.(issue|payload)"
+)
 _DECISION = "# merge_group:"
-# A step starts at a list item; a job starts at a two-space key. The decision
-# comment must sit inside the same step or job as the conditional line.
-_SCOPE_START = re.compile(r"^\s*- |^  [A-Za-z0-9_-]+:\s*$")
+# A step starts at a list item opening with a step key; a job starts at a two-space
+# key (a trailing comment allowed). The decision comment must sit inside the same
+# step or job as the conditional line. A bare `- ` is NOT a boundary: Markdown
+# bullets inside a run/script block would otherwise end the step early.
+_SCOPE_START = re.compile(
+    r"^\s*- (name|uses|run|id|if|with|env|shell|working-directory|continue-on-error|timeout-minutes):"
+    r"|^  [A-Za-z0-9_-]+:\s*(#.*)?$"
+)
 
 
 def undecided_lines(text: str) -> list[int]:
@@ -63,6 +74,21 @@ def triggers_on_merge_group(text: str) -> bool:
     return re.search(r"^  merge_group:", text, re.MULTILINE) is not None
 
 
+def queue_trigger_is_unfiltered(text: str) -> bool:
+    """True when the merge_group trigger block has no paths/branches filter of any kind."""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if re.match(r"^  merge_group:", line))
+    except StopIteration:
+        return False
+    for line in lines[start + 1 :]:
+        if re.match(r"^\S|^  \S", line):  # next trigger or top-level key ends the block
+            break
+        if re.match(r"^\s+(paths|paths-ignore|branches|branches-ignore):", line):
+            return False
+    return True
+
+
 class TestScannerControls(unittest.TestCase):
     """The scanner must be able to fail, or the real test below proves nothing."""
 
@@ -88,6 +114,43 @@ class TestScannerControls(unittest.TestCase):
         )
         self.assertEqual(undecided_lines(text), [5])
 
+    def test_every_form_of_pr_context_is_flagged(self):
+        # Each of these is PR-only context that is empty or absent on a merge_group run.
+        forms = [
+            "github.event_name == 'pull_request'",
+            "github.event.pull_request.base.sha",
+            "github.base_ref",
+            "github.head_ref",
+            "github.event.number",
+            "github.event.issue.number",
+            "$GITHUB_BASE_REF",
+            "$GITHUB_HEAD_REF",
+            "$GITHUB_EVENT_NAME",
+            "context.issue.number",
+            "context.payload.pull_request",
+        ]
+        for form in forms:
+            with self.subTest(form=form):
+                self.assertEqual(undecided_lines(f"    - name: Step\n      run: echo {form}\n"), [2])
+
+    def test_a_queue_trigger_with_a_path_filter_is_not_ready(self):
+        # A path-skipped workflow reports nothing, and the queue waits on every required check.
+        text = "on:\n  merge_group:\n    types: [checks_requested]\n    paths:\n      - 'x/**'\n  push:\n"
+        self.assertFalse(queue_trigger_is_unfiltered(text))
+        self.assertTrue(queue_trigger_is_unfiltered("on:\n  merge_group:\n    types: [checks_requested]\n  push:\n"))
+
+    def test_a_markdown_bullet_inside_a_script_does_not_end_the_step(self):
+        # quality-assurance.yml's PR comment builds a Markdown list inside github-script.
+        text = (
+            "      - name: Comment\n"
+            "        # merge_group: skipped, it only comments on the PR\n"
+            "        with:\n"
+            "          script: |\n"
+            "            - **Coverage**: done\n"
+            "              issue_number: context.issue.number,\n"
+        )
+        self.assertEqual(undecided_lines(text), [])
+
     def test_a_line_naming_merge_group_is_decided(self):
         text = "      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}\n"
         self.assertEqual(undecided_lines(text), [])
@@ -101,6 +164,10 @@ class TestQueueWorkflowsAreReady(unittest.TestCase):
     def test_every_queue_workflow_triggers_on_merge_group(self):
         missing = [w for w in QUEUE_WORKFLOWS if not triggers_on_merge_group((_WORKFLOWS / w).read_text())]
         self.assertEqual(missing, [], "these own required checks but would never report on a queue run")
+
+    def test_no_queue_trigger_carries_a_path_or_branch_filter(self):
+        filtered = [w for w in QUEUE_WORKFLOWS if not queue_trigger_is_unfiltered((_WORKFLOWS / w).read_text())]
+        self.assertEqual(filtered, [], "a filtered merge_group trigger can leave a required check unreported")
 
     def test_every_event_conditional_has_a_merge_group_decision(self):
         report = {}

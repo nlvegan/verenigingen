@@ -1566,6 +1566,7 @@ jobs:
         python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
 
     - name: Comment PR Results
+      # merge_group: never reached - the fast-validation job above is pull_request only.
       if: always()
       uses: actions/github-script@v7
       with:
