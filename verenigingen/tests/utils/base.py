@@ -255,6 +255,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         self.factory = CoreTestDataFactory()
+        # #2039: rows the factory builds internally (auto Chapter, auto Member + Customer behind
+        # create_test_volunteer, Region) were recorded only on factory.created_records, which
+        # nothing drained, so a test body that commits left them on the site for good.
+        self.factory.on_track = self.track_doc
 
         # Set up test request context for API security framework
         self._setup_test_request_context()
