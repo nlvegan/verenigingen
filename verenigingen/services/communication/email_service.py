@@ -834,6 +834,8 @@ class EmailService(StatelessService):
                 "organization_name": getattr(settings, "company_name", ""),
                 "contact_email": getattr(settings, "contact_email", ""),
                 "website_url": getattr(settings, "website_url", ""),
+                # Absolute site URL for links; templates read {{ base_url }} (#2020)
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
                 # Brand assets for templates
@@ -844,6 +846,7 @@ class EmailService(StatelessService):
         except Exception:
             return {
                 "organization_name": "",
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
             }
