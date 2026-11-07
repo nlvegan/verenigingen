@@ -39,7 +39,7 @@ Run:
 """
 
 import frappe
-from frappe.utils import flt, today
+from frappe.utils import flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.services.test_donation_refund_journal_entry_creator_coverage import (
@@ -50,6 +50,7 @@ from verenigingen.tests.support.mollie_settings import (
     pin_mollie_clearing_account,
     pin_verenigingen_settings,
 )
+from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
@@ -596,6 +597,160 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             "forward payment never recognised and leaves the receivable it cleared "
             "still cleared (#370).",
         )
+
+    # 23:30 UTC on 3 March is already 4 March in Amsterdam (UTC+1) (#2162).
+    LATE_EVENING_UTC = "2026-03-03T23:30:00+00:00"
+
+    def test_a_late_evening_utc_refund_books_on_the_site_local_day_2162(self):
+        """Payment Entry route: the posting date follows the SITE timezone, not Mollie's UTC."""
+        forward = create_unified_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            amount=100.0,
+            payment_type="Receive",
+        )
+        self.assertIsNotNone(forward, "forward Payment Entry not booked - fixture problem")
+        refund_id = f"re_tz_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            result = UnifiedWebhookWrapperService().process_reversal_webhook(
+                payment_id=self.payment_id,
+                reversal_id=refund_id,
+                amount=100.0,
+                reversal_type="refund",
+                reversal_date=self.LATE_EVENING_UTC,
+            )
+        self.assertEqual(result.get("status"), "success", f"reversal did not book: {result}")
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-04"))
+
+    def test_the_same_instant_books_a_day_earlier_west_of_utc_2162(self):
+        """Control: 05:00 UTC on 4 March is still 3 March in Honolulu (UTC-10).
+
+        A fix that hardcodes Europe/Amsterdam (or shifts by a fixed hour) books this on the 4th.
+        """
+        forward = create_unified_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            amount=100.0,
+            payment_type="Receive",
+        )
+        self.assertIsNotNone(forward, "forward Payment Entry not booked - fixture problem")
+        refund_id = f"re_hnl_{frappe.generate_hash(length=8)}"
+        with system_timezone("Pacific/Honolulu"):
+            result = UnifiedWebhookWrapperService().process_reversal_webhook(
+                payment_id=self.payment_id,
+                reversal_id=refund_id,
+                amount=100.0,
+                reversal_type="refund",
+                reversal_date="2026-03-04T05:00:00+00:00",
+            )
+        self.assertEqual(result.get("status"), "success", f"reversal did not book: {result}")
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-03"))
+
+    def test_a_late_evening_utc_chargeback_journal_entry_books_on_the_local_day_2162(self):
+        """Journal Entry route (discovery path hands over Mollie's raw ISO string)."""
+        self._make_forward_journal_entry()
+        chargeback_id = f"chb_tz_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            result = UnifiedWebhookWrapperService().process_reversal_webhook(
+                payment_id=self.payment_id,
+                reversal_id=chargeback_id,
+                amount=100.0,
+                reversal_type="chargeback",
+                reversal_date=self.LATE_EVENING_UTC,
+            )
+        self.assertEqual(result.get("status"), "success", f"chargeback did not book: {result}")
+        key = f"{self.payment_id}_chargeback_{chargeback_id}"
+        posted = frappe.db.get_value("Journal Entry", {"cheque_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-04"))
+
+    def test_the_payment_entry_creator_converts_a_raw_utc_refund_date_2162(self):
+        """``create_refund_payment_entry`` called directly with Mollie's raw timestamp."""
+        refund_id = f"re_pe_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            pe = create_refund_payment_entry(
+                donation_doc=self.donation,
+                mollie_payment_id=self.payment_id,
+                refund_id=refund_id,
+                refund_amount=100.0,
+                refund_date=self.LATE_EVENING_UTC,
+            )
+        self.assertIsNotNone(pe, "refund Payment Entry not booked - fixture problem")
+        self.assertEqual(getdate(pe.posting_date), getdate("2026-03-04"))
+
+    def _handle_refund(self, created_at, zone="Europe/Amsterdam"):
+        """Run RefundHandler._create_refund_entry on a Mollie-shaped refund (``created_at`` is a
+        STRING in the real SDK) and return (result, refund_id)."""
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.services.handlers.refund_handler import (
+            RefundHandler,
+        )
+
+        refund = SimpleNamespace(
+            id=f"re_h_{frappe.generate_hash(length=8)}",
+            amount={"value": "100.00", "currency": "EUR"},
+            created_at=created_at,
+        )
+        with system_timezone(zone):
+            return RefundHandler(mollie_client=object())._create_refund_entry(self.payment_id, refund), refund.id
+
+    def test_the_refund_handler_books_a_string_created_at_on_the_local_day_2162(self):
+        """19:00 UTC on 3 March is the 3rd in Amsterdam and the 4th in Kolkata (pin-sensitive).
+
+        The old ``refund.created_at.date()`` raised AttributeError on the SDK's string.
+        """
+        result, refund_id = self._handle_refund("2026-03-03T19:00:00+00:00")
+        self.assertEqual(result.get("status"), "processed", result)
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-03"))
+
+    def test_the_refund_handler_survives_an_unreadable_created_at_2162(self):
+        """Garbage must not crash the handler; the refund books on today ."""
+        result, refund_id = self._handle_refund("garbage")
+        self.assertEqual(result.get("status"), "processed", result)
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate())
+
+    def test_a_pin_sensitive_utc_refund_books_on_the_local_day_2162(self):
+        """19:00 UTC on 3 March: the 3rd in Amsterdam, the 4th in Kolkata, so a dropped pin goes red."""
+        refund_id = f"re_pin_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            pe = create_refund_payment_entry(
+                donation_doc=self.donation,
+                mollie_payment_id=self.payment_id,
+                refund_id=refund_id,
+                refund_amount=100.0,
+                refund_date="2026-03-03T19:00:00+00:00",
+            )
+        self.assertIsNotNone(pe, "refund Payment Entry not booked - fixture problem")
+        self.assertEqual(getdate(pe.posting_date), getdate("2026-03-03"))
+
+    def test_the_sweep_books_a_pending_refund_on_the_local_day_2162(self):
+        """The payment-webhook sweep carries ``createdAt`` verbatim as ``refund_date``."""
+        forward = create_unified_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            amount=100.0,
+            payment_type="Receive",
+        )
+        self.assertIsNotNone(forward, "forward Payment Entry not booked - fixture problem")
+        refund_id = f"re_sw_{frappe.generate_hash(length=8)}"
+        with system_timezone("Europe/Amsterdam"):
+            results = UnifiedWebhookWrapperService()._process_pending_refunds(
+                self.donation,
+                self.payment_id,
+                [{"refund_id": refund_id, "amount": 100.0, "refund_date": self.LATE_EVENING_UTC}],
+            )
+        self.assertTrue(results, "the sweep should report what it did")
+        key = f"{self.payment_id}_refund_{refund_id}"
+        posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
+        self.assertEqual(getdate(posted), getdate("2026-03-04"))
 
     def test_withdrawing_a_bank_transaction_cancels_it_and_frees_its_reference(self):
         """The compensating write when a reversal's Journal Entry never arrives.
