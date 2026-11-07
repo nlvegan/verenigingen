@@ -23,6 +23,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
+from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import RETURN_PROOF_PURPOSE
 
 
 @contextmanager
@@ -52,6 +54,11 @@ def fake_request(**args):
     finally:
         frappe.local.request = original_request
         frappe.local.response = frappe._dict(original_response)
+
+
+def _return_proof_for(doc):
+    """The signed proof create_ponto_payment_request mints into the redirect_uri (#1833)."""
+    return generate_guest_return_token(RETURN_PROOF_PURPOSE, doc.name)
 
 
 class TestPontoPaymentCallback(FrappeTestCase):
@@ -94,14 +101,18 @@ class TestPontoPaymentCallback(FrappeTestCase):
             self.assertEqual(frappe.local.response["type"], "redirect")
             self.assertTrue(frappe.local.response["location"].endswith("/desk"))
 
-    def test_unknown_payment_request_redirects_to_desk(self):
+    def test_unknown_payment_request_redirects_like_a_known_one(self):
+        """#1815: the old premise (unknown -> /desk, known -> the document) was an existence
+        oracle for an anonymous caller. test_ponto_callback_guest_status compares both."""
         from verenigingen.verenigingen_payments.ponto.api.payment_callback import payment_callback
 
         with fake_request(payment_request="DOES-NOT-EXIST"):
             payment_callback()
-            self.assertTrue(frappe.local.response["location"].endswith("/desk"))
+            self.assertTrue(frappe.local.response["location"].endswith("/app/ponto-payment-request/DOES-NOT-EXIST"))
 
-    def test_access_denied_marks_cancelled(self):
+    def test_access_denied_does_not_mark_cancelled(self):
+        """#1815: ``error`` is query-string input and decides no status (the guest-reachable
+        path is covered in test_ponto_callback_guest_status)."""
         from verenigingen.verenigingen_payments.ponto.api.payment_callback import payment_callback
 
         doc = self._make_payment_request()
@@ -109,11 +120,9 @@ class TestPontoPaymentCallback(FrappeTestCase):
             payment_callback()
             self.assertIn(doc.name, frappe.local.response["location"])
 
-        self.assertEqual(
-            frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Cancelled"
-        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
-    def test_other_error_marks_rejected(self):
+    def test_other_error_does_not_mark_rejected(self):
         from verenigingen.verenigingen_payments.ponto.api.payment_callback import payment_callback
 
         doc = self._make_payment_request()
@@ -124,40 +133,26 @@ class TestPontoPaymentCallback(FrappeTestCase):
         ):
             payment_callback()
 
-        self.assertEqual(
-            frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Rejected"
-        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
-    def test_success_refreshes_status(self):
+    def test_callback_does_not_refresh_status(self):
+        """#1834: the guest callback never asks Ponto; status comes from the signed webhook.
+        Replaces test_success_refreshes_status / test_success_refresh_failure_still_redirects,
+        which pinned the refresh (and a swallowed failure of it)."""
         from verenigingen.verenigingen_payments.ponto.api import payment_callback as cb_module
 
         doc = self._make_payment_request()
-
-        # Stub refresh_status on the controller class so no API/network call.
         with patch(
             "verenigingen.verenigingen_payments.doctype.ponto_payment_request."
             "ponto_payment_request.PontoPaymentRequest.refresh_status",
             return_value={"status": "Signed"},
-        ):
+        ) as refresh:
             with fake_request(payment_request=doc.name):
                 cb_module.payment_callback()
                 self.assertEqual(frappe.local.response["type"], "redirect")
                 self.assertIn(doc.name, frappe.local.response["location"])
-
-    def test_success_refresh_failure_still_redirects(self):
-        from verenigingen.verenigingen_payments.ponto.api import payment_callback as cb_module
-
-        doc = self._make_payment_request()
-        with patch(
-            "verenigingen.verenigingen_payments.doctype.ponto_payment_request."
-            "ponto_payment_request.PontoPaymentRequest.refresh_status",
-            side_effect=RuntimeError("api down"),
-        ):
-            with fake_request(payment_request=doc.name):
-                cb_module.payment_callback()
-                # Despite refresh failure, it redirects to the document (no raise).
-                self.assertEqual(frappe.local.response["type"], "redirect")
-                self.assertIn(doc.name, frappe.local.response["location"])
+        self.assertEqual(refresh.call_count, 0)
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", doc.name, "status"), "Pending")
 
 
 class TestPontoPaymentLinkCallback(FrappeTestCase):
@@ -210,37 +205,39 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             payment_link_callback()
             self.assertTrue(frappe.local.response["location"].endswith("/app/home"))
 
-    def test_access_denied_marks_cancelled(self):
+    def test_access_denied_does_not_mark_cancelled(self):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
             payment_link_callback,
         )
 
         doc = self._make_payment_link()
-        with fake_request(payment_link=doc.name, error="access_denied"):
+        with fake_request(payment_link=doc.name, error="access_denied", return_proof=_return_proof_for(doc)):
             payment_link_callback()
-            self.assertIn("payment-success", frappe.local.response["location"])
+            self.assertIn("payment_success", frappe.local.response["location"])
 
         self.assertEqual(
-            frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Cancelled"
+            frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
         )
 
-    def test_other_error_marks_rejected(self):
+    def test_other_error_does_not_mark_rejected(self):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
             payment_link_callback,
         )
 
         doc = self._make_payment_link()
         with fake_request(
-            payment_link=doc.name, error="server_error", error_description="boom"
+            payment_link=doc.name, error="server_error", error_description="boom",
+            return_proof=_return_proof_for(doc),
         ):
             payment_link_callback()
-            self.assertIn("payment-success", frappe.local.response["location"])
+            self.assertIn("payment_success", frappe.local.response["location"])
 
         self.assertEqual(
-            frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Rejected"
+            frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
         )
 
-    def test_success_refreshes_and_redirects(self):
+    def test_callback_does_not_refresh_and_redirects(self):
+        """#1834: no refresh from the guest callback (replaces test_success_refreshes_and_redirects)."""
         from verenigingen.verenigingen_payments.ponto.api import betaalverzoek_callback as cb
 
         doc = self._make_payment_link()
@@ -248,10 +245,14 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             "verenigingen.verenigingen_payments.doctype.ponto_payment_link."
             "ponto_payment_link.PontoPaymentLink.refresh_status",
             return_value={"status": "Executed"},
-        ):
-            with fake_request(payment_link=doc.name):
+        ) as refresh:
+            with fake_request(payment_link=doc.name, return_proof=_return_proof_for(doc)):
                 cb.payment_link_callback()
-                self.assertIn("payment-success", frappe.local.response["location"])
+                self.assertIn("payment_success", frappe.local.response["location"])
+        self.assertEqual(refresh.call_count, 0)
+        self.assertEqual(
+            frappe.db.get_value("Ponto Payment Link", doc.name, "status"), "Pending Authorization"
+        )
 
     def test_redirect_carries_a_token_payment_success_accepts(self):
         """The token minted here (#1055 finding 1) is exactly the one
@@ -271,7 +272,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
             "ponto_payment_link.PontoPaymentLink.refresh_status",
             return_value={"status": "Executed"},
         ):
-            with fake_request(payment_link=doc.name):
+            with fake_request(payment_link=doc.name, return_proof=_return_proof_for(doc)):
                 cb.payment_link_callback()
                 location = frappe.local.response["location"]
 
@@ -287,19 +288,6 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         self.assertNotEqual(context.payment_status, "error")
         self.assertEqual(context.document_info["docname"], doc.name)
         self.assertEqual(context.document_info["amount"], doc.amount)
-
-    def test_success_refresh_failure_still_redirects(self):
-        from verenigingen.verenigingen_payments.ponto.api import betaalverzoek_callback as cb
-
-        doc = self._make_payment_link()
-        with patch(
-            "verenigingen.verenigingen_payments.doctype.ponto_payment_link."
-            "ponto_payment_link.PontoPaymentLink.refresh_status",
-            side_effect=RuntimeError("api down"),
-        ):
-            with fake_request(payment_link=doc.name):
-                cb.payment_link_callback()
-                self.assertIn("payment-success", frappe.local.response["location"])
 
     # -------------------------------------------------------------------------
     # payment_page
