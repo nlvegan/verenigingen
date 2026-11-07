@@ -216,6 +216,24 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertEqual(self._members(), [])
         self.assertEqual(frappe.db.count("Member"), members_before)
 
+    def test_plan_row_that_now_belongs_to_another_door_is_refused(self):
+        """Control for the `parent` condition: the named row still EXISTS, on a different real door.
+        Probe shortcut: the row's `parent` is rewritten directly to the other door (a plan row name is
+        unique and cannot be re-added to another door through the form, so no real flow reaches this
+        state). Existence alone must not be enough."""
+        door, monthly_row, name = self._two_plan_door_and_submission()
+        other_door = self._door(plans=[{"dues_template": self._plan_template("Annual"), "is_default": 1}])
+        frappe.db.set_value("Membership Application Door Plan", monthly_row, "parent", other_door.name)
+        self.assertTrue(
+            frappe.db.exists("Membership Application Door Plan", {"name": monthly_row, "parent": other_door.name})
+        )
+
+        outcome = self._confirm(name)
+
+        self.assertEqual(outcome[0]["message"], "The membership option you chose is no longer offered. Please apply again.")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
+        self.assertEqual(self._members(), [])
+
     def test_plan_edited_after_submit_still_confirms_at_the_snapshotted_amount(self):
         """Control: the plan row still exists, only its postal minimum moved far above the amount."""
         door, monthly_row, name = self._two_plan_door_and_submission()
