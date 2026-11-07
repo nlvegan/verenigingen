@@ -49,10 +49,82 @@ jobs:
           indices=$(seq -s ',' 1 ${{ inputs.parallel-runs }})
           echo "indices=[${indices}]" >> $GITHUB_OUTPUT
 
+  # Builds the bench ONCE and hands it to every shard (#2184). Setup used to run in each of the
+  # 12 shards (~7 min each: pip and JS installs, asset build, site + app installs); the shards
+  # now download this job's snapshot and import its database instead. Same services as the
+  # shards, so the site is built against the same MariaDB/Redis it is restored into.
+  prepare:
+    name: Prepare Bench Snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      python-version: ${{ steps.setup.outputs.python-version }}
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: db_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      # Host ports match frappe-bench's generated redis URLs
+      # (redis_cache/redis_socketio=13000, redis_queue=11000). Service
+      # containers stay up for the whole job, so the site setup steps
+      # (reinstall / install-app) reach redis reliably — unlike a backgrounded
+      # `bench start` honcho, which tears its redis down when a sibling process
+      # exits, intermittently refusing connections at install-app time.
+      redis-cache:
+        image: redis:alpine
+        ports:
+          - 13000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      redis-queue:
+        image: redis:alpine
+        ports:
+          - 11000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      smtp:
+        image: rnwood/smtp4dev:v3
+        ports:
+          - 2525:25
+          - 3000:80
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bench and snapshot it
+        id: setup
+        uses: ./.github/actions/setup
+        with:
+          python-version: ${{ inputs.python-version }}
+          node-version: ${{ inputs.node-version }}
+          frappe-user: ${{ inputs.frappe-user }}
+          frappe-branch: ${{ inputs.frappe-branch }}
+          erpnext-user: ${{ inputs.erpnext-user }}
+          erpnext-branch: ${{ inputs.erpnext-branch }}
+          enable-coverage: ${{ inputs.enable-coverage }}
+          snapshot: 'true'
+
   # Main integration tests
   integration-tests:
     name: Tests (${{ matrix.index }}/${{ inputs.parallel-runs }})
-    needs: generate-matrix
+    needs: [generate-matrix, prepare]
     # Pinned: ubuntu-latest became 26.04, whose mariadb-client requires TLS and the
     # mariadb:10.6 service container offers none ("SSL is required, but the server
     # does not support it"). Move back to ubuntu-latest only with client TLS handled (#1706).
@@ -115,7 +187,9 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup
         with:
-          python-version: ${{ inputs.python-version }}
+          mode: restore
+          # The exact interpreter the snapshot's venv was built with (see the action's output).
+          python-version: ${{ needs.prepare.outputs.python-version }}
           node-version: ${{ inputs.node-version }}
           frappe-user: ${{ inputs.frappe-user }}
           frappe-branch: ${{ inputs.frappe-branch }}
