@@ -25,6 +25,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 from verenigingen.verenigingen_payments.utils import sepa_error_handler as seh
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import (
     SEPAErrorHandler,
@@ -281,6 +282,25 @@ class TestCircuitBreakerStateMachine(EnhancedTestCase):
         self.assertFalse(self.handler.check_circuit_breaker())
         self.assertEqual(self.handler.circuit_breaker["state"], "open")
 
+    def test_open_moves_to_half_open_when_last_failure_is_a_day_old(self):
+        """#2079: ``timedelta.seconds`` is the seconds part only, so a failure 1 day +
+        10 s ago read as 10 s and the breaker stayed open for ever."""
+        for _ in range(5):
+            self.handler.record_failure(Exception("timeout"))
+        self.handler.circuit_breaker["last_failure_time"] = now_datetime() - timedelta(days=1, seconds=10)
+        self.assertTrue(self.handler.check_circuit_breaker())
+        self.assertEqual(self.handler.circuit_breaker["state"], "half_open")
+
+    def test_open_stays_open_when_last_failure_is_in_the_future(self):
+        """#2079: a future stamp (clock stepped back) read as ~86400 s and recovered at once."""
+        for _ in range(5):
+            self.handler.record_failure(Exception("timeout"))
+        # Further ahead than recovery_timeout, or an abs() wrong fix would also stay open.
+        ahead = self.handler.circuit_breaker["recovery_timeout"] + 100
+        self.handler.circuit_breaker["last_failure_time"] = now_datetime() + timedelta(seconds=ahead)
+        self.assertFalse(self.handler.check_circuit_breaker())
+        self.assertEqual(self.handler.circuit_breaker["state"], "open")
+
     def test_half_open_allows_limited_calls(self):
         self.handler.circuit_breaker["state"] = "half_open"
         self.handler.circuit_breaker["failure_count"] = 0
@@ -347,13 +367,13 @@ class TestExecuteWithRetry(EnhancedTestCase):
             calls.append(1)
             raise Exception("invalid data")  # validation -> no retry
 
-        with patch.object(seh.time, "sleep") as sleep_mock:
+        with patch_module_sleep(seh) as fake_time:
             result = self.handler.execute_with_retry(op)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_category"], "validation")
         self.assertTrue(result["final_attempt"])
         self.assertEqual(len(calls), 1)
-        sleep_mock.assert_not_called()
+        fake_time.sleep.assert_not_called()
 
     def test_retries_then_succeeds(self):
         attempts = []

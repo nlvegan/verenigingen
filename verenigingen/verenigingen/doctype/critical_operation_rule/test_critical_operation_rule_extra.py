@@ -368,3 +368,64 @@ class TestCORDigest(FrappeTestCase):
     def test_digest_empty_queue_is_noop(self):
         """An empty queue returns cleanly (nothing to send)."""
         self.assertIsNone(send_security_policy_change_digest())
+
+
+class TestCORGetAllRulesQueryCost(FrappeTestCase):
+    """#2025: a cold ``get_all_rules`` cost 2 queries per rule (exists + get_doc),
+    ~4300 on a site carrying the 2000+ shipped rules, every time the 5 minute
+    cache expired. Its cost must not grow with the number of rules."""
+
+    def setUp(self):
+        frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_extra%"]})
+
+    def tearDown(self):
+        frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_extra%"]})
+        frappe.cache().delete_value("critical_operation_rules")
+
+    def test_cold_get_all_rules_query_count_does_not_grow_per_rule(self):
+        """Constant bound, independent of how many rules the site carries: the whole
+        cold build is one fetch. With the per-rule loop it was 1 + 2 per uncached rule,
+        so the 5 fresh rules below alone cost 10 more than the bound allows."""
+        for i in range(5):
+            _make_rule(operation_name=f"test_extra_scale_{i}", security_level="high").insert()
+        frappe.db.get_table_columns("Critical Operation Rule")  # warm table_columns/meta
+        # Cold: the all-rules key AND every per-rule key (the per-loop path hit those).
+        frappe.cache().delete_value("critical_operation_rules")
+        frappe.cache().delete_keys("critical_operation_rule:")
+        with self.assertQueryCount(3):
+            rules = CriticalOperationRule.get_all_rules()
+        self.assertIn("test_extra_scale_4", rules)
+
+    def test_get_all_rules_config_matches_get_rule_config(self):
+        """Behaviour control: the batched build yields exactly the per-rule config,
+        for a rule with every non-default field set (so a dropped field shows)."""
+        _make_rule(
+            operation_name="test_extra_equiv",
+            security_level="high",
+            required_roles="System Manager, Accounts Manager",
+            required_permissions="read, write",
+            rate_limit_calls=7,
+            rate_limit_period_seconds=120,
+            rate_limit_scope="per_ip",
+            allow_system_user=1,
+            bypass_validations="a, b",
+            enable_business_validation=1,
+            amount_threshold=250,
+            audit_level="detailed",
+            requires_justification=1,
+            monitor_execution_time=1,
+            execution_time_threshold_ms=1234,
+            monitor_failure_rate=1,
+            failure_rate_threshold_percent=17,
+        ).insert()
+        frappe.cache().delete_value("critical_operation_rules")
+        frappe.cache().delete_value("critical_operation_rule:test_extra_equiv")
+        single = CriticalOperationRule.get_rule_config("test_extra_equiv")
+        frappe.cache().delete_value("critical_operation_rules")
+        batched = CriticalOperationRule.get_all_rules()["test_extra_equiv"]
+        self.assertEqual(batched, single)
+        # a bool() coercion in the batched build would change the type, not the truthiness
+        self.assertIs(type(batched["allow_system_user"]), int)
+        self.assertIs(type(batched["allow_system_user"]), type(single["allow_system_user"]))
+        self.assertEqual(batched["required_roles"], ["System Manager", "Accounts Manager"])
+        self.assertEqual(batched["monitoring"]["execution_time_threshold_ms"], 1234)

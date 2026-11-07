@@ -628,7 +628,8 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
 
     Returns:
         OperationResult[Dict[str, Any]]: Operation result containing:
-            - sent_count (int): Number of emails sent successfully
+            - sent_count (int): Number of emails really sent (a skip is not a send, #2044)
+            - skipped_count / failed_count (int) and skipped_reasons (dict)
     """
     # Check permissions
     if not frappe.has_permission("Donor", "write"):
@@ -655,6 +656,8 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
         )
 
         sent_count = 0
+        failed_count = 0
+        skipped_reasons = {}
 
         from verenigingen.services.communication.email_service import get_email_service
 
@@ -675,41 +678,56 @@ def send_consent_requests(filters: dict | str | None = None) -> OperationResult[
                     template_name="anbi_consent_request",
                     recipients=[donor.donor_email],
                     context=context,
-                    subject=_("ANBI Consent Request - Tax Benefits for Your Donations"),
+                    subject_override=_("ANBI Consent Request - Tax Benefits for Your Donations"),
                     reference_doctype="Donor",
                     reference_name=donor.name,
                     notification_key="anbi_consent_request",
                 )
 
-                if result.success:
+                if result.skip_reason:
+                    # Cooldown / disabled key / opt-out: nothing went out, so it is
+                    # neither logged nor counted as sent (#2044)
+                    skipped_reasons[result.skip_reason] = skipped_reasons.get(result.skip_reason, 0) + 1
+                elif result.success:
                     # Log the request
-                    frappe.add_comment(
-                        doctype="Donor",
-                        name=donor.name,
-                        text=f"ANBI consent request email sent to {donor.donor_email}",
+                    # frappe has no module-level add_comment; it is a Document method
+                    frappe.get_doc("Donor", donor.name).add_comment(
+                        "Comment", f"ANBI consent request email sent to {donor.donor_email}"
                     )
                     sent_count += 1
                 else:
-                    frappe.logger().error(
-                        f"Failed to send consent request to {donor.donor_email}: {'; '.join(result.errors)}"
+                    failed_count += 1
+                    frappe.log_error(
+                        title="ANBI Consent Email Not Sent",
+                        message=f"{donor.donor_email}: {result.error_message or '; '.join(result.errors)}",
                     )
 
             except Exception as e:
+                failed_count += 1
                 frappe.log_error(
-                    f"Failed to send consent request to {donor.donor_email}: {str(e)}",
-                    "ANBI Consent Email Error",
+                    title="ANBI Consent Email Error",
+                    message=f"Failed to send consent request to {donor.donor_email}: {str(e)}",
                 )
 
         frappe.db.commit()
 
+        skipped_count = sum(skipped_reasons.values())
         return OperationResult.ok(
-            data={"sent_count": sent_count}, message=_("{0} consent request emails sent").format(sent_count)
+            data={
+                "sent_count": sent_count,
+                "skipped_count": skipped_count,
+                "failed_count": failed_count,
+                "skipped_reasons": skipped_reasons,
+            },
+            message=_("{0} consent request emails sent, {1} skipped, {2} failed").format(
+                sent_count, skipped_count, failed_count
+            ),
         )
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to send consent requests: {str(e)}\n{traceback.format_exc()}",
-            "ANBI Consent Request Error",
+            title="ANBI Consent Request Error",
+            message=f"Failed to send consent requests: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Failed to send consent requests"),

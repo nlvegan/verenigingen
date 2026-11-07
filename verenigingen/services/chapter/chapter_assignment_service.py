@@ -100,8 +100,9 @@ class ChapterAssignmentService(StatelessService):
         if not member or not chapter:
             frappe.throw(_("Member and Chapter are required"))
 
-        chapter_doc = frappe.get_doc("Chapter", chapter)
-        result = chapter_doc.member_manager.add_member(member, join_date=join_date)
+        # Chained (no `chapter_doc` variable): the ast-field-analyzer hook reads
+        # `chapter_doc.member_manager`, a property, as a missing field.
+        result = frappe.get_doc("Chapter", chapter).member_manager.add_member(member, join_date=join_date)
 
         if result.get("action") == "already_exists":
             # Nothing changed, so there is nothing to record: rewriting the tracking
@@ -359,8 +360,21 @@ class ChapterAssignmentService(StatelessService):
 
                 self.logger.info(f"Ended board membership {board_membership.name} for member {member}")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
+                # A failed WITHDRAWAL must reach the caller (#1953): swallowing it leaves the
+                # row ended and the user still holding the board role. assign_with_cleanup
+                # rolls its savepoint back on this raise.
+                from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+                if isinstance(e, BoardAccessWithdrawalError):
+                    raise
                 self.logger.error(f"Error ending board membership {board_membership.name}: {str(e)}")
+                frappe.log_error(
+                    title="Chapter board term ending failed",
+                    message=f"Board membership {board_membership.name} of member {member}: {str(e)}",
+                )
 
         return cleanup_performed
 

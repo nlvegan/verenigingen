@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import frappe
 
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
+
 
 class TestTokenExpiryTracking(unittest.TestCase):
     """Test cases for token expiry tracking in EBoekhoudenRESTClient."""
@@ -345,9 +347,9 @@ class TestRetryMechanism(unittest.TestCase):
         self.assertIn(401, EBoekhoudenRESTClient.AUTH_REFRESH_STATUS_CODES)
         self.assertIn(403, EBoekhoudenRESTClient.AUTH_REFRESH_STATUS_CODES)
 
-    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
+    @patch_module_sleep("verenigingen.e_boekhouden.utils.http_client_mixin")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
-    def test_retry_on_500_error(self, mock_requests, mock_sleep):
+    def test_retry_on_500_error(self, mock_requests, mock_time):
         """Should retry on 500 server error with exponential backoff."""
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
             EBoekhoudenRESTClient,
@@ -378,7 +380,7 @@ class TestRetryMechanism(unittest.TestCase):
         # Should have called get 3 times (2 retries + 1 success)
         self.assertEqual(mock_requests.get.call_count, 3)
         # Should have slept twice for backoff
-        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_time.sleep.call_count, 2)
 
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
@@ -506,9 +508,9 @@ class TestRetryMechanism(unittest.TestCase):
         # Should have called get only twice (original + 1 retry after refresh)
         self.assertEqual(mock_requests.get.call_count, 2)
 
-    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
+    @patch_module_sleep("verenigingen.e_boekhouden.utils.http_client_mixin")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
-    def test_timeout_triggers_retry(self, mock_requests, mock_sleep):
+    def test_timeout_triggers_retry(self, mock_requests, mock_time):
         """Should retry on connection timeout."""
         from requests.exceptions import Timeout
 
@@ -533,7 +535,7 @@ class TestRetryMechanism(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_requests.get.call_count, 2)
         # Should have slept once for backoff
-        self.assertEqual(mock_sleep.call_count, 1)
+        self.assertEqual(mock_time.sleep.call_count, 1)
 
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
@@ -565,9 +567,9 @@ class TestRetryMechanism(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_requests.get.call_count, 2)
 
-    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
+    @patch_module_sleep("verenigingen.e_boekhouden.utils.http_client_mixin")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
-    def test_exponential_backoff_delays(self, mock_requests, mock_sleep):
+    def test_exponential_backoff_delays(self, mock_requests, mock_time):
         """Should use exponential backoff delays."""
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
             EBoekhoudenRESTClient,
@@ -598,7 +600,7 @@ class TestRetryMechanism(unittest.TestCase):
         client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
 
         # Check exponential backoff: 1*2^0=1, 1*2^1=2, 1*2^2=4
-        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        sleep_calls = [call[0][0] for call in mock_time.sleep.call_args_list]
         self.assertEqual(sleep_calls, [1.0, 2.0, 4.0])
 
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")

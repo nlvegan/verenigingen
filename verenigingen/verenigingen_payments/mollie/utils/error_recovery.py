@@ -22,6 +22,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
 from .logging import MollieLogger
 
@@ -135,6 +137,7 @@ class MollieErrorRecovery:
                 return result
 
             except Exception as e:
+                reraise_if_job_timeout(e)
                 last_exception = e
                 severity = self._classify_error_severity(e)
 

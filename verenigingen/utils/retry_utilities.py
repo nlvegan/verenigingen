@@ -22,6 +22,11 @@ from typing import Callable, Optional, Tuple, Type
 
 import frappe
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import (
+    is_job_timeout,
+    reraise_if_job_timeout,
+)
+
 
 class ErrorCategory(Enum):
     """Classification of error types for retry strategies"""
@@ -149,6 +154,7 @@ def retry_with_backoff(
                     return func(*args, **kwargs)
 
                 except Exception as e:
+                    reraise_if_job_timeout(e)
                     last_exception = e
 
                     # Check if we should skip retry for this exception
@@ -266,6 +272,9 @@ class RetryContext:
         if self.current_attempt > self.max_retries:
             return False
 
+        if is_job_timeout(exception):
+            return False
+
         category = classify_error(exception)
 
         if category == ErrorCategory.PERMANENT:
@@ -316,6 +325,7 @@ def retry_operation(
             return result
 
         except Exception as e:
+            reraise_if_job_timeout(e)
             last_exception = e
 
             if not retry_ctx.should_retry(e):
