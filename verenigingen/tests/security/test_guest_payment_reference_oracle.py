@@ -307,6 +307,46 @@ class TestOwnedReferenceLookup(EnhancedTestCase):
         self.track_doc("Sales Invoice", invoice.name)
         self._assert_unknown_matches_existing("Sales Invoice", invoice.name, "ACC-SINV-NOPE-1")
 
+    def _member_invoice(self, *, link_member_field):
+        """A member invoice as the real writers leave it: blank contact_email (#2103).
+
+        Stand-in said plainly: the factory builds the invoice and `db_set` blanks contact_email
+        and sets/clears `member`, mirroring (not running) the real invoice writers.
+        """
+        member = self.create_test_member()
+        invoice = self.create_test_sales_invoice(member.name)
+        self.track_doc("Sales Invoice", invoice.name)
+        invoice.db_set("contact_email", None)
+        invoice.db_set("member", member.name if link_member_field else None)
+        return member, invoice
+
+    def test_member_invoice_via_member_field_costs_the_same_as_an_unknown_one(self):
+        _member, invoice = self._member_invoice(link_member_field=True)
+        self._assert_unknown_matches_existing("Sales Invoice", invoice.name, "ACC-SINV-NOPE-1")
+
+    def test_member_invoice_via_customer_costs_the_same_as_an_unknown_one(self):
+        _member, invoice = self._member_invoice(link_member_field=False)
+        self._assert_unknown_matches_existing("Sales Invoice", invoice.name, "ACC-SINV-NOPE-1")
+
+    def test_the_members_email_proves_ownership_of_a_member_invoice(self):
+        from verenigingen.verenigingen_payments.utils.reference_ownership import load_owned_reference
+
+        for link_member_field in (True, False):
+            member, invoice = self._member_invoice(link_member_field=link_member_field)
+            with self.subTest(link_member_field=link_member_field):
+                doc = load_owned_reference("Sales Invoice", invoice.name, f" {member.email.upper()} ")
+                self.assertEqual(doc.name, invoice.name)
+
+    def test_an_unknown_invoice_is_not_owned_by_a_member_with_an_empty_customer(self):
+        """The customer fallback runs for an unknown invoice too (equal query counts), with an empty
+        customer. A Member whose customer is '' must not become that invoice's owner."""
+        from verenigingen.verenigingen_payments.utils.reference_ownership import _owner_email_on_file
+
+        member = self.create_test_member()
+        member.db_set("customer", "")
+        self.assertEqual(frappe.db.count("Member", {"customer": ""}), 1)
+        self.assertEqual(_owner_email_on_file("Sales Invoice", "ACC-SINV-NOPE-1"), "")
+
     def test_a_filter_dict_as_the_name_is_refused_not_read_as_filters(self):
         """get_value reads a dict name as filters: {"donor_email": "%"} must not match a real Donation."""
         from verenigingen.verenigingen_payments.utils.reference_ownership import _owner_email_on_file
