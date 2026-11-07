@@ -292,39 +292,36 @@ class ChapterAssignmentService(StatelessService):
 
         for membership in existing_memberships:
             if membership.parent != target_chapter:
-                try:
-                    # Try to use chapter's remove_member method first
-                    old_chapter_doc = frappe.get_doc("Chapter", membership.parent)
-                    old_chapter_doc.remove_member(member, leave_reason=f"Reassigned to {target_chapter}")
-                    cleanup_performed = True
-                    self.logger.info(f"Removed member {member} from chapter {membership.parent}")
-
-                except Exception as e:
-                    # If chapter method fails, disable directly
-                    try:
-                        frappe.db.set_value("Chapter Member", membership.name, "enabled", 0)
-                        frappe.db.set_value(
-                            "Chapter Member",
-                            membership.name,
-                            "leave_reason",
-                            f"Reassigned to {target_chapter}",
-                        )
-                        # No commit here: it would clear the savepoint assign_with_cleanup
-                        # rolls back to when the add is refused (#1793). The request-level
-                        # commit persists this.
-                        cleanup_performed = True
-                        self.logger.info(
-                            f"Directly disabled membership {membership.name} for member {member}"
-                        )
-
-                    except Exception as e2:
-                        self.logger.error(
-                            f"Error removing member from chapter {membership.parent}: {str(e)} and {str(e2)}"
-                        )
+                self._remove_from_old_chapter(member, membership.parent, target_chapter)
+                cleanup_performed = True
             else:
                 self.logger.info(f"Member {member} is already in target chapter {target_chapter}")
 
         return cleanup_performed
+
+    def _remove_from_old_chapter(self, member: str, old_chapter: str, target_chapter: str) -> None:
+        """Remove the member from one old chapter through the full path, or refuse the move.
+
+        Chapter.remove_member records the termination history and tells both boards. It
+        raises when the old chapter cannot be saved: a deliberate refusal (the National
+        Board chapter for a Verenigingen Administrator), a chapter that fails its own
+        validation, or a lock timeout. A direct ``set_value(enabled=0)`` fallback used to
+        disable the row anyway: no history, no "Member left" mail, and the refusal
+        bypassed (#1945). The raise now ends the move; assign_with_cleanup rolls back.
+        """
+        try:
+            frappe.get_doc("Chapter", old_chapter).remove_member(
+                member, leave_reason=f"Reassigned to {target_chapter}"
+            )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            frappe.throw(
+                _("{0} could not be removed from chapter {1}, so the move to {2} was not made: {3}").format(
+                    member, old_chapter, target_chapter, str(e) or type(e).__name__
+                )
+            )
+        self.logger.info(f"Removed member {member} from chapter {old_chapter}")
 
     def _cleanup_board_memberships(self, member: str, reassignment_reason: str) -> bool:
         """End all board memberships for a member.
