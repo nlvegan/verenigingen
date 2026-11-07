@@ -63,11 +63,7 @@ class ChapterMembershipManager:
 
             # Use the chapter's member manager to request membership (pending approval)
             result = chapter_doc.member_manager.request_to_join(  # ast-skip: @property not field
-                member_id=member_id,
-                introduction=introduction,
-                website_url=website_url,
-                notify=True,
-                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
+                member_id=member_id, introduction=introduction, website_url=website_url, notify=True
             )
 
             # Update member tracking fields if successful
@@ -161,7 +157,7 @@ class ChapterMembershipManager:
     def _proved_member_caller(user_email: str) -> bool:
         """Whether the caller is a real user that `_caller_is_member` just matched by Member.user.
 
-        Only then may the member's own row be written without Chapter:write (#2166, #2165).
+        Only then may the member's own row be left without Chapter:write (#2166).
         No caller or Administrator is an internal call: it keeps its own permissions.
         """
         return bool(user_email) and user_email != "Administrator"

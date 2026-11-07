@@ -307,7 +307,6 @@ class MemberManager(BaseManager):
         introduction: str = None,
         website_url: str = None,
         notify: bool = True,
-        acting_as_member: bool = False,
     ) -> Dict:
         """
         Request to join this chapter (creates pending membership)
@@ -317,9 +316,6 @@ class MemberManager(BaseManager):
             introduction: Member introduction text
             website_url: Member website URL
             notify: Whether to send notification
-            acting_as_member: The caller was already proved to BE `member_id` (Member.user);
-                the member's own rejoin request then needs no Chapter:write (#2165), as the
-                first-time request already does not.
 
         Returns:
             Dict with operation result
@@ -371,7 +367,6 @@ class MemberManager(BaseManager):
                         doc=self.chapter_doc,
                         justification=f"Reactivate membership request for {member_id} in chapter {self.chapter_name}",
                         required_permissions=["Chapter:write"],
-                        system_operation=acting_as_member,
                     )
 
                     if not save_result.success:

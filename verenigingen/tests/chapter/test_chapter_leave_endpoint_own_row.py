@@ -1,22 +1,19 @@
-"""#2166 / #2165: a member's OWN leave and rejoin work without Chapter:write; nobody else's do.
+"""#2166: a member's OWN leave works without Chapter:write; nobody else's does.
 
-`Chapter.leave_chapter` / `join_chapter` (whitelisted) identify the caller by Member.user (#2069,
-#1853) and then ran the Chapter save / rejoin write as that caller, so a Chapter Board Member
+`Chapter.leave_chapter` (whitelisted) identifies the caller by Member.user (#2069,
+#1853) and then ran the Chapter save as that caller, so a Chapter Board Member
 profile user without Chapter:write on that chapter was refused for their own row. Callers here are
 real users with the real "Verenigingen Chapter Board Member" role profile (the least-privileged
 profile that clears @high_security_api; a plain Verenigingen Member is refused by that tier gate
 before any check under test, measured: PermissionError).
-
-Probe shortcut, stated: the "Inactive, enabled=1" row for the rejoin test is written with `db_set`
-(no flow found that leaves a row in that state for a member who may rejoin); the claim is only
-that a rejoin from that state is not refused for lack of Chapter:write.
 """
 
 import frappe
 
 from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen.doctype.chapter.chapter import join_chapter, leave_chapter
+from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+from verenigingen.verenigingen.doctype.chapter.chapter import leave_chapter
 
 
 class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
@@ -87,14 +84,26 @@ class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
                 chapter_doc.member_manager.remove_member(self.me.member.name, leave_reason="x")
         self.assertEqual(self._row_2166(self.me.member).enabled, 1)
 
-    def test_member_rejoins_own_inactive_row_without_chapter_write(self):
-        """#2165: the rejoin branch writes a Pending request for the member's own row."""
-        frappe.db.set_value(
-            "Chapter Member",
-            {"parent": self.chapter.name, "member": self.me.member.name},
-            {"status": "Inactive", "enabled": 1},
-        )
+    def test_proved_caller_is_false_for_internal_callers(self):
+        self.assertFalse(ChapterMembershipManager._proved_member_caller(None))
+        self.assertFalse(ChapterMembershipManager._proved_member_caller(""))
+        self.assertFalse(ChapterMembershipManager._proved_member_caller("Administrator"))
+        self.assertTrue(ChapterMembershipManager._proved_member_caller(self.me.user))
+
+    def test_internal_caller_without_user_does_not_elevate(self):
+        """user_email=None is trusted by the identity gate but must keep its own permissions."""
         with self.as_user(self.me.user):
-            response = join_chapter(self.me.member.name, self.chapter.name, "back")
-        self.assertEqual(response.get("success"), True, response)
-        self.assertEqual(self._row_2166(self.me.member).status, "Pending")
+            result = ChapterMembershipManager.leave_chapter(
+                member_id=self.me.member.name, chapter_name=self.chapter.name, leave_reason="x"
+            )
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._row_2166(self.me.member).enabled, 1)
+
+    def test_non_active_member_may_leave_own_row(self):
+        """Maintainer ruling 2026-11-07: a non-Active member may leave their own chapter.
+
+        Probe shortcut: status is set with db_set (stand-in for a suspension flow).
+        """
+        self.me.member.db_set("status", "Suspended")
+        response, _log, _errors = self._call_leave(self.me, self.me.member.name)
+        self.assertEqual(response, {"success": True, "removed": True})
