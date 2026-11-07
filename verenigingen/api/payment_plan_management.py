@@ -13,6 +13,7 @@ from frappe.utils import add_months, flt, getdate, today
 # Import security framework and OperationResult
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
@@ -203,16 +204,12 @@ def send_payment_plan_request_notification(payment_plan):
     try:
         member = frappe.get_doc("Member", payment_plan.member)
 
-        # Get admin users
-        admin_users = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", list(Roles.ADMIN_PAIR)]},
-            fields=["parent"],
-            pluck="parent",
-        )
-
-        admin_emails = frappe.get_all(
-            "User", filters={"name": ["in", admin_users], "enabled": 1}, fields=["email"], pluck="email"
+        # The key's own recipients first, then enabled admin-role holders; never Administrator (#2095).
+        admin_emails = resolve_admin_recipients(
+            notification_key="payment_plan_request",
+            default_roles=list(Roles.ADMIN_PAIR),
+            exclude_users=("Administrator",),
+            key_first=True,
         )
 
         if not admin_emails:

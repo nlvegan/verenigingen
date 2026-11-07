@@ -285,6 +285,19 @@ class TestProcessRefundChargebackDelegation(FrappeTestCase):
         self.assertEqual(captured["amount"], 12.0)
         self.assertEqual(captured["reversal_date"], "2026-02-02")
 
+    def test_refund_and_chargeback_read_mollies_createdAt_2138(self):
+        """#2138: a Mollie-shaped resource has ``createdAt``; the date must reach the booking."""
+        captured = []
+        self.svc.process_reversal_webhook = lambda **kw: captured.append(kw) or {"status": "ok"}
+        self.svc.process_refund_webhook(
+            "tr_1", {"id": "re_7", "amount": {"value": "1.00"}, "createdAt": "2026-03-03T10:00:00+00:00"}
+        )
+        self.svc.process_chargeback_webhook(
+            "tr_1",
+            {"id": "chb_7", "amount": {"value": "1.00"}, "createdAt": "2026-03-04T10:00:00+00:00"},
+        )
+        self.assertEqual([c["reversal_date"] for c in captured], ["2026-03-03", "2026-03-04"])
+
     def test_refund_extracts_nested_id(self):
         captured = {}
         self.svc.process_reversal_webhook = lambda **kw: captured.update(kw) or {"status": "ok"}

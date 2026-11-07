@@ -15,6 +15,7 @@ import frappe
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 
 class MigrationError:
@@ -74,6 +75,7 @@ def with_retry(retry_strategy=None, error_handler=None):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    reraise_if_job_timeout(e)
                     last_error = MigrationError(
                         error_type=type(e).__name__,
                         message=str(e),
