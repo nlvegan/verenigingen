@@ -420,9 +420,7 @@ verenigingen/utils/team_role_profile_hooks.py::_sync_team_lead_role::1
 verenigingen/utils/user_member_image_sync.py::sync_member_image_to_user::1
 verenigingen/utils/user_member_image_sync.py::sync_user_image_to_member::1
 verenigingen/utils/version_cleanup.py::nuclear_truncate_version_and_deleted_tables::2
-verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.handle_completion::1
 verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.mark_failed::1
-verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.send_member_approval_email::1
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::APIAuditLog.cleanup_old_entries::2
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::APIAuditLog.create_audit_entry::1
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::clear_all_audit_logs::3
