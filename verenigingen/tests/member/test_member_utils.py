@@ -574,7 +574,7 @@ class TestMemberUtils(EnhancedTestCase):
         def _call(member_id):
             # Compare every channel, not just the exception: type, message,
             # message_log (frappe.throw appends before raising) and Error Log.
-            frappe.local.message_log = []
+            frappe.local.message_log = []  # Mock justified: execution-context reset (trim before call)
             errors_before = frappe.db.count("Error Log")
             try:
                 validate_member_ownership(member_id)
