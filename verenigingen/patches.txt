@@ -112,4 +112,5 @@ verenigingen.patches.v2_2.seed_missing_notification_registry_rows
 verenigingen.patches.v2_2.apply_v15_cooldowns_to_seeded_rows
 verenigingen.patches.v2_2.move_scheduler_alert_to_financial_manager
 verenigingen.patches.v2_2.restore_staff_alert_audiences_2095
+verenigingen.patches.v2_2.move_door_slots_into_payment_plans
 verenigingen.patches.v2_2.zero_contact_request_cooldown_2174

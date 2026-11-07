@@ -89,3 +89,20 @@ class TestGetRecipientsByRoles(EnhancedTestCase):
         """A role that no user holds returns an empty list."""
         result = get_recipients_by_roles(["__nonexistent_role_xyz__"])
         self.assertEqual(result, [])
+
+    def test_administrator_is_never_a_recipient(self):
+        """#2036: Administrator holds System Manager but is not in active use (staff alerts never go to it)."""
+        self.addCleanup(
+            frappe.db.set_value,
+            "User",
+            "Administrator",
+            "email",
+            frappe.db.get_value("User", "Administrator", "email"),
+            update_modified=False,
+        )
+        admin_email = "administrator-2036@example.org"
+        frappe.db.set_value("User", "Administrator", "email", admin_email, update_modified=False)
+        user = self._make_enabled_user("not-admin", "System Manager")
+        result = get_recipients_by_roles(["System Manager"])
+        self.assertIn(user.email, result)  # control: a real holder is still found
+        self.assertNotIn(admin_email, result)

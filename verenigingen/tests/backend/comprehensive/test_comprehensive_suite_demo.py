@@ -15,9 +15,14 @@ from frappe.utils import today
 from verenigingen.tests.fixtures.test_personas import TestPersonas
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
-from verenigingen.tests.backend.workflows.test_member_lifecycle import TestMemberLifecycle
-from verenigingen.tests.backend.workflows.test_payment_failure_recovery import TestPaymentFailureRecovery
-from verenigingen.tests.backend.workflows.test_volunteer_journey import TestVolunteerJourney
+
+# Import the MODULES, not the classes: a TestCase bound at module level is collected again
+# under this module and its tests run twice (#1939).
+from verenigingen.tests.backend.workflows import (
+    test_member_lifecycle,
+    test_payment_failure_recovery,
+    test_volunteer_journey,
+)
 
 
 class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
@@ -178,7 +183,11 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
 
         # In a real implementation, these could run concurrently
         # For demonstration, we just verify the workflow classes exist
-        workflow_classes = [TestMemberLifecycle, TestVolunteerJourney, TestPaymentFailureRecovery]
+        workflow_classes = [
+            test_member_lifecycle.TestMemberLifecycle,
+            test_volunteer_journey.TestVolunteerJourney,
+            test_payment_failure_recovery.TestPaymentFailureRecovery,
+        ]
 
         for workflow_class in workflow_classes:
             self.assertTrue(
@@ -239,7 +248,11 @@ class TestSuiteHealthCheck(VereningingenWorkflowTestCase):
 
     def test_workflow_classes_health(self):
         """Test that workflow test classes are properly structured"""
-        workflow_classes = [TestMemberLifecycle, TestVolunteerJourney, TestPaymentFailureRecovery]
+        workflow_classes = [
+            test_member_lifecycle.TestMemberLifecycle,
+            test_volunteer_journey.TestVolunteerJourney,
+            test_payment_failure_recovery.TestPaymentFailureRecovery,
+        ]
 
         for workflow_class in workflow_classes:
             # Should inherit from workflow test case

@@ -521,6 +521,16 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "door_unavailable": {
+        "label": "Application Door Unavailable (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a /word-lid application door offers no payment plan because of how it or its "
+        "dues templates are configured, so applicants see 'cannot be used right now'. At most once a day per "
+        "door and reason while the problem lasts. The mail names the door, the membership type and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
+    },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS
     # =========================================================================
@@ -817,6 +827,7 @@ NOTIFICATION_KEYS = {
 REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
+        "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
         "sepa_monitoring_alert",
