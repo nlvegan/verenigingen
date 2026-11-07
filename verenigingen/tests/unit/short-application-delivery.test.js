@@ -44,12 +44,13 @@ function data(form) {
 	};
 }
 
+const PLAN = { id: 'p1', mode: 'Flexible', frequency: 'Annual', minimum: 0, postal_minimum: 0 };
 const DELIVERY = 'Please choose how you want to receive the magazine and the starter guide.';
 
 describe('short application delivery questions', () => {
 	test('answered questions raise no problem', () => {
 		const form = render('Digitaal', 'Geen');
-		expect(problems({ form, isRegular: true, minimums: {} }, data(form))).toEqual([]);
+		expect(problems({ form, isRegular: true, plan: PLAN }, data(form))).toEqual([]);
 	});
 
 	test.each([
@@ -57,7 +58,7 @@ describe('short application delivery questions', () => {
 		['Digitaal', '']
 	])('an unanswered question is a problem (magazine=%p, guide=%p)', (magazine, guide) => {
 		const form = render(magazine, guide);
-		expect(problems({ form, isRegular: true, minimums: {} }, data(form))).toContain(DELIVERY);
+		expect(problems({ form, isRegular: true, plan: PLAN }, data(form))).toContain(DELIVERY);
 	});
 
 	test('a hidden question is not required', () => {
@@ -65,7 +66,7 @@ describe('short application delivery questions', () => {
 		const posted = data(form);
 		form.elements.starter_guide_delivery.remove();
 		delete posted.starter_guide_delivery;
-		expect(problems({ form, isRegular: true, minimums: {} }, posted)).toEqual([]);
+		expect(problems({ form, isRegular: true, plan: PLAN }, posted)).toEqual([]);
 	});
 
 	test('an address abroad leaves an unanswered question unanswered', () => {

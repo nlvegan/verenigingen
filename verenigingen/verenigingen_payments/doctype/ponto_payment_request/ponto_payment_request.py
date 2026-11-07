@@ -166,7 +166,7 @@ class PontoPaymentRequest(Document):
 
         except Exception as e:
             frappe.log_error(
-                title="Ponto payment creation failed",
+                title=f"Ponto payment creation failed: {self.name}",
                 message=str(e),
             )
             frappe.throw(

@@ -83,7 +83,7 @@ class TestShortApplicationValidation(ApplicationDoorMixin, VereningingenUnitTest
 
     def test_valid_regular_payload_is_cleaned(self):
         cleaned = sav.validate_short_application(self.door, self._validation_data())
-        self.assertEqual(cleaned["selected_dues_schedule"], self.door.monthly_dues_template)
+        self.assertEqual(cleaned["selected_dues_schedule"], self.template)
         self.assertEqual(cleaned["email"], "anna@example.org")
         self.assertEqual(cleaned["first_name"], "Anna")
         self.assertEqual(cleaned["amount"], 7.5)
