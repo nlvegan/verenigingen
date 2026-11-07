@@ -1,0 +1,74 @@
+name: Warm CI Caches
+
+# Keeps develop's setup caches (apt archives, pip, yarn, npm, wkhtmltopdf) fresh (#2184).
+#
+# A workflow run can restore caches from its own ref or from the default branch, and a cache
+# it saves is scoped to its own ref (GitHub docs, "Cache access restrictions"). Merge-queue
+# runs use temporary gh-readonly-queue/... branches: measured 2026-11-07, 0 caches exist
+# under any such ref after several queue runs, while develop's are restored by them. Once
+# the server suite stopped running on develop pushes (#2227), nothing saved caches on
+# develop any more, so the weekly apt key (apt-archives-<image>-<ISO week>) would go cold
+# every Monday and the slow-mirror setup failures of #2188 would return.
+#
+# This runs the setup action once on develop - no tests - purely so its cache steps save.
+
+on:
+  schedule:
+    - cron: '23 4 * * *'  # daily; a 7-day-unused cache is evicted, and the apt key is weekly
+  workflow_dispatch:
+
+concurrency:
+  group: cache-warm
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    name: Warm setup caches on develop
+    # Same image as the suite, so the image-keyed apt cache is the one the suite restores.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    # The setup action builds the site, so it needs the suite's database and Redis services.
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: db_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis-cache:
+        image: redis:alpine
+        ports:
+          - 13000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+      redis-queue:
+        image: redis:alpine
+        ports:
+          - 11000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run setup (its cache steps save on success)
+        uses: ./.github/actions/setup
+        with:
+          # Same inputs as server-tests.yml, so the cache keys match what the suite restores.
+          python-version: '3.14'
+          node-version: 24
