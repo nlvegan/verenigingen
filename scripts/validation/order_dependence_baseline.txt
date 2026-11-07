@@ -42,7 +42,7 @@ COMMIT tests/api/test_email_template_manager.py::4  # order-dependence
 COMMIT tests/api/test_membership_email_templates.py::2  # order-dependence
 COMMIT tests/api/test_schedule_maintenance.py::1  # order-dependence
 COMMIT tests/api/test_volunteer_application.py::1  # order-dependence
-COMMIT tests/api/test_workspace_health.py::2  # order-dependence
+COMMIT tests/api/test_workspace_health.py::1  # order-dependence
 COMMIT tests/backend/components/test_chapter_assignment_edge_cases.py::2  # order-dependence
 COMMIT tests/backend/components/test_member_status_transitions.py::1  # order-dependence
 COMMIT tests/backend/components/test_membership_analytics_permissions.py::1  # order-dependence
