@@ -892,8 +892,15 @@ class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):
             set(self.targets), _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS
         )
 
+    # #2184 flip: server-tests.yml now has NO `paths:` on any trigger (the suite runs per
+    # merge-queue batch, and a path-skipped workflow cannot report the required Test Summary).
+    # An absent filter covers every file, so these pass trivially today and re-arm the moment
+    # a `paths:` list comes back. Control: test_workflow_merge_group_readiness's
+    # test_no_trigger_carries_a_path_filter fails if one does, so the two cannot both drift.
     def test_push_paths_cover_every_scripts_file_tests_import(self):
         paths = wpf.extract_trigger_paths(self.text, "push")
+        if not paths:
+            return  # no push trigger, or an unfiltered one: nothing is filtered out
         for target in self.targets:
             with self.subTest(target=target):
                 self.assertTrue(
@@ -904,6 +911,8 @@ class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):
 
     def test_pull_request_paths_cover_every_scripts_file_tests_import(self):
         paths = wpf.extract_trigger_paths(self.text, "pull_request")
+        if not paths:
+            return  # unfiltered pull_request trigger: every file reaches Test Summary
         for target in self.targets:
             with self.subTest(target=target):
                 self.assertTrue(
