@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 # Every field _build_config reads; get_all_rules selects exactly these.
@@ -281,21 +282,7 @@ class CriticalOperationRule(Document):
     def _get_admin_emails(self):
         """Get list of admin emails for notifications"""
         try:
-            admins = frappe.get_all(
-                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-            )
-
-            admin_emails = []
-            for admin in admins:
-                try:
-                    user = frappe.get_doc("User", admin.parent)
-                    if user.enabled and user.email and "@" in user.email:
-                        admin_emails.append(user.email)
-                except Exception:
-                    continue  # Skip problematic user records
-
-            return admin_emails
-
+            return _security_policy_digest_recipients()
         except Exception:
             return []
 
@@ -451,17 +438,7 @@ def send_security_policy_change_digest():
         return
 
     # Get admin emails
-    admins = frappe.get_all(
-        "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-    )
-    admin_emails = []
-    for admin in admins:
-        try:
-            user = frappe.get_doc("User", admin.parent)
-            if user.enabled and user.email and "@" in user.email:
-                admin_emails.append(user.email)
-        except Exception:
-            continue
+    admin_emails = _security_policy_digest_recipients()
 
     if not admin_emails:
         frappe.logger("critical_operation_rule").info(
@@ -525,3 +502,16 @@ def send_security_policy_change_digest():
 
     except Exception as e:
         frappe.logger("critical_operation_rule").warning(f"Could not send security policy digest: {str(e)}")
+
+
+def _security_policy_digest_recipients():
+    """Who gets the security policy digest: the key's own recipients, else enabled System Managers.
+
+    Never the Administrator user (#2095).
+    """
+    return resolve_admin_recipients(
+        notification_key="security_policy_digest",
+        default_roles=[Roles.SYSTEM_MANAGER],
+        exclude_users=("Administrator",),
+        key_first=True,
+    )

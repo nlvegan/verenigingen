@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 import paramiko
 
 from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
 
 
 class _FakeCursor:
@@ -352,8 +353,8 @@ class TestConnectRetry(unittest.TestCase):
         self.assertIn("authentication failed", str(cm.exception))
         self.assertEqual(client._open_tunnel.call_count, 1)
 
-    @patch("verenigingen.mijnrood_sync.client.time.sleep", return_value=None)
-    def test_transient_retries_then_fails(self, _sleep):
+    @patch_module_sleep("verenigingen.mijnrood_sync.client")
+    def test_transient_retries_then_fails(self, _time):
         client = _make_client()
         client._open_tunnel = MagicMock(side_effect=OSError("down"))
         client.disconnect = MagicMock()
@@ -361,7 +362,7 @@ class TestConnectRetry(unittest.TestCase):
             client.connect(max_retries=3)
         self.assertIn("after 3 attempts", str(cm.exception))
         self.assertEqual(client._open_tunnel.call_count, 3)
-        self.assertEqual(_sleep.call_count, 2)
+        self.assertEqual(_time.sleep.call_count, 2)
 
     @patch("verenigingen.mijnrood_sync.client.time.sleep", return_value=None)
     def test_transient_then_success(self, _sleep):
