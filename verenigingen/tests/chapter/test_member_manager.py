@@ -448,9 +448,7 @@ class TestMemberManager(VereningingenTestCase):
         )
         volunteer = self.create_test_volunteer(member_name=board_member.name)
         role_name = f"BoardNotify{frappe.generate_hash(length=6)}"
-        frappe.get_doc(
-            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}
-        ).insert()
+        self.create_test_chapter_role(role_name=role_name)
         self.add_board_member_to_chapter(
             self.chapter, volunteer, role_name, email=board_member.email
         )
@@ -474,9 +472,7 @@ class TestMemberManager(VereningingenTestCase):
         )
         volunteer = self.create_test_volunteer(member_name=board_member.name)
         role_name = f"BoardJoinMail{frappe.generate_hash(length=6)}"
-        frappe.get_doc(
-            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}
-        ).insert()
+        self.create_test_chapter_role(role_name=role_name)
         self.add_board_member_to_chapter(self.chapter, volunteer, role_name, email=board_member.email)
         self._reload_chapter()
         # The row's email is fetched from the Volunteer on save, so read it back rather than
