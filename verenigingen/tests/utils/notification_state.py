@@ -8,8 +8,8 @@ them (#1998), so the same test checks different things in the two places.
 
 ``own_notification_keys`` makes the state the test's own: it seeds exactly the keys it names
 (enabled, cooldown 0, so Redis is never read), switches the master switch on, and restores the
-child rows and the switch afterwards. ``singleton_backup`` is not an option for the rows: it does not restore
-child tables (#2029).
+child rows and the switch afterwards. ``singleton_backup`` restores child tables since #2091, but it
+commits, so it would make a leak permanent; this helper restores uncommitted instead (#2029, #2159).
 
 Caveat: the restore is uncommitted, like the seed, so the surrounding rollback undoes both. A
 ``frappe.db.commit()`` inside the test body (or in code it calls) makes the seed permanent for every
