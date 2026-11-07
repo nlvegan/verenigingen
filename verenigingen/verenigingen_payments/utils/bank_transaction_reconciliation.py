@@ -16,7 +16,7 @@ from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-from verenigingen.verenigingen_payments.utils.bank_transaction_status import persist_draft_status
+from verenigingen.verenigingen_payments.utils import bank_transaction_status
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -203,8 +203,9 @@ class PaymentReconciliationManager:
     def reconcile_bank_transactions(self, bank_account=None, from_date=None, to_date=None):
         """Reconcile imported bank transactions with SEPA batches"""
 
-        # Get unreconciled bank transactions (ones without payment allocations)
-        filters = {"status": "Pending", "allocated_amount": ["in", [0, None]]}
+        # Drafts with nothing allocated and no terminal outcome from an earlier run. Keyed on
+        # the app-owned marker, not on status, which ERPNext owns (#2082).
+        filters = bank_transaction_status.pool_filters()
 
         if bank_account:
             filters["bank_account"] = bank_account
@@ -944,7 +945,9 @@ class PaymentReconciliationManager:
                             f'(Confidence: {match["confidence"]:.0%})',
                         )
                         bank_trans.save()
-                        persist_draft_status(bank_trans, "Reconciled")
+                        bank_transaction_status.record_pool_outcome(
+                            bank_trans, bank_transaction_status.RECONCILED
+                        )
                         return True
 
                     self._mark_transaction_unreconciled(
@@ -1001,7 +1004,9 @@ class PaymentReconciliationManager:
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
                     )
                     bank_trans.save()
-                    persist_draft_status(bank_trans, "Reconciled")
+                    bank_transaction_status.record_pool_outcome(
+                        bank_trans, bank_transaction_status.RECONCILED
+                    )
 
                     return True
 
@@ -1090,9 +1095,9 @@ class PaymentReconciliationManager:
                         return False
 
                     # Update bank transaction with settlement processing details
+                    # "Mollie Settlement Processed" is a terminal pool outcome (#2082).
                     bank_trans.custom_processing_status = "Mollie Settlement Processed"
                     bank_trans.save()
-                    persist_draft_status(bank_trans, "Reconciled")
 
                     self._add_comment_without_failing(
                         bank_trans,
@@ -1115,8 +1120,8 @@ class PaymentReconciliationManager:
                     return False
 
             elif match["type"] == "multiple":
-                # Flag for manual review but don't mark as failed
-                bank_trans.status = "Pending"
+                # Flag for manual review but don't mark as failed: no outcome is recorded,
+                # so the draft stays in the pool.
                 bank_trans.add_comment(
                     "Comment",
                     f'Multiple matches found: {len(match["matches"])} invoices with amount {transaction["deposit"]} - Manual review required',
@@ -1132,10 +1137,9 @@ class PaymentReconciliationManager:
     def _record_settlement_failure(self, transaction, match, reason):
         """Record a failed Mollie settlement, preserving retryability when it is safe.
 
-        ``reconcile_bank_transactions`` only ever picks up transactions with status
-        "Pending" and nothing anywhere moves a transaction back out of "Unreconciled",
-        so marking it Unreconciled permanently removes the deposit from
-        auto-reconciliation. That is right once the settlement has posted its
+        ``reconcile_bank_transactions`` skips a draft carrying a terminal outcome marker
+        and nothing anywhere clears one, so marking it failed (``_mark_transaction_unreconciled``)
+        permanently removes the deposit from auto-reconciliation (#2082). That is right once the settlement has posted its
         accounting and wrong for a failure that posted nothing, e.g. a Mollie API
         outage, which would simply have succeeded on the next run.
 
@@ -1368,11 +1372,11 @@ class PaymentReconciliationManager:
             )
 
     def _comment_transaction_failure(self, transaction, reason):
-        """Record why reconciliation failed WITHOUT touching the status, so the
-        transaction stays in the "Pending" auto-reconciliation pool for the next run.
+        """Record why reconciliation failed WITHOUT recording a terminal outcome, so the
+        transaction stays in the auto-reconciliation pool for the next run.
 
         Bounded: after ``MAX_SETTLEMENT_RETRIES`` attempts the transaction is marked
-        Unreconciled instead. ``reconcile_bank_transactions`` is scheduled daily with
+        failed instead. ``reconcile_bank_transactions`` is scheduled daily with
         no date bound, so an unbounded retry is an unbounded stream of identical
         comments on a settlement that is never going to succeed on its own.
         """
@@ -1444,11 +1448,10 @@ class PaymentReconciliationManager:
         """Mark transaction as unreconciled with reason for failure"""
         try:
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
-            # "Unreconciled" is the valid Bank Transaction status; "Unmatched" is not
-            # a permitted Select option and would raise on save.
             bank_trans.add_comment("Comment", f"Reconciliation failed: {reason}")
             bank_trans.save()
-            persist_draft_status(bank_trans, "Unreconciled")
+            # Terminal: takes the draft out of the pool. Status stays ERPNext's (#2082).
+            bank_transaction_status.record_pool_outcome(bank_trans, bank_transaction_status.FAILED)
             frappe.logger().info(f"Transaction {transaction['name']} marked as unreconciled: {reason}")
         except Exception as e:
             _log_error_with_traceback(
@@ -2657,11 +2660,20 @@ def get_reconciliation_summary(from_date=None, to_date=None):
     elif to_date:
         filters["date"] = ["<=", to_date]
 
+    # A submitted row's state is ERPNext's status; a draft's is the pool's own outcome
+    # marker, because ERPNext keeps every draft at "Pending" (#2082).
+    bts = bank_transaction_status
+
+    def count(extra):
+        return frappe.db.count("Bank Transaction", {**filters, **extra})
+
     summary = {
-        "total_transactions": frappe.db.count("Bank Transaction", filters),
-        "reconciled": frappe.db.count("Bank Transaction", {**filters, "status": "Reconciled"}),
-        "pending": frappe.db.count("Bank Transaction", {**filters, "status": "Pending"}),
-        "unmatched": frappe.db.count("Bank Transaction", {**filters, "status": "Unreconciled"}),
+        "total_transactions": count({}),
+        "reconciled": count({"docstatus": 1, "status": "Reconciled"})
+        + count({"docstatus": 0, bts.FIELD: ["in", list(bts.RECONCILED_OUTCOMES)]}),
+        "pending": count({"docstatus": 0, bts.FIELD: ["not in", list(bts.TERMINAL_OUTCOMES)]}),
+        "unmatched": count({"docstatus": 1, "status": "Unreconciled"})
+        + count({"docstatus": 0, bts.FIELD: bts.FAILED}),
     }
 
     summary["reconciliation_rate"] = (

@@ -137,9 +137,12 @@ class DuesScheduleCreationService(StatelessService):
                     retry_count=retry_count,
                 )
 
-            # Check if schedule already exists (idempotency)
+            # Check if a live schedule already exists (idempotency). A Cancelled one does not
+            # count: reporting it as "already exists" left the next membership without a schedule (#1938).
             existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": member_name, "is_template": 0}, "name"
+                "Membership Dues Schedule",
+                {"member": member_name, "is_template": 0, "status": ["!=", "Cancelled"]},
+                "name",
             )
 
             if existing_schedule:
@@ -456,9 +459,8 @@ class DuesScheduleCreationService(StatelessService):
             safe_error = html.escape(error)
             safe_error_category = html.escape(error_category)
             # Create notification for administrators
-            notification = frappe.new_doc("Notification Log")
-            notification.subject = f"Dues Schedule Creation Failed - {member_name}"
-            notification.email_content = f"""
+            subject = f"Dues Schedule Creation Failed - {member_name}"
+            message = f"""
             <h3>Dues Schedule Creation Failed After {retry_count} Retries</h3>
 
             <p>A dues schedule could not be created for member <strong>{safe_member_name}</strong>
@@ -500,48 +502,22 @@ class DuesScheduleCreationService(StatelessService):
             </p>
             """
 
-            notification.type = "Alert"
-            notification.document_type = "Membership"
-            notification.document_name = membership_name
-            notification.from_user = "Administrator"
+            # Configurable audience (registered key, admin roles as fallback); never the Administrator
+            # user, which is not in active use (#2107).
+            from verenigingen.utils.notification_helpers import notify_administrators
 
-            # Send to administrators
-            admin_users = frappe.get_all(
-                "User",
-                filters={"enabled": 1, "user_type": "System User"},
-                or_filters=[
-                    ["name", "in", frappe.get_roles(Roles.SYSTEM_MANAGER)],
-                    ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
-                ],
-                pluck="name",
+            result = notify_administrators(
+                subject,
+                message,
+                notification_key="dues_schedule_creation_failed",
+                default_roles=list(Roles.ADMIN_PAIR),
+                exclude_users=("Administrator",),
+                staff_alert=True,
+                document_type="Membership",
+                document_name=membership_name,
             )
-
-            # Use secure document operation instead of permission bypass
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            notification_count = 0
-            for admin in admin_users[:5]:  # Limit to 5 admins to avoid spam
-                admin_notification = notification.copy()
-                admin_notification.for_user = admin
-
-                # Secure notification creation with proper permission validation
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=admin_notification,
-                    justification=f"Create dues schedule failure alert for admin {admin} after {retry_count} retries",
-                    required_permissions=["Notification Log:create"],
-                )
-
-                if result.success:
-                    notification_count += 1
-                else:
-                    self.logger.error(
-                        f"[DUES SCHEDULE] Failed to create alert for admin {admin}: "
-                        f"{'; '.join(result.errors)}"
-                    )
-
             self.logger.info(
-                f"[DUES SCHEDULE] Created {notification_count}/{len(admin_users[:5])} failure alerts for {member_name}"
+                f"[DUES SCHEDULE] Created {result['notifications_created']} failure alerts for {member_name}"
             )
 
         except Exception as alert_error:

@@ -47,6 +47,7 @@ from verenigingen.utils.transaction_errors import (
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import exception_chain as _causes
 from verenigingen.verenigingen_payments.ponto.core.status_maps import map_link_status, map_request_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     alert_executed_on_cancelled_row,
@@ -307,22 +308,13 @@ def _log_once_a_day(key_suffix, title, message):
     frappe.log_error(title=title, message=f"{message} Logged once a day.")
 
 
-def _causes(exc):
-    """``exc`` and everything on its ``__cause__``/``__context__`` chain."""
-    seen = set()
-    while exc is not None and id(exc) not in seen:
-        yield exc
-        seen.add(id(exc))
-        exc = exc.__cause__ or exc.__context__
-
-
 def _fatal_in_chain(exc):
     """A deadlock/lock-timeout or an RQ job timeout hiding inside ``exc``'s cause chain.
 
     ``refresh_status`` catches everything and ``frappe.throw``s, so these never reach
     this module as themselves; the original is still on ``__cause__``/``__context__``.
-    Covers a timeout raised in the code ``refresh_status`` calls, not one raised inside
-    ``with_retry`` mid-HTTP: that layer swallows it (#1919).
+    Covers a timeout raised in the code ``refresh_status`` calls; the retry wrappers
+    re-raise one raised mid-HTTP instead of swallowing it (#1919).
     """
     return next(
         (e for e in _causes(exc) if isinstance(e, NON_RESUMABLE_DB_ERRORS + (JobTimeoutException,))), None
