@@ -13,6 +13,8 @@ from typing import Any, Optional
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
+
 
 def create_unified_payment_entry(
     donation_doc,
@@ -141,7 +143,8 @@ def create_unified_payment_entry(
             base_remarks += f" - {description}"
 
         # Use refund date or today for both posting and reference dates
-        transaction_date = getdate(refund_date) if refund_date else getdate()
+        # A raw Mollie UTC timestamp becomes the site-local day (#2162).
+        transaction_date = mollie_timestamp_to_local_date(refund_date) or getdate()
 
         # Determine reversal type and original payment ID for custom fields
         reversal_type_value = None

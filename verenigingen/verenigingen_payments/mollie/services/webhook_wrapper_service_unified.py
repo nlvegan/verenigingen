@@ -167,17 +167,8 @@ class UnifiedWebhookWrapperService:
                     pending_refund.get("refund_date"), "refund", refund_id
                 )
 
-                # Parse refund_date to proper date format
-                parsed_date = refund_date
-                if isinstance(refund_date, str):
-                    try:
-                        from dateutil import parser
-
-                        parsed_date = parser.parse(refund_date).date()
-                    except (ValueError, TypeError, ImportError):
-                        parsed_date = frappe.utils.getdate()
-                elif not parsed_date:
-                    parsed_date = frappe.utils.getdate()
+                # Parse refund_date to proper date format (site-local day, #2162)
+                parsed_date = self._parse_reversal_date(refund_date)
 
                 # Build unique reference number for this refund -- the one key every
                 # reversal route agrees on.
@@ -1787,14 +1778,15 @@ class UnifiedWebhookWrapperService:
 
     @staticmethod
     def _parse_reversal_date(reversal_date):
-        """Mollie sends ISO strings; downstream wants a date."""
-        if isinstance(reversal_date, str):
-            try:
-                from dateutil import parser
+        """Mollie sends ISO strings; downstream wants a date.
 
-                return parser.parse(reversal_date).date()
-            except (ValueError, TypeError, ImportError):
-                return frappe.utils.getdate()
+        A timestamp becomes the SITE-local day (#2162): dateutil's ``.date()`` kept the UTC
+        wall-clock day, so a 23:30 UTC reversal booked a day early east of UTC.
+        """
+        if isinstance(reversal_date, str):
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
+
+            return mollie_timestamp_to_local_date(reversal_date) or frappe.utils.getdate()
         return reversal_date or frappe.utils.getdate()
 
     def _repair_reversal_history(
@@ -2083,17 +2075,8 @@ class UnifiedWebhookWrapperService:
             history_failure = None
             if reversal_ref_name and donation_doc:
                 try:
-                    # Parse reversal date to proper format
-                    parsed_date = reversal_date
-                    if isinstance(reversal_date, str):
-                        try:
-                            from dateutil import parser
-
-                            parsed_date = parser.parse(reversal_date).date()
-                        except (ValueError, TypeError, ImportError):
-                            parsed_date = frappe.utils.getdate()
-                    elif not parsed_date:
-                        parsed_date = frappe.utils.getdate()
+                    # Parse reversal date to proper format (site-local day, #2162)
+                    parsed_date = self._parse_reversal_date(reversal_date)
 
                     # Append payment history entry for reversal
                     donation_doc.reload()

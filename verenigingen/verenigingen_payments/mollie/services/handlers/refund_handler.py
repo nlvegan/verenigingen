@@ -15,6 +15,7 @@ from verenigingen.verenigingen_payments.mollie.utils.amount_helpers import (
     extract_amount_float,
     extract_amount_value,
 )
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 class RefundHandler:
@@ -221,7 +222,7 @@ class RefundHandler:
         # Create the refund payment entry
         refund_date = None
         if refund.created_at:
-            refund_date = refund.created_at.date().isoformat()
+            refund_date = mollie_timestamp_to_local_date(refund.created_at).isoformat()  # #2162
 
         refund_pe = create_refund_payment_entry(
             donation_doc=donation_doc,

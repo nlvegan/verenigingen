@@ -26,6 +26,7 @@ from types import SimpleNamespace
 
 import frappe
 
+from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
     _determine_recurring_status,
     _extract_record_reference_from_mollie_data,
@@ -241,6 +242,24 @@ class TestSafeExtractDate(unittest.TestCase):
 
     def test_camelcase_fallback_applies_to_a_custom_field_too(self):
         self.assertEqual(safe_extract_date({"paidAt": "2024-07-02T00:00:00Z"}, "paid_at"), "2024-07-02")
+
+    def test_late_evening_utc_is_the_next_day_in_the_site_timezone_2162(self):
+        """Mollie's createdAt is UTC; the booking day is the site's. 23:30Z is 04 March in Amsterdam."""
+        with system_timezone("Europe/Amsterdam"):
+            got = safe_extract_date({"createdAt": "2026-03-03T23:30:00+00:00"})
+        self.assertEqual(got, "2026-03-04")
+
+    def test_the_site_timezone_is_read_not_hardcoded_2162(self):
+        with system_timezone("Pacific/Honolulu"):
+            got = safe_extract_date({"createdAt": "2026-03-04T05:00:00Z"})
+        self.assertEqual(got, "2026-03-03")
+
+    def test_a_date_only_value_is_already_a_local_date_2162(self):
+        with system_timezone("Pacific/Honolulu"):
+            self.assertEqual(safe_extract_date({"createdAt": "2026-03-04"}), "2026-03-04")
+
+    def test_an_unparseable_value_returns_none_2162(self):
+        self.assertIsNone(safe_extract_date({"createdAt": "not-a-timestamp"}))
 
     def test_snake_case_wins_when_both_are_present(self):
         both = {"created_at": "2024-01-01T00:00:00Z", "createdAt": "2025-01-01T00:00:00Z"}

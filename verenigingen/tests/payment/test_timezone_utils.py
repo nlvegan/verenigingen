@@ -17,6 +17,7 @@ runs as Administrator). No data is created.
 import unittest
 from datetime import datetime, timedelta, timezone
 
+from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils import timezone_utils as tz
 
@@ -233,6 +234,40 @@ class TestParsePeriodKeyToDateRange(VereningingenTestCase):
     def test_non_numeric_raises_valueerror(self):
         with self.assertRaises(ValueError):
             tz.parse_period_key_to_date_range("abcd-ef")
+
+
+class TestMollieTimestampToLocalDate(VereningingenTestCase):
+    """#2162: the booking day of a Mollie UTC timestamp is the SITE's day."""
+
+    def _local(self, value, zone):
+        with system_timezone(zone):
+            return tz.mollie_timestamp_to_local_date(value)
+
+    def test_utc_late_evening_is_next_day_east_of_utc(self):
+        self.assertEqual(
+            self._local("2026-03-03T23:30:00+00:00", "Europe/Amsterdam").isoformat(), "2026-03-04"
+        )
+
+    def test_z_suffix_and_west_of_utc(self):
+        self.assertEqual(self._local("2026-03-04T05:00:00Z", "Pacific/Honolulu").isoformat(), "2026-03-03")
+
+    def test_aware_datetime_is_converted(self):
+        moment = datetime(2026, 3, 3, 23, 30, tzinfo=timezone.utc)
+        self.assertEqual(self._local(moment, "Europe/Amsterdam").isoformat(), "2026-03-04")
+
+    def test_naive_datetime_is_taken_as_utc(self):
+        self.assertEqual(
+            self._local(datetime(2026, 3, 3, 23, 30), "Europe/Amsterdam").isoformat(), "2026-03-04"
+        )
+
+    def test_a_date_only_string_is_not_shifted(self):
+        self.assertEqual(self._local("2026-03-04", "Pacific/Honolulu").isoformat(), "2026-03-04")
+
+    def test_empty_and_garbage_return_none(self):
+        self.assertIsNone(tz.mollie_timestamp_to_local_date(None))
+        self.assertIsNone(tz.mollie_timestamp_to_local_date(""))
+        self.assertIsNone(tz.mollie_timestamp_to_local_date("not-a-timestamp"))
+        self.assertIsNone(tz.mollie_timestamp_to_local_date("2026-13-45"))
 
 
 if __name__ == "__main__":
