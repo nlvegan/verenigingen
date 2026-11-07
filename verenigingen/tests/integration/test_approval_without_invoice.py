@@ -379,7 +379,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         ).insert()  # as the suite's Administrator
         self.track_doc("User", user_doc.name)
 
-    def _approve_failing_after_the_core_commit(self, application, user=None):
+    def _approve_failing_after_the_core_commit(self, application, user=None, with_user=True):
         """Approve (invoice broken) and fail AFTER the core's own commit, then drop everything uncommitted.
 
         The core's account step really commits (member_user_account_service links an EXISTING User and
@@ -388,7 +388,8 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         what a dying request would lose, so the reads that follow see only what was COMMITTED."""
         from verenigingen.api import membership_application_review as review
 
-        self._give_the_applicant_a_user()
+        if with_user:
+            self._give_the_applicant_a_user()
         self._make_invoicing_fail()
         # Mock justified: execution-context fault injection standing in for a crash after the core's commit
         with patch.object(review, "_build_approval_response", side_effect=RuntimeError("crash after commit")):
@@ -430,6 +431,23 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         application = self._stage_and_confirm()
         self._approve_failing_after_the_core_commit(application, user=board.user)
         self._assert_committed_approved_and_marked(application)
+
+    def test_without_a_user_the_core_never_commits_so_a_crash_rolls_approval_and_marker_back_together(self):
+        """No existing User: the account step QUEUES a job and does not commit, so nothing is persisted
+        before the crash. The rollback also discards the test's own uncommitted staging, so the row may be
+        gone entirely; what must NOT survive is an Approved application (with or without a marker): approval
+        and marker go together or not at all. (A marker written WITH a commit would leave Approved behind.)"""
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application, with_user=False)
+        self.assertNotEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertFalse(self._marker(application))
+
+    def test_without_a_user_a_failed_invoice_approval_is_marked(self):
+        """The no-User branch of the real flow: the marker is set by the same write."""
+        application, _member = self._approved_with_failed_invoice()
+        self.assertFalse(frappe.db.get_value("User", self.email), "control: the applicant had no User")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertTrue(self._marker(application))
 
     def test_a_crash_after_the_core_commit_does_not_mark_an_approval_without_a_requested_invoice(self):
         """Control: the early marker is only for a REQUESTED invoice that failed (create_invoice=False is
