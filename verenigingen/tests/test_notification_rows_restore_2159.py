@@ -5,10 +5,13 @@ content and mints new row names and ``modified`` stamps; the harness's drain com
 permanent, so every run of such a module changed the table's hash while all 88+ rows stayed enabled.
 """
 
+import unittest
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.utils.notification_state import (
+    own_notification_keys,
     restore_notification_rows,
     snapshot_notification_rows,
 )
@@ -63,3 +66,13 @@ class TestRestoreNotificationRows(FrappeTestCase):
     def test_restoring_an_empty_snapshot_empties_the_table(self):
         restore_notification_rows([])
         self.assertEqual(_table_rows_2159(), [])
+
+    def test_own_notification_keys_cleanup_leaves_the_table_byte_identical(self):
+        """own_notification_keys edits rows and master switch; its cleanup must put names and stamps back."""
+        owner = unittest.TestCase()  # stands in for a test: carries addCleanup/doCleanups
+        master = frappe.db.get_single_value(DOCTYPE, "master_email_enabled")
+        own_notification_keys(owner, "payment_reminder_friendly", "payment_success")
+        self.assertNotEqual(_table_rows_2159(), self.before, "control: the helper changed the table")
+        owner.doCleanups()
+        self.assertEqual(_table_rows_2159(), self.before)
+        self.assertEqual(frappe.db.get_single_value(DOCTYPE, "master_email_enabled"), master)

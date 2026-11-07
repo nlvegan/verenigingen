@@ -28,7 +28,7 @@ def own_notification_keys(test, *keys):
     from verenigingen.setup.notification_registry_setup import _registry_row
 
     config = frappe.get_single(DOCTYPE)
-    snapshot = _snapshot_rows(config)
+    snapshot = snapshot_notification_rows()
     master = config.master_email_enabled
     committed = []
     frappe.db.before_commit.add(lambda: committed.append(True))  # runs on commit, dropped on rollback
@@ -84,17 +84,9 @@ def queued_mail_count(recipient):
     return frappe.db.count("Email Queue Recipient", {"recipient": recipient})
 
 
-def _snapshot_rows(config):
-    meta = frappe.get_meta("Email Notification Type")
-    fields = [f.fieldname for f in meta.fields if f.fieldtype != "Section Break"]
-    return [{f: r.get(f) for f in fields} for r in config.notification_types]
-
-
 def _restore_notification_rows(snapshot, master, committed=()):
-    config = frappe.get_single(DOCTYPE)
-    config.set("notification_types", snapshot)
-    config.master_email_enabled = master
-    config.save()
+    restore_notification_rows(snapshot)  # byte for byte: names and stamps too (#2159)
+    frappe.db.set_single_value(DOCTYPE, "master_email_enabled", master)
     if committed:
         raise AssertionError(
             "frappe.db.commit() ran while own_notification_keys was active, so the seeded "
