@@ -155,31 +155,17 @@ class AnalyticsAlertRule(Document):
         recipients = [r.recipient for r in self.alert_recipients if r.recipient]
 
         if self.send_system_notification:
-            for recipient in recipients:
-                notification = frappe.get_doc(
-                    {
-                        "doctype": "Notification Log",
-                        "subject": f"Analytics Alert: {self.rule_name}",
-                        "for_user": recipient,
-                        "type": "Alert",
-                        "document_type": "Analytics Alert Rule",
-                        "document_name": self.name,
-                        "from_user": "Administrator",
-                        "email_content": message,
-                    }
-                )
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                notification_result = secure_document_operation(
-                    operation="insert",
-                    doc=notification,
-                    justification=f"Create notification log for analytics alert {self.rule_name}",
-                    required_permissions=["Notification Log:create"],
-                )
+            # By User name; Administrator is dropped by the helper (#2107).
+            from verenigingen.utils.notification_helpers import create_system_notification
 
-                if not notification_result.success:
-                    frappe.log_error(
-                        f"Could not create notification for alert {self.rule_name}: Permission denied"
-                    )
+            create_system_notification(
+                recipients,
+                f"Analytics Alert: {self.rule_name}",
+                message,
+                document_type="Analytics Alert Rule",
+                document_name=self.name,
+                from_user="Administrator",
+            )
 
         if self.send_email and recipients:
             # MIGRATED: Use unified EmailService for analytics alerts
