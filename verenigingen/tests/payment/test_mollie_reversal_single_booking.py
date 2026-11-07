@@ -710,12 +710,20 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.assertEqual(getdate(posted), getdate("2026-03-03"))
 
     def test_the_refund_handler_survives_an_unreadable_created_at_2162(self):
-        """Garbage must not crash the handler; the refund books on today ."""
-        result, refund_id = self._handle_refund("garbage")
+        """Garbage must not crash the handler; the refund books on today IN THE SITE'S ZONE.
+
+        "Today" is read under the same zone the handler ran in: a bare getdate() out here uses the test
+        site's own zone, which is a different calendar day for part of every day (Kolkata vs Amsterdam:
+        18:30-23:00 UTC; red in the merge queue at 22:27 UTC on 2026-11-07).
+        """
+        zone = "Europe/Amsterdam"
+        result, refund_id = self._handle_refund("garbage", zone=zone)
         self.assertEqual(result.get("status"), "processed", result)
         key = f"{self.payment_id}_refund_{refund_id}"
         posted = frappe.db.get_value("Payment Entry", {"reference_no": key, "docstatus": 1}, "posting_date")
-        self.assertEqual(getdate(posted), getdate())
+        with system_timezone(zone):
+            today_in_zone = getdate()
+        self.assertEqual(getdate(posted), today_in_zone)
 
     def test_a_pin_sensitive_utc_refund_books_on_the_local_day_2162(self):
         """19:00 UTC on 3 March: the 3rd in Amsterdam, the 4th in Kolkata, so a dropped pin goes red."""
