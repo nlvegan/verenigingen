@@ -853,6 +853,7 @@ def cancel_membership(
     # Immediate cancellation updates status right away
     if cancellation_type == "Immediate":
         membership.status = "Cancelled"
+        _cancel_linked_dues_schedule(membership.name)
 
     # For end of period, status remains active until renewal date
     membership.flags.ignore_validate_update_after_submit = True
@@ -860,6 +861,29 @@ def cancel_membership(
 
     frappe.msgprint(_("Membership {0} has been cancelled").format(membership.name))
     return membership.name
+
+
+def _cancel_linked_dues_schedule(membership_name):
+    """Cancel every dues schedule built for this membership (#1938).
+
+    Left Active they keep billing on the old cadence, and an Active one makes the
+    next Membership for the member only re-type it instead of creating its own.
+    """
+    from verenigingen.services.termination.termination_integration import cancel_dues_schedule_safe
+
+    schedule_names = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"membership": membership_name, "status": ["!=", "Cancelled"]},
+        pluck="name",
+        # Active first: Membership Dues Schedule.validate refuses any save of a member's
+        # schedule while ANOTHER of theirs is Active, so a Paused one only cancels after it.
+        order_by="status asc",
+    )
+    for schedule_name in schedule_names:
+        if not cancel_dues_schedule_safe(schedule_name):
+            frappe.throw(
+                _("Could not cancel dues schedule {0}; membership not cancelled").format(schedule_name)
+            )
 
 
 @frappe.whitelist()

@@ -41,7 +41,7 @@ SEPA_KEY = "sepa_batch_error"
 
 
 def _snapshot_rows():
-    """Plain copy of the child rows (singleton_backup does not restore child tables, #2029)."""
+    """Plain copy of the child rows (hand-rolled; singleton_backup has restored child tables since #2091, #2159)."""
     fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"]
     return [{f: r.get(f) for f in fields} for r in frappe.get_single(CONFIG_DOCTYPE).notification_types]
 
