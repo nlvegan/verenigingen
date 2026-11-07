@@ -626,3 +626,25 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         gateway.process_payment.assert_not_called()
         accepted, gateway = self._guest_pays(invoice, member.email)
         self.assertTrue(accepted["success"], accepted)
+
+    def test_a_member_field_naming_a_blank_email_member_is_not_overridden_by_the_customer(self):
+        """The invoice's `member` decides even when that Member has no email: the only Member on the
+        invoice's customer is a DIFFERENT person (B, with a real email), and B's email must not pay it.
+        Refusal must also look exactly like an unknown invoice."""
+        self.expectErrorLog("Initiate Payment Ownership Check Failed")
+        member_b = self.create_test_member(first_name="Bee", last_name=f"Payer{frappe.generate_hash()[:6]}")
+        member_a = self.create_test_member(first_name="Ay", last_name=f"Payer{frappe.generate_hash()[:6]}")
+        invoice = self.create_test_sales_invoice(customer=member_b.name, grand_total=100.0)
+        invoice.db_set("contact_email", None)
+        invoice.db_set("member", member_a.name)
+        member_a.db_set("email", "")
+        self.assertEqual(frappe.db.get_all("Member", filters={"customer": invoice.customer}, pluck="name"),
+                         [member_b.name])
+        self.assertTrue(member_b.email)
+        refused, gateway = self._guest_pays(invoice, member_b.email)
+        self.assertFalse(refused["success"])
+        gateway.process_payment.assert_not_called()
+        self._refusal_signature(invoice.name, member_b.email)  # warm
+        forbidden = self._refusal_signature(invoice.name, member_b.email)
+        unknown = self._refusal_signature("ACC-SINV-NOPE-2103", member_b.email)
+        self.assertEqual(forbidden, unknown)
