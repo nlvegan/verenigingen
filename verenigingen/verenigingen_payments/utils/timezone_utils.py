@@ -84,8 +84,8 @@ def mollie_timestamp_to_local_date(value: Any) -> Optional[date]:
     taken as UTC (the module's convention for Mollie values); a bare date or a
     ``YYYY-MM-DD`` string is already a local day and is returned as it is.
 
-    Returns None when ``value`` is empty or not a timestamp (the latter is written to the
-    Error Log), so each caller keeps its own fallback.
+    Returns None when ``value`` is empty or not a timestamp, so each caller keeps its
+    own fallback. It logs nothing: the value can come from a guest webhook body.
     """
     if not value:
         return None
@@ -104,12 +104,8 @@ def mollie_timestamp_to_local_date(value: Any) -> Optional[date]:
         else:
             moment = parse_mollie_datetime(text)
         if moment is None:
-            # Callers fall back to today; leave a trace that they did (frappe.logger() is
-            # never read in CI).
-            frappe.log_error(
-                title="Mollie timestamp not parseable",
-                message=f"Could not read {text!r} as a Mollie timestamp; the caller falls back to today.",
-            )
+            # No Error Log row: safe_extract_date feeds this from guest webhook bodies, and
+            # a row per bogus request is unbounded (#2136). Callers fall back to today.
             return None
     return convert_utc_to_system_timezone(ensure_timezone_aware(moment)).date()
 

@@ -237,7 +237,6 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
 
     def test_refund_date_unparseable_falls_back_to_today(self):
         """A garbage date string must not crash; it falls back to today."""
-        self.expectErrorLog("Mollie timestamp not parseable")
         amount = 8.00
         refund_id = f"re_{frappe.generate_hash(length=10)}"
         payment_id = f"tr_{frappe.generate_hash(length=10)}"

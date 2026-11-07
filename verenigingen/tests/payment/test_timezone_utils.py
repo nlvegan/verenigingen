@@ -274,20 +274,13 @@ class TestMollieTimestampToLocalDate(VereningingenTestCase):
         self.assertEqual(self._local(value, "Europe/Amsterdam").isoformat(), "2026-03-03")
         self.assertEqual(self._local(value, "Asia/Kolkata").isoformat(), "2026-03-04")
 
-    def test_empty_returns_none_without_a_log_row(self):
-        before = frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"})
-        self.assertIsNone(tz.mollie_timestamp_to_local_date(None))
-        self.assertIsNone(tz.mollie_timestamp_to_local_date(""))
-        self.assertEqual(frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"}), before)
+    def test_empty_and_garbage_return_none_and_write_no_error_log(self):
+        """Guest webhook bodies reach this helper: a bogus value must not cost an Error Log row (#2136)."""
+        before = frappe.db.count("Error Log")
+        for value in (None, "", "not-a-timestamp", "2026-13-45"):
+            self.assertIsNone(tz.mollie_timestamp_to_local_date(value))
+        self.assertEqual(frappe.db.count("Error Log"), before)
 
-    def test_garbage_returns_none_and_is_written_to_the_error_log(self):
-        self.expectErrorLog("Mollie timestamp not parseable")
-        for garbage in ("not-a-timestamp", "2026-13-45"):
-            before = frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"})
-            self.assertIsNone(tz.mollie_timestamp_to_local_date(garbage))
-            self.assertEqual(
-                frappe.db.count("Error Log", {"method": "Mollie timestamp not parseable"}), before + 1
-            )
 
 if __name__ == "__main__":
     unittest.main()
