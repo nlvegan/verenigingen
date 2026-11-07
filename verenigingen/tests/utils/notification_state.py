@@ -28,7 +28,7 @@ def own_notification_keys(test, *keys):
     from verenigingen.setup.notification_registry_setup import _registry_row
 
     config = frappe.get_single(DOCTYPE)
-    snapshot = _snapshot_rows(config)
+    snapshot = snapshot_notification_rows()
     master = config.master_email_enabled
     committed = []
     frappe.db.before_commit.add(lambda: committed.append(True))  # runs on commit, dropped on rollback
@@ -43,22 +43,50 @@ def own_notification_keys(test, *keys):
     config.save()
 
 
+def snapshot_notification_rows():
+    """Raw copy of the Email Notification Type rows, names and timestamps included."""
+    return frappe.get_all(
+        "Email Notification Type",
+        filters=_row_filters(),
+        fields=["*"],
+        order_by="idx asc",
+        limit_page_length=0,
+    )
+
+
+def restore_notification_rows(rows):
+    """Put a ``snapshot_notification_rows`` copy back UNCOMMITTED, byte for byte (#2159).
+
+    For a test whose own body does not commit (or whose commit is the harness's, at teardown): the
+    surrounding rollback then undoes the edit and this restore leaves nothing behind. Re-saving the
+    document instead (``config.set(...)`` + ``save()``) mints new row names and ``modified`` stamps,
+    and the harness's drain commit made those permanent: the rows kept their content and lost their
+    identity on every run. ``singleton_backup`` restores byte for byte too, but it COMMITS, which
+    would also make permanent whatever else the test left uncommitted; use it where the test commits.
+    """
+    from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+    frappe.db.delete("Email Notification Type", _row_filters())
+    if rows:
+        frappe.db.delete("Email Notification Type", {"name": ("in", [r["name"] for r in rows])})
+    with suspend_insert_capture():
+        for row in rows:
+            frappe.get_doc({**row, "doctype": "Email Notification Type"}).db_insert()
+    frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+
+
+def _row_filters():
+    return {"parent": DOCTYPE, "parenttype": DOCTYPE, "parentfield": "notification_types"}
+
+
 def queued_mail_count(recipient):
     """Email Queue rows addressed to ``recipient``: what a real send leaves behind."""
     return frappe.db.count("Email Queue Recipient", {"recipient": recipient})
 
 
-def _snapshot_rows(config):
-    meta = frappe.get_meta("Email Notification Type")
-    fields = [f.fieldname for f in meta.fields if f.fieldtype != "Section Break"]
-    return [{f: r.get(f) for f in fields} for r in config.notification_types]
-
-
 def _restore_notification_rows(snapshot, master, committed=()):
-    config = frappe.get_single(DOCTYPE)
-    config.set("notification_types", snapshot)
-    config.master_email_enabled = master
-    config.save()
+    restore_notification_rows(snapshot)  # byte for byte: names and stamps too (#2159)
+    frappe.db.set_single_value(DOCTYPE, "master_email_enabled", master)
     if committed:
         raise AssertionError(
             "frappe.db.commit() ran while own_notification_keys was active, so the seeded "
