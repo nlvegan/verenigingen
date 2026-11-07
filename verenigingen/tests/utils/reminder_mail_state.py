@@ -30,3 +30,44 @@ def allow_reminder_sends(keys=("payment_reminder_friendly", "payment_reminder_ur
             row.cooldown_minutes = 0
     config.save()
     clear_email_cooldowns()
+
+
+def ensure_outgoing_email_account(testcase):
+    """A default outgoing Email Account, so a send is queued rather than refused.
+
+    The code under test commits, so a created account would outlive the test and hand every
+    later module in the shard an outgoing account (masking #1758/#1881). When this call
+    creates the account, ``testcase`` is given a cleanup that deletes it and commits.
+    """
+    if frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1}):
+        return
+    account = frappe.get_doc(
+        {
+            "doctype": "Email Account",
+            "email_account_name": "Test Outgoing",
+            "email_id": "test-outgoing@example.com",
+            "enable_outgoing": 1,
+            "default_outgoing": 1,
+            "smtp_server": "localhost",
+            "smtp_port": 25,
+            "login_id_is_different": 0,
+        }
+    )
+    account.flags.ignore_validate = True
+    account.flags.ignore_mandatory = True
+    account.insert()
+
+    def _cleanup_created_email_account():
+        frappe.delete_doc("Email Account", account.name, force=True)
+        frappe.db.commit()
+
+    testcase.addCleanup(_cleanup_created_email_account)
+
+
+def configure_notification_key(key, enabled, cooldown_minutes):
+    """Set one notification key's enable switch and cooldown on the email configuration."""
+    config = frappe.get_single("Verenigingen Email Configuration")
+    row = next(nt for nt in config.notification_types if nt.notification_key == key)
+    row.enabled = enabled
+    row.cooldown_minutes = cooldown_minutes
+    config.save()

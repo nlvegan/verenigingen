@@ -493,7 +493,7 @@ class TestPageDonate(EnhancedTestCase):
     # retry_payment is deliberately guest-reachable: a donor whose Mollie
     # payment failed has no session to authenticate with. With no session,
     # donor_email is the only ownership signal the endpoint can check --
-    # see PublicDonationService._verify_donor_email_matches.
+    # see PublicDonationService._require_donor_email_on_file.
     #
     # All three tests below stub the Mollie boundary so that, absent the
     # ownership check, the call would SUCCEED and return a real-looking

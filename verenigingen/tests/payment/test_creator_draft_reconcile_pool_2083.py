@@ -112,11 +112,6 @@ class TestCreatorDraftInReconcilePool(BTRBase):
             )
         )
 
-    def _run_pool(self):
-        self.mgr.reconcile_bank_transactions(
-            bank_account=self._eur_bank_account, from_date=today(), to_date=today()
-        )
-
     def test_a_pooled_creator_draft_for_an_unpaid_invoice_is_booked_once(self):
         """Control: the draft reaches the pool and the description match books it."""
         it = self._make_member_with_invoice(first_name="Pool2083Ctl", grand_total=30.0)

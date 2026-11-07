@@ -7,7 +7,6 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.secure_operations import secure_document_operation
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
@@ -393,31 +392,17 @@ def check_and_notify_stuck_schedules():
             # Determine urgency level based on critical issues
             urgency_emoji = "🔥" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "🚨"
 
-            # Create in-app notifications (email delivery is controlled by user preferences)
-            for email in admin_emails:
-                if email:
-                    try:
-                        notification = frappe.new_doc("Notification Log")
-                        notification.subject = f"{urgency_emoji} {critical_count} Stuck Dues Schedules"
-                        notification.for_user = email
-                        notification.type = "Alert"
-                        notification.document_type = "Membership Dues Schedule"
-                        notification.from_user = "Administrator"
-                        notification.email_content = notification_html
-                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                        result = secure_document_operation(
-                            operation="insert",
-                            doc=notification,
-                            justification=f"Create stuck dues schedule notification for user {email} - financial schedule monitoring alert",
-                            required_permissions=["Notification Log:create"],
-                        )
+            # In-app notifications (email delivery is controlled by user preferences). The recipients
+            # are emails; create_system_notification maps them to User names and drops Administrator (#2107).
+            from verenigingen.utils.notification_helpers import create_system_notification
 
-                        if not result.success:
-                            frappe.log_error(
-                                f"Failed to create notification for {email}: {'; '.join(result.errors)}"
-                            )
-                    except Exception as e:
-                        frappe.log_error(f"Failed to create notification for {email}: {str(e)}")
+            create_system_notification(
+                admin_emails,
+                f"{urgency_emoji} {critical_count} Stuck Dues Schedules",
+                notification_html,
+                document_type="Membership Dues Schedule",
+                from_user="Administrator",
+            )
 
         # Enhanced logging with breakdown by issue type
         critical_names = [s["name"] for s in critical_stuck]

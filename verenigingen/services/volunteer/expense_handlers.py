@@ -9,6 +9,9 @@ Also handles expense approval notifications via Verenigingen Email Configuration
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
+
 
 def update_member_expense_history(doc, method=None):
     """
@@ -169,6 +172,7 @@ def notify_expense_approvers(doc, method=None):
         employee = frappe.get_doc("Employee", doc.employee)
         approver_email = get_designated_approver_email(doc, employee)
 
+        fallback_recipients = []
         if not approver_email:
             # Fallback: try department approvers
             if employee.department:
@@ -181,16 +185,16 @@ def notify_expense_approvers(doc, method=None):
                     approver_email = frappe.db.get_value("User", dept_approvers[0], "email")
 
         if not approver_email:
-            # Final fallback: notify Verenigingen Administrator role
-            admin_emails = frappe.get_all(
-                "Has Role",
-                filters={"role": "Verenigingen Administrator", "parenttype": "User"},
-                pluck="parent",
+            # Final fallback: the key's own recipients, else enabled Verenigingen Administrators;
+            # never Administrator, and every holder rather than an arbitrary first one (#2095).
+            fallback_recipients = resolve_admin_recipients(
+                notification_key="expense_approval_request",
+                default_roles=[Roles.VERENIGINGEN_ADMIN],
+                exclude_users=("Administrator",),
+                key_first=True,
             )
-            if admin_emails:
-                approver_email = frappe.db.get_value("User", admin_emails[0], "email")
 
-        if not approver_email:
+        if not approver_email and not fallback_recipients:
             frappe.logger().warning(
                 f"No expense approver found for expense claim {doc.name} (employee: {doc.employee})"
             )
@@ -224,8 +228,9 @@ def notify_expense_approvers(doc, method=None):
         from verenigingen.services.communication.email_service import get_email_service
 
         email_service = get_email_service()
+        recipients = [approver_email] if approver_email else fallback_recipients
         result = email_service.send_simple_email(
-            recipients=[approver_email],
+            recipients=recipients,
             subject=_("Expense Approval Required - {0}").format(doc.name),
             message=_build_expense_approval_message(context),
             reference_doctype="Expense Claim",
@@ -234,7 +239,9 @@ def notify_expense_approvers(doc, method=None):
         )
 
         if result.success:
-            frappe.logger().info(f"Expense approval notification sent to {approver_email} for {doc.name}")
+            frappe.logger().info(
+                f"Expense approval notification sent to {', '.join(recipients)} for {doc.name}"
+            )
         else:
             frappe.logger().warning(
                 f"Failed to send expense approval notification: {result.error_message or 'Unknown error'}"
