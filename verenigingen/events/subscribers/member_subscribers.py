@@ -45,6 +45,9 @@ def handle_status_change_notifications(event_name, event_data, is_bulk_import=Fa
         if not member:
             return
 
+        if not _member_state_still_holds(member, event_name, event_data):
+            return
+
         # Send approval notification for application status changes
         if status_type == "application" and new_status == "Approved":
             _send_member_status_notification(member, "approval")
@@ -100,6 +103,9 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         if not member:
             return
 
+        if not _member_state_still_holds(member, event_name, event_data):
+            return
+
         # Update chapter assignments based on new status
         if new_status == "Approved":
             _assign_member_to_chapter(member)
@@ -143,6 +149,9 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
 
         member = get_doc_if_exists("Member", member_name, "lifecycle notification")
         if not member:
+            return
+
+        if not _member_state_still_holds(member, event_name, event_data):
             return
 
         # Send lifecycle-specific notifications
@@ -197,6 +206,9 @@ def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **
 
         member = get_doc_if_exists("Member", member_name, "user account update")
         if not member:
+            return
+
+        if not _member_state_still_holds(member, event_name, event_data):
             return
 
         # Update user account based on member status
@@ -266,6 +278,23 @@ def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kw
 
     except Exception as e:
         frappe.log_error(f"Failed to clear caches: {str(e)}", "Cache Invalidation Error")
+
+
+def _member_state_still_holds(member, event_name, event_data):
+    """Whether the status change this job was queued for is still the member's status (#2144).
+
+    A rollback to a savepoint (member merge, CSV import, application payments) undoes the
+    status write but not a job queued for it, so the job must check the row before it mails
+    the member, assigns a chapter or disables the user. ``after_commit`` only covers a FULL
+    rollback. ``member_status_changed`` is about ``application_status``, every other event
+    about ``status`` (the payload's own ``status_type`` is not consistent: lifecycle events
+    carry "membership" in production). A payload without a new status has nothing to compare.
+    """
+    new_status = event_data.get("new_status")
+    if not new_status:
+        return True
+    field = "application_status" if event_name == "member_status_changed" else "status"
+    return member.get(field) == new_status
 
 
 # Helper functions for specific notification types

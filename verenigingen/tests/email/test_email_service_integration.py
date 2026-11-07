@@ -541,6 +541,8 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         """Test complete member status change notification flow"""
         # A skipped send is invisible to the handler; own the key so the send is real (#2010).
         own_notification_keys(self, "member_application_approved")
+        # The job re-checks that the approval it was queued for still holds (#2144).
+        self.test_member.db_set("application_status", "Approved", update_modified=False)
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             # Import the event handler
