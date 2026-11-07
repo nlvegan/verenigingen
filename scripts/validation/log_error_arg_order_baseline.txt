@@ -466,10 +466,8 @@ verenigingen/verenigingen/doctype/member_contact_request/contact_request_automat
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::process_contact_request_automation::1
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::send_follow_up_reminders::1
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::sync_crm_status_updates::2
-verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py::MemberContactRequest.create_crm_lead::1
 verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py::MemberContactRequest.handle_assignment_change::1
 verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py::MemberContactRequest.handle_status_change::1
-verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py::MemberContactRequest.notify_staff::1
 verenigingen/verenigingen/doctype/membership/membership.py::process_membership_statuses::1
 verenigingen/verenigingen/doctype/membership/scheduler.py::_get_orphaned_records_data::1
 verenigingen/verenigingen/doctype/membership/scheduler.py::notify_about_orphaned_records::2

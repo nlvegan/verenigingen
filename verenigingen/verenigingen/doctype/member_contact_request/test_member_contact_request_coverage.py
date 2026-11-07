@@ -9,8 +9,7 @@ module; this file covers the document controller itself:
 
 - validate(): field defaulting, member-existence + active-status gate,
   member-detail auto-population, contact-preference enforcement
-- on_insert(): create_crm_lead (links back a Lead) + notify_staff (no SMTP
-  exercised — recipients resolve to admin emails, mail send is queued)
+- after_insert(): notify_staff (see tests/test_contact_request_staff_mail_2174.py)
 - on_update(): status-change side effects (response/closed dates, CRM lead
   status sync) and assignment-change follow-up dates
 - get_notification_recipients(): role-based recipient resolution
@@ -129,27 +128,12 @@ class TestMemberContactRequestController(VereningingenTestCase):
             ).insert()
         self.assertIn("Phone number is required", str(ctx.exception))
 
-    # --------------------------------------------------------- create_crm_lead
-    def test_on_insert_creates_and_links_crm_lead(self):
-        if not frappe.db.exists("DocType", "Lead"):
-            self.skipTest("CRM Lead doctype not installed")
-        # The Lead<->contact-request linkback relies on custom fields
-        # (custom_member_contact_request / custom_member_id) that are part of the
-        # app's fixtures but may not be installed on every test site. Only assert
-        # the linkback when those fields exist; otherwise just confirm on_insert
-        # ran (create_crm_lead is wrapped in try/except and must never raise).
+    # ------------------------------------------------------------- no CRM Lead
+    def test_insert_does_not_create_a_crm_lead(self):
+        # Maintainer ruling on #2174: the never-live Lead creation was dropped.
         doc = self._make_request(subject="Lead please")
         doc.reload()
-        has_link_fields = frappe.db.exists(
-            "Custom Field", {"dt": "Lead", "fieldname": "custom_member_contact_request"}
-        )
-        if has_link_fields:
-            self.assertTrue(doc.crm_lead, "Expected a CRM Lead to be created and linked")
-            self.assertTrue(frappe.db.exists("Lead", doc.crm_lead))
-            self.track_doc("Lead", doc.crm_lead)
-        elif doc.crm_lead:
-            # Linked anyway (fields present via DocType, not Custom Field) — clean up.
-            self.track_doc("Lead", doc.crm_lead)
+        self.assertFalse(doc.crm_lead)
 
     # ------------------------------------------- get_notification_recipients
     def test_get_notification_recipients_returns_admin_emails(self):
