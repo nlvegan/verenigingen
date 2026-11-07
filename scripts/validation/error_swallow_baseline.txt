@@ -382,7 +382,6 @@ verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialD
 verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_settlements_data::1
 verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::MollieSettings.get_subscription::1
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
-verenigingen/verenigingen_payments/doctype/ponto_settings/ponto_settings.py::PontoSettings._fix_bank_account_currency::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1
