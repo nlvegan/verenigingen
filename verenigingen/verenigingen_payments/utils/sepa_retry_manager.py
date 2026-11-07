@@ -24,6 +24,7 @@ from frappe import _
 from frappe.utils import get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -215,6 +216,7 @@ class SEPARetryManager:
                 )
 
             except Exception as error:
+                reraise_if_job_timeout(error)
                 attempt_duration = time.time() - attempt_start
 
                 # Classify the error

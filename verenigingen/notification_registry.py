@@ -407,6 +407,14 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "dues_schedule_creation_failed": {
+        "label": "Dues Schedule Creation Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Staff alert when creating a member's dues schedule failed after all retries and "
+        "needs a manual fix.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
@@ -567,6 +575,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to approvers when a volunteer submits an expense claim.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the fallback approvers are Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "expense_approved": {
         "label": "Expense Approved",
@@ -594,6 +604,8 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 240,
+        # Seeded roles: Verenigingen Staff, as the orphaned-records report always went (#2095).
+        "recipient_roles": "Verenigingen Staff",
     },
     "analytics_alert": {
         "label": "Analytics Alert",
@@ -608,6 +620,8 @@ NOTIFICATION_KEYS = {
         "description": "Periodic summary of security policy violations and critical operations.",
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: System Managers only (#2095).
+        "recipient_roles": "System Manager",
     },
     "security_alert": {
         "label": "Security Alert",
@@ -636,6 +650,8 @@ NOTIFICATION_KEYS = {
         "description": "Alert triggered by business logic monitoring rules detecting anomalies.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: System Managers only (#2095).
+        "recipient_roles": "System Manager",
     },
     "system_alert": {
         "label": "System Alert",
@@ -685,6 +701,23 @@ NOTIFICATION_KEYS = {
         "description": "Sent to managers when a contact request is escalated due to SLA breach or priority.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: escalations go to Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
+    },
+    "contact_request_new": {
+        "label": "Contact Request Received",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to Verenigingen Administrators when a member files a new contact request.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "recipient_roles": "Verenigingen Administrator",
+    },
+    "contact_request_urgent": {
+        "label": "Urgent Contact Request Received",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to Verenigingen Administrators and System Managers when a member files an urgent contact request.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
     },
     "contact_request_response_sent": {
         "label": "Contact Request Response",
@@ -699,6 +732,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to governance committee when a new expulsion report is submitted.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the governance team is Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "member_activation_reminder": {
         "label": "Member Activation Reminder",
@@ -727,6 +762,16 @@ NOTIFICATION_KEYS = {
         "description": "Alert when Mollie contribution synchronization fails.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "contribution_amendment_sync_failed": {
+        "label": "Contribution Amendment Sync Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert when a Mollie subscription sync for a contribution amendment fails (also reaches finance).",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # The Mollie amendment handler always included finance; the amendment request's own failure alert
+        # (contribution_sync_failed) did not (#2095).
+        "recipient_roles": "System Manager, Verenigingen Administrator, Verenigingen Financial Manager",
     },
     "email_template_test": {
         "label": "Email Template Test",
@@ -795,8 +840,12 @@ REQUIRES_ACTION_KEYS = frozenset(
         "termination_pending_approval",
         "expense_approval_request",
         "system_stuck_schedules",
+        "dues_schedule_creation_failed",
         "contribution_sync_failed",
         "contact_request_escalated",
+        "contact_request_new",
+        "contact_request_urgent",
+        "contribution_amendment_sync_failed",
         "expulsion_report_submitted",
         "payment_plan_request",
         "zabbix_system_alert",

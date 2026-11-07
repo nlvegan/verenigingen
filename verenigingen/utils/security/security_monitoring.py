@@ -20,6 +20,7 @@ from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -843,17 +844,13 @@ def run_business_rule_monitoring():
             if alert["severity"] in ["HIGH", "CRITICAL"]:
                 try:
                     # Get administrators who should be notified
-                    admins = frappe.get_all(
-                        "Has Role",
-                        filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"},
-                        fields=["parent"],
+                    # The key's own recipients first, then enabled System Managers; never Administrator (#2095).
+                    admin_emails = resolve_admin_recipients(
+                        notification_key="business_logic_alert",
+                        default_roles=[Roles.SYSTEM_MANAGER],
+                        exclude_users=("Administrator",),
+                        key_first=True,
                     )
-
-                    admin_emails = []
-                    for admin in admins:
-                        user = frappe.get_doc("User", admin.parent)
-                        if user.enabled and user.email:
-                            admin_emails.append(user.email)
 
                     if admin_emails:
                         subject = f"Security Alert: {alert['type']}"

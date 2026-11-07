@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 import frappe
 from frappe import _
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -106,6 +107,7 @@ class ExponentialBackoffRetry:
                 return result
 
             except Exception as e:
+                reraise_if_job_timeout(e)
                 last_exception = e
                 attempt += 1
 
@@ -155,6 +157,7 @@ class ExponentialBackoffRetry:
                 return result
 
             except Exception as e:
+                reraise_if_job_timeout(e)
                 last_exception = e
                 attempt += 1
 
@@ -348,6 +351,7 @@ class SmartRetryPolicy:
                 return result
 
             except Exception as e:
+                reraise_if_job_timeout(e)
                 # last_exception = e
                 attempt += 1
 
@@ -520,6 +524,7 @@ def retry_with_backoff(
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
+                    reraise_if_job_timeout(e)
                     last_exception = e
 
                     if attempt < max_attempts - 1:
