@@ -318,5 +318,53 @@ class TestBaseline(unittest.TestCase):
         )
 
 
+def _write_doctype(app_root: Path, app: str, folder: str, name: str):
+    d = app_root / app / "doctype" / folder
+    d.mkdir(parents=True)
+    (d / f"{folder}.json").write_text(f'{{"doctype": "DocType", "name": "{name}"}}')
+
+
+def _write_app(app_root: Path, app: str):
+    app_root.mkdir(parents=True, exist_ok=True)
+    (app_root / "pyproject.toml").write_text(f'[project]\nname = "{app}"\n')
+
+
+class TestAuthorityReadsThisAppFromTheRunningTree(unittest.TestCase):
+    """#1903: this app's DocTypes come from the tree the validator runs in (a worktree
+    that adds a DocType), every OTHER app from the bench. Synthetic bench + tree; the
+    tree is injected through dnv.REPO_ROOT, which is what known_doctypes resolves."""
+
+    def _known(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            apps = tmp / "bench" / "apps"
+            # the bench's INSTALLED verenigingen: has an old doctype, lacks the branch's
+            _write_app(apps / "verenigingen", "verenigingen")
+            _write_doctype(apps / "verenigingen", "verenigingen", "installed_only", "Installed Only DT")
+            # another required app and a non-required one, read from the bench
+            _write_app(apps / "frappe", "frappe")
+            _write_doctype(apps / "frappe", "frappe", "user", "User")
+            _write_app(apps / "owl_theme", "owl_theme")
+            _write_doctype(apps / "owl_theme", "owl_theme", "owl", "Owl DT")
+            # the tree under validation: a different checkout of this app
+            tree = tmp / "worktree"
+            _write_app(tree, "verenigingen")
+            _write_doctype(tree, "verenigingen", "zz_probe_dt", "ZZ Probe DT")
+            with unittest.mock.patch.object(dnv, "REPO_ROOT", tree):
+                return dnv.known_doctypes(apps)
+
+    def test_a_doctype_added_in_the_running_tree_is_known(self):
+        self.assertEqual(self._known().get("ZZ Probe DT"), "verenigingen")
+
+    def test_the_benches_installed_copy_of_this_app_is_not_read(self):
+        self.assertNotIn("Installed Only DT", self._known())
+
+    def test_other_required_apps_still_come_from_the_bench(self):
+        self.assertEqual(self._known().get("User"), "frappe")
+
+    def test_non_required_apps_stay_unknown(self):
+        self.assertNotIn("Owl DT", self._known())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

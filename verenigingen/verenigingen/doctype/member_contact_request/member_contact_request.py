@@ -4,7 +4,15 @@ from frappe.model.document import Document
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
+
+def contact_request_key(urgency):
+    """Urgent requests have their own key: their audience adds System Managers (#2095)."""
+    # Both keys stay literal values of the dict so the key-discovery walker sees them (#2095 review).
+    notification_key_by_urgency = {"Urgent": "contact_request_urgent", "Normal": "contact_request_new"}
+    return notification_key_by_urgency.get(urgency, notification_key_by_urgency["Normal"])
 
 
 class MemberContactRequest(Document):
@@ -167,6 +175,7 @@ class MemberContactRequest(Document):
             """
 
             # Send notification
+            notification_key = contact_request_key(self.urgency)
             email_service = get_email_service()
             email_service.send_simple_email(
                 recipients=recipients,
@@ -174,7 +183,7 @@ class MemberContactRequest(Document):
                 message=message,
                 reference_doctype=self.doctype,
                 reference_name=self.name,
-                notification_key="contact_request_escalated",
+                notification_key=notification_key,
             )
 
         except Exception as e:
@@ -185,33 +194,18 @@ class MemberContactRequest(Document):
 
     def get_notification_recipients(self):
         """Determine who should be notified based on request type and urgency"""
-        recipients = []
-
-        # Get users with Verenigingen Administrator role
-        managers = frappe.get_all(
-            "Has Role",
-            filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"},
-            fields=["parent"],
-        )
-        recipients.extend([m.parent for m in managers])
-
-        # For urgent requests, also notify System Managers
+        # Verenigingen Administrators; urgent requests also reach System Managers. The key's own
+        # recipients win; enabled holders' emails otherwise; never Administrator (#2095).
+        roles = [Roles.VERENIGINGEN_ADMIN]
         if self.urgency == "Urgent":
-            system_managers = frappe.get_all(
-                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-            )
-            recipients.extend([sm.parent for sm in system_managers])
-
-        # Remove duplicates and filter out disabled users
-        recipients = list(set(recipients))
-        active_recipients = []
-
-        for recipient in recipients:
-            user = frappe.get_doc("User", recipient)
-            if user.enabled and user.email:
-                active_recipients.append(user.email)
-
-        return active_recipients
+            roles.append(Roles.SYSTEM_MANAGER)
+        notification_key = contact_request_key(self.urgency)
+        return resolve_admin_recipients(
+            notification_key=notification_key,
+            default_roles=roles,
+            exclude_users=("Administrator",),
+            key_first=True,
+        )
 
     def on_update(self):
         """Handle status changes and updates"""

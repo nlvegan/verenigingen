@@ -512,7 +512,7 @@ class TestLinkBankTransactionToJE(_PayProcBase):
         p._link_bank_transaction_to_journal_entry(bt.name, je.name, 50.0)
 
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         self.assertEqual(flt(bt.allocated_amount), 50.0)
         self.assertEqual(flt(bt.unallocated_amount), 0.0)
         self.assertEqual(len(bt.payment_entries), 1)
@@ -582,7 +582,7 @@ class TestLinkBankTransactionToPayment(_PayProcBase):
         p._link_bank_transaction_to_payment(bt.name, pe.name)
 
         bt.reload()
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         self.assertEqual(flt(bt.allocated_amount), 25.0)
         self.assertEqual(len(bt.payment_entries), 1)
         self.assertEqual(bt.payment_entries[0].payment_entry, pe.name)
@@ -598,7 +598,7 @@ class TestLinkBankTransactionToPayment(_PayProcBase):
 
         bt.reload()
         self.assertEqual(bt.docstatus, 0)
-        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
         self.assertEqual(bt.payment_entries[0].payment_entry, pe.name)
 
     def test_idempotent_when_already_linked(self):

@@ -18,6 +18,7 @@ from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen import setup as setup_mod
+from verenigingen.tests.setup import ensure_root_customer_group
 
 
 @contextlib.contextmanager
@@ -232,3 +233,171 @@ class TestHealthySiteStillInstallsTwice(FrappeTestCase):
     def test_two_consecutive_installs_report_no_failed_step(self):
         self.assertEqual(setup_mod.execute_after_install(), [])
         self.assertEqual(setup_mod.execute_after_install(), [])
+
+
+# #1880: the steps #1662 left swallowing their own failure. Same stand-in rule as above:
+# the failure is injected BELOW every layer that swallows (a refused insert/save/get_doc/
+# set_value, an unreadable fixture file); the step's own handlers and the runner are real.
+
+
+class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
+    def setUp(self):
+        super().setUp()
+        # The roots are named below; the harness guard wants a seeder in any module naming them.
+        ensure_root_customer_group()
+        for patcher in (
+            mock.patch.object(setup_mod, "_is_initial_setup_complete", return_value=False),
+            mock.patch.object(setup_mod, "_install_public_document_creator"),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _refusing_workspace_get_doc(self):
+        """Refuse loading the Workspace row, below every handler (the real controller load)."""
+        real_load = Document.load_from_db
+
+        def load_from_db(doc):
+            if doc.doctype == "Workspace":
+                raise frappe.ValidationError("refused Workspace load (test)")
+            return real_load(doc)
+
+        return mock.patch.object(Document, "load_from_db", load_from_db)
+
+    # -- setup_workspace and its three helpers
+    def test_each_workspace_helper_raises(self):
+        for helper in (
+            setup_mod.cleanup_workspace_links,
+            setup_mod.update_workspace_links,
+            setup_mod.install_and_link_onboarding,
+        ):
+            with self.subTest(helper=helper.__name__), self._refusing_workspace_get_doc():
+                with self.assertRaises(frappe.ValidationError):
+                    helper()
+
+    def test_workspace_failure_reaches_the_failed_step_list(self):
+        with mock.patch.object(setup_mod, "_mark_initial_setup_complete") as mark:
+            with self._refusing_workspace_get_doc():
+                failed = setup_mod.execute_after_install()
+        self.assertIn("set up workspace", failed)
+        self.assertFalse(mark.called)
+
+    # -- load_application_fixtures
+    def _fake_app_with_fixtures_1880(self, files):
+        """A fake app dir whose sibling `fixtures` dir holds `files` ({name: text})."""
+        import os
+        import tempfile
+
+        root = tempfile.mkdtemp(prefix="fx1880_")
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        os.makedirs(os.path.join(root, "app"))
+        os.makedirs(os.path.join(root, "fixtures"))
+        for name, text in files.items():
+            with open(os.path.join(root, "fixtures", name), "w") as f:
+                f.write(text)
+        return mock.patch.object(frappe, "get_app_path", return_value=os.path.join(root, "app"))
+
+    def test_unreadable_fixture_raises(self):
+        with self._fake_app_with_fixtures_1880({"workflow.json": "{not json"}):
+            with self.assertRaises(RuntimeError) as ctx:
+                setup_mod.load_application_fixtures()
+        self.assertIn("workflow.json", str(ctx.exception))
+
+    def test_refused_fixture_doc_raises_and_later_files_still_load(self):
+        bad = '[{"doctype": "No Such DocType 1880"}]'
+        good = '{"doctype": "Role", "role_name": "Fixture Role 1880"}'
+        with self._fake_app_with_fixtures_1880({"workflow.json": bad, "membership_workflow.json": good}):
+            with self.assertRaises(RuntimeError) as ctx:
+                setup_mod.load_application_fixtures()
+        self.assertIn("workflow.json", str(ctx.exception))
+        self.assertTrue(frappe.db.exists("Role", "Fixture Role 1880"), "a later file was skipped")
+
+    def test_fixture_failure_reaches_the_failed_step_list(self):
+        with self._fake_app_with_fixtures_1880({"workflow.json": "{not json"}):
+            failed = setup_mod.execute_after_install()
+        self.assertIn("load fixtures", failed)
+
+    def test_healthy_fixtures_load_twice(self):
+        good = '{"doctype": "Role", "role_name": "Fixture Role 1880"}'
+        with self._fake_app_with_fixtures_1880({"workflow.json": good}):
+            setup_mod.load_application_fixtures()
+            setup_mod.load_application_fixtures()
+
+    def test_missing_fixture_files_are_not_a_failure(self):
+        with self._fake_app_with_fixtures_1880({}):
+            setup_mod.load_application_fixtures()
+
+    # -- create_comprehensive_email_templates
+    def test_comprehensive_templates_report_a_failed_template(self):
+        from verenigingen.api.email_template_manager import create_comprehensive_email_templates
+
+        with _fresh_site_refusing("Email Template"):
+            result = create_comprehensive_email_templates()
+        # The critical_api decorator hands the OperationResult back as a dict.
+        self.assertFalse(result["success"])
+        self.assertIn("expense_approval_request", "; ".join(result["error"]["errors"]))
+
+    def test_comprehensive_templates_report_a_failed_update(self):
+        from verenigingen.api.email_template_manager import create_comprehensive_email_templates
+
+        with mock.patch.object(Document, "save", side_effect=frappe.ValidationError("refused save (test)")):
+            result = create_comprehensive_email_templates()
+        self.assertFalse(result["success"])
+
+    def test_comprehensive_templates_healthy_twice(self):
+        from verenigingen.api.email_template_manager import create_comprehensive_email_templates
+
+        self.assertTrue(create_comprehensive_email_templates()["success"])
+        self.assertTrue(create_comprehensive_email_templates()["success"])
+
+    def test_a_failed_template_reaches_the_failed_step_list(self):
+        # Only a comprehensive-set template is refused, so the basic and enhanced creators
+        # succeed and the comprehensive result is the sole signal the step can see.
+        with mock.patch.object(setup_mod, "_mark_initial_setup_complete"):
+            with _fresh_site_refusing("Email Template", "expense_approval_request"):
+                failed = setup_mod.execute_after_install()
+        self.assertIn("set up membership application system", failed)
+
+    # -- ensure_prerequisites
+    def test_each_prerequisite_raises(self):
+        for doctype, name in (
+            ("Customer Group", "All Customer Groups"),
+            ("Item Group", "Services"),
+            ("UOM", "Nos"),
+        ):
+            with self.subTest(doctype=doctype):
+                with _fresh_site_refusing(doctype, name):
+                    with self.assertRaises(frappe.ValidationError):
+                        setup_mod.ensure_prerequisites()
+
+    def test_a_missing_prerequisite_reaches_the_failed_step_list(self):
+        with mock.patch.object(setup_mod, "_mark_initial_setup_complete"):
+            with _fresh_site_refusing("UOM", "Nos"):
+                failed = setup_mod.execute_after_install()
+        self.assertIn("setup_verenigingen", failed)
+
+    # -- _mark_initial_setup_complete
+    def test_a_failed_flag_write_is_reported(self):
+        real_set_value = frappe.db.set_value
+
+        def set_value(dt, *args, **kwargs):
+            if dt == "Verenigingen Settings":
+                raise RuntimeError("db gone (test)")
+            return real_set_value(dt, *args, **kwargs)
+
+        with mock.patch.object(frappe.db, "set_value", set_value):
+            failed = setup_mod.execute_after_install()
+        self.assertIn("mark initial setup complete", failed)
+
+    def test_marking_without_saved_settings_is_not_a_failure(self):
+        with mock.patch.object(setup_mod, "settings_are_saved", return_value=False):
+            setup_mod._mark_initial_setup_complete()
+
+
+class TestRemainingSwallowersHealthySite(FrappeTestCase):
+    """Opposite harm: the newly raising steps must not fail a healthy site, twice running."""
+
+    def test_two_consecutive_workspace_and_prerequisite_runs_raise_nothing(self):
+        for _ in range(2):
+            setup_mod.ensure_prerequisites()
+            setup_mod.setup_workspace()
+            setup_mod.load_application_fixtures()

@@ -511,8 +511,8 @@ class PontoBetaalverzoekClient:
 
             return request
 
-        except PontoAPIError:
-            # Re-raise Ponto-specific errors directly to preserve error details
+        except PontoIntegrationError:
+            # Re-raise typed Ponto errors directly: they keep their status_code and subclass (#1924)
             raise
         except Exception as e:
             # Extract original error if wrapped by retry decorator
@@ -536,7 +536,7 @@ class PontoBetaalverzoekClient:
                     "creditor_iban": creditor_iban,
                     "original_error_type": type(original).__name__,
                 },
-            )
+            ) from e
 
     def create_periodic_payment_request(
         self,
@@ -594,12 +594,16 @@ class PontoBetaalverzoekClient:
             data = response.get("data", {})
             return PaymentInitiationRequest.from_api_response(data)
 
+        except PontoIntegrationError:
+            # A typed Ponto error (an HTTP status, 401, 429, configuration) already says what
+            # failed; re-wrapping it would drop its status_code and its subclass (#1924).
+            raise
         except Exception as e:
             frappe.logger().error(f"Failed to get Ponto payment request {request_id}: {e}")
             raise PontoAPIError(
                 message=f"Failed to get payment request status: {e}",
                 details={"request_id": request_id},
-            )
+            ) from e
 
     def get_periodic_payment_request(self, request_id: str) -> PeriodicPaymentInitiationRequest:
         """
@@ -648,11 +652,15 @@ class PontoBetaalverzoekClient:
 
             return requests
 
+        except PontoIntegrationError:
+            # A typed Ponto error (an HTTP status, 401, 429, configuration) already says what
+            # failed; re-wrapping it would drop its status_code and its subclass (#1924).
+            raise
         except Exception as e:
             frappe.logger().error(f"Failed to list Ponto payment requests: {e}")
             raise PontoAPIError(
                 message=f"Failed to list payment requests: {e}",
-            )
+            ) from e
 
     def list_periodic_payment_requests(self, limit: int = 25) -> List[PeriodicPaymentInitiationRequest]:
         """
@@ -692,12 +700,16 @@ class PontoBetaalverzoekClient:
             frappe.logger().info(f"Deleted Ponto payment request {request_id}")
             return True
 
+        except PontoIntegrationError:
+            # A typed Ponto error (an HTTP status, 401, 429, configuration) already says what
+            # failed; re-wrapping it would drop its status_code and its subclass (#1924).
+            raise
         except Exception as e:
             frappe.logger().error(f"Failed to delete Ponto payment request {request_id}: {e}")
             raise PontoAPIError(
                 message=f"Failed to delete payment request: {e}",
                 details={"request_id": request_id},
-            )
+            ) from e
 
     def delete_periodic_payment_request(self, request_id: str) -> bool:
         """

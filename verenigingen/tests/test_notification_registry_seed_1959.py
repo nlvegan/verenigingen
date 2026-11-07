@@ -61,9 +61,12 @@ class TestNotificationRegistrySeed(FrappeTestCase):
             role_based = [k for k, m in NOTIFICATION_KEYS.items() if m["recipient_policy"] == "Role-Based"]
             self.assertTrue(role_based, "control: the registry has Role-Based keys")
             for key in role_based:
-                self.assertEqual(
-                    set(_rows()[key].recipient_roles.split(", ")), set(Roles.ADMIN_PAIR), key
-                )
+                # A registry entry may name its own roles (#2093 ruling: the scheduler alert is for
+                # Financial Managers); every other Role-Based key gets the admin pair.
+                expected = set(NOTIFICATION_KEYS[key].get("recipient_roles", ", ".join(Roles.ADMIN_PAIR)).split(", "))
+                self.assertEqual(set(_rows()[key].recipient_roles.split(", ")), expected, key)
+            self.assertEqual(_rows()["sepa_batch_scheduler_alert"].recipient_roles, Roles.FINANCIAL_MANAGER)
+            self.assertEqual(set(_rows()["sepa_batch_error"].recipient_roles.split(", ")), set(Roles.ADMIN_PAIR))
 
     def test_alert_is_not_skipped_on_a_seeded_install_and_is_skipped_on_an_unseeded_one(self):
         key = "ponto_executed_on_cancelled_row"

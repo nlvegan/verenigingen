@@ -122,6 +122,9 @@ def _emit_chapter_event(event_name, event_data):
         entity_key="chapter",
         job_prefix="chapter",
         bulk_flag="bulk_chapter_operations",
+        # Membership jobs mail and change roles for the member, so they must not run
+        # ahead of (or without) the commit that made the member part of the chapter (#2137).
+        after_commit=event_name == "chapter_membership_changed",
     )
 
 

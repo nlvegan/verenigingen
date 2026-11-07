@@ -19,6 +19,7 @@ from verenigingen.utils.constants import Roles
 # Lazy import for email_service to avoid circular dependency
 # from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import high_security_api
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
@@ -541,21 +542,13 @@ class SEPAAuditLogger:
             from verenigingen.services.communication.email_service import get_email_service
 
             # Get users with security roles via direct query (avoids loading all users)
-            security_roles = list(Roles.ADMIN_PAIR)
-            role_holders = frappe.get_all(
-                "Has Role",
-                filters={"role": ["in", security_roles], "parenttype": "User"},
-                pluck="parent",
+            # The key's own recipients first, then enabled admin-role holders; never Administrator (#2095).
+            admin_emails = resolve_admin_recipients(
+                notification_key="audit_alert",
+                default_roles=list(Roles.ADMIN_PAIR),
+                exclude_users=("Administrator",),
+                key_first=True,
             )
-            if role_holders:
-                admin_emails = frappe.get_all(
-                    "User",
-                    filters={"name": ["in", list(set(role_holders))], "enabled": 1},
-                    pluck="email",
-                )
-                admin_emails = [e for e in admin_emails if e]
-            else:
-                admin_emails = []
 
             if admin_emails:
                 # Send email notification

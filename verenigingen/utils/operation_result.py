@@ -144,6 +144,18 @@ class OperationResult(Generic[T]):
     http_status: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def skip_reason(self) -> Optional[str]:
+        """Why a successful result did nothing, or None when it was not skipped.
+
+        EmailService reports a cooldown, a disabled key or an opt-out as a *successful*
+        result carrying ``data["skipped"]``, so ``success`` alone cannot tell a send from
+        a skip (#2044). Callers that count or log a send must check this too.
+        """
+        if self.success and isinstance(self.data, dict) and self.data.get("skipped"):
+            return str(self.data.get("reason") or "skipped")
+        return None
+
     @classmethod
     def ok(cls, data: T, **metadata: Any) -> "OperationResult[T]":
         """

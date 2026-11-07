@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
+from verenigingen.tests.utils.scoped_sleep import patch_module_sleep
+
 
 class TestHTTPClientMixinTokenManagement(unittest.TestCase):
     """Tests for token management functionality"""
@@ -182,10 +184,10 @@ class TestHTTPClientMixinRetryMechanism(unittest.TestCase):
         self.mock_settings.get_password.return_value = "test_api_token"
         self.mock_settings.source_application = "Test App"
 
-    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
+    @patch_module_sleep("verenigingen.e_boekhouden.utils.http_client_mixin")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
-    def test_retry_on_429_rate_limit(self, mock_frappe, mock_requests, mock_sleep):
+    def test_retry_on_429_rate_limit(self, mock_frappe, mock_requests, mock_time):
         """Test retry on 429 rate limit response"""
         from verenigingen.e_boekhouden.utils.http_client_mixin import (
             EBoekhoudenHTTPClientMixin,
@@ -221,7 +223,7 @@ class TestHTTPClientMixinRetryMechanism(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
         # Verify sleep was called for backoff
-        mock_sleep.assert_called()
+        mock_time.sleep.assert_called()
 
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
     @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
