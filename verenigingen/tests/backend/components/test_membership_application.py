@@ -2,7 +2,7 @@ import re
 import unittest
 
 import frappe
-from frappe.utils import add_days, now_datetime, today
+from frappe.utils import add_days, today
 
 from verenigingen.api.membership_application import submit_application
 from verenigingen.services.member.application.application_materialiser import materialise_member
