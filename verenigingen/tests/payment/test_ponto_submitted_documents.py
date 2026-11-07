@@ -607,6 +607,30 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         self.assertNotIn("Administrator", recipients)
         self.assertEqual(sorted(recipients), self._fallback_recipients(), "control: real staff are kept")
 
+    def test_a_fixed_row_naming_the_administrator_address_is_never_handed_to_delivery(self):
+        """The alert's own ``exclude_users`` still matters for a Fixed row: the source exclusion (#1960)
+        covers role-based rows only. No staff user shares the address here, so only the exclusion can
+        empty the list; delivery would drop Administrator too, but the recipients handed over differ."""
+        administrator_email = frappe.db.get_value("User", "Administrator", "email")
+        self.assertFalse(
+            frappe.db.exists("User", {"email": administrator_email, "name": ["!=", "Administrator"]}),
+            "control: no other user shares Administrator's address",
+        )
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
+        config = frappe.get_single("Verenigingen Email Configuration")
+        for row in config.notification_types:
+            if row.notification_key == ALERT_KEY:
+                row.recipient_policy = "Fixed"
+                row.fixed_recipients = administrator_email
+        self._make_ignoring_permissions_save(config)
+        self.expectErrorLog(UNDELIVERED_TITLE)
+
+        recipients = self._recipients_the_alert_is_sent_to(self._cancelled_request("FixedAdmin"))
+
+        self.assertEqual(recipients, [])
+
     # ---- F4: an alert that reached nobody must be loud ----
 
     UNDELIVERED_TITLE = UNDELIVERED_TITLE
