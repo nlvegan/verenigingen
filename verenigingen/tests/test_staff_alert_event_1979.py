@@ -81,8 +81,8 @@ class TestStaffAlertEvent(FrappeTestCase):
         # below stick (a bare commit is gated). Without it each test leaks its Note and User.
         self._config_backup = singleton_backup(CONFIG)
         self._config_backup.__enter__()
-        # singleton_backup does NOT cover child tables (its docstring says so): the notification_types
-        # rows these tests write would survive it. Keep the originals and put them back in tearDown.
+        # singleton_backup restores child tables since #2091, so this hand-kept copy is now redundant
+        # (#2159). It is kept and put back in tearDown.
         fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Column Break"]
         self._original_rows = [
             {k: v for k, v in row.as_dict().items() if k in fields}
