@@ -28,7 +28,7 @@ class _RollbackBase(VereningingenTestCase):
         super().setUp()
         self._saved_flags = {
             k: getattr(frappe.flags, k, None)
-            for k in ("in_import", "in_bulk_import", "bulk_member_operations", "bulk_team_operations", "in_test")
+            for k in ("in_import", "in_bulk_import", "bulk_member_operations", "bulk_team_operations", "in_test", "skip_volunteer_account_creation")
         }
         # The harness sets in_import=True (subscribers then early-return) and in_test=True
         # (Member.on_update then skips event emission). Production has neither.
@@ -37,6 +37,22 @@ class _RollbackBase(VereningingenTestCase):
         frappe.flags.bulk_member_operations = False
         frappe.flags.bulk_team_operations = False
         frappe.flags.in_test = False
+        # Each create_test_volunteer() would otherwise leave an untracked test-volunteer-* User
+        # behind (11 per run); this module builds its own User where it needs one.
+        frappe.flags.skip_volunteer_account_creation = True
+        # in_import=False also re-arms Frappe's throttle_user_creation() (>60 Users created in
+        # the last hour raises "Throttled"), and these setUps insert a User. Raise the limit
+        # instead, as enhanced_test_factory does; restore via addCleanup so it cannot leak.
+        self._had_throttle_limit = "throttle_user_limit" in frappe.local.conf
+        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
+        self.addCleanup(self._restore_throttle_limit_2144)
+        frappe.local.conf["throttle_user_limit"] = 1000000
+
+    def _restore_throttle_limit_2144(self):
+        if self._had_throttle_limit:
+            frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
+        else:
+            frappe.local.conf.pop("throttle_user_limit", None)
 
     def tearDown(self):
         for k, v in self._saved_flags.items():
@@ -207,10 +223,10 @@ class TestMemberEventsRollback(_RollbackBase):
         return frappe.db.get_value("Chapter Member", row, "status")
 
     def test_rolled_back_suspension_leaves_the_chapter_membership_active(self):
-        """handle_chapter_assignment_updates deactivates chapter rows on Suspended. The
-        lifecycle event is not registered for that job in production (only
-        member_status_changed is), so the payload is hand-built: probe shortcut, the same
-        shape as the user-account pair."""
+        """Dead branch today; guards the path if it is wired. handle_chapter_assignment_updates
+        deactivates chapter rows on Suspended, but production subscribes it only to
+        member_status_changed, which carries application statuses, so this payload is
+        hand-built (probe shortcut, same shape as the user-account pair)."""
         row = self._seat_in_chapter()
         jobs = self._rolled_back(self._suspend_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
@@ -225,6 +241,7 @@ class TestMemberEventsRollback(_RollbackBase):
         self.assertEqual(self._chapter_row_status(row), "Active", "the member was never suspended")
 
     def test_control_committed_suspension_deactivates_the_chapter_membership(self):
+        """Dead branch today; guards the path if it is wired (hand-built payload, see above)."""
         row = self._seat_in_chapter()
         self._suspend_2144()
         job = {
@@ -235,6 +252,71 @@ class TestMemberEventsRollback(_RollbackBase):
         }
         self._run_jobs_2144([job])
         self.assertEqual(self._chapter_row_status(row), "Inactive")
+
+    def _enable_chapter_assignment_2144(self):
+        """A published chapter that covers the member's postal code, plus the setting the
+        lookup requires. Probe shortcut: the member's primary_address is set directly."""
+        settings = frappe.get_single("Verenigingen Settings")
+        was_enabled = settings.enable_chapter_management
+        settings.db_set("enable_chapter_management", 1)
+        self.addCleanup(settings.db_set, "enable_chapter_management", was_enabled)
+        area = 7000 + int(frappe.generate_hash(length=3), 16) % 900
+        self.create_test_chapter(
+            chapter_name=f"Rollback Assign {frappe.generate_hash(length=6)}",
+            postal_codes=f"{area}-{area}",
+            published=1,
+        )
+        # The chapter factory seats the newest Member in the chapter it builds; the test
+        # needs the member unseated, so only the job under test can seat it.
+        frappe.db.delete("Chapter Member", {"member": self.member.name})
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"Rollback {frappe.generate_hash(length=6)}",
+                "address_line1": "Teststraat 1",
+                "city": "Rollbackstad",
+                "pincode": f"{area}AB",
+                "country": "Netherlands",
+            }
+        ).insert()
+        self.track_doc("Address", address.name)
+        frappe.db.set_value("Member", self.member.name, "primary_address", address.name)
+        self._reset_chapter_lookup_2144()
+        self.addCleanup(self._reset_chapter_lookup_2144)
+
+    def _reset_chapter_lookup_2144(self):
+        from verenigingen.services.chapter.optimized_chapter_lookup import get_lookup_instance
+
+        get_lookup_instance().invalidate_cache()
+
+    def _chapter_rows_2144(self):
+        return frappe.db.count("Chapter Member", {"member": self.member.name})
+
+    def _approval_chapter_job_2144(self, jobs):
+        return [j for j in jobs if j["method"].endswith("handle_chapter_assignment_updates")]
+
+    def test_control_committed_approval_assigns_the_member_to_a_chapter(self):
+        """Real flow: a real approval save emits member_status_changed (application status)."""
+        self._enable_chapter_assignment_2144()
+        self.assertEqual(self._chapter_rows_2144(), 0, "precondition: member is unseated")
+        jobs = self._capture_jobs_2144(self._approve_2144)
+        self.assertEqual(self._chapter_rows_2144(), 0, "the approval save itself seats nobody")
+        job_list = self._approval_chapter_job_2144(jobs)
+        self.assertTrue(job_list, "approval must queue the chapter assignment job")
+        self._run_jobs_2144(job_list)
+        self.assertEqual(self._chapter_rows_2144(), 1)
+
+    def test_rolled_back_approval_assigns_no_chapter(self):
+        """Real flow: the approval is rolled back, then its chapter job runs. The member was
+        never approved, so no Chapter Member row may appear."""
+        self._enable_chapter_assignment_2144()
+        self.assertEqual(self._chapter_rows_2144(), 0, "precondition: member is unseated")
+        jobs = self._rolled_back(self._approve_2144)
+        self.assertEqual(frappe.db.get_value("Member", self.member.name, "application_status"), "Pending")
+        job_list = self._approval_chapter_job_2144(jobs)
+        self.assertTrue(job_list, "the rolled-back save still queued the job")
+        self._run_jobs_2144(job_list)
+        self.assertEqual(self._chapter_rows_2144(), 0)
 
     def test_member_jobs_are_held_until_commit(self):
         jobs = self._capture_jobs_2144(self._suspend_2144) + self._capture_jobs_2144(self._approve_2144)
@@ -469,30 +551,54 @@ class TestTeamEventsRollback(_RollbackBase):
             )
         service.send_templated_email.assert_called_once()
 
-    def test_two_volunteers_added_in_one_save_get_distinct_job_ids(self):
-        """Jobs deferred to commit with the same job_id overwrite each other, so the last
-        volunteer's payload would run twice and the first never."""
-        other_volunteer = self.create_test_volunteer()
+    def _row_2144(self, volunteer, from_date=None):
+        return {
+            "volunteer": volunteer.name,
+            "team_role": self.member_role.name,
+            "from_date": from_date or frappe.utils.today(),
+            "is_active": 1,
+            "status": "Active",
+        }
 
-        def join_both():
+    def _add_rows_in_one_save_2144(self, rows):
+        def save():
             team = frappe.get_doc("Team", self.team.name)
-            for volunteer in (self.volunteer, other_volunteer):
-                team.append(
-                    "team_members",
-                    {
-                        "volunteer": volunteer.name,
-                        "team_role": self.member_role.name,
-                        "from_date": frappe.utils.today(),
-                        "is_active": 1,
-                        "status": "Active",
-                    },
-                )
+            for row in rows:
+                team.append("team_members", row)
             team.save()
 
-        jobs = [
+        return [
             j
-            for j in self._capture_jobs_2144(join_both)
+            for j in self._capture_jobs_2144(save)
             if j["method"].endswith("handle_membership_notifications")
         ]
+
+    def test_two_volunteers_added_in_one_save_each_get_their_own_job(self):
+        """Jobs deferred to commit with the same job_id overwrite each other, so the last
+        volunteer's payload would run twice and the first never. Run what a worker would
+        receive per distinct id: each volunteer is mailed exactly once."""
+        other = self.create_test_volunteer()
+        jobs = self._add_rows_in_one_save_2144([self._row_2144(self.volunteer), self._row_2144(other)])
         self.assertEqual(len(jobs), 2)
-        self.assertEqual(len({j["job_id"] for j in jobs}), 2, [j["job_id"] for j in jobs])
+        ids = [j["job_id"] for j in jobs]
+        self.assertEqual(len(set(ids)), 2, ids)
+        for volunteer in (self.volunteer, other):
+            self.assertEqual(sum(volunteer.name in i for i in ids), 1, ids)
+
+        # A job queue keeps ONE job per id (the last enqueued wins), as deduplicate does.
+        by_id = {j["job_id"]: j for j in jobs}
+        with self._mail_boundary() as service:
+            self._run_jobs_2144(list(by_id.values()))
+        mailed = [call.kwargs["recipients"][0] for call in service.send_templated_email.call_args_list]
+        expected = sorted(frappe.db.get_value("Member", v.member, "email") for v in (self.volunteer, other))
+        self.assertEqual(sorted(mailed), expected)
+
+    def test_one_volunteer_added_twice_in_one_save_gets_a_job_per_row(self):
+        """Same volunteer, same action, different from_date: the id must tell the rows apart."""
+        earlier = frappe.utils.add_days(frappe.utils.today(), -3)
+        jobs = self._add_rows_in_one_save_2144(
+            [self._row_2144(self.volunteer, earlier), self._row_2144(self.volunteer)]
+        )
+        self.assertEqual(len(jobs), 2)
+        ids = [j["job_id"] for j in jobs]
+        self.assertEqual(len(set(ids)), 2, ids)
