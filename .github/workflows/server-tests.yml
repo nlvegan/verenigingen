@@ -84,7 +84,7 @@ jobs:
       # regenerate test_timings.json first, since a stale table quietly degrades
       # back toward count-based behaviour for every file missing from it.
       parallel-runs: 12
-      # On push/PR coverage is always collected; on manual dispatch the
+      # In the merge queue coverage is always collected; on manual dispatch the
       # checkbox still wins so you can run a fast, coverage-free dispatch.
       enable-coverage: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_coverage }}
 

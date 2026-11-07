@@ -900,7 +900,7 @@ class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):
     def test_push_paths_cover_every_scripts_file_tests_import(self):
         paths = wpf.extract_trigger_paths(self.text, "push")
         if not paths:
-            return  # no push trigger, or an unfiltered one: nothing is filtered out
+            self.skipTest("server-tests.yml has no push.paths: nothing is filtered out (#2184)")
         for target in self.targets:
             with self.subTest(target=target):
                 self.assertTrue(
@@ -912,7 +912,7 @@ class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):
     def test_pull_request_paths_cover_every_scripts_file_tests_import(self):
         paths = wpf.extract_trigger_paths(self.text, "pull_request")
         if not paths:
-            return  # unfiltered pull_request trigger: every file reaches Test Summary
+            self.skipTest("server-tests.yml has no pull_request.paths: every file reaches Test Summary (#2184)")
         for target in self.targets:
             with self.subTest(target=target):
                 self.assertTrue(
