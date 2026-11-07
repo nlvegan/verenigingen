@@ -46,6 +46,11 @@ class TestSeatHelperRowsAreDrained(unittest.TestCase):
         )
         self.assertTrue(result.wasSuccessful(), stream.getvalue())
         after = _row_names_2039()
+        # Shared master only: it is built before the snapshot, so a teardown that DELETED it
+        # would vanish from the before/after diff. Check it directly.
+        self.assertTrue(
+            frappe.db.exists("Region", "test-region"), "probe teardown removed the shared Test Region master"
+        )
         # setUpClass builds one class-level Chapter that is never tracked (a separate defect);
         # discount it so the probe reports only what the seat helpers left.
         after["Chapter"].discard(getattr(probe_cls, "_test_chapter_name", None))
