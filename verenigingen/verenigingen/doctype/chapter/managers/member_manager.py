@@ -330,6 +330,17 @@ class MemberManager(BaseManager):
             if not frappe.db.exists("Member", member_id):
                 frappe.throw(_("Member {0} does not exist").format(member_id))
 
+            # #2021: only Active members may request a chapter (as Chapter Join Request.validate
+            # already requires), so no Pending row is ever written for anyone else. Placed before
+            # the rejoin branch, which is a second writer of a Pending row. The message omits the
+            # status on purpose (#1590).
+            if frappe.db.get_value("Member", member_id, "status") != "Active":
+                return {
+                    "success": False,
+                    "message": _("Only active members can request to join a chapter"),
+                    "action": "not_active",
+                }
+
             # Check if member already exists in chapter
             existing_member = self._find_chapter_member(member_id)
             if existing_member:

@@ -39,25 +39,12 @@ def boot_session(bootinfo):
     Initialize user session with Verenigingen-specific configuration.
 
     This function is automatically called by the Frappe framework during user
-    session initialization. It sets up environment-specific configurations,
-    particularly for test environments where email mocking and special behavior
-    flags need to be enabled.
+    session initialization. It does NOT touch email mocking or mute flags: a session
+    boot under test used to do that process-wide and never undo it (#2062).
 
     Args:
         bootinfo (dict): Frappe boot information dictionary containing
                         session initialization data and user context
-
-    Configuration Tasks:
-        * Test mode detection and email mocking enablement
-        * Session-specific feature flags for testing environments
-        * Development environment debugging setup
-        * System behavior modification for test scenarios
-
-    Test Mode Features:
-        * Automatic email mocking to prevent actual email sending during tests
-        * Email muting flag activation for comprehensive test isolation
-        * Test mode logging for debugging and verification
-        * Integration with Verenigingen test configuration utilities
 
     Usage:
         Automatically called by Frappe framework - no direct invocation needed.
@@ -71,18 +58,10 @@ def boot_session(bootinfo):
         Additional session initialization logic can be added here for future
         features requiring session-specific setup or configuration.
     """
-    # Check if we're in test mode
-    if frappe.flags.get("in_test"):
-        # Enable email mocking for tests
-        from verenigingen.tests.utils.test_config import enable_test_email_mocking
-
-        enable_test_email_mocking()
-
-        # Set additional test flags
-        frappe.flags.mute_emails = True
-
-        # Log that test mode is active
-        frappe.logger().info("Verenigingen: Test mode active - emails are mocked")
+    # No test-mode block (#2062): this used to enable the process-wide sendmail mock and set
+    # mute_emails on every session boot under in_test, and nothing undid either, so one test that
+    # booted a session left every later Email Queue assertion in the process seeing no row. A test
+    # that wants a mock installs its own in scope (EnhancedTestCase, @patch).
 
     # Apply Firefox session cache corruption fix
     try:

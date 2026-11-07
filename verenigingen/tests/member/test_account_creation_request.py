@@ -161,6 +161,36 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertEqual(request.pipeline_stage, "Account Creation")
         self.assertIn("explosion", request.failure_reason)
 
+    def _failure_log_rows(self, request):
+        """Error Log rows for ``request``. Scoped by the request's own name: ``tabError Log`` is
+        MyISAM, so rows from earlier runs survive a rollback."""
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": f"Account Creation Request failed: {request.name}"},
+            fields=["name", "error"],
+        )
+
+    def test_mark_failed_writes_an_error_log_row(self):
+        """#2066: the failure used to reach only frappe.logger(), which nobody reads."""
+        request = self._insert_acr()
+        self.assertEqual(self._failure_log_rows(request), [])
+        request.mark_failed("explosion in stage 2 #2066", stage="Account Creation")
+        rows = self._failure_log_rows(request)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("explosion in stage 2 #2066", rows[0].error)
+        self.assertIn("Account Creation", rows[0].error)
+        self.assertIn(self.member.name, rows[0].error)
+
+    def test_mark_failed_on_a_cancelled_request_writes_no_error_log_row(self):
+        """Control: a late pipeline error on a cancelled request is not a failure (#1709)."""
+        request = self._insert_acr()
+        request.cancel_request("operator said stop")
+        request.mark_failed("late pipeline error", "Role Assignment")
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "status"), "Cancelled"
+        )
+        self.assertEqual(self._failure_log_rows(request), [])
+
     def test_mark_failed_truncates_long_reason(self):
         request = self._insert_acr()
         request.mark_failed("x" * 5000)

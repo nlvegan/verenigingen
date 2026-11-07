@@ -94,7 +94,9 @@ class TestCanonicalApprovalChapterActivation(EnhancedTestCase):
         #    try to assign a new chapter - the test is about whether the
         #    EXISTING pending row is activated, not new assignment.
         member.reload()
-        _approve_membership_application_locked(member.name, "Standard Member", None, None, True, False)
+        _approve_membership_application_locked(
+            member.name, "Standard Member", None, None, True, False, applied_chapter=self.test_chapter.name
+        )
 
         # 5. The pending row should now be Active. This is the RED-first
         #    assertion: it fails on develop until the §2.3 patch is applied

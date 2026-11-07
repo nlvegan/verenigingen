@@ -330,8 +330,8 @@ def execute():
             "priority": "Medium",
             "cooldown_minutes": 60,
             "email_template": "analytics_alert",
-            "recipient_policy": "Role",
-            "recipient_roles": ["Verenigingen Staff"],
+            "recipient_policy": "Role-Based",
+            "recipient_roles": "Verenigingen Staff",
             "description": "Alert triggered by analytics monitoring rules",
         },
         # Membership Renewal
@@ -356,8 +356,8 @@ def execute():
             "priority": "Medium",
             "cooldown_minutes": 0,
             "email_template": "payment_notification",
-            "recipient_policy": "Role",
-            "recipient_roles": ["Verenigingen Staff"],
+            "recipient_policy": "Role-Based",
+            "recipient_roles": "Verenigingen Staff",
             "description": "Admin notification when member requests payment plan",
         },
         {

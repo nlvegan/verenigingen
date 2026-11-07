@@ -185,13 +185,10 @@ class TestBatchProcessingPersistence(_BatchProcessorFixtureMixin, EnhancedTestCa
         proc = self._processor()
         before = frappe.db.count("Notification Log")
 
-        # The downstream notify_administrators sets a resolved recipient *email*
-        # as the Notification's for_user. On sites where a resolved admin email
-        # has no matching User (e.g. CI's admin@example.com), the helper logs a
-        # "Notification Creation Error" — a recipient-misconfiguration condition
-        # in the notification layer, not a fault of the method under test. Tolerate
-        # that specific noise while still failing on any error this method raises.
-        with self.assertNoErrorLog(ignore=["Notification Creation Error"]):
+        # Administrator (name != email) is dropped by create_system_notification and every other
+        # recipient is addressed by user name (#1958), so no "Notification Creation Error" is
+        # expected: any such row is a regression and fails here.
+        with self.assertNoErrorLog():
             proc._notify_administrators_of_errors(3)
 
         after = frappe.db.count("Notification Log")

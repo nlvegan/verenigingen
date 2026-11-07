@@ -14,12 +14,18 @@ System Manager.
 """
 
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.payment.test_sepa_literal_recipients import (
+    _put_key_row,
+    _restore_rows,
+    _snapshot_rows,
+)
 from verenigingen.verenigingen_payments.api.dd_batch_api import (
     apply_conflict_resolutions,
     calculate_eligibility_score,
@@ -575,6 +581,55 @@ class TestDDBatchAPI(EnhancedTestCase):
     def test_escalate_conflicts_requires_inputs(self):
         result = escalate_conflicts(None, None)
         self.assertFalse(result["success"])
+
+    # --------------------------------- escalate_conflicts recipients (#2093)
+
+    def _escalation_recipients(self):
+        """Recipients escalate_conflicts hands the email service, on a real batch."""
+        batch, *_ = self._make_batch()
+        # Mock justified: EmailService is the outgoing-mail boundary; recipient resolution runs for real.
+        with patch("verenigingen.verenigingen_payments.api.dd_batch_api.get_email_service") as get_service:
+            get_service.return_value = MagicMock()
+            result = escalate_conflicts(batch.name, [{"member_name": "J", "error": "x", "type": "t"}])
+        send = get_service.return_value.send_simple_email
+        self.assertTrue(send.called, "the escalation must still be sent when staff resolve")
+        self.assertEqual(send.call_args.kwargs["notification_key"], "sepa_batch_error")
+        self.assertEqual(result["notifications_sent"], len(send.call_args.kwargs["recipients"]))
+        return send.call_args.kwargs["recipients"]
+
+    def _prepare_escalation_audience(self):
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+        old_email = frappe.db.get_value("User", "Administrator", "email")
+        self.addCleanup(
+            frappe.db.set_value, "User", "Administrator", "email", old_email, update_modified=False
+        )
+        self.admin_email = "administrator-2093@example.org"
+        frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
+        frappe.db.set_single_value("Verenigingen Email Configuration", "admin_notification_emails", "")
+        frappe.db.set_single_value("Verenigingen Payments Settings", "financial_admin_emails", "")
+        frappe.clear_cache(doctype="Verenigingen Payments Settings")
+        self.holder = f"va-live-2093-{frappe.generate_hash(length=5)}@example.org"
+        self.create_test_user(self.holder, roles=["Verenigingen Administrator"])
+        self.gone = f"va-gone-2093-{frappe.generate_hash(length=5)}@example.org"
+        self.create_test_user(self.gone, roles=["Verenigingen Administrator"], enabled=0)
+
+    def test_escalation_reaches_enabled_admin_holders_never_administrator(self):
+        self._prepare_escalation_audience()
+        _put_key_row(
+            "sepa_batch_error", "Role-Based", recipient_roles="System Manager, Verenigingen Administrator"
+        )
+        recipients = self._escalation_recipients()
+        self.assertIn(self.holder, recipients)  # control: a real enabled holder is reached
+        self.assertNotIn(self.gone, recipients)
+        self.assertNotIn(self.admin_email, recipients)
+        self.assertNotIn("Administrator", recipients)
+        self.assertTrue(all("@" in r for r in recipients), recipients)  # emails, not user names
+
+    def test_escalation_uses_the_recipients_configured_on_the_key(self):
+        self._prepare_escalation_audience()
+        _put_key_row("sepa_batch_error", "Fixed", fixed_recipients="board-2093@example.org")
+        self.assertEqual(self._escalation_recipients(), ["board-2093@example.org"])
 
     # ----------------------------------------------------- calculate_eligibility_score
 

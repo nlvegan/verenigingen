@@ -36,6 +36,7 @@ from verenigingen.api.periodic_donation_operations import (
 )
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends, ensure_outgoing_email_account
 
 
 class TestPeriodicDonationOperations(VereningingenTestCase):
@@ -417,6 +418,10 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
     # agreements (outside the window) are never touched.
     # ================================================================== #
     def test_send_renewal_reminders_query_selects_only_expiring_active_agreements(self):
+        # The reminder counts only a mail really queued (#2044): with the key disabled or in
+        # cooldown this test used to pass on a skipped send, so put the key in a sending state.
+        ensure_outgoing_email_account(self)
+        allow_reminder_sends(keys=("periodic_donation_expiry",))
         # Expiring soon (end_date within the window) and Active.
         donor_soon = self._make_donor(anbi_consent=1)
         expiring = self.create_anbi_compliant_agreement(donor=donor_soon.name, status="Active")

@@ -515,7 +515,9 @@ def add_notification_types(notification_types: str) -> dict:
                 "enabled": 1,
                 "recipient_policy": policy,
                 # An empty-roles Role-Based row reaches nobody (#1997); name the admin roles.
-                "recipient_roles": default_role_based_roles() if policy == "Role-Based" else None,
+                "recipient_roles": default_role_based_roles(registry_meta)
+                if policy == "Role-Based"
+                else None,
             },
         )
         existing_keys.add(key)
