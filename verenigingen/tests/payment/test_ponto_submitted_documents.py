@@ -585,13 +585,18 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
     def test_the_alert_is_never_addressed_to_the_administrator_user(self):
         administrator_email = frappe.db.get_value("User", "Administrator", "email")
         self.assertTrue(administrator_email, "control: Administrator has an email to be matched")
-        # Control: the roles the alert is configured with DO match Administrator, so without an
-        # explicit exclusion it is a recipient.
+        # Control: Administrator DOES hold the roles the alert is configured with (so it would be a
+        # recipient if nothing excluded it), and the resolver now drops it at the source by User name
+        # (#1960; this line used to assert the opposite, i.e. it encoded the defect).
         from verenigingen.services.communication.email_configuration_service import (
             get_email_configuration_service,
         )
 
-        self.assertIn(
+        config = get_email_configuration_service().get_notification_config(ALERT_KEY)
+        roles = [r.strip() for r in (config.get("recipient_roles") or "").split(",") if r.strip()]
+        held = set(frappe.get_all("Has Role", {"parent": "Administrator"}, pluck="role"))
+        self.assertTrue(held & set(roles), "control: Administrator holds a role the alert is sent to")
+        self.assertNotIn(
             administrator_email, get_email_configuration_service().get_recipients_for_notification(ALERT_KEY)
         )
         req = self._cancelled_request("NoAdmin")

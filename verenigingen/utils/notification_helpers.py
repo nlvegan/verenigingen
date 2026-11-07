@@ -210,7 +210,12 @@ def get_notification_recipients(setting_field, default_roles=None):
         # Fall back to default roles
         admin_users = frappe.get_all(
             "User",
-            filters=[["enabled", "=", 1], ["Has Role", "role", "in", default_roles]],
+            # Never the Administrator user (#1960); by name, so a shared email is not dropped.
+            filters=[
+                ["enabled", "=", 1],
+                ["name", "!=", "Administrator"],
+                ["Has Role", "role", "in", default_roles],
+            ],
             fields=["email", "full_name"],
         )
 
@@ -221,7 +226,9 @@ def get_notification_recipients(setting_field, default_roles=None):
         # Emergency fallback - get System Managers
         try:
             admin_emails = frappe.get_all(
-                "User", filters=[["Has Role", "role", "=", Roles.SYSTEM_MANAGER]], pluck="email"
+                "User",
+                filters=[["name", "!=", "Administrator"], ["Has Role", "role", "=", Roles.SYSTEM_MANAGER]],
+                pluck="email",
             )
             return [email for email in admin_emails if email]
         except:
@@ -715,10 +722,29 @@ def _deliverable_users(recipients):
 
 
 def _without_users(recipients, exclude_users):
-    """Drop every recipient that is one of ``exclude_users``, by user name or by that user's email."""
+    """Drop each recipient that resolves ONLY to ``exclude_users``.
+
+    A recipient is a User name or an email. An email shared with a User who is not excluded (a staff
+    user whose address Administrator also carries) is kept: exclusion is by user name, not by address.
+    A recipient that is no User at all (a plain address in a Fixed list) is kept unless it names an
+    excluded user.
+    """
     excluded = {u.lower() for u in exclude_users}
-    for user in exclude_users:
-        email = frappe.db.get_value("User", user, "email")
-        if email:
-            excluded.add(email.lower())
-    return [r for r in recipients if r and r.lower() not in excluded]
+    holders = {}
+    for user in frappe.get_all("User", fields=["name", "email"], or_filters=_user_match(recipients)):
+        for key in (user.name, user.email):
+            if key:
+                holders.setdefault(key.lower(), set()).add(user.name.lower())
+    return [r for r in recipients if r and not _is_excluded(r.lower(), holders, excluded)]
+
+
+def _user_match(recipients):
+    recipients = [r for r in recipients if r]
+    return [{"name": ["in", recipients]}, {"email": ["in", recipients]}] if recipients else [{"name": ""}]
+
+
+def _is_excluded(recipient, holders, excluded):
+    if recipient in excluded:
+        return True
+    users = holders.get(recipient)
+    return bool(users) and users <= excluded

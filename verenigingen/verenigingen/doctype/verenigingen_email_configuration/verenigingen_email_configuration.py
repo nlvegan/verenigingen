@@ -155,7 +155,8 @@ class VerenigingenEmailConfiguration(Document):
         # Get emails for enabled users
         return frappe.get_all(
             "User",
-            filters={"enabled": 1, "name": ["in", users_with_role]},
+            # Never the Administrator user (#1960), by name so a shared email does not hide a staff user.
+            filters={"enabled": 1, "name": ["in", [u for u in users_with_role if u != "Administrator"]]},
             pluck="email",
         )
 
