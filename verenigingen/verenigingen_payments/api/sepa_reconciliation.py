@@ -326,7 +326,11 @@ def _process_sepa_transaction_conservative_internal(bank_transaction_name, sepa_
         if received_amount == expected_amount:
             # Full success - reconcile all items
             result = reconcile_full_sepa_batch(bank_transaction, sepa_batch)
-            bank_transaction.custom_processing_status = "Fully Reconciled"
+            # "Fully Reconciled" is a terminal pool outcome (#2082): write it only when the
+            # batch really reconciled. On a failure the row keeps "SEPA Identified" and
+            # stays in the auto-reconciliation pool.
+            if result.get("type") == "full_reconciliation":
+                bank_transaction.custom_processing_status = "Fully Reconciled"
 
         elif received_amount < expected_amount:
             # Partial success - hold for manual review

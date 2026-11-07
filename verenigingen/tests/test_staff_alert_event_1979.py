@@ -81,8 +81,8 @@ class TestStaffAlertEvent(FrappeTestCase):
         # below stick (a bare commit is gated). Without it each test leaks its Note and User.
         self._config_backup = singleton_backup(CONFIG)
         self._config_backup.__enter__()
-        # singleton_backup does NOT cover child tables (its docstring says so): the notification_types
-        # rows these tests write would survive it. Keep the originals and put them back in tearDown.
+        # singleton_backup restores child tables since #2091, so this hand-kept copy is now redundant
+        # (#2159). It is kept and put back in tearDown.
         fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Column Break"]
         self._original_rows = [
             {k: v for k, v in row.as_dict().items() if k in fields}
@@ -438,7 +438,7 @@ class TestStaffAlertEvent(FrappeTestCase):
         self.assertIn("payment_plan_request", REQUIRES_ACTION_KEYS)
         self.assertNotIn("sepa_batch_warning", REQUIRES_ACTION_KEYS)
 
-    def test_the_three_notify_administrators_keys_are_marked_staff_alert_at_the_call_site(self):
+    def test_the_notify_administrators_keys_are_marked_staff_alert_at_the_call_site(self):
         marked = {}
         for path in APP_ROOT.rglob("*.py"):
             if "tests" in path.parts or "node_modules" in path.parts:
@@ -455,8 +455,12 @@ class TestStaffAlertEvent(FrappeTestCase):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
+        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) is the
+        # fourth literal-key call site, and the loop below still demands it is marked staff_alert=True.
         self.assertEqual(
-            set(marked), {SEEDED_KEY, "termination_overdue", INFO_KEY}, "control: all three keys were found"
+            set(marked),
+            {SEEDED_KEY, "termination_overdue", INFO_KEY, "dues_schedule_creation_failed"},
+            "control: all four keys were found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")
