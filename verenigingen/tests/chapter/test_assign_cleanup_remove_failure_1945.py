@@ -120,3 +120,47 @@ class TestAssignCleanupRemoveFailure1945(EnhancedTestCase):
                 self._svc().assign_with_cleanup(self.member.name, self.target.name)
 
         self.assertEqual(self._rows(), {self.source.name: (1, None)})
+
+    def test_failed_move_produces_exactly_one_message_with_a_reason(self):
+        """The caller sees one message, and a PermissionError with no text still says why."""
+        user = self.create_test_user_with_roles(roles=[Roles.VERENIGINGEN_ADMIN])
+        user_name = user.name if hasattr(user, "name") else user
+        original = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", self.source.name)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", original
+        )
+        self.expectErrorLog("Failed to remove member", "Secure Operation Failed")
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user(user_name)
+        before = len(frappe.local.message_log)
+
+        # Call the cleanup directly: assign_with_cleanup turns the raise into a dict.
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._svc()._cleanup_chapter_memberships(self.member.name, self.target.name)
+
+        self.assertEqual(len(frappe.local.message_log) - before, 1, frappe.local.message_log[before:])
+        self.assertIn("National Board", str(ctx.exception))
+
+    def test_mijnrood_sync_reports_a_failed_move_as_a_message_and_keeps_the_old_chapter(self):
+        """Pins today's sync behaviour (#1945 review): no raise, no alert, a message only."""
+        from unittest.mock import MagicMock
+
+        from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+            get_related_records_orchestrator,
+        )
+
+        division_id = 7000000 + int(frappe.generate_hash(length=4), 16) % 900000
+        frappe.db.set_value("Chapter", self.target.name, "mijnrood_division_id", division_id)
+        frappe.db.set_value("Chapter", self.source.name, "postal_codes", BAD_POSTAL)
+        self.expectErrorLog("Failed to remove member", "Range start 9999")
+        event = MagicMock()
+        event.name = "EVT-1945"
+
+        message = get_related_records_orchestrator()._assign_chapter_from_division(
+            self.member.name, division_id, event
+        )
+
+        self.assertTrue(message.startswith("Chapter assignment failed:"), message)
+        self.assertEqual(self._rows(), {self.source.name: (1, None)})
+        self.assertEqual(self._history(self.source.name), ["Active"])

@@ -309,6 +309,7 @@ class ChapterAssignmentService(StatelessService):
         disable the row anyway: no history, no "Member left" mail, and the refusal
         bypassed (#1945). The raise now ends the move; assign_with_cleanup rolls back.
         """
+        logged_before = len(frappe.local.message_log)
         try:
             frappe.get_doc("Chapter", old_chapter).remove_member(
                 member, leave_reason=f"Reassigned to {target_chapter}"
@@ -316,12 +317,26 @@ class ChapterAssignmentService(StatelessService):
         except NON_RESUMABLE_DB_ERRORS:
             raise
         except Exception as e:
+            reason = str(e) or self._last_logged_message(logged_before) or type(e).__name__
+            # frappe.throw() queues the raw reason too; the caller must see one message.
+            del frappe.local.message_log[logged_before:]
             frappe.throw(
                 _("{0} could not be removed from chapter {1}, so the move to {2} was not made: {3}").format(
-                    member, old_chapter, target_chapter, str(e) or type(e).__name__
+                    member, old_chapter, target_chapter, reason
                 )
             )
         self.logger.info(f"Removed member {member} from chapter {old_chapter}")
+
+    @staticmethod
+    def _last_logged_message(since: int) -> str:
+        """Text of the newest message queued since ``since`` (a throw with no exception text)."""
+        for entry in reversed(frappe.local.message_log[since:]):
+            if isinstance(entry, str):
+                entry = frappe.parse_json(entry)
+            text = (entry or {}).get("message")
+            if text:
+                return str(text)
+        return ""
 
     def _cleanup_board_memberships(self, member: str, reassignment_reason: str) -> bool:
         """End all board memberships for a member.
