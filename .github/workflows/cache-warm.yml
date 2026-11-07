@@ -1,6 +1,7 @@
 name: Warm CI Caches
 
-# Keeps develop's setup caches (apt archives, pip, yarn, npm, wkhtmltopdf) fresh (#2184).
+# Keeps develop's setup caches (apt archives, pip, yarn, wkhtmltopdf; npm once #2229 adds it
+# to the setup action) fresh (#2184).
 #
 # A workflow run can restore caches from its own ref or from the default branch, and a cache
 # it saves is scoped to its own ref (GitHub docs, "Cache access restrictions"). Merge-queue
@@ -14,12 +15,16 @@ name: Warm CI Caches
 
 on:
   schedule:
-    - cron: '23 4 * * *'  # daily; a 7-day-unused cache is evicted, and the apt key is weekly
+    # Daily, since a cache unused for 7 days is evicted. 00:23 UTC so that on Monday the new
+    # ISO-week apt key is saved before the working day's queue runs, not hours into it.
+    - cron: '23 0 * * *'
   workflow_dispatch:
 
+# Never cancel: this job's whole value is the cache save at its END. Group per ref so a
+# dispatch elsewhere cannot cancel or queue behind develop's run.
 concurrency:
-  group: cache-warm
-  cancel-in-progress: true
+  group: cache-warm-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -27,6 +32,9 @@ permissions:
 jobs:
   warm:
     name: Warm setup caches on develop
+    # Only develop's caches are readable by the merge queue; a run on any other ref would save
+    # caches nothing can use while still counting against the repo's 10 GB cache quota.
+    if: github.ref == 'refs/heads/develop'
     # Same image as the suite, so the image-keyed apt cache is the one the suite restores.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
