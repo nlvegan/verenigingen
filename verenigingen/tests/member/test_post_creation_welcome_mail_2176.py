@@ -37,11 +37,34 @@ class TestPostCreationWelcomeMail2176(VereningingenTestCase):
         configure_notification_key(KEY, 1, 0)
         clear_email_cooldowns()
         self.addCleanup(clear_email_cooldowns)
+        # A company name the code could only know by reading the global default.
+        self.company = "Welcome Co 2176"
+        previous = frappe.defaults.get_global_default("company")
+        frappe.defaults.set_global_default("company", self.company)
+        self.addCleanup(self._restore_default_company, previous)
         self.member = self.create_test_member()
         self._before = self._queued()
 
+    @staticmethod
+    def _restore_default_company(previous):
+        if previous:
+            frappe.defaults.set_global_default("company", previous)
+        else:
+            frappe.defaults.clear_default("company")
+
     def _queued(self):
-        return frappe.db.count("Email Queue Recipient", {"recipient": self.member.email})
+        """Email Queue rows referencing THIS member (the welcome mail is sent with that reference)."""
+        return frappe.get_all("Email Queue", filters={"reference_doctype": "Member", "reference_name": self.member.name}, pluck="name")
+
+    def _welcome_mails(self):
+        """New queued mails that are the welcome mail: subject names the company, body names the member."""
+        new = [n for n in self._queued() if n not in self._before]
+        return [
+            n
+            for n in new
+            if f"Welcome to {self.company}!" in frappe.db.get_value("Email Queue", n, "message")
+            and self.member.name in frappe.db.get_value("Email Queue", n, "message")
+        ]
 
     def _run(self):
         # Mock justified: execution-context probe of the log line (nothing else records it).
@@ -55,14 +78,16 @@ class TestPostCreationWelcomeMail2176(VereningingenTestCase):
     def test_welcome_mail_is_queued_with_key_enabled(self):
         errors_before = self._welcome_errors()
         lines = self._run()
-        self.assertEqual(self._queued() - self._before, 1, "the welcome mail must really be queued")
+        self.assertEqual(len(self._welcome_mails()), 1, "the welcome mail must really be queued")
         self.assertEqual(self._welcome_errors(), errors_before, "no 'Welcome email failed' Error Log")
         self.assertTrue(any("Welcome email sent" in line for line in lines))
 
     def test_welcome_mail_not_queued_and_not_claimed_sent_with_key_disabled(self):
         configure_notification_key(KEY, 0, 0)
         lines = self._run()
-        self.assertEqual(self._queued() - self._before, 0, "a disabled key must queue nothing")
+        self.assertEqual(
+            [n for n in self._queued() if n not in self._before], [], "a disabled key must queue nothing"
+        )
         self.assertFalse(
             any("Welcome email sent" in line for line in lines),
             "a skipped mail must not be logged as sent",
