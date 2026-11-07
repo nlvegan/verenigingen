@@ -101,9 +101,8 @@ def quick_workspace_health_check(workspace_name):
     """
     Quick health check focused on migration-related issues
 
-    Prioritizes the most common migration-caused problems:
-    1. Broken links to deleted DocTypes/Reports
-    2. Content/Card Break synchronization issues
+    Focuses on the most common migration-caused problem:
+    content/Card Break synchronization issues
     """
 
     try:
