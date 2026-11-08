@@ -199,7 +199,7 @@ class TestAuthAlertPatch2254(EnhancedTestCase):
         rows = snapshot_notification_rows()
         self.addCleanup(restore_notification_rows, rows)
 
-    def _row(self, policy, roles):
+    def _put_auth_row(self, policy, roles):
         config = frappe.get_single(CONFIG)
         config.set("notification_types", [r for r in config.notification_types if r.notification_key != KEY])
         config.append(
@@ -215,7 +215,7 @@ class TestAuthAlertPatch2254(EnhancedTestCase):
         )
         config.save()
 
-    def _state(self):
+    def _auth_row_state(self):
         row = frappe.db.get_value(
             "Email Notification Type",
             {"parent": CONFIG, "notification_key": KEY},
@@ -225,15 +225,15 @@ class TestAuthAlertPatch2254(EnhancedTestCase):
 
     def test_a_stock_row_becomes_custom(self):
         for roles in ("System Manager, Verenigingen Administrator", "Verenigingen Administrator, System Manager"):
-            self._row("Role-Based", roles)
+            self._put_auth_row("Role-Based", roles)
             importlib.import_module(self.PATCH).execute()
-            self.assertEqual(self._state(), ("Custom", ""), roles)
+            self.assertEqual(self._auth_row_state(), ("Custom", ""), roles)
 
     def test_an_admins_own_row_is_left_alone(self):
         for policy, roles in (("Role-Based", "Verenigingen Treasurer"), ("Role-Based", "System Manager")):
-            self._row(policy, roles)
+            self._put_auth_row(policy, roles)
             importlib.import_module(self.PATCH).execute()
-            self.assertEqual(self._state(), (policy, roles))
+            self.assertEqual(self._auth_row_state(), (policy, roles))
 
     def test_the_patch_is_registered_and_the_registry_seeds_custom(self):
         from pathlib import Path
