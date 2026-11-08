@@ -58,6 +58,11 @@ class _NestsHarnessPatches(EnhancedTestCase):
         pass
 
 
+class _NestsNothing(EnhancedTestCase):
+    def step_noop(self):
+        pass
+
+
 VT_TARGETS = [
     "verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data",
     "verenigingen.utils.security.csrf_protection.CSRFProtection.validate_request",
@@ -79,7 +84,39 @@ class _VtNestsHarnessPatches(VereningingenTestCase):
         pass
 
 
+class _VtNestsNothing(VereningingenTestCase):
+    def step_noop(self):
+        pass
+
+
 class TestHarnessPatchUnwindOrder(unittest.TestCase):
+    def _hand_driven_leaves(self, case_class, targets):
+        """Drive setUp()/tearDown() by hand, as tests that probe the harness do.
+
+        No ``run()`` means ``doCleanups`` never fires, so the addCleanup stops (moved there
+        by #2221) never run. Returns the targets still bound to a different object.
+        """
+        self._assert_all_real(targets)
+        before = {t: _current_binding_at(t) for t in targets}
+        probe = case_class("step_noop")
+        try:
+            probe.setUp()
+        finally:
+            probe.tearDown()
+        stuck = [t for t in targets if _current_binding_at(t) is not before[t]]
+        # Unwind whatever a failing run left behind so later modules are not polluted
+        # by THIS test's own red.
+        probe.doCleanups()
+        return stuck
+
+    def test_hand_driven_enhanced_setup_teardown_leaves_no_mock_bound(self):
+        stuck = self._hand_driven_leaves(_NestsNothing, HARNESS_TARGETS)
+        self.assertEqual(stuck, [], f"a hand-driven setUp/tearDown pair leaked mocks: {stuck}")
+
+    def test_hand_driven_vereningingen_setup_teardown_leaves_no_mock_bound(self):
+        stuck = self._hand_driven_leaves(_VtNestsNothing, VT_TARGETS)
+        self.assertEqual(stuck, [], f"a hand-driven setUp/tearDown pair leaked mocks: {stuck}")
+
     def _assert_all_real(self, targets):
         """Each test checks its own starting state, so a leaked mock fails it cleanly."""
         from unittest.mock import NonCallableMock

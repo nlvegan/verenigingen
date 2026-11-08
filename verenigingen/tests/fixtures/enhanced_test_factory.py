@@ -2891,6 +2891,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # the rest of the process. Their stops are registered with addCleanup in
         # _setup_email_mocking / _setup_rate_limit_mocking, which unwinds LIFO after the
         # test's own nested patches.
+        #
+        # EXCEPT when nothing will run the cleanups: a test that drives setUp()/tearDown()
+        # by hand (no run(), so `_outcome` is None) never reaches doCleanups, and the
+        # patches would stay installed for the rest of the process. There is no nested
+        # patch to unwind in that case, so stopping here is safe, and the stops are
+        # idempotent.
+        if self._outcome is None:
+            self._stop_email_patches()
+            self._teardown_rate_limit_mocking()
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
