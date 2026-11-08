@@ -240,7 +240,7 @@ def _member_state_still_holds(member, event_name, event_data):
 
 
 def _send_member_status_notification(member, notification_type):
-    """Send a member status notification (approval, suspension, termination, reactivation)."""
+    """Send a member status notification (approval, suspension, termination)."""
     if not member.email:
         return
 
