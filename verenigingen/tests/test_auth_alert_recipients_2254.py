@@ -72,14 +72,14 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
         self._ensure_profile(OTHER_PROFILE, [Roles.VERENIGINGEN_ADMIN])
 
         suffix = frappe.generate_hash(length=5)
-        self.holder = self._user(f"holder-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[PROFILE])
-        self.second = self._user(
+        self.holder = self._make_holder(f"holder-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[PROFILE])
+        self.second = self._make_holder(
             f"second-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[OTHER_PROFILE, PROFILE]
         )
-        self.gone = self._user(f"gone-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[PROFILE], enabled=0)
-        self.other_profile = self._user(f"other-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[OTHER_PROFILE])
-        self.sm_only = self._user(f"smonly-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER])
-        self.va_only = self._user(f"vaonly-2254-{suffix}@example.org", [Roles.VERENIGINGEN_ADMIN])
+        self.gone = self._make_holder(f"gone-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[PROFILE], enabled=0)
+        self.other_profile = self._make_holder(f"other-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER], profiles=[OTHER_PROFILE])
+        self.sm_only = self._make_holder(f"smonly-2254-{suffix}@example.org", [Roles.SYSTEM_MANAGER])
+        self.va_only = self._make_holder(f"vaonly-2254-{suffix}@example.org", [Roles.VERENIGINGEN_ADMIN])
 
     def _ensure_profile(self, name, roles):
         if frappe.db.exists("Role Profile", name):
@@ -90,7 +90,7 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         self.addCleanup(frappe.delete_doc, "Role Profile", name, force=True, ignore_permissions=True)
 
-    def _user(self, email, roles, profiles=(), enabled=1):
+    def _make_holder(self, email, roles, profiles=(), enabled=1):
         user = self.create_test_user(email, roles=roles, enabled=enabled)
         for profile in profiles:
             user.append("role_profiles", {"role_profile": profile})
@@ -125,7 +125,7 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
         frappe.db.delete("User Role Profile", {"parent": "Administrator"})
         frappe.db.set_value("User", "Administrator", "email", email, update_modified=False)
 
-    def _fire(self):
+    def _fire_auth_alert(self):
         mail = _Mail()
         module = importlib.import_module(MODULE)
         with patch(f"{MODULE}.get_auth_health_status", return_value=BROKEN), patch(
@@ -136,7 +136,7 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
 
     def test_profile_holders_are_reached_everyone_else_is_not(self):
         self._admin_holds_profile()
-        mail = self._fire()
+        mail = self._fire_auth_alert()
         recipients = mail.recipients
         self.assertEqual(mail.keys, [KEY], "one critical alert, on its registered key")
         self.assertIn(self.holder, recipients)
@@ -153,10 +153,10 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
 
     def test_a_legacy_only_holder_is_found(self):
         """Holder recorded ONLY in the deprecated role_profile_name column (no child row)."""
-        legacy = self._user(f"legacy-2254-{frappe.generate_hash(length=5)}@example.org", [Roles.SYSTEM_MANAGER])
+        legacy = self._make_holder(f"legacy-2254-{frappe.generate_hash(length=5)}@example.org", [Roles.SYSTEM_MANAGER])
         frappe.db.set_value("User", legacy, "role_profile_name", PROFILE, update_modified=False)
         self.assertFalse(frappe.db.exists("User Role Profile", {"parent": legacy}))
-        recipients = self._fire().recipients
+        recipients = self._fire_auth_alert().recipients
         self.assertIn(legacy, recipients)
         self.assertNotIn(self.sm_only, recipients)
 
@@ -168,14 +168,14 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
             {"recipient_policy": "Fixed", "fixed_recipients": "ops-2254@example.org"},
         )
         frappe.clear_document_cache(CONFIG, CONFIG)
-        recipients = self._fire().recipients
+        recipients = self._fire_auth_alert().recipients
         self.assertEqual(recipients, ["ops-2254@example.org"])
 
     def test_with_no_profile_holder_the_admin_roles_still_get_it_but_never_administrator(self):
         frappe.db.delete("User Role Profile", {"role_profile": PROFILE, "parenttype": "User"})
         frappe.db.set_value("User", {"role_profile_name": PROFILE}, "role_profile_name", None, update_modified=False)
         self._admin_holds_roles_and_email()
-        recipients = self._fire().recipients
+        recipients = self._fire_auth_alert().recipients
         self.assertTrue(recipients, "the alert must not vanish when no one holds the profile")
         self.assertIn(self.sm_only, recipients)
         self.assertNotIn(self.admin_email, recipients)
