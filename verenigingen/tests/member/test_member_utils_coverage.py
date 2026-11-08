@@ -57,6 +57,8 @@ class TestMemberUtilsCurrentUserCoverage(EnhancedTestCase):
                 last_name="UserCov",
                 roles=["Verenigingen Member"],
             )
+        # The current-user lookups resolve by Member.user only (#1936).
+        self.member.db_set("user", self.member_email)
 
     # ------------------------------------------------------------------
     # require_login

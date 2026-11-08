@@ -12,6 +12,7 @@ import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.verenigingen_payments.utils.shared.responses import compute_hmac_signature
+from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once
 
 
 class WebhookAuthenticationError(frappe.ValidationError):
@@ -60,7 +61,8 @@ def _validate_test_mode_safety() -> None:
     # Error Log "method" field (max 140 chars). Pass the long explanation as the
     # message and a short title, otherwise inserting the Error Log itself raises
     # CharacterLengthExceededError and masks the real security rejection.
-    frappe.log_error(message=error_msg, title="Mollie Security - CRITICAL")
+    # Once an hour, not per request: every webhook on a misconfigured site gets here (#2136).
+    log_error_once("Mollie Security - CRITICAL", error_msg)
     raise WebhookAuthenticationError(error_msg)
 
 

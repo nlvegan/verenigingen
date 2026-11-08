@@ -491,20 +491,27 @@ class ContributionAmendmentRequest(Document):
                     reference_doctype="Contribution Amendment Request",
                     reference_name=self.name,
                     notification_key="contribution_sync_failed",
+                    # The key's default cooldown is per recipient per key: without a scope, one failed
+                    # amendment's alert silences every other amendment's for an hour.
+                    cooldown_scope=self.name,
                 )
 
-                if result.get("success"):
+                # An OperationResult, not a dict. A skip (key disabled, cooldown, master switch off) is a
+                # successful result that sent nothing, so it must not be logged as sent (#2044).
+                if result.skip_reason:
+                    frappe.logger().info(f"Failure notification skipped: {result.skip_reason}")
+                elif result.success:
                     frappe.logger().info(f"Sent failure notification to {len(recipients)} administrators")
                 else:
                     frappe.log_error(
-                        f"Failed to send Mollie sync failure notification: {result.get('message')}",
-                        "Mollie Sync Notification Error",
+                        title="Mollie Sync Notification Error",
+                        message=f"Failed to send Mollie sync failure notification: {result.error_message}",
                     )
 
         except Exception as email_error:
             frappe.log_error(
-                f"Failed to send Mollie sync failure notification: {str(email_error)}",
-                "Mollie Sync Notification Error",
+                title="Mollie Sync Notification Error",
+                message=f"Failed to send Mollie sync failure notification: {str(email_error)}",
             )
 
     @frappe.whitelist()

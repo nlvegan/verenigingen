@@ -255,6 +255,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         self.factory = CoreTestDataFactory()
+        # #2039: rows the factory builds internally (auto Chapter, auto Member + Customer behind
+        # create_test_volunteer, Region) were recorded only on factory.created_records, which
+        # nothing drained, so a test body that commits left them on the site for good.
+        self.factory.on_track = self.track_doc
 
         # Set up test request context for API security framework
         self._setup_test_request_context()
@@ -2775,6 +2779,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     def create_test_volunteer(self, **kwargs):
         """Create test volunteer with automatic tracking"""
+        # The core factory takes ``member=``; EnhancedTestCase spells it ``member_name=``.
+        # Without this mapping ``member_name`` fell into the field overrides and the factory
+        # built a second Member (#2208).
+        if "member_name" in kwargs and kwargs.get("member") is None:
+            kwargs["member"] = kwargs.pop("member_name")
         volunteer = self.factory.create_test_volunteer(**kwargs)
         self.track_doc("Volunteer", volunteer.name)
         return volunteer

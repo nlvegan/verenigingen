@@ -976,9 +976,9 @@ def api_security_framework(
                     )
 
                     # Enhanced content validation for TOCTOU protection.
-                    # Resolve the caller's member with the canonical user-first
-                    # resolver (Member.user, then Member.email) — matching the
-                    # ownership gate. An email-only lookup silently skipped this
+                    # Resolve the caller's member by the explicit Member.user link
+                    # ONLY (#1936, no Member.email fallback) — the same resolver as
+                    # the ownership gate. An email-only lookup silently skipped this
                     # deep check for members whose Member.user differs from their
                     # login email, disabling TOCTOU protection for that class of user.
                     current_user = frappe.session.user
