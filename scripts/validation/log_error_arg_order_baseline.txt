@@ -560,14 +560,6 @@ verenigingen/verenigingen_payments/core/compliance/regulatory_reporter.py::Regul
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._handle_parsing_error::1
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._request_paginated::1
 verenigingen/verenigingen_payments/core/mollie_base_client.py::MollieBaseClient._validate_response_structure::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._create_audit_log::2
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._create_security_alert::2
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._test_api_connectivity::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager._validate_webhook_timestamp::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager.decrypt_sensitive_data::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager.encrypt_sensitive_data::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::MollieSecurityManager.rotate_api_keys::1
-verenigingen/verenigingen_payments/core/security/mollie_security_manager.py::cleanup_fallback_key::1
 verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_revenue_analysis::1
 verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::get_dashboard_data::1
 verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.py::DirectDebitBatch.calculate_totals::1
@@ -612,8 +604,6 @@ verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_client
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_payment_status::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::initiate_refund::2
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::test_webhook_processing::1
-verenigingen/verenigingen_payments/mollie/api/webhooks.py::handle_mollie_payment_webhook::1
-verenigingen/verenigingen_payments/mollie/api/webhooks.py::handle_unified_webhook::1
 verenigingen/verenigingen_payments/mollie/events/amendment_events.py::notify_administrators_of_sync_issue::1
 verenigingen/verenigingen_payments/mollie/events/amendment_events.py::sync_mollie_subscription_on_amendment_applied::2
 verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger._create_audit_log::1
@@ -681,9 +671,6 @@ verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::BatchLoggingUtilities.add_to_batch_log::1
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::FileManagementUtilities.attach_file_to_document::1
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::SEPAXMLValidator.validate_sepa_xml_schema::2
-verenigingen/verenigingen_payments/utils/webhook_rate_limiter.py::WebhookRateLimiter._check_ip_limit::1
-verenigingen/verenigingen_payments/utils/webhook_rate_limiter.py::WebhookRateLimiter._check_webhook_id_limit::1
-verenigingen/verenigingen_payments/utils/webhook_rate_limiter.py::WebhookRateLimiter.check_rate_limit::1
 verenigingen/verenigingen_payments/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._save_reconciliation_record::2
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._validate_bulk_imports::1
