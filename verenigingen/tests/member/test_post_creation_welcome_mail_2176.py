@@ -14,7 +14,6 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
-from verenigingen.tests.support.verenigingen_settings import _harness_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.reminder_mail_state import (
     clear_email_cooldowns,
@@ -38,35 +37,19 @@ class TestPostCreationWelcomeMail2176(VereningingenTestCase):
         configure_notification_key(KEY, 1, 0)
         clear_email_cooldowns()
         self.addCleanup(clear_email_cooldowns)
-        self.company = self._pin_global_default_company()
+        self.company = self._real_default_company()
         self.member = self.create_test_member()
         self._before = self._queued()
 
-    def _pin_global_default_company(self):
-        """The REAL company the welcome mail must name, never "Our Organization".
-
-        Uses the site's global default when it is a real Company (nothing changed).
-        Otherwise points the default at an existing Company and restores exactly. The
-        restore COMMITS: the mail send commits, so the pin is durable, and an uncommitted
-        restore is undone by the class-level rollback (that left a fake default behind
-        for every later module in the shard, #2233 round 1).
-        """
-        previous = frappe.db.get_value("DefaultValue", {"parent": "__default", "defkey": "company"}, "defvalue")
-        if previous and frappe.db.exists("Company", previous):
-            return previous
-        company = _harness_company() or frappe.db.get_value("Company", {}, "name")
-        self.assertTrue(company, "the site needs a Company for this test")
-        frappe.defaults.set_global_default("company", company)
-        self.addCleanup(self._restore_default_company, previous)
+    def _real_default_company(self):
+        """The site's global default company, read only (never written: the mail send commits,
+        so a write here would leak into every later module in the shard, #2233 round 1)."""
+        company = frappe.defaults.get_global_default("company")
+        self.assertTrue(
+            company and company != "Our Organization" and frappe.db.exists("Company", company),
+            f"precondition: the harness setUpClass must pin a real default Company; got {company!r}",
+        )
         return company
-
-    @staticmethod
-    def _restore_default_company(previous):
-        frappe.defaults.clear_default("company", parent="__default")
-        if previous:
-            frappe.defaults.set_global_default("company", previous)
-        frappe.db.commit()
-        frappe.clear_cache()
 
     def _queued(self):
         """Email Queue rows referencing THIS member (the welcome mail is sent with that reference)."""
