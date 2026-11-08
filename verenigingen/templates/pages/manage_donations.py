@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.utils.member_portal_utils import set_no_member_context
+
 # Import standardized member utilities
 from verenigingen.utils.member_utils import (
     get_current_user_member_doc,
@@ -42,7 +44,11 @@ def get_context(context):
     # Ensure CSRF token is available
     context.csrf_token = frappe.session.csrf_token
 
-    # Get member record using standardized utility
+    # Get member record using standardized utility. An account with no linked Member gets the
+    # "not linked" banner, not an error page (#2207).
+    if not get_current_user_member_name():
+        set_no_member_context(context)
+        return context
     context.member = get_current_user_member_doc()
 
     # Get donation summary statistics. The helper no longer swallows (#593), so the

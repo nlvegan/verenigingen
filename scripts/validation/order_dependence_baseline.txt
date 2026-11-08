@@ -409,6 +409,7 @@ COMMIT_EXEMPT tests/security/test_link_sanitizer.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_permissions_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_modules.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_penetration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/security/test_unlinked_member_home_page_2207.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_batch_processing_service_happy_path.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_dd_batch_pipeline_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_sepa_bank_reconciliation_coverage.py::1  # order-dep-exempt

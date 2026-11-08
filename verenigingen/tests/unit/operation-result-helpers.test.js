@@ -399,4 +399,42 @@ describe('OperationResult helpers', () => {
 			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
 		});
 	});
+	describe('getHttpErrorMessage (#2231)', () => {
+		const TRACE = 'Traceback (most recent call last):\n  File "apps/frappe/frappe/app.py", line 133';
+		const NOT_LINKED = 'Your account is not linked to a membership. Please contact the office to have it linked.';
+
+		test('never returns the raw traceback carried in exc', () => {
+			const out = utils.getHttpErrorMessage({ exc: JSON.stringify([TRACE]) }, 'Failed');
+			expect(out).toBe('Failed');
+			expect(out).not.toContain('Traceback');
+		});
+
+		test('the strict self-service refusal reads as the not-linked sentence', () => {
+			const body = {
+				exc_type: 'PermissionError',
+				exception:
+					'verenigingen.utils.error_handling.PermissionError: Access denied: No member record found for user. Self-service operations require valid member account.',
+				exc: JSON.stringify([TRACE])
+			};
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe(NOT_LINKED);
+		});
+
+		test('prefers the _server_messages text, with markup stripped', () => {
+			const body = {
+				_server_messages: JSON.stringify([JSON.stringify({ message: 'Chapter <b>X</b> is closed' })]),
+				exception: 'frappe.exceptions.ValidationError: other',
+				exc: JSON.stringify([TRACE])
+			};
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe('Chapter X is closed');
+		});
+
+		test('falls back to the exception line without its module.Class prefix', () => {
+			const body = { exception: 'frappe.exceptions.ValidationError: Introduction is required', exc: TRACE };
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe('Introduction is required');
+		});
+
+		test('a non-object body yields the fallback', () => {
+			expect(utils.getHttpErrorMessage(null, 'Failed')).toBe('Failed');
+		});
+	});
 });

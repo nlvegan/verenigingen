@@ -180,6 +180,15 @@ def get_current_user_linked_member_name() -> Optional[str]:
     return get_member_name_for_board_access(frappe.session.user)
 
 
+def get_not_linked_message() -> str:
+    """The sentence shown to a logged-in user whose account has no linked Member (#2207).
+
+    Shared by the home-page routing and the portal "no member" banners, so an unlinked
+    user never reads "Member Record Not Found".
+    """
+    return _("Your account is not linked to a membership. Please contact the office to have it linked.")
+
+
 def get_current_user_member_doc():
     """
     Get the complete Member document for the current user.
