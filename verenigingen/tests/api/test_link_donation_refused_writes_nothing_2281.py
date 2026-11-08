@@ -28,6 +28,7 @@ import frappe
 from frappe.utils import get_bench_path
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 _PROBE = textwrap.dedent(
     """
@@ -184,3 +185,38 @@ class TestRefusedDonationLinkWritesNothing2281(EnhancedTestCase):
         self.assertIs(control["success"], True, control)
         self.assertTrue(control["donation_link"], control)
         self.assertEqual(control["agreement_rows"], 1, control)
+
+
+class TestRefusalRollsBackOnlyItsOwnWrites2281(VereningingenTestCase):
+    """The rollback must be scoped to the endpoint's own writes (a savepoint), not the whole
+    transaction. A full ``frappe.db.rollback()`` also passes the WSGI test above (it removes
+    the Donation write just as well) but discards everything the request wrote earlier, such as
+    the security decorators' audit rows. Driven in-process as the same least-privileged caller:
+    a row written BEFORE the call must survive the refusal."""
+
+    def test_work_done_before_the_refused_call_survives(self):
+        from verenigingen.api.periodic_donation_operations import link_donation_to_agreement
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+        from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
+
+        user = self.create_test_user(
+            f"link2281-{frappe.generate_hash(length=6)}0@example.com", roles=["Employee"]
+        ).name
+        assign_role_profile_to_user(user, "Verenigingen National Board Member")
+        donor = self.create_test_donor(anbi_consent=1, bsn_citizen_service_number=generate_valid_bsn())
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        donation = self.create_test_donation(donor=donor.name, amount=10.0, paid=1)
+        marker = frappe.get_doc(
+            {"doctype": "ToDo", "description": f"earlier-work-2281-{frappe.generate_hash(length=6)}"}
+        ).insert()
+        self.track_doc("ToDo", marker.name)
+
+        with self.set_user(user):
+            self.assertFalse(frappe.has_permission("Donation", "write"))
+            self.expectErrorLog("Donation Linking Error")  # the endpoint logs the refusal it reports
+            result = link_donation_to_agreement(donation=donation.name, agreement=agreement.name)
+
+        self.assertIs(result["success"], False, result)
+        self.assertTrue(frappe.db.exists("ToDo", marker.name), "refusal discarded earlier work")
+        self.assertTrue(frappe.db.exists("Donation", donation.name))
+        self.assertIsNone(frappe.db.get_value("Donation", donation.name, "periodic_donation_agreement"))
