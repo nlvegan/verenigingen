@@ -206,9 +206,10 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                 # Plain text tax ID should be preserved
                 self.assertEqual(result[0]["tax_id"], "123456789")
                 
-                # Encrypted tax ID should show encryption indicator or be decrypted
-                # (depends on whether decrypt is available)
-                self.assertIn(result[1]["tax_id"], ["***ENCRYPTED***", "gAAAAABhMockEncryptedRSIN"])
+                # The fixture value is not a real Fernet token, so decrypt() raises and the
+                # report must show the indicator. Never the raw ciphertext (#690: the old
+                # either-or also accepted the ciphertext leaking through unchanged).
+                self.assertEqual(result[1]["tax_id"], "***ENCRYPTED***")
 
     def test_agreement_type_determination(self):
         """Test agreement type and number processing"""

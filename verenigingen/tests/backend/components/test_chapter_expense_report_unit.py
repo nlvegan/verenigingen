@@ -8,6 +8,7 @@ Updated: December 2024 - Reflects ERPNext-only integration and legacy system pha
 from unittest.mock import patch
 
 import frappe
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 import unittest
@@ -144,7 +145,6 @@ class TestChapterExpenseReport(VereningingenTestCase):
         unique = frappe.generate_hash(length=8)
         member_last = f"Volunteer{unique}"
         volunteer_label = f"John Volunteer {unique}"
-        mock_volunteer_record = {"name": "VOL-001", "volunteer_name": volunteer_label}
 
         # Create a test volunteer using direct Frappe document creation
         test_member = frappe.get_doc({
@@ -157,17 +157,31 @@ class TestChapterExpenseReport(VereningingenTestCase):
         test_member.insert()
         self.track_doc("Member", test_member.name)
 
+        # The report looks a Volunteer up by Volunteer.employee_id == claim.employee
+        # (a Link to Employee), so a real Employee is needed. Tracked before the
+        # Volunteer so the Volunteer, which links to it, is drained first.
+        test_employee = frappe.get_doc({
+            "doctype": "Employee",
+            "first_name": f"Exp{unique}",
+            "gender": "Other",
+            "date_of_birth": "1990-01-01",
+            "date_of_joining": "2020-01-01",
+            "status": "Active",
+            "company": get_eur_test_company(),
+        }).insert()
+        self.track_doc("Employee", test_employee.name)
+
         test_volunteer = frappe.get_doc({
             "doctype": "Volunteer",
             "volunteer_name": volunteer_label,
             "member": test_member.name,
+            "employee_id": test_employee.name,
             "status": "Active"
         })
         test_volunteer.insert()
         self.track_doc("Volunteer", test_volunteer.name)
 
-        # Modify mock to use the actual test volunteer name for lookup
-        mock_expense_claims[0]["employee"] = test_volunteer.name
+        mock_expense_claims[0]["employee"] = test_employee.name
 
         # Mock justified: ERPNext external service - expense data with volunteer lookup
         with patch("frappe.get_list", return_value=mock_expense_claims), patch(
@@ -176,8 +190,14 @@ class TestChapterExpenseReport(VereningingenTestCase):
             result = get_erpnext_expense_data(self.test_filters)
 
             self.assertEqual(len(result), 1)
-            # Volunteer name comes from the volunteer record or falls back to employee_name
-            self.assertIn(result[0]["volunteer_name"], [volunteer_label, "Employee Name"])
+            # Single expected value: the linked Volunteer's name, not the fallback.
+            self.assertEqual(result[0]["volunteer_name"], volunteer_label)
+            self.assertNotEqual(
+                result[0]["volunteer_name"],
+                mock_expense_claims[0]["employee_name"],
+                "control: the Employee fallback and the Volunteer name must be distinguishable, "
+                "or this test cannot tell the lookup from its fallback",
+            )
             self.assertEqual(result[0]["status"], "Reimbursed")  # Paid -> Reimbursed
 
     def test_get_user_accessible_chapters_admin_user(self):
