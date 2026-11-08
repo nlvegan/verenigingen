@@ -19,6 +19,7 @@ import json
 import subprocess
 import sys
 import textwrap
+import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -166,9 +167,24 @@ class _PontoUsers:
         self.assertFalse(frappe.get_all("ToDo", filters={"reference_type": doctype, "reference_name": name}))
 
 
-def _create_client(ponto_id):
+def _realistic_redirect_link(ponto_id):
+    """The shape Ponto really returns for a payment: 230 characters, measured in its sandbox (#2279).
+
+    Every other stub in this module uses a short link, which is how a 140-character column went
+    unnoticed until a real payment was created.
+    """
+    org, integration, account = (str(uuid.uuid4()) for _ in range(3))
+    return (
+        f"https://authorize.myponto.com/organizations/{org}/sandbox/integrations/{integration}"
+        f"/accounts/{account}/payments/{ponto_id}"
+    )
+
+
+def _create_client(ponto_id, redirect_link=None):
     """Stand-in for the Ponto client ``before_submit`` calls: ONLY the HTTP boundary."""
-    created = SimpleNamespace(id=ponto_id, redirect_link=f"https://ponto.example/sign/{ponto_id}")
+    created = SimpleNamespace(
+        id=ponto_id, redirect_link=redirect_link or f"https://ponto.example/sign/{ponto_id}"
+    )
     return SimpleNamespace(create_payment=lambda **kw: created, create_payment_request=lambda **kw: created)
 
 
@@ -241,6 +257,51 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
             req.save()
         self.assertIn("Amount", str(ctx.exception))
         self.assertEqual(flt(frappe.db.get_value("Ponto Payment Request", req.name, "amount")), 42.0)
+
+    def test_a_realistic_230_character_authorization_link_survives_a_real_submit(self):
+        """#2279: Ponto's real ``links.redirect`` is 230 characters; the column was varchar(140), so
+        the save after ``before_submit`` raised CharacterLengthExceededError once Ponto had already
+        created the payment. Only the HTTP client is stubbed; the submit is real."""
+        supplier = self._create_supplier("LongLink")
+        ponto_id = str(uuid.uuid4())  # Ponto ids are UUIDs; the length below depends on it
+        link = _realistic_redirect_link(ponto_id)
+        self.assertEqual(len(link), 230, "control: the fixture must be the measured length")
+        req = frappe.new_doc("Ponto Payment Request")
+        req.ponto_account = self.TEST_PONTO_ACCOUNT_ID
+        req.amount = 12.0
+        req.currency = "EUR"
+        req.creditor_name = supplier.supplier_name
+        req.creditor_iban = "NL91ABNA0417164300"
+        req.remittance_info = "Long link #2279"
+        req.reference_doctype = "Supplier"
+        req.reference_name = supplier.name
+        req.insert(ignore_permissions=True)
+        self.factory.track_document("Ponto Payment Request", req.name, priority=6)
+        with patch(PAY_CLIENT_PATH, return_value=_create_client(ponto_id, link)):
+            req.submit()
+        row = frappe.db.get_value(
+            "Ponto Payment Request", req.name, ["docstatus", "status", "redirect_link"], as_dict=True
+        )
+        self.assertEqual((row.docstatus, row.status), (1, "Pending"))
+        self.assertEqual(row.redirect_link, link, "the full link must be stored, not truncated")
+
+    def test_a_255_character_redirect_uri_is_storable(self):
+        """Ponto accepts a redirectUri up to 255 characters (#2274), so the local field must too."""
+        supplier = self._create_supplier("LongUri")
+        prefix = "https://example.org/ponto/return?t="
+        uri = prefix + "x" * (255 - len(prefix))
+        req = frappe.new_doc("Ponto Payment Request")
+        req.ponto_account = self.TEST_PONTO_ACCOUNT_ID
+        req.amount = 12.0
+        req.currency = "EUR"
+        req.creditor_name = supplier.supplier_name
+        req.creditor_iban = "NL91ABNA0417164300"
+        req.remittance_info = "Long uri #2279"
+        req.redirect_uri = uri
+        req.insert()
+        self.factory.track_document("Ponto Payment Request", req.name, priority=6)
+        self.assertEqual(len(uri), 255)
+        self.assertEqual(frappe.db.get_value("Ponto Payment Request", req.name, "redirect_uri"), uri)
 
     def test_cancelling_a_really_submitted_request_still_works(self):
         """Cancel is not an update-after-submit and must keep working.
@@ -720,6 +781,28 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
             link.submit()
         self.assertEqual((link.docstatus, link.status), (1, "Pending Authorization"))
         return link
+
+    def test_a_long_authorization_link_survives_a_real_submit_of_a_payment_link(self):
+        """#2279: same field type and width as the Payment Request's. Its real length is 136 on the
+        sandbox host (measured), so it must not be capped at 140 either: the production host and
+        any query string are not under our control."""
+        member, invoice = self._member_and_invoice()
+        ponto_id = str(uuid.uuid4())
+        long_link = _realistic_redirect_link(ponto_id)
+        link = frappe.new_doc("Ponto Payment Link")
+        link.payment_type = "One-Time"
+        link.amount = 30.0
+        link.currency = "EUR"
+        link.description = "Contributie 2026"
+        link.creditor_name = "Vereniging Test"
+        link.creditor_iban = "NL91ABNA0417164300"
+        link.member = member.name
+        link.sales_invoice = invoice.name
+        link.insert(ignore_permissions=True)
+        self.track_doc("Ponto Payment Link", link.name)
+        with patch(LINK_CLIENT_PATH, return_value=_create_client(ponto_id, long_link)):
+            link.submit()
+        self.assertEqual(self._read_link(link, "redirect_link").redirect_link, long_link)
 
     def _read_link(self, link, *fields):
         return frappe.db.get_value("Ponto Payment Link", link.name, list(fields), as_dict=True)
