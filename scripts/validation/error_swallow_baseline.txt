@@ -253,7 +253,6 @@ verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryMa
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.remove_entry::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
 verenigingen/utils/member_history_integrity.py::HistoryIntegrityManager._batch_validate_references::1
-verenigingen/utils/member_portal_utils.py::setup_portal_context::1
 verenigingen/utils/member_utils.py::get_active_membership_for_member::1
 verenigingen/utils/member_utils.py::get_current_user_member_info::1
 verenigingen/utils/member_utils.py::get_dues_schedule_for_membership::1

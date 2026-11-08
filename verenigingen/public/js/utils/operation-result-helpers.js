@@ -127,10 +127,21 @@ verenigingen.utils.getErrorMessage = function (message, defaultMsg) {
  * @returns {string}
  */
 verenigingen.utils.getHttpErrorMessage = function (body, fallback) {
-	const stripTags = (text) =>
-		String(text)
-			.replace(/<[^>]*>/g, '')
-			.trim();
+	// Plain text via the browser's own HTML parser (it never runs scripts); a regex cannot do this
+	// (CodeQL js/incomplete-multi-character-sanitization). Parsing decodes entities, so a message such
+	// as "&lt;script&gt;" comes out as "<script>"; repeat until stable so that cannot survive as
+	// markup, and give up (empty) rather than return something still changing after a few passes.
+	const stripTags = (text) => {
+		let current = String(text);
+		for (let pass = 0; pass < 5; pass++) {
+			const next = new DOMParser().parseFromString(current, 'text/html').body.textContent;
+			if (next === current) {
+				return next.trim();
+			}
+			current = next;
+		}
+		return '';
+	};
 	const notLinked = () =>
 		__('Your account is not linked to a membership. Please contact the office to have it linked.');
 	if (!body || typeof body !== 'object') {

@@ -436,5 +436,48 @@ describe('OperationResult helpers', () => {
 		test('a non-object body yields the fallback', () => {
 			expect(utils.getHttpErrorMessage(null, 'Failed')).toBe('Failed');
 		});
+
+		// CodeQL js/incomplete-multi-character-sanitization: a single-pass tag regex leaves markup behind.
+		const viaServerMessage = (message) =>
+			utils.getHttpErrorMessage({ _server_messages: JSON.stringify([JSON.stringify({ message })]) }, 'Failed');
+
+		test('nested tags cannot reassemble into a tag after stripping', () => {
+			const out = viaServerMessage('<scr<script>ipt>alert(1)</scr</script>ipt>');
+			expect(out).not.toMatch(/<\s*\/?\s*script/i);
+			expect(out).not.toContain('<');
+		});
+
+		test('an img onerror tag is removed, not passed through', () => {
+			const out = viaServerMessage('Closed <img src=x onerror=alert(1)> today');
+			expect(out).toBe('Closed  today');
+			expect(out).not.toMatch(/onerror/i);
+		});
+
+		test('entity-encoded markup is not decoded into markup', () => {
+			const out = viaServerMessage('&lt;script&gt;alert(1)&lt;/script&gt;Closed');
+			expect(out).not.toContain('<');
+			expect(out).not.toMatch(/script/i);
+			expect(out).toContain('Closed');
+		});
+
+		test('an unterminated tag is dropped, so a later ">" in a template cannot complete it', () => {
+			// The old /<[^>]*>/ needs a closing ">" and leaves these untouched.
+			expect(viaServerMessage('Closed <img src=x onerror=alert(1)')).not.toMatch(/<|onerror/i);
+			expect(viaServerMessage('Closed <script src=//evil')).not.toMatch(/<|script/i);
+			expect(viaServerMessage('<scr<script')).not.toContain('<');
+		});
+
+		test('the exception-line path is sanitised the same way', () => {
+			const out = utils.getHttpErrorMessage(
+				{ exception: 'frappe.exceptions.ValidationError: <scr<script>ipt>alert(1)</scr</script>ipt>Oops' },
+				'Failed'
+			);
+			expect(out).not.toContain('<');
+			expect(out).toContain('Oops');
+		});
+
+		test('plain text with a bare less-than sign is kept readable', () => {
+			expect(viaServerMessage('Amount must be < 100')).toBe('Amount must be < 100');
+		});
 	});
 });
