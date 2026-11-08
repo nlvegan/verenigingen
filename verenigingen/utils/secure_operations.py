@@ -230,6 +230,29 @@ def validate_justification(justification: str, operation: str) -> str:
     return justification
 
 
+class PermissionCheckError(frappe.PermissionError):
+    """The permission check itself broke; this is NOT a denial (#857).
+
+    Raised by validate_permissions() so secure_document_operation() records
+    "could not determine" (Error Log, success=False, no escalation attempt)
+    instead of treating the failure as an ordinary "user lacks permission",
+    which would route into the system-user escalation branch.
+    """
+
+
+def _record_permission_check_error(check: str, user: str, error: Exception):
+    """Make a failed permission CHECK visible in the Error Log (#857).
+
+    frappe.logger() output is not read anywhere (file handler only), so a
+    transient DB error looked identical to a legitimate "no". Callers still
+    fail closed; this only records that the answer was "unknown".
+    """
+    frappe.log_error(
+        title=f"Permission check errored: {check}",
+        message=f"Check: {check}\nUser: {user}\nError: {error!r}\n\n{frappe.get_traceback()}",
+    )
+
+
 def can_request_system_escalation(user: str = None) -> bool:
     """
     Check if the specified user is allowed to request system user escalation.
@@ -253,8 +276,11 @@ def can_request_system_escalation(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & ESCALATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check escalation permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        _record_permission_check_error("can_request_system_escalation", user, e)
         return False
 
 
@@ -282,8 +308,11 @@ def can_use_bypass_validations(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & BYPASS_VALIDATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check bypass_validations permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        _record_permission_check_error("can_use_bypass_validations", user, e)
         return False
 
 
@@ -591,7 +620,10 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
         required_permissions: List of specific permissions to check
 
     Returns:
-        bool: True if permissions are sufficient
+        bool: True if permissions are sufficient, False if denied
+
+    Raises:
+        PermissionCheckError: the check itself errored (not a denial)
     """
     try:
         # Standard Frappe permission check for the operation
@@ -642,9 +674,14 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
 
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().error(f"Permission validation error: {str(e)}")
-        return False
+        # NOT a denial: raise so the caller cannot mistake "unknown" for "no"
+        # and fall into the escalation branch. Still fail closed (#857).
+        raise PermissionCheckError(
+            _("Permission check for {0} on {1} could not be completed").format(operation, doc.doctype)
+        ) from e
 
 
 def get_system_user_for_operation(operation_context: str) -> str:
