@@ -186,6 +186,10 @@ SCRIPT = textwrap.dedent(
         minted_ok, minted_ctl, minted_post = (
             make_submitted_request(), make_submitted_request(), make_submitted_request(),
         )
+        # N1 rows: a link and two requests for the mixed-argument dispatch controls
+        mix_link, mix_req_x, mix_req_wrongkind = (
+            make_submitted_link(), make_submitted_request(), make_submitted_request(),
+        )
         link_name, link_other = make_link(), make_link()
         req_name, req_other = make_request(), make_request()
         link_done = make_link("Executed", "WSGI-1883-RETURN-DETAILS")
@@ -204,6 +208,8 @@ SCRIPT = textwrap.dedent(
             "short_ok_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
             "short_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
             "short_post_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_post),
+            "mix_link_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, mix_link),
+            "mix_req_wrongkind": gen(link_cb.CANCEL_TOKEN_PURPOSE, mix_req_wrongkind),
             "sub_link_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
             "sub_req_ctl_wrong": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
         }}
@@ -305,6 +311,16 @@ SCRIPT = textwrap.dedent(
         )
         out["minted_control_wrong_token"] = status_of("Ponto Payment Request", minted_ctl)
         out["minted_control_post"] = status_of("Ponto Payment Request", minted_post)
+
+        # #2274 mixed arguments: `l=` names a link, so the LINK callback must run even when `r=`
+        # is present too (its observable effect: the link is Cancelled, the request is not).
+        get(f"{{SHORT}}?l={{mix_link}}&r={{mix_req_x}}&c={{tok['mix_link_cancel']}}&error=access_denied")
+        fresh()
+        out["mixed_link"] = frappe.db.get_value("Ponto Payment Link", mix_link, ["status", "docstatus"])
+        out["mixed_request_x"] = frappe.db.get_value("Ponto Payment Request", mix_req_x, "status")
+        # a LINK-purpose cancel token for this very request's name must not cancel the request
+        get(f"{{SHORT}}?r={{mix_req_wrongkind}}&c={{tok['mix_req_wrongkind']}}&error=access_denied")
+        out["wrong_purpose_request"] = status_of("Ponto Payment Request", mix_req_wrongkind)
 
         # A REFUSED request must be rolled back even if it WROTE something. Stand in for "something
         # a refused request wrote" by wrapping the cancel step so it also sets a marker. Only a
@@ -507,3 +523,14 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
     def test_the_minted_url_refuses_another_requests_token_and_a_post(self):
         self.assertEqual(self.out["minted_control_wrong_token"], "Pending")
         self.assertEqual(self.out["minted_control_post"], "Pending")
+
+    def test_a_link_argument_routes_to_the_link_callback_even_with_a_request_argument(self):
+        """`l=` and `r=` together: the link callback runs (the link is Cancelled by its own token)
+        and the request named by `r=` is untouched."""
+        self.assertEqual(self.out["mixed_link"], ["Cancelled", 1])
+        self.assertEqual(self.out["mixed_request_x"], "Pending")
+
+    def test_a_link_purpose_token_does_not_cancel_a_payment_request(self):
+        """The cancel token is scoped by purpose: one minted for a link of the same name verifies
+        only for links. Row is a really submitted Pending request."""
+        self.assertEqual(self.out["wrong_purpose_request"], "Pending")
