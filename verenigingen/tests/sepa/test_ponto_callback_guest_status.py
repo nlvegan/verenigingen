@@ -631,7 +631,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
 
     # ---- the short guest route /ponto-return runs the same callback --------------------
 
-    def _guest_short(self, **args):
+    def _guest_short(self, _method="GET", **args):
         """GET /ponto-return as Guest through the website renderer, like a browser. Returns every
         guest-visible channel."""
         from frappe.website.serve import get_response
@@ -639,7 +639,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         env = EnvironBuilder(
             path=betaalverzoek_callback.PONTO_RETURN_ROUTE,
             query_string=args,
-            method="GET",
+            method=_method,
             environ_overrides={"REMOTE_ADDR": f"10.19.{next(_ip) % 250}.{(next(_ip) % 250) + 1}"},
         ).get_environ()
         original_user = frappe.session.user
@@ -681,6 +681,16 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             args["p"] = proof
         args.update(extra)
         return args
+
+    def test_short_route_runs_the_callback_for_a_get_and_never_for_a_post(self):
+        """A POST is always committed by frappe/app.py, and the /api endpoint is GET-only: the page
+        must not run the callback logic for it (control: a GET does)."""
+        target = "verenigingen.templates.pages.ponto_return.payment_link_callback"
+        with patch(target) as callback:
+            self._guest_short("POST", l=UNKNOWN_LINK)
+            callback.assert_not_called()
+            self._guest_short("GET", l=UNKNOWN_LINK)
+            callback.assert_called_once()
 
     def test_short_route_with_a_valid_proof_redirects_to_payment_success(self):
         from urllib.parse import parse_qs, urlparse

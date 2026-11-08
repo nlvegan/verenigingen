@@ -176,6 +176,7 @@ SCRIPT = textwrap.dedent(
 
         sub_link, sub_link_ctl = make_submitted_link(), make_submitted_link()
         sub_req, sub_req_ctl = make_submitted_request(), make_submitted_request()
+        write_ctl, write_ok = make_link(), make_link()
         # rows for the short /ponto-return route
         short_ok, short_ctl, short_post = make_submitted_link(), make_submitted_link(), make_submitted_link()
         link_name, link_other = make_link(), make_link()
@@ -191,6 +192,8 @@ SCRIPT = textwrap.dedent(
             "req_other_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, req_other),
             "sub_link_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
             "sub_req_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
+            "write_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, write_ok),
+            "write_ok_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, write_ok),
             "short_ok_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
             "short_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
             "short_post_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_post),
@@ -276,6 +279,29 @@ SCRIPT = textwrap.dedent(
         fresh()
         out["short_proved"] = frappe.db.get_value("Ponto Payment Link", short_ok, ["status", "docstatus"])
         out["short_proved_location"] = path_of(rs)
+        # A REFUSED request must be rolled back even if it WROTE something. Stand in for "something
+        # a refused request wrote" by wrapping the cancel step so it also sets a marker. Only a
+        # request that asks for the commit may keep it: the refused ones must not, the proved one
+        # (positive control, so the marker is observable at all) must.
+        real_cancel = link_cb._cancel_link_if_proved
+
+        def writes_a_marker(name):
+            result = real_cancel(name)
+            frappe.db.set_value("Ponto Payment Link", name, "description", "MARKER-WRITTEN")
+            return result
+
+        link_cb._cancel_link_if_proved = writes_a_marker
+        try:
+            get(short(write_ctl).replace("?", "?error=access_denied&", 1))
+            get(short(write_ctl, tok["write_ctl_wrong"]).replace("?", "?error=access_denied&", 1))
+            get(f"{{SHORT}}?l={{write_ctl}}&error=access_denied")
+            get(short(write_ok, tok["write_ok_cancel"]).replace("?", "?error=access_denied&", 1))
+        finally:
+            link_cb._cancel_link_if_proved = real_cancel
+        fresh()
+        out["refused_marker"] = frappe.db.get_value("Ponto Payment Link", write_ctl, "description")
+        out["proved_marker"] = frappe.db.get_value("Ponto Payment Link", write_ok, "description")
+
         # return: proof present, proof absent on a known name, unknown name
         done_url = link_cb.build_return_url(link_done, "x", tok["link_return"])
         rr = get(re.sub(r"^https?://[^/]+", "", done_url))
@@ -431,3 +457,10 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         self.assertEqual(self.out["short_known_no_proof"], [302, "/app/home"])
         self.assertEqual(self.out["short_known_no_proof"], self.out["short_unknown"])
         self.assertEqual(self.out["short_known_no_proof_body"], self.out["short_unknown_body"])
+
+    def test_short_route_rolls_back_whatever_a_refused_request_wrote(self):
+        """The write is set inside the request by a wrapped cancel step. Refused requests (no
+        token, another row's token) must leave it unseen by a fresh connection; the proved cancel
+        is the control showing the same write IS visible when the commit was asked for."""
+        self.assertEqual(self.out["refused_marker"], "WSGI-1883-DESC")
+        self.assertEqual(self.out["proved_marker"], "MARKER-WRITTEN")
