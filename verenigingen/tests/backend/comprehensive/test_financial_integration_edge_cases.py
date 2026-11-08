@@ -24,16 +24,15 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
 
         # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
         # ensure backing Region exists before creating the chapter.
-        test_region_name = "Financial Test Region"
-        region_docname = frappe.db.get_value("Region", {"region_name": test_region_name}, "name")
-        if not region_docname:
-            region = frappe.get_doc({
-                "doctype": "Region",
-                "region_name": test_region_name,
-                "region_code": "FTR",
-            })
-            region.insert(ignore_permissions=True)
-            region_docname = region.name
+        # A unique name per class run: Region autonames to a slug of region_name, so a lookup by the
+        # unslugged label never found a leaked row and the next run died on a duplicate key (#2270).
+        region = frappe.get_doc({
+            "doctype": "Region",
+            "region_name": f"Financial Test Region {frappe.generate_hash(length=6)}",
+            "region_code": "FTR",
+        })
+        region.insert(ignore_permissions=True)
+        region_docname = region.name
 
         cls.chapter = frappe.get_doc(
             {
@@ -46,6 +45,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         cls.chapter.name = "Financial Test Chapter"
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
+        cls.test_records.insert(0, region)  # reversed on teardown: removed after the chapter
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
         # minimum_amount, role_profile. Look up any Role Profile for the link.
@@ -93,12 +93,47 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         """Clean up test data"""
+        try:
+            cls._cleanup_class_rows()
+        finally:
+            super().tearDownClass()
+
+    @classmethod
+    def _cleanup_class_rows(cls):
+        """Delete every row setUpClass built, and make the deletes durable.
+
+        Not swallowed (#2270): the old per-record `except Exception: pass` hid a LinkExistsError on the
+        Membership Type, so the type, its auto-created template, the member and the volunteer stayed
+        committed for every later module in the shard. The commit is needed because the rows were
+        committed (production code under test commits), and the class-level rollback registered by the
+        base would otherwise restore the deleted rows.
+        """
         for record in reversed(cls.test_records):
-            try:
-                record.delete()
-            except Exception:
-                pass
-        super().tearDownClass()
+            if record.doctype == "Membership Type":
+                # after_insert created a template that links back to the type; the type cannot go first
+                for template in frappe.get_all(
+                    "Membership Dues Schedule", {"membership_type": record.name}, pluck="name"
+                ):
+                    frappe.delete_doc("Membership Dues Schedule", template, force=True)
+            if record.doctype in ("Volunteer", "Member"):
+                cls._remove_account_creation_requests(record.name)
+            record.delete()
+        frappe.db.commit()
+
+    @classmethod
+    def _remove_account_creation_requests(cls, source_record):
+        """Volunteer.after_insert queues an Account Creation Request, which links to the volunteer (so the
+        delete is refused) and, once processed, owns a User and an Employee made for this test volunteer."""
+        for request in frappe.get_all(
+            "Account Creation Request",
+            {"source_record": source_record},
+            ["name", "created_user", "created_employee"],
+        ):
+            frappe.delete_doc("Account Creation Request", request.name, force=True)
+            if request.created_employee:
+                frappe.delete_doc("Employee", request.created_employee, force=True)
+            if request.created_user:
+                frappe.delete_doc("User", request.created_user, force=True)
 
     def setUp(self):
         """Set up each test"""
