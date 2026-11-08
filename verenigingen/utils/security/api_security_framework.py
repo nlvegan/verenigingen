@@ -56,6 +56,7 @@ from verenigingen.utils.security.types import (
     SecurityLevel,
     SecurityProfile,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class APISecurityFramework:
@@ -729,10 +730,23 @@ class APISecurityFramework:
 
             return registry.validate_business_rules(operation_info["operation_name"], **kwargs)
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(
-                f"Failed to validate critical operation business rules: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # An errored evaluation is not "no violations" (#2282). The amount rule does
+            # float() on a request kwarg, so a caller can trigger this on purpose.
+            frappe.log_error(
+                title="Critical business rule evaluation failed",
+                message=(f"operation={operation_info.get('operation_name')}\n\n{frappe.get_traceback()}"),
             )
+            # Same threshold the caller applies to a real violation: only a rule
+            # classified "critical" blocks; a lower level proceeds, as its violations do.
+            if (operation_info.get("config") or {}).get("security_level") == "critical":
+                raise VValidationError(
+                    _(
+                        "This operation could not be verified against its business rules and was not performed."
+                    )
+                )
             return []
 
     def log_audit_event(
