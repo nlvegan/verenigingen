@@ -548,6 +548,94 @@ class TestTeamCoverage(EnhancedTestCase):
 
         self.assertEqual([e["action"] for e in events], ["added"], events)
 
+    def _savedocs_role_change_2181(self, from_date):
+        """Real desk save (frappe.desk.form.save.savedocs) of a role change on a row that
+        started ``from_date``; returns (volunteer, team name, queued subscriber jobs)."""
+        from frappe.desk.form.save import savedocs
+
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Original", from_date=from_date)
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        doc.team_members[0].team_role = "Team Leader"
+        payload = frappe.as_json(doc)
+        jobs = []
+        real_enqueue = frappe.enqueue
+
+        def record(*args, **kwargs):
+            if str(kwargs.get("method", "")).startswith("verenigingen.events.subscribers."):
+                jobs.append(kwargs)
+            # Mock justified: CI has no RQ workers; jobs are run below with the worker's kwargs.
+
+        frappe.enqueue = record
+        try:
+            savedocs(payload, "Save")
+        finally:
+            frappe.enqueue = real_enqueue
+        for job in jobs:
+            if job["method"].endswith("handle_assignment_history_updates"):
+                frappe.call(
+                    job["method"],
+                    **{k: v for k, v in job.items() if k in ("event_name", "event_data", "is_bulk_import")},
+                )
+        return vol, team.name, jobs
+
+    def test_desk_role_change_keeps_history_for_a_row_started_before_today(self):
+        """The new role's history row must exist (Active, starting on the change date) and
+        the old role's must be Completed, whatever the row's own from_date."""
+        started = add_days(today(), -30)
+        vol, team_name, jobs = self._savedocs_role_change_2181(started)
+
+        actions = [j["event_data"]["action"] for j in jobs if j["method"].endswith("history_updates")]
+        self.assertEqual(actions, ["role_changed"], actions)
+        completed = self._completed_history(vol.name, team_name)
+        active = self._active_history(vol.name, team_name)
+        self.assertEqual(len(completed), 1, completed)
+        self.assertEqual(len(active), 1, "the new role must have an Active history row")
+        self.assertIn("Team Leader", active[0].role)
+        self.assertEqual(str(active[0].start_date), str(today()), "new role starts on the change date")
+        self.assertEqual(str(completed[0].start_date), str(started))
+        self.assertEqual(str(completed[0].end_date), str(today()))
+
+    def test_new_history_describes_the_row_that_started_that_day_among_same_role_rows(self):
+        """Control for the history lookup: two rows of one volunteer with the SAME role and
+        different dates. History starting on the newer row's date describes the newer row."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Older", from_date=add_days(today(), -5))
+        self._append_member(team, vol, team_role="Team Member", role="Newer", from_date=today())
+        team.insert()
+        self.track_doc("Team", team.name)
+        team.reload()
+        # insert already wrote one Active entry per row; clear them to observe a single call.
+        frappe.db.delete("Volunteer Assignment", {"parent": vol.name, "reference_name": team.name})
+
+        team.add_team_assignment_history(vol.name, "Team Member", str(today()))
+
+        active = self._active_history(vol.name, team.name)
+        self.assertEqual(len(active), 1, active)
+        self.assertIn("Newer", active[0].role)
+
+    def test_new_history_is_not_written_for_a_role_the_volunteer_does_not_hold(self):
+        """Control: with no active row holding the role and none starting that day, nothing is
+        written (the lookup must not pick an arbitrary row of the volunteer)."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Old", from_date=add_days(today(), -5))
+        team.insert()
+        self.track_doc("Team", team.name)
+        name = team.name
+        team = frappe.get_doc("Team", name)
+        frappe.db.delete("Volunteer Assignment", {"parent": vol.name, "reference_name": name})
+
+        wrote = team.add_team_assignment_history(vol.name, "Team Leader", str(today()))
+
+        self.assertFalse(wrote)
+        self.assertEqual(self._active_history(vol.name, name), [])
+
     # --------------------------------- get_team_permission_query_conditions
 
     def test_perm_conditions_admin_returns_empty(self):

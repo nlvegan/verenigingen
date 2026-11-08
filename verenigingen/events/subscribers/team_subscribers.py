@@ -273,10 +273,11 @@ def _team_membership_event_still_holds(team, event_data):
     """Whether the join/leave/role change this job was queued for is still in the Team (#2144).
 
     A rollback to a savepoint undoes the Team Member row but not a job queued for it, so the
-    job checks the row. Rows are matched by (volunteer, from_date) and by role: the emitter
-    can report a role change as ``removed`` (old role) plus ``added`` (new role), when its
-    from_date keys differ in type, and both rows then share volunteer and from_date. An
-    unknown action is left to the caller's own branches.
+    job checks the row. Rows are matched by (volunteer, from_date) and by role. Since #2181 the
+    emitter keys on a normalised date, so a role change arrives as ``role_changed``; the role
+    match stays so that a ``removed`` for a role the volunteer no longer holds (a payload queued
+    before that fix, or from another emitter) is still processed. An unknown action is left to
+    the caller's own branches.
     """
     action = event_data.get("action")
     from_date = event_data.get("from_date")

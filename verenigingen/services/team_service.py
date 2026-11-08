@@ -32,11 +32,7 @@ class TeamService(StatelessService):
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
         # Get the team member to access both team_role and role fields
-        team_member = None
-        for member in team_doc.team_members:
-            if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                team_member = member
-                break
+        team_member = self._find_member_for_new_history(team_doc, volunteer_id, team_role, start_date)
 
         if not team_member:
             self.logger.warning(f"Could not find team member for volunteer {volunteer_id}")
@@ -64,6 +60,27 @@ class TeamService(StatelessService):
             )
 
         return success
+
+    @staticmethod
+    def _find_member_for_new_history(team_doc, volunteer_id, team_role, start_date):
+        """The row a new history entry describes (#2181).
+
+        ``start_date`` is when the history starts, which on a role change is the change date,
+        not the row's own from_date, so it cannot be the only key. Prefer the row holding that
+        role that also started that day, then any active row holding the role, then the legacy
+        date-only match.
+        """
+        rows = [m for m in team_doc.team_members or [] if m.volunteer == volunteer_id]
+        same_day = [m for m in rows if str(m.from_date) == str(start_date)]
+        holding = [m for m in rows if m.is_active and m.team_role == team_role]
+        for candidates in (
+            [m for m in holding if m in same_day],
+            holding,
+            same_day,
+        ):
+            if candidates:
+                return candidates[0]
+        return None
 
     def complete_assignment_history(
         self, team_doc, volunteer_id: str, team_role: str, start_date: str, end_date: str
