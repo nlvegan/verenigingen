@@ -27,12 +27,19 @@ class TeamService(StatelessService):
         self.logger.info(f"Successfully synced team {team_doc.name} with volunteers")
         return True
 
-    def add_assignment_history(self, team_doc, volunteer_id: str, team_role: str, start_date: str):
-        """Add assignment history for a team member"""
+    def add_assignment_history(
+        self, team_doc, volunteer_id: str, team_role: str, start_date: str, row_from_date=None
+    ):
+        """Add assignment history for a team member.
+
+        ``row_from_date`` identifies the Team Member row when the history starts on a different
+        day than the row (a role change starts today); it defaults to ``start_date``."""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
         # Get the team member to access both team_role and role fields
-        team_member = self._find_member_for_new_history(team_doc, volunteer_id, team_role, start_date)
+        team_member = self._find_member_for_new_history(
+            team_doc, volunteer_id, team_role, row_from_date or start_date
+        )
 
         if not team_member:
             self.logger.warning(f"Could not find team member for volunteer {volunteer_id}")
@@ -62,22 +69,22 @@ class TeamService(StatelessService):
         return success
 
     @staticmethod
-    def _find_member_for_new_history(team_doc, volunteer_id, team_role, start_date):
+    def _find_member_for_new_history(team_doc, volunteer_id, team_role, row_from_date):
         """The row a new history entry describes (#2181).
 
-        ``start_date`` is when the history starts, which on a role change is the change date,
-        not the row's own from_date, so it cannot be the only key. Prefer the row holding that
-        role that also started that day, then any active row holding the role, then the legacy
-        date-only match.
+        Rows are identified by (volunteer, from_date), the same key Team's membership events
+        use. Prefer the active row of that day holding ``team_role``, then the legacy date-only
+        match. It never picks "any row holding the role": a volunteer may hold the same
+        team_role in two rows, and the wrong row's description is deduplicated against the
+        other row's Active entry, so the changed row would get no history.
         """
-        rows = [m for m in team_doc.team_members or [] if m.volunteer == volunteer_id]
-        same_day = [m for m in rows if str(m.from_date) == str(start_date)]
-        holding = [m for m in rows if m.is_active and m.team_role == team_role]
-        for candidates in (
-            [m for m in holding if m in same_day],
-            holding,
-            same_day,
-        ):
+        same_day = [
+            m
+            for m in team_doc.team_members or []
+            if m.volunteer == volunteer_id and str(m.from_date) == str(row_from_date)
+        ]
+        holding = [m for m in same_day if m.is_active and m.team_role == team_role]
+        for candidates in (holding, same_day):
             if candidates:
                 return candidates[0]
         return None
@@ -179,7 +186,13 @@ class TeamService(StatelessService):
             )
 
             # Start new assignment with new role using today's date
-            self.add_assignment_history(team_doc, new_member.volunteer, new_member.team_role, change_date)
+            self.add_assignment_history(
+                team_doc,
+                new_member.volunteer,
+                new_member.team_role,
+                change_date,
+                row_from_date=new_member.from_date,
+            )
 
     def validate_unique_roles(self, team_doc):
         """Validate unique role constraints across teams"""

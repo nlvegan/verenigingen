@@ -59,7 +59,8 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
             # Complete old role and start new one
             change_date = frappe.utils.today()
             team.complete_team_assignment_history(volunteer, old_role, from_date, change_date)
-            team.add_team_assignment_history(volunteer, role, change_date)
+            # from_date identifies the row; the history itself starts today.
+            team.add_team_assignment_history(volunteer, role, change_date, row_from_date=from_date)
 
         frappe.logger("events").info(f"Updated assignment history for {volunteer} in {team_name}")
 

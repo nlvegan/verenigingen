@@ -172,6 +172,7 @@ class Team(Document):
                         member.volunteer,
                         member.team_role,
                         change_date,  # Use change date, not original from_date
+                        row_from_date=member.from_date,
                     )
 
                 # Check if member was reactivated
@@ -193,11 +194,15 @@ class Team(Document):
                     old_member.volunteer, old_member.team_role, old_member.from_date, end_date
                 )
 
-    def add_team_assignment_history(self, volunteer_id: str, team_role: str, start_date: str):
+    def add_team_assignment_history(
+        self, volunteer_id: str, team_role: str, start_date: str, row_from_date=None
+    ):
         """Add active assignment to volunteer history when joining team"""
         from verenigingen.services.team_service import TeamService
 
-        return TeamService().add_assignment_history(self, volunteer_id, team_role, start_date)
+        return TeamService().add_assignment_history(
+            self, volunteer_id, team_role, start_date, row_from_date=row_from_date
+        )
 
     def complete_team_assignment_history(
         self, volunteer_id: str, team_role: str, start_date: str, end_date: str

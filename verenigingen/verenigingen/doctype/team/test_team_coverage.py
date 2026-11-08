@@ -548,19 +548,11 @@ class TestTeamCoverage(EnhancedTestCase):
 
         self.assertEqual([e["action"] for e in events], ["added"], events)
 
-    def _savedocs_role_change_2181(self, from_date):
-        """Real desk save (frappe.desk.form.save.savedocs) of a role change on a row that
-        started ``from_date``; returns (volunteer, team name, queued subscriber jobs)."""
+    def _savedocs_and_run_history_job_2181(self, doc):
+        """Real desk save of ``doc``; runs the queued history subscriber job(s) as a worker
+        would and returns every queued subscriber job."""
         from frappe.desk.form.save import savedocs
 
-        _, vol = self._make_volunteer()
-        team = self._new_team()
-        self._append_member(team, vol, team_role="Team Member", role="Original", from_date=from_date)
-        team.insert()
-        self.track_doc("Team", team.name)
-
-        doc = self._desk_doc_2181(team.name)
-        doc.team_members[0].team_role = "Team Leader"
         payload = frappe.as_json(doc)
         jobs = []
         real_enqueue = frappe.enqueue
@@ -581,6 +573,20 @@ class TestTeamCoverage(EnhancedTestCase):
                     job["method"],
                     **{k: v for k, v in job.items() if k in ("event_name", "event_data", "is_bulk_import")},
                 )
+        return jobs
+
+    def _savedocs_role_change_2181(self, from_date):
+        """Real desk save (frappe.desk.form.save.savedocs) of a role change on a row that
+        started ``from_date``; returns (volunteer, team name, queued subscriber jobs)."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Original", from_date=from_date)
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        doc.team_members[0].team_role = "Team Leader"
+        jobs = self._savedocs_and_run_history_job_2181(doc)
         return vol, team.name, jobs
 
     def test_desk_role_change_keeps_history_for_a_row_started_before_today(self):
@@ -599,6 +605,31 @@ class TestTeamCoverage(EnhancedTestCase):
         self.assertEqual(str(active[0].start_date), str(today()), "new role starts on the change date")
         self.assertEqual(str(completed[0].start_date), str(started))
         self.assertEqual(str(completed[0].end_date), str(today()))
+
+    def test_desk_role_change_does_not_borrow_another_row_with_the_same_role(self):
+        """Two active rows of one volunteer; RowB changes Team Leader -> Team Member while RowA
+        already holds Team Member. The new history must describe RowB (not RowA, which would be
+        skipped as a duplicate of RowA's Active entry) and RowA's entry must stay."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="RowA", from_date=add_days(today(), -10))
+        self._append_member(team, vol, team_role="Team Leader", role="RowB", from_date=add_days(today(), -5))
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        row_b = [m for m in doc.team_members if m.role == "RowB"][0]
+        row_b.team_role = "Team Member"
+        jobs = self._savedocs_and_run_history_job_2181(doc)
+
+        actions = [j["event_data"]["action"] for j in jobs if j["method"].endswith("history_updates")]
+        self.assertEqual(actions, ["role_changed"], actions)
+        active = [h.role for h in self._active_history(vol.name, team.name)]
+        self.assertEqual(len([r for r in active if r.endswith("RowA")]), 1, active)
+        self.assertEqual(len([r for r in active if r.endswith("RowB")]), 1, active)
+        self.assertTrue(any(r.startswith("Team Member") and r.endswith("RowB") for r in active), active)
+        completed = [h.role for h in self._completed_history(vol.name, team.name)]
+        self.assertTrue(any(r.startswith("Team Leader") and r.endswith("RowB") for r in completed), completed)
 
     def test_new_history_describes_the_row_that_started_that_day_among_same_role_rows(self):
         """Control for the history lookup: two rows of one volunteer with the SAME role and
