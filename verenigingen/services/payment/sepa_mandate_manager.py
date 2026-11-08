@@ -151,11 +151,12 @@ class SEPAMandateManager(StatelessService):
             >>> mandates[0].mandate_id
             'M-001-20251014-001'
         """
-        # Resolved OUTSIDE the try below, which returns [] on any exception.
+        # No try/except: a query that cannot run is not the same fact as a member
+        # without a mandate (#581, #607). Callers read [] as "no mandate" and go on to
+        # create or allow one, and `get_default_mandate` builds on this.
+        #
         # `resolve_purpose_flag` raises on an unknown purpose precisely so a typo
-        # cannot silently degrade to purpose-blind resolution; swallowed into an
-        # empty list it would do worse than that, since callers read [] as "no
-        # mandate" and go on to create or allow one.
+        # cannot silently degrade to purpose-blind resolution.
         #
         # `purpose` is opt-in: this method's job is "every Active mandate of this
         # member", which the discrepancy check and the payment dashboard
@@ -165,46 +166,40 @@ class SEPAMandateManager(StatelessService):
 
         purpose_flag = resolve_purpose_flag(purpose)
 
-        try:
-            filters = {"member": member, "status": "Active", "is_active": 1}
+        filters = {"member": member, "status": "Active", "is_active": 1}
 
-            if purpose_flag is not None:
-                filters[purpose_flag] = 1
+        if purpose_flag is not None:
+            filters[purpose_flag] = 1
 
-            if iban:
-                # Format IBAN to match database storage (IBANs are stored formatted with spaces)
-                from verenigingen.utils.validation.iban_validator import format_iban
+        if iban:
+            # Format IBAN to match database storage (IBANs are stored formatted with spaces)
+            from verenigingen.utils.validation.iban_validator import format_iban
 
-                filters["iban"] = format_iban(iban) or iban
+            filters["iban"] = format_iban(iban) or iban
 
-            mandate_records = frappe.get_all(
-                "SEPA Mandate",
-                filters=filters,
-                fields=[
-                    "name",
-                    "mandate_id",
-                    "status",
-                    "iban",
-                    "bic",
-                    "account_holder_name",
-                    "member",
-                    "sign_date",
-                    "expiry_date",
-                    "is_active",
-                    "used_for_memberships",
-                    "used_for_donations",
-                    "used_for_other",
-                    "mandate_type",
-                ],
-                order_by="creation desc",
-            )
+        mandate_records = frappe.get_all(
+            "SEPA Mandate",
+            filters=filters,
+            fields=[
+                "name",
+                "mandate_id",
+                "status",
+                "iban",
+                "bic",
+                "account_holder_name",
+                "member",
+                "sign_date",
+                "expiry_date",
+                "is_active",
+                "used_for_memberships",
+                "used_for_donations",
+                "used_for_other",
+                "mandate_type",
+            ],
+            order_by="creation desc",
+        )
 
-            return [MandateInfo(**mandate) for mandate in mandate_records]
-
-        except Exception as e:
-            # Retrieval failures don't need Error Log documents - use logger
-            self.logger.error(f"Error getting active mandates for member {member}: {e}")
-            return []
+        return [MandateInfo(**mandate) for mandate in mandate_records]
 
     def get_default_mandate(
         self, member: str, purpose: str = "used_for_memberships"
@@ -303,17 +298,13 @@ class SEPAMandateManager(StatelessService):
         # ask. `resolve_purpose_flag` accepts both spellings (#597).
         purpose_flag = resolve_purpose_flag(purpose)
 
-        try:
-            filters = {"member": member, "status": "Active", "is_active": 1}
-            if purpose_flag is not None:
-                filters[purpose_flag] = 1
+        # No try/except (#607): False here means "no mandate", and a failed query is
+        # not that fact.
+        filters = {"member": member, "status": "Active", "is_active": 1}
+        if purpose_flag is not None:
+            filters[purpose_flag] = 1
 
-            return bool(frappe.db.exists("SEPA Mandate", filters))
-
-        except Exception as e:
-            # Retrieval failures don't need Error Log documents - use logger
-            self.logger.error(f"Error checking mandate existence for member {member}: {e}")
-            return False
+        return bool(frappe.db.exists("SEPA Mandate", filters))
 
     # ========== Mandate Validation Methods ==========
 
@@ -1537,7 +1528,21 @@ def get_active_sepa_mandate(
         Dict with mandate info, or None if there is none -- or if there is more than
         one and choosing would be a guess.
     """
+    return get_active_sepa_mandate_choice(member_name, purpose).mandate
+
+
+def get_active_sepa_mandate_choice(
+    member_name: str, purpose: str = "used_for_memberships"
+) -> "MandateChoice":
+    """`get_active_sepa_mandate`, but with the refusal carried as its own state (#607).
+
+    `.mandate` is what `get_active_sepa_mandate` returns; `.is_ambiguous` is True only
+    when more than one Active mandate shares the purpose and none was chosen. A caller
+    that shows the member something must use this: a refusal rendered as absence told a
+    member who is being collected from that direct debit was "not configured".
+    """
     from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+        MandateChoice,
         log_ambiguous_mandate_refusal,
         resolve_purpose_flag,
     )
@@ -1555,11 +1560,11 @@ def get_active_sepa_mandate(
     )
 
     if not mandates:
-        return None
+        return MandateChoice(None, 0)
     if len(mandates) > 1:
         log_ambiguous_mandate_refusal(member_name, mandates, purpose, "Ambiguous active SEPA mandate")
-        return None
-    return mandates[0]
+        return MandateChoice(None, len(mandates))
+    return MandateChoice(mandates[0], 1)
 
 
 def determine_mandate_action(
@@ -1567,6 +1572,11 @@ def determine_mandate_action(
 ) -> str:
     """
     Determine what action is needed for SEPA mandate based on current state.
+
+    Pass a mandate from `get_active_sepa_mandate_choice().mandate` only when
+    `.is_ambiguous` is False. `get_active_sepa_mandate` returns None for BOTH "no
+    mandate" and "refused: several Active", and here None means "create_mandate",
+    so wiring the plain helper to this one would turn a refusal into a duplicate (#607).
 
     Args:
         current_mandate: Current active mandate dict or None
