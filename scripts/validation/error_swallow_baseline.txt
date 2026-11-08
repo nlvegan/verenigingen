@@ -286,7 +286,6 @@ verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer._is_valid_docty
 verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer.get_link_field_options_cached::1
 verenigingen/utils/secure_operations.py::can_request_system_escalation::1
 verenigingen/utils/secure_operations.py::can_use_bypass_validations::1
-verenigingen/utils/secure_operations.py::validate_permissions::1
 verenigingen/utils/security/__init__.py::setup_all_security::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_api_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_sepa_logs::1
