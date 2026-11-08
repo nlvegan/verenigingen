@@ -856,12 +856,19 @@ def _log_lookup_failure_once(module_name: str, func_name: str) -> None:
 
     A sustained outage fails every request, and Error Log is MyISAM: one row per request
     would flood it. The traceback is built inside the except block that calls this.
+
+    Never raises from the dedup: a cache error here would replace the lookup error
+    and turn into a raw 500 on every endpoint. If the cache fails the row is written
+    without dedup.
     """
     exc_type = type(sys.exc_info()[1]).__name__
     key = f"critical_lookup_failure_logged:{exc_type}"
-    if frappe.cache().get_value(key):
-        return
-    frappe.cache().set_value(key, 1, expires_in_sec=LOOKUP_FAILURE_LOG_WINDOW_SECONDS)
+    try:
+        if frappe.cache().get_value(key):
+            return
+        frappe.cache().set_value(key, 1, expires_in_sec=LOOKUP_FAILURE_LOG_WINDOW_SECONDS)
+    except Exception:
+        pass  # Dedup only: the Error Log row below is the record that matters.
     frappe.log_error(
         title="Critical operation lookup failed",
         message=f"function={module_name}.{func_name}\n\n{frappe.get_traceback()}",
@@ -875,15 +882,26 @@ def _fixture_critical_operation_names() -> frozenset:
     Read from disk, never the database, because it answers "is there a critical rule?"
     at the moment the database lookup has just failed. Only called on that error path.
 
-    An empty result is an error, not an answer: it would silently disable every refusal.
-    lru_cache does not cache a raised exception, so the next request retries the read.
+    An empty result, or any read/parse failure, is an error, not an answer: it would
+    silently disable every refusal. lru_cache does not cache a raised exception, so the
+    next request retries the read. Deliberate: when the fixtures are unreadable AND a
+    lookup has failed, the request is refused whatever the endpoint (needs a broken
+    deployment plus a DB fault together).
     """
     names = set()
-    for path in Path(frappe.get_app_path("verenigingen", "fixtures")).glob("critical_operation_rule*.json"):
-        with open(path) as handle:
-            for row in json.load(handle):
-                if row.get("security_level") == "critical":
-                    names.add(row.get("operation_name"))
+    try:
+        for path in Path(frappe.get_app_path("verenigingen", "fixtures")).glob(
+            "critical_operation_rule*.json"
+        ):
+            with open(path) as handle:
+                for row in json.load(handle):
+                    if row.get("security_level") == "critical":
+                        names.add(row.get("operation_name"))
+    except Exception:
+        frappe.log_error(title="Critical operation fixtures unreadable", message=frappe.get_traceback())
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
     if not names:
         frappe.log_error(
             title="Critical operation fixtures unreadable",

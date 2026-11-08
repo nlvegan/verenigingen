@@ -74,7 +74,17 @@ def admin_cancel_subscription():
     return {"ok": True}
 
 
-ALL_OPS = (RULE_OP, UNRULED_CRITICAL_OP, PLAIN_OP, FIXTURE_CRITICAL_OP)
+# Matches the fixture key "api_fix_stuck_schedule" ONLY through the api_<name> runtime name.
+API_PREFIXED_OP = "fix_stuck_schedule"
+
+
+@high_security_api(OperationType.FINANCIAL)
+def fix_stuck_schedule():
+    SIDE_EFFECTS.append(("api_prefixed", None))
+    return {"ok": True}
+
+
+ALL_OPS = (RULE_OP, UNRULED_CRITICAL_OP, PLAIN_OP, FIXTURE_CRITICAL_OP, API_PREFIXED_OP)
 _real_exists = frappe.db.exists
 
 
@@ -169,6 +179,59 @@ class TestCriticalLookupFailClosed(VereningingenTestCase):
         self.assertEqual(SIDE_EFFECTS, [("unruled_critical", 1)])
         self.assertIsNone(frappe.cache.get_value(f"critical_op_check:{__name__}.{UNRULED_CRITICAL_OP}"))
         self.assertEqual(self._lookup_error_logs(), before + 1)
+
+    def test_errored_lookup_refuses_an_endpoint_matching_only_via_the_api_prefixed_name(self):
+        self.assertNotIn(API_PREFIXED_OP, _fixture_critical_operation_names())
+        self.assertIn(f"api_{API_PREFIXED_OP}", _fixture_critical_operation_names())
+        with self.assertRaises(VValidationError):
+            self._errored(fix_stuck_schedule)
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_a_cache_error_in_the_log_dedup_does_not_mask_the_lookup_error(self):
+        """The cache raising must behave exactly as without it: proceed or generic refusal, row written."""
+        before = self._lookup_error_logs()
+        # Mock justified: a Redis outage cannot be produced on demand.
+        cache = frappe.cache()
+        real_get, real_set = cache.get_value, cache.set_value
+
+        def failing(real):
+            def call(key, *args, **kwargs):
+                if str(key).startswith("critical_lookup_failure_logged"):
+                    raise ConnectionError("redis down")
+                return real(key, *args, **kwargs)
+
+            return call
+
+        with (
+            patch.object(cache, "get_value", failing(real_get)),
+            patch.object(cache, "set_value", failing(real_set)),
+        ):
+            self.assertEqual(self._errored(probe_2295_plain_read), {"ok": True})
+            self.assertEqual(self._lookup_error_logs(), before + 1)
+            with self.assertRaises(VValidationError) as ctx:
+                self._errored(admin_cancel_subscription)
+        self.assertNotIn("redis", str(ctx.exception).lower())
+        self.assertEqual(SIDE_EFFECTS, [("plain", None)])
+        self.assertEqual(self._lookup_error_logs(), before + 2)
+
+    def test_malformed_fixture_json_gives_the_generic_refusal_and_a_log_row(self):
+        self.expectErrorLog("Critical operation fixtures unreadable")
+        _fixture_critical_operation_names.cache_clear()
+        try:
+            with tempfile.TemporaryDirectory() as bad_dir:
+                with open(f"{bad_dir}/critical_operation_rule.json", "w") as handle:
+                    handle.write("[{not json")
+                before = frappe.db.count("Error Log", {"method": ["like", "%fixtures unreadable%"]})
+                # Mock justified: the shipped fixtures cannot be made malformed on demand.
+                with patch.object(frappe, "get_app_path", return_value=bad_dir):
+                    with self.assertRaises(VValidationError) as ctx:
+                        self._errored(probe_2295_plain_read)
+                self.assertNotIn("JSON", str(ctx.exception))
+                self.assertEqual(SIDE_EFFECTS, [])
+                after = frappe.db.count("Error Log", {"method": ["like", "%fixtures unreadable%"]})
+                self.assertEqual(after, before + 1)
+        finally:
+            _fixture_critical_operation_names.cache_clear()
 
     def test_the_six_shipped_critical_endpoints_match_their_fixture_keys(self):
         """The runtime operation names of the real endpoints hit the fixture's critical keys.
