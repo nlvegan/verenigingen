@@ -20,7 +20,9 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.error_handling import ValidationError as VValidationError
 from verenigingen.utils.secure_operations import get_critical_operations_registry
 from verenigingen.utils.security.api_security_framework import (
+    _fixture_critical_operation_names,
     critical_api,
+    get_security_framework,
     high_security_api,
     standard_api,
 )
@@ -32,6 +34,18 @@ PLAIN_OP = "probe_2295_plain_read"
 # A name the shipped fixtures define at security_level critical, on a high-level decorator.
 FIXTURE_CRITICAL_OP = "admin_cancel_subscription"
 THRESHOLD = 100
+_PAGES = "verenigingen.templates.pages."
+REAL_FIXTURE_CRITICAL_ENDPOINTS = (
+    (_PAGES + "mollie_payments_debug", "admin_cancel_subscription"),
+    (_PAGES + "mollie_payments_debug", "admin_revoke_mandate"),
+    (_PAGES + "mollie_payments_debug", "admin_delete_customer"),
+    (_PAGES + "mollie_bulk_payment_creation", "create_bulk_payments"),
+    (_PAGES + "mollie_subscription_recreation", "recreate_subscriptions"),
+    (
+        "verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery",
+        "process_payment",
+    ),
+)
 SIDE_EFFECTS = []
 
 
@@ -136,25 +150,37 @@ class TestCriticalLookupFailClosed(VereningingenTestCase):
         self._call(probe_2295_plain_read)
         self.assertEqual(SIDE_EFFECTS, [("ruled", THRESHOLD - 1), ("plain", None)])
 
-    def test_errored_lookup_for_an_endpoint_with_a_rule_is_refused(self):
+    def test_errored_lookup_for_an_endpoint_with_a_fixture_critical_rule_is_refused(self):
         before = self._lookup_error_logs()
         with self.assertRaises(VValidationError) as ctx:
-            self._errored(probe_2295_ruled_credit, amount=1)
+            self._errored(admin_cancel_subscription)
         self.assertEqual(SIDE_EFFECTS, [], "the critical operation ran although its lookup errored")
         message = str(ctx.exception)
-        for leak in (RULE_OP, "simulated", "RuntimeError", "lookup failure"):
+        for leak in (FIXTURE_CRITICAL_OP, "simulated", "RuntimeError", "lookup failure"):
             self.assertNotIn(leak, message)
         self.assertEqual(self._lookup_error_logs(), before + 1)
 
-    def test_errored_lookup_refuses_a_critical_endpoint_even_without_a_rule(self):
-        with self.assertRaises(VValidationError):
-            self._errored(probe_2295_unruled_critical, amount=1)
-        self.assertEqual(SIDE_EFFECTS, [])
+    def test_errored_lookup_for_a_critical_api_endpoint_without_a_fixture_rule_proceeds(self):
+        """Maintainer ruling: the decorator level alone does not make an endpoint "known critical"."""
+        before = self._lookup_error_logs()
+        self.assertEqual(self._errored(probe_2295_unruled_critical, amount=1), {"ok": True})
+        self.assertEqual(SIDE_EFFECTS, [("unruled_critical", 1)])
+        self.assertIsNone(frappe.cache.get_value(f"critical_op_check:{__name__}.{UNRULED_CRITICAL_OP}"))
+        self.assertEqual(self._lookup_error_logs(), before + 1)
 
-    def test_errored_lookup_refuses_an_endpoint_the_fixtures_know_as_critical(self):
-        with self.assertRaises(VValidationError):
-            self._errored(admin_cancel_subscription)
-        self.assertEqual(SIDE_EFFECTS, [])
+    def test_the_six_shipped_critical_endpoints_match_their_fixture_keys(self):
+        """The runtime operation names of the real endpoints hit the fixture's critical keys.
+
+        A key mismatch (bare versus module-qualified) would make the refusal match nothing.
+        """
+        import importlib
+
+        framework_cls = type(get_security_framework())
+        critical = _fixture_critical_operation_names()
+        for module, function in REAL_FIXTURE_CRITICAL_ENDPOINTS:
+            func = getattr(importlib.import_module(module), function)
+            names = set(framework_cls._potential_operation_names(func))
+            self.assertTrue(names & critical, f"{module}.{function} matches no fixture-critical key")
 
     def test_errored_lookup_for_an_endpoint_without_a_rule_proceeds(self):
         """Opposite harm: a transient blip must not block ordinary endpoints."""
@@ -162,10 +188,11 @@ class TestCriticalLookupFailClosed(VereningingenTestCase):
         self.assertEqual(SIDE_EFFECTS, [("plain", None)])
 
     def test_nothing_is_cached_after_an_error(self):
-        with self.assertRaises(VValidationError):
-            self._errored(probe_2295_ruled_credit, amount=1)
+        # RULE_OP has a database rule only (not a shipped fixture), so it proceeds on error.
+        self._errored(probe_2295_ruled_credit, amount=1)
         self.assertIsNone(frappe.cache.get_value(f"critical_op_check:{__name__}.{RULE_OP}"))
         # The next call, lookup healthy, is a fully normal critical call: the rule applies.
+        SIDE_EFFECTS.clear()
         with self.assertRaises(VValidationError) as ctx:
             self._call(probe_2295_ruled_credit, amount=THRESHOLD + 1)
         self.assertIn("Critical business rule violations", str(ctx.exception))

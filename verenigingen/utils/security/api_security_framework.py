@@ -733,21 +733,19 @@ class APISecurityFramework:
             f"api_{func.__name__}",
         ]
 
-    def refuse_if_critical_lookup_failed(
-        self, critical_op_info: dict, func: Callable, level: SecurityLevel
-    ) -> None:
-        """Refuse THIS request when the critical lookup errored for an endpoint with a known rule.
+    def refuse_if_critical_lookup_failed(self, critical_op_info: dict, func: Callable) -> None:
+        """Refuse THIS request when the critical lookup errored for an endpoint with a known critical rule.
 
         "Known" has to be decidable without the lookup that just failed, so it is read
-        from code and shipped files: the decorator's own declared level, or a name the
-        shipped fixtures carry as a critical rule. Everything else proceeds, so a
-        transient error does not stall ordinary endpoints (#2295).
+        from the SHIPPED fixtures only (maintainer ruling on #2295): the endpoint is
+        refused when one of its operation names is a `security_level: critical` rule
+        there. The decorator level alone does not count, so a `@critical_api` endpoint
+        without such a rule proceeds, and a transient error does not stall ordinary
+        endpoints.
         """
         if not critical_op_info.get("lookup_failed"):
             return
-        if level != SecurityLevel.CRITICAL and not (
-            set(self._potential_operation_names(func)) & _fixture_critical_operation_names()
-        ):
+        if not set(self._potential_operation_names(func)) & _fixture_critical_operation_names():
             return
         raise VValidationError(
             _("This operation could not be verified against its security rules and was not performed.")
@@ -1063,7 +1061,7 @@ def api_security_framework(
 
                 # Critical operation integration (new)
                 critical_op_info = framework.check_critical_operation_integration(func, **validated_kwargs)
-                framework.refuse_if_critical_lookup_failed(critical_op_info, func, level)
+                framework.refuse_if_critical_lookup_failed(critical_op_info, func)
 
                 # Business rule validation for critical operations
                 if critical_op_info.get("is_critical"):
