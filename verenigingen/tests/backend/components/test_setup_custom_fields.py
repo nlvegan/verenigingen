@@ -267,7 +267,7 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
 
         def fake_get_singles_dict(doctype, *a, **k):
             if doctype == "Verenigingen Settings":
-                return {"name": "Verenigingen Settings"}
+                return {"name": "Verenigingen Settings", "company": "x"}
             return _real_get_singles_dict(doctype, *a, **k)
 
         def fake_get_value(doctype, name, fieldname, *a, **k):

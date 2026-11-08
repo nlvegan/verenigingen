@@ -9,13 +9,13 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime, nowdate, validate_email_address
 
+from verenigingen.services.member.application.door_plans import check_amount, find_plan
 from verenigingen.utils.validation.iban_validator import validate_iban
 
 CONSENT_TEXT_VERSION = "2026-10-30"
 
 MAX_JOIN_REASONS = 5
 MAX_BIRTH_AGE = 120
-FREQUENCIES = ("Monthly", "Annual")
 DELIVERY_CHOICES = ("Digitaal", "Papier", "Beide", "Geen")
 POSTAL_CHOICES = ("Papier", "Beide")
 REQUIRED_FIELDS = {
@@ -173,26 +173,24 @@ def _clean_housemate(data, cleaned):
 
 
 def _clean_regular(door, data, cleaned, postal):
-    frequency = _text(data, "frequency")
-    template = frequency in FREQUENCIES and door.get_template_for(frequency)
-    # The door checks its slots only when saved; the template itself can be edited later, and a
-    # template of another frequency would bill the chosen amount on the wrong period.
-    if (
-        not template
-        or frappe.db.get_value("Membership Dues Schedule", template, "billing_frequency") != frequency
-    ):
-        frappe.throw(_("This payment frequency is not available."))
+    # The plan is looked up among this door's offered plans only: another door's plan, a removed one
+    # and one that never existed are refused alike, and the plan (not the form) names the template and
+    # the billing period the chosen amount is billed on.
+    plan = find_plan(door, _text(data, "plan"), _text(data, "frequency"))
+    if not plan:
+        frappe.throw(_("This payment plan is not available."))
     amount = _parse_amount(data.get("amount"))
-    if amount < door.minimum_for(frequency, postal):
-        frappe.throw(_("The amount is below the minimum for this choice."))
+    check_amount(plan, amount, postal)
+    frequency = plan["frequency"]
     cleaned["iban"] = _clean_iban(data, frequency)
     cleaned["bank_account_name"] = _text(data, "bank_account_name")
     if not cint(data.get("consent")):
         frappe.throw(_("You must accept the terms to apply."))
     cleaned.update(
+        plan=plan["id"],
         frequency=frequency,
         amount=amount,
-        selected_dues_schedule=template,
+        selected_dues_schedule=plan["template"],
         consent_given_at=str(now_datetime()),
         consent_text_version=CONSENT_TEXT_VERSION,
     )

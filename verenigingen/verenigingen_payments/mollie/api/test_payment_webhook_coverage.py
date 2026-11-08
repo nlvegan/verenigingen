@@ -33,6 +33,7 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
     _create_customer_for_donor,
     _notify_member_of_payment_failure,
@@ -288,6 +289,7 @@ class TestNotifyMemberOfPaymentFailure(EnhancedTestCase):
                 "name": name,
                 "subject": "Payment failed",
                 "response": "<p>Your payment failed.</p>",
+                "response_html": "<p>Your payment failed.</p>",
                 "use_html": 1,
             }
         )
@@ -303,6 +305,9 @@ class TestNotifyMemberOfPaymentFailure(EnhancedTestCase):
         """
         self._delete_failure_templates()
         self._persist_email_template("payment_failure_first")
+        # A skipped send never reaches the code this regression covers, so own the key and
+        # prove below that a mail really went out (#2010).
+        own_notification_keys(self, "payment_failure_first")
         member = self._make_member()
         member.next_payment_date = getdate()
         member.save()
@@ -322,6 +327,7 @@ class TestNotifyMemberOfPaymentFailure(EnhancedTestCase):
         # result.get("status"); pre-fix this raised AttributeError and logged a
         # "Payment failure notification error ..." Error Log on every send.
         offending = [r for r in after if "notification error" in (r.error or "").lower()]
+        self.assertEqual(len(self.get_sent_emails(to=member.email)), 1, "control: the send path really ran")
         self.assertEqual(
             offending,
             [],

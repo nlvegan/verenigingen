@@ -244,6 +244,19 @@ class MembershipApplicationReview {
 							</div>
 						</div>
 
+						<!-- Approved, invoice missing (#1900): only shown when the caller may retry something -->
+						<div class="row" id="retry-invoice-section" style="display: none;">
+							<div class="col-md-12">
+								<div class="card">
+									<div class="card-header">
+										<h5 class="mb-0">${__('Approved, invoice missing')}</h5>
+										<small class="text-muted">${__('The approval email is held until the invoice exists. Retrying creates the invoice and sends it.')}</small>
+									</div>
+									<div class="card-body" id="retry-invoice-list"></div>
+								</div>
+							</div>
+						</div>
+
 						<!-- Last Updated -->
 						<div class="row mt-4">
 							<div class="col-md-12 text-center text-muted">
@@ -423,7 +436,7 @@ class MembershipApplicationReview {
 
 		$wrapper.on('click', '.show-all-applications', (e) => {
 			e.preventDefault();
-			this.focus_application = null;
+			this.exit_focus_mode();
 			this.load_applications();
 		});
 
@@ -434,8 +447,7 @@ class MembershipApplicationReview {
 		$wrapper.on('click', '#btn-clear-filters', () => {
 			$('#filter-chapter').val('');
 			$('#filter-days-overdue').val('');
-			this.filters = { chapter: null, days_overdue: null };
-			this.load_applications();
+			this.clear_filters();
 		});
 
 		// Action button handlers
@@ -477,6 +489,13 @@ class MembershipApplicationReview {
 			const applicationName = $(e.currentTarget).data('application');
 			if (applicationName) {
 				this.view_details(applicationName);
+			}
+		});
+
+		$wrapper.on('click', '.action-retry-invoice', (e) => {
+			const applicationName = $(e.currentTarget).data('application');
+			if (applicationName) {
+				this.retry_invoice(applicationName);
 			}
 		});
 
@@ -556,6 +575,53 @@ class MembershipApplicationReview {
 		await this.load_chapters();
 		await this.load_statistics();
 		await this.load_applications();
+		await this.load_retry_invoice_section();
+	}
+
+	async load_retry_invoice_section() {
+		// The server scopes the list to the applications the caller may approve, so a caller who cannot
+		// retry sees nothing here.
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.membership_application_review.get_approved_applications_without_invoice'
+			});
+			const rows = response.message || [];
+			const e = (str) => this.escapeHtml(str);
+			$('#retry-invoice-list').html(
+				rows
+					.map(
+						(row) => `
+				<div class="d-flex justify-content-between align-items-center mb-2">
+					<span><strong>${e(row.applicant_name)}</strong> ${e(row.email)} ${e(row.chapter) || ''}</span>
+					<button class="btn btn-warning btn-sm action-retry-invoice" data-application="${e(row.name)}">
+						<i class="fa fa-refresh"></i> ${__('Retry invoice')}
+					</button>
+				</div>`
+					)
+					.join('')
+			);
+			$('#retry-invoice-section').toggle(rows.length > 0);
+		} catch (error) {
+			$('#retry-invoice-section').hide();
+		}
+	}
+
+	async retry_invoice(application_name) {
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.membership_application_review.retry_application_invoice',
+				args: { application_name }
+			});
+			const result = response.message || {};
+			frappe.msgprint({
+				title: result.invoice_failed ? __('Invoice not created') : __('Invoice created'),
+				message: frappe.utils.escape_html(result.message || ''),
+				indicator: result.invoice_failed || !result.mail_sent ? 'orange' : 'green'
+			});
+		} catch (error) {
+			// frappe.call shows the server's own error dialog; a rejection carries no message to repeat.
+		}
+		this.load_retry_invoice_section();
 	}
 
 	async load_chapters() {
@@ -631,9 +697,32 @@ class MembershipApplicationReview {
 		}
 	}
 
+	// Clearing filters also leaves focus mode (?application=), or the reviewer is stuck on one record.
+	clear_filters() {
+		this.filters = { chapter: null, days_overdue: null };
+		this.exit_focus_mode();
+		this.load_applications();
+	}
+
+	// Also drop ?application= from the URL, or a hard refresh re-enters focus mode.
+	exit_focus_mode() {
+		this.focus_application = null;
+		if (window.history && window.history.replaceState) {
+			const url = new URL(window.location.href);
+			url.searchParams.delete('application');
+			window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+		}
+	}
+
 	render_applications() {
 		if (this.applications.length === 0) {
+			// The focused application may no longer be listed (e.g. no longer Pending Review);
+			// keep a way back to the full list instead of a dead-end empty state.
+			const focus_notice = this.focus_application
+				? `<div class="alert alert-info focus-banner">${__('The requested application is not in the pending list.')} <a href="#" class="show-all-applications">${__('Show all applications')}</a></div>`
+				: '';
 			$('.applications-list').html(`
+				${focus_notice}
 				<div class="empty-state text-center p-5">
 					<i class="fa fa-inbox fa-3x text-muted mb-3"></i>
 					<h5 class="text-muted">No pending applications found</h5>
@@ -809,10 +898,18 @@ class MembershipApplicationReview {
 						frappe.msgprint({
 							title: __('Approved without invoice'),
 							message: frappe.utils.escape_html(response.message.message),
-							indicator: 'orange'
+							indicator: 'orange',
+							primary_action: {
+								label: __('Retry invoice'),
+								action: () => {
+									frappe.hide_msgprint();
+									this.retry_invoice(response.message.application);
+								}
+							}
 						});
 						this.load_applications();
 						this.load_statistics();
+						this.load_retry_invoice_section();
 					} else if (response.message?.success) {
 						frappe.show_alert({
 							message: __('Application approved for {0}', [frappe.utils.escape_html(app.applicant_name)]),

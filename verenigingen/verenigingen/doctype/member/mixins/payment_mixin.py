@@ -12,6 +12,11 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+def _normalise_iban(iban):
+    """Spaces and case do not make a different IBAN."""
+    return (iban or "").replace(" ", "").upper()
+
+
 class PaymentMixin:
     """Mixin for payment-related functionality"""
 
@@ -303,7 +308,7 @@ class PaymentMixin:
 
         if not result.valid:
             # Service provides user-friendly error messages
-            frappe.throw(result.message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
+            frappe.throw(result.message, title=_("Invalid bank details"), exc=frappe.ValidationError)
 
         # Update BIC if it was derived by the service
         if should_derive_bic and result.data.get("bic") and result.data.get("bic_derived"):
@@ -364,11 +369,21 @@ class PaymentMixin:
         Keeps inline implementation. Deactivates old entries via in-memory mutation
         (not SQL UPDATE) so Frappe's child table save persists the changes.
         """
-        try:
-            # Get old IBAN from database
-            old_iban = frappe.db.get_value("Member", self.name, "iban")
+        # Read outside the try below: its blanket `except Exception` would swallow the
+        # refusal raised by the holder check and turn it back into a raw MandatoryError
+        # on the history child row (#2022).
+        old_iban = frappe.db.get_value("Member", self.name, "iban")
+        # validate_iban_format has already re-spaced self.iban, so a legacy unspaced
+        # stored value differs textually from an untouched IBAN: compare normalised.
+        iban_changed = bool(old_iban) and _normalise_iban(old_iban) != _normalise_iban(self.iban)
+        if iban_changed and not (self.bank_account_name or "").strip():
+            frappe.throw(
+                _("Please fill in the account holder (Account Holder Name) before changing the IBAN."),
+                title=_("Account holder required"),
+            )
 
-            if old_iban and old_iban != self.iban:
+        try:
+            if iban_changed:
                 # Deactivate previous IBAN history records in memory so Frappe
                 # persists the change when saving the child table.
                 for row in self.iban_history:

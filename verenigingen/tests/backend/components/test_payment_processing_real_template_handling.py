@@ -106,6 +106,12 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         self._orig_notification_state = {
             nt.notification_key: nt.enabled for nt in config.notification_types
         }
+        # #1999: payment_reminder_* are registered, so a fresh install seeds them with a real
+        # cooldown (10080 / 4320 min). Every test here reminds the SAME member, so a seeded
+        # cooldown would suppress the second send. Remember it to restore it.
+        self._orig_notification_cooldowns = {
+            nt.notification_key: nt.cooldown_minutes for nt in config.notification_types
+        }
 
     def _enable_notifications(self, notification_keys):
         """Enable the given notification keys in Verenigingen Email Configuration."""
@@ -117,6 +123,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
                 for nt in config.notification_types:
                     if nt.notification_key == key:
                         nt.enabled = 1
+                        nt.cooldown_minutes = 0  # this test reminds one member repeatedly
             else:
                 config.append(
                     "notification_types",
@@ -465,7 +472,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         # #1982: this class replaces/deletes fixture-shipped payment_reminder_*
-        # templates; restore the shipped rows (payment_reminder_final is not shipped).
+        # templates; restore the shipped rows (all three are shipped since #2008).
         _cleanup_stock_email_templates(
             ["payment_reminder_friendly", "payment_reminder_urgent", "payment_reminder_final"]
         )
@@ -510,6 +517,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         for nt in config.notification_types:
             if nt.notification_key in self._orig_notification_state:
                 nt.enabled = self._orig_notification_state[nt.notification_key]
+                nt.cooldown_minutes = self._orig_notification_cooldowns[nt.notification_key]
                 retained.append(nt)
         config.notification_types = retained
         config.flags.ignore_permissions = True

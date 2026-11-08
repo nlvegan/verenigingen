@@ -256,7 +256,7 @@ class PontoPaymentLink(Document):
 
         except Exception as e:
             frappe.log_error(
-                title="Ponto payment link creation failed",
+                title=f"Ponto payment link creation failed: {self.name}",
                 message=str(e),
             )
             frappe.throw(

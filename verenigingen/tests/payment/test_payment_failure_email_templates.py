@@ -33,7 +33,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         # #1982: tests here delete the fixture-shipped payment_failure_* templates;
-        # restore the shipped rows (payment_failure_generic is not shipped).
+        # restore the shipped rows (payment_failure_generic is shipped since #2008).
         _cleanup_stock_email_templates(
             ["payment_failure_first", "payment_failure_second", "payment_failure_final",
              "payment_failure_generic", "subscription_cancelled", "subscription_suspended"]

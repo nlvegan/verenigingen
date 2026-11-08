@@ -153,7 +153,7 @@ def create_default_email_templates():
             {
                 "doctype": "Email Template",
                 "name": "membership_application_approved",
-                "subject": "Membership Application Approved - Payment Required - {{ member_name }}",
+                "subject": "Membership Application Approved{% if payment_url %} - Payment Required{% endif %} - {{ member_name }}",
                 "response": """
 <h2>🎉 Membership Application Approved!</h2>
 
@@ -165,11 +165,12 @@ def create_default_email_templates():
     <h4>Application Details:</h4>
     <ul>
         <li><strong>Application ID:</strong> {{ application_id }}</li>
-        <li><strong>Membership Type:</strong> {{ membership_type.membership_type_name }}</li>
-        <li><strong>Fee Amount:</strong> {{ payment_amount }}</li>
+        <li><strong>Membership Type:</strong> {{ (membership_type.membership_type_name if membership_type is mapping else membership_type) or "Standard Membership" }}</li>
+        {% if payment_url %}<li><strong>Fee Amount:</strong> {{ payment_amount }}</li>{% endif %}
     </ul>
 </div>
 
+{% if payment_url %}
 <p>To complete your membership, please pay the membership fee using the link below:</p>
 
 <div style="text-align: center; margin: 20px 0;">
@@ -179,6 +180,7 @@ def create_default_email_templates():
 </div>
 
 <p>Your membership will be activated immediately after payment confirmation.</p>
+{% endif %}
 
 <p>If you have any questions, please don't hesitate to contact us.</p>
 

@@ -366,6 +366,8 @@ def create_comprehensive_email_templates():
                 template_doc.subject = template_data["subject"]
                 template_doc.response = template_data["response"]
                 template_doc.use_html = 1
+                # use_html=1 renders response_html; without it the body is empty (#2009)
+                template_doc.response_html = template_data["response"]
                 template_doc.save()
                 updated_count += 1
                 print(f"   ✓ Updated email template: {template_name}")
@@ -378,6 +380,7 @@ def create_comprehensive_email_templates():
                         "subject": template_data["subject"],
                         "use_html": 1,
                         "response": template_data["response"],
+                        "response_html": template_data["response"],
                     }
                 )
                 template_doc.insert(ignore_permissions=True)

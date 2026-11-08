@@ -24,6 +24,11 @@ from verenigingen.e_boekhouden.utils.data_integrity import (
     mask_pii_in_mutation,
     safe_log_mutation_error,
 )
+from verenigingen.verenigingen_payments.utils.bank_transaction_status import (
+    RECONCILED,
+    RECONCILED_OUTCOMES,
+    record_pool_outcome,
+)
 
 from .base_processor import BaseTransactionProcessor
 
@@ -785,12 +790,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
             # Update Bank Transaction status and amounts
-            bt.status = "Reconciled"
             bt.allocated_amount = pe.paid_amount or pe.received_amount
             bt.unallocated_amount = 0.0
 
             # Save the Bank Transaction
             bt.save(ignore_permissions=False)
+            record_pool_outcome(bt, RECONCILED)
 
             self.debug_info.append(
                 f"Linked Bank Transaction {bank_transaction_name} to Payment Entry {payment_entry_name}"
@@ -804,6 +809,14 @@ class PaymentProcessor(BaseTransactionProcessor):
                 message=f"Bank Transaction linking failed: {error_msg}",
             )
             raise
+
+    @staticmethod
+    def _bank_transaction_is_reconciled(bt):
+        """Submitted: ERPNext's derived status says so. Draft: the app's outcome marker does,
+        because ERPNext keeps every draft at "Pending" (#2082)."""
+        if bt.get("docstatus") == 1:
+            return bt.get("status") == "Reconciled"
+        return bt.get("custom_processing_status") in RECONCILED_OUTCOMES
 
     def _create_bank_transaction_for_journal_entry(
         self,
@@ -853,7 +866,7 @@ class PaymentProcessor(BaseTransactionProcessor):
             existing_bt = frappe.db.get_value(
                 "Bank Transaction",
                 {"reference_number": f"EB-{mutation_id}"},
-                ["name", "status", "party_type", "party"],
+                ["name", "status", "docstatus", "custom_processing_status", "party_type", "party"],
                 as_dict=True,
             )
 
@@ -891,7 +904,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 # Link to Journal Entry if BT still exists and not already reconciled
                 if existing_bt:  # Check if BT wasn't deleted above
-                    if existing_bt.get("status") != "Reconciled":
+                    if not self._bank_transaction_is_reconciled(existing_bt):
                         self._link_bank_transaction_to_journal_entry(bt_name, journal_entry.name, abs(amount))
                     else:
                         self.debug_info.append(f"Bank Transaction {bt_name} already reconciled")
@@ -1142,12 +1155,12 @@ class PaymentProcessor(BaseTransactionProcessor):
             )
 
             # Update Bank Transaction status and amounts
-            bt.status = "Reconciled"
             bt.allocated_amount = allocated_amount
             bt.unallocated_amount = 0.0
 
             # Save the Bank Transaction
             bt.save(ignore_permissions=False)
+            record_pool_outcome(bt, RECONCILED)
 
             self.debug_info.append(
                 f"✅ Reconciled Bank Transaction {bank_transaction_name} with Journal Entry {journal_entry_name} "

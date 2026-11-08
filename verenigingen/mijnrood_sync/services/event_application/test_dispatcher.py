@@ -364,6 +364,166 @@ class TestDispatchRouting(TestDispatcherBase):
         self.assertEqual(member.first_name, "Changed")
 
 
+class TestChangedMemberEventIsAllOrNothing(TestDispatcherBase):
+    """#2067: a Changed event carrying a division change AND a field the member
+    update refuses must leave the member exactly as it was (old chapter, old
+    fields), and re-applying must not repeat a transfer."""
+
+    BAD_IBAN = "NL00BANK0000000000"  # fails the IBAN checksum -> member save refused
+
+    def _member_in_old_chapter(self):
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        mid = _next_id()
+        email = f"atomic.{mid}@example.com"
+        new = self._make_event(
+            "New",
+            "admin_member",
+            new_data={
+                "id": mid,
+                "first_name": "Atomic",
+                "last_name": "Before",
+                "email": email,
+                "current_membership_status_id": 1,
+            },
+        )
+        self.assertTrue(self._apply(new)["success"])
+        member_name = new.linked_member
+        old_chapter = self.create_test_chapter()
+        new_chapter = self.create_test_chapter()
+        new_div = _next_id()
+        frappe.db.set_value("Chapter", new_chapter.name, "mijnrood_division_id", new_div)
+        ChapterAssignmentService().assign_with_cleanup(member=member_name, chapter=old_chapter.name)
+        # No commit here: _apply() commits the approval, which also makes this setup durable.
+        return mid, email, member_name, old_chapter.name, new_chapter.name, new_div
+
+    def _chapters_of(self, member_name):
+        return sorted(
+            frappe.get_all("Chapter Member", filters={"member": member_name, "enabled": 1}, pluck="parent")
+        )
+
+    def _changed_event(self, mid, email, member_name, new_div, iban):
+        return self._make_event(
+            "Changed",
+            "admin_member",
+            new_data={
+                "id": mid,
+                "first_name": "Atomic",
+                "last_name": "After",
+                "email": email,
+                "iban": iban,
+                "division_id": new_div,
+                "current_membership_status_id": 1,
+            },
+            old_data={"id": mid, "last_name": "Before", "email": email},
+            changed_fields=[
+                {"field": "last_name", "old": "Before", "new": "After"},
+                {"field": "division_id", "old": 1, "new": new_div},
+            ],
+            linked_member=member_name,
+        )
+
+    def test_failed_member_update_rolls_back_the_chapter_transfer(self):
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+        result = self._apply(event)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(event.status, "Approved")
+        self.assertTrue(event.error_message, "the failure must still be recorded on the event")
+        self.assertEqual(frappe.db.get_value("Member", member_name, "last_name"), "Before")
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+
+    def _chapter_member_rows(self, member_name):
+        return frappe.db.count("Chapter Member", {"member": member_name})
+
+    def test_reapplying_a_failed_event_does_not_repeat_the_transfer(self):
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        rows_before = self._chapter_member_rows(member_name)
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+
+        self._apply(event)
+        rows_after_first = self._chapter_member_rows(member_name)
+        first_error = event.error_message
+        self.assertTrue(first_error)
+        self._apply(event)
+
+        # Two failed attempts leave the Chapter Member table exactly as it was: no row for the
+        # new chapter, none added per attempt, and the old seat still enabled.
+        self.assertEqual(rows_after_first, rows_before)
+        self.assertEqual(self._chapter_member_rows(member_name), rows_before)
+        self.assertFalse(frappe.db.exists("Chapter Member", {"parent": new_chapter, "member": member_name}))
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        self.assertEqual(event.status, "Approved")
+        self.assertEqual(event.error_message, first_error)
+
+    def test_failure_rollback_is_a_savepoint_not_a_full_rollback(self):
+        """Uncommitted state written BEFORE the transfer must survive the failure.
+
+        Probe shortcut: the unrelated write is injected by wrapping the termination check
+        (the step that runs before the savepoint) with a Chapter field write; it stands in for
+        whatever the caller had pending.
+        """
+        from verenigingen.mijnrood_sync.services.event_application.termination_sync_service import (
+            MijnRoodTerminationSyncService,
+        )
+
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+        event.approve()  # left uncommitted on purpose, like the unrelated write below
+        marker = frappe.db.get_value("Chapter", old_chapter, "introduction")
+        unrelated = f"pending-before-transfer-{mid}"
+
+        def _write_then_continue(*args, **kwargs):
+            frappe.db.set_value("Chapter", old_chapter, "introduction", unrelated)
+            return None
+
+        # Mock justified: injects a pending, unrelated write ahead of the savepoint
+        with patch.object(
+            MijnRoodTerminationSyncService, "_check_and_handle_termination", side_effect=_write_then_continue
+        ):
+            result = get_event_application_service().apply_event(event.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        self.assertEqual(frappe.db.get_value("Chapter", old_chapter, "introduction"), unrelated)
+        self.assertNotEqual(marker, unrelated)
+
+    def test_transfer_that_cannot_be_undone_abandons_the_event(self):
+        """If the savepoint is gone (a commit slipped in), the transfer is durable: fail closed."""
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        event = self._changed_event(mid, email, member_name, new_div, self.BAD_IBAN)
+
+        # Mock justified: reproduces rollback_to_savepoint's "savepoint already gone" return
+        # (what a nested commit causes) without a bare commit in the test.
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.member_sync_service."
+            "rollback_to_savepoint",
+            return_value=False,
+        ):
+            result = self._apply(event)
+
+        self.assertFalse(result["success"], result)
+        self.assertIn("already committed", result["message"])
+        self.assertIn("already committed", event.error_message)
+        # The harm itself: the savepoint rollback was a no-op here, so it is apply_event's
+        # full rollback that must have taken the transfer back out.
+        self.assertEqual(self._chapters_of(member_name), [old_chapter])
+        self.assertEqual(event.status, "Approved")
+
+    def test_successful_event_still_transfers_and_updates(self):
+        mid, email, member_name, old_chapter, new_chapter, new_div = self._member_in_old_chapter()
+        event = self._changed_event(mid, email, member_name, new_div, "")
+        result = self._apply(event)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(event.status, "Applied")
+        self.assertEqual(frappe.db.get_value("Member", member_name, "last_name"), "After")
+        self.assertEqual(self._chapters_of(member_name), [new_chapter])
+
+
 class TestApplyDeleted(TestDispatcherBase):
     """Deleted events are recorded, never auto-applied."""
 

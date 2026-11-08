@@ -17,6 +17,7 @@ from frappe.utils import add_to_date, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.singleton_backup import FlagBackupMixin, singleton_backup
+from verenigingen.tests.utils.notification_state import own_notification_keys
 import unittest
 
 
@@ -64,11 +65,11 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
                     notification_key="test_disabled",
                 )
 
-                # Verify result indicates notification was skipped
-                self.assertTrue(
-                    (isinstance(result.data, dict) and result.data.get("skipped")) or not result.success,
-                    f"Expected notification to be skipped/blocked, got: {result}"
-                )
+                # A skip is success=True; assert the skip AND its reason (not "skipped or failed", which
+                # a failure for any other reason would also satisfy) (#2010).
+                self.assertTrue(result.success, result)
+                self.assertTrue(result.data.get("skipped"), result)
+                self.assertIn("test_disabled", result.data["reason"])
                 # sendmail should NOT be called for disabled notifications
                 mock_sendmail.assert_not_called()
 
@@ -92,11 +93,10 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
                     notification_key="member_application_confirmation",
                 )
 
-                # Verify result indicates email was blocked due to global disable
-                self.assertTrue(
-                    (isinstance(result.data, dict) and result.data.get("skipped")) or not result.success,
-                    f"Expected email to be blocked when master_email_enabled=0, got: {result}"
-                )
+                # A skip is success=True; assert the skip AND its reason, not "skipped or failed" (#2010).
+                self.assertTrue(result.success, result)
+                self.assertTrue(result.data.get("skipped"), result)
+                self.assertEqual(result.data["reason"], "Email disabled in configuration")
                 # sendmail should NOT be called when globally disabled
                 mock_sendmail.assert_not_called()
 
@@ -343,57 +343,45 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
         )
 
     def test_send_volunteer_email_with_real_data(self):
-        """Test send_volunteer_email with actual member/volunteer data."""
+        """Test send_volunteer_email with actual member/volunteer data, and that the mail really goes out."""
         from verenigingen.utils.notification_helpers import send_volunteer_email
 
-        # Create volunteer linked to member
-        try:
-            volunteer = frappe.get_doc({
-                "doctype": "Volunteer",
-                "member": self.test_member.name,
-                "status": "Active",
-            })
-            volunteer.insert()
+        # A skipped send is also success=True, and a missing template is a failure: own the key and
+        # the template so the assertions below can only pass on a real send (#2010).
+        own_notification_keys(self, "team_member_added")
+        template = frappe.get_doc(
+            {
+                "doctype": "Email Template",
+                "name": f"volunteer_email_{frappe.generate_hash(length=6)}",
+                "subject": "Volunteer email",
+                "response": "<p>Hello {{ member_name }}</p>",
+                "response_html": "<p>Hello {{ member_name }}</p>",
+                "use_html": 1,
+            }
+        ).insert()
+        self.track_doc("Email Template", template.name)
 
-            with singleton_backup("Verenigingen Email Configuration"):
-                config = frappe.get_single("Verenigingen Email Configuration")
-                config.master_email_enabled = 1
-                config.email_mode = "Active"
-                config.notification_types = []
-                config.append("notification_types", {
-                    "notification_key": "test_volunteer_email",
-                    "label": "Volunteer Email Test",
-                    "category": "Volunteer",
-                    "enabled": 1,
-                })
-                config.save()
+        # Volunteer linked to member. The old hand-built doc lacked the mandatory volunteer_name, so its
+        # insert always raised and the broad `except: skipTest` made this test skip on every run.
+        volunteer = self.create_test_volunteer(member=self.test_member.name)
 
-                # Mock justified: External Service - SMTP delivery, not business logic
-            with patch("frappe.sendmail") as mock_sendmail:
-                    result = send_volunteer_email(
-                        volunteer=volunteer.name,
-                        template_name="team_role_notification",
-                        notification_key="test_volunteer_email",
-                        subject="Test Volunteer Email",
-                        extra_context={"team_name": "Test Team"},
-                        reference_doctype="Volunteer",
-                        reference_name=volunteer.name,
-                    )
+        # Mock justified: External Service - SMTP delivery, not business logic
+        with patch("frappe.sendmail") as mock_sendmail:
+            result = send_volunteer_email(
+                volunteer=volunteer.name,
+                template_name=template.name,
+                notification_key="team_member_added",
+                subject="Test Volunteer Email",
+                extra_context={"team_name": "Test Team"},
+                reference_doctype="Volunteer",
+                reference_name=volunteer.name,
+            )
 
-                    # Verify result structure
-                    self.assertTrue(hasattr(result, "success"), "Result should have 'success' attribute")
-                    # Verify volunteer email was resolved correctly
-                    if result.success:
-                        # If successful, sendmail should have been called
-                        self.assertTrue(
-                            mock_sendmail.called
-                            or (isinstance(result.data, dict) and result.data.get("skipped")),
-                            "Either sendmail should be called or notification skipped"
-                        )
-
-        except Exception as e:
-            # If volunteer creation fails (e.g., validation), skip this test
-            self.skipTest(f"Could not create test volunteer: {e}")
+        self.assertTrue(result.success, result)
+        self.assertFalse((result.data or {}).get("skipped"), result.data)
+        mock_sendmail.assert_called_once()
+        # The volunteer's email is the linked member's address
+        self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
 
 class TestEmailServiceCacheIntegration(EnhancedTestCase):

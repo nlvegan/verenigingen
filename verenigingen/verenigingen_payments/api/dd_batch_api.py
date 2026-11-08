@@ -78,6 +78,7 @@ from verenigingen.utils.transaction_errors import (
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
+from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_financial_admin_emails
 from verenigingen.verenigingen_payments.utils.collection_rows import (
     refuse_invoices_with_more_than_one_row,
 )
@@ -963,13 +964,10 @@ def escalate_conflicts(batch_id, conflicts):
     """
 
     # Send notification to administrators
-    admin_users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", list(Roles.ADMIN_PAIR)]},
-        fields=["parent as user"],
-    )
-
-    recipients = [user.user for user in admin_users]
+    # The sepa_batch_error key's own recipients first, then the enabled admin-role holders'
+    # emails; never the Administrator user (#2093). The old Has Role query had no parenttype
+    # filter, so it also returned the names of Reports and Pages holding those roles.
+    recipients = get_financial_admin_emails("sepa_batch_error")
 
     if recipients:
         email_service = get_email_service()

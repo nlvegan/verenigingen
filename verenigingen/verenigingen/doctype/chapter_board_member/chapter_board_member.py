@@ -43,28 +43,70 @@ class ChapterBoardMember(Document):
         Chapter save. A row naming a Chapter that does not exist now raises
         DoesNotExistError here instead of inserting as an orphan.
         """
-        if not (self.parent and self.parenttype == "Chapter" and self.volunteer):
+        self._flush_board_access_for(self.volunteer, inserting=True)
+
+    def _flush_board_access_for(self, *volunteers, inserting=False):
+        """Recalculate board access for volunteers whose seat a standalone row write changed.
+
+        Shared by after_insert, on_update and after_delete (#1922, #1953); all run only when
+        the row is written OUTSIDE a Chapter save, which has its own flush. The database must
+        already show the new state, hence ``after_delete`` rather than ``on_trash``.
+        """
+        volunteers = [v for v in dict.fromkeys(volunteers) if v]
+        if not (self.parent and self.parenttype == "Chapter" and volunteers):
+            return
+        if not inserting and not frappe.db.exists("Chapter", self.parent):
+            # An orphan row (its Chapter is gone) must stay deletable and editable, and its
+            # holder must still lose the access it conferred. The flush needs a Chapter only
+            # for its per-chapter profile mapping; withdrawal needs none. (An orphan INSERT
+            # is still refused, #1922.)
+            for volunteer in volunteers:
+                _withdraw_access_without_chapter(volunteer)
             return
         board_manager = frappe.get_doc("Chapter", self.parent).board_manager
-        board_manager._defer_board_access_recalculation(self.volunteer)
+        for volunteer in volunteers:
+            board_manager._defer_board_access_recalculation(volunteer)
         board_manager.flush_pending_board_profile_syncs()
 
     def on_trash(self):
-        """Remove Chapter Board Member role if no longer on any board"""
-        self.remove_board_member_role()
+        """Notify the removed board member; the access is withdrawn in ``after_delete``."""
         # Clear permission cache when board membership changes
         clear_permission_cache()
         # Send notification to the removed board member
         self._send_board_removed_notification()
 
-    def on_update(self):
-        """Handle role changes when board member status changes"""
-        # If marked inactive or past end date, check if role should be removed
-        if not self.is_active or (self.to_date and frappe.utils.getdate(self.to_date) < frappe.utils.today()):
-            self.remove_board_member_role()
+    def after_delete(self):
+        """Withdraw the seat's board role and profile once the row is really gone (#1953).
 
+        Runs only for a row deleted on its own (``frappe.delete_doc``, REST ``DELETE``);
+        rows removed through a Chapter save never reach a child controller. ``on_trash``
+        is too early: the row is still in the database there, so the flush would count it
+        as a live seat, and the direct role removal it used to do is undone by the board
+        role profile on the next User save (#211).
+        """
+        self._flush_board_access_for(self.volunteer)
+
+    def on_update(self):
+        """Re-evaluate board access when a standalone row write changes the seat (#1953).
+
+        Runs for a row saved on its own (``get_doc(row).save()``, REST ``PUT``, the board
+        term ending in ``chapter_assignment_service``); a Chapter save never reaches it.
+        The old body withdrew the Frappe role directly from a User still carrying the
+        board role profile, which the profile re-applied (#211), so role and profile both
+        stayed. The Chapter save's flush syncs the profile first and then withdraws.
+
+        An insert is skipped: ``after_insert`` already flushed (#1922). The previous
+        holder is flushed too when the row is handed to another volunteer.
+        """
         # Clear permission cache when board member status changes
         clear_permission_cache()
+        if self.flags.in_insert or not self._seat_changed():
+            return
+        before = self.get_doc_before_save()
+        self._flush_board_access_for(self.volunteer, before.volunteer if before else None)
+
+    def _seat_changed(self):
+        return any(self.has_value_changed(f) for f in ("volunteer", "chapter_role", "is_active", "to_date"))
 
     def remove_board_member_role(self):
         """Remove Chapter Board Member role if user is no longer on any board.
@@ -141,6 +183,20 @@ class ChapterBoardMember(Document):
             reference_doctype="Chapter Board Member",
             reference_name=self.name,
         )
+
+
+def _withdraw_access_without_chapter(volunteer: str) -> None:
+    """Recalculate a volunteer's board access when the row's Chapter no longer exists (#1953).
+
+    Profile first, then the role, for the same reason as BoardManager's flush (#211).
+    """
+    from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+
+    member = frappe.db.get_value("Volunteer", volunteer, "member")
+    user = frappe.db.get_value("Member", member, "user") if member else None
+    if user:
+        sync_user_role_profile(user)
+    withdraw_board_member_role_if_unseated(volunteer)
 
 
 def withdraw_board_member_role_if_unseated(volunteer: str, exclude_row: str = None) -> None:

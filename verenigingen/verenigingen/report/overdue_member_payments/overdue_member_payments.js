@@ -260,7 +260,27 @@ function show_payment_reminder_dialog(report) {
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(__('Sent {0} payment reminders', [r.message.count]));
+						// A skipped reminder (cooldown, disabled notification, opted out) is not a sent one (#2015)
+						let msg = __('Sent {0} payment reminders, skipped {1}, failed {2}', [
+							r.message.sent || 0,
+							r.message.skipped || 0,
+							r.message.failed || 0
+						]);
+						const reasons = Object.entries(r.message.skipped_reasons || {}).map(
+							([reason, n]) => `${frappe.utils.escape_html(reason)}: ${n}`
+						);
+						if (reasons.length) {
+							msg += `<br>${__('Skipped')}: ${reasons.join('; ')}`;
+						}
+						const chapters = r.message.chapter_notifications;
+						if (chapters) {
+							msg += `<br>${__('Chapter notifications: {0} sent, {1} skipped, {2} failed', [
+								chapters.sent,
+								chapters.skipped,
+								chapters.failed
+							])}`;
+						}
+						frappe.msgprint(msg);
 					}
 				}
 			});
@@ -399,7 +419,11 @@ function show_bulk_payment_actions_dialog(report) {
 					},
 					callback(r) {
 						if (r.message) {
-							frappe.msgprint(__('Bulk action completed. {0} records processed.', [r.message.count]));
+							let msg = __('Bulk action completed. {0} records processed.', [r.message.count]);
+							if (r.message.skipped || r.message.failed) {
+								msg += `<br>${__('Skipped {0}, failed {1}', [r.message.skipped || 0, r.message.failed || 0])}`;
+							}
+							frappe.msgprint(msg);
 							report.refresh();
 						}
 					}

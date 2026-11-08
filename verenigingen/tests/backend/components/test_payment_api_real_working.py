@@ -1,6 +1,7 @@
 import frappe
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.api.payment_processing import get_or_create_customer, send_payment_reminder_email
 import unittest
 
@@ -77,7 +78,10 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
     def test_payment_reminder_with_real_member_data(self, mock_sendmail):
         """Tests real member document retrieval - eliminates member document mocks"""
         mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
-        
+        # A reminder is skipped (and reported as success) when its key is unseeded or in cooldown, so
+        # own the key rather than depend on the site (#2010).
+        own_notification_keys(self, "payment_reminder_friendly")
+
         # Create real member with real email
         real_member = self.create_test_member(
             first_name="ReminderTest",
@@ -92,16 +96,13 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
             payment_info={"amount": 50.0, "invoice_number": "TEST-12345"}
         )
         
-        # Verify real business logic executed against the real member document.
-        # NOTE: the reminder may be legitimately skipped (e.g. the
-        # "payment_reminder_friendly" notification is disabled, or no email account
-        # is configured on a fresh site), in which case frappe.sendmail is correctly
-        # NOT called. Only assert the send path when it actually reached sendmail.
-        if mock_sendmail.called:
-            call_args = mock_sendmail.call_args
-            email_content = str(call_args) if call_args else ""
-            # The reminder should target the real member's email address.
-            self.assertIn(real_member.email, email_content, "Should send to real member email")
+        # Verify real business logic executed against the real member document, and that the
+        # reminder really reached sendmail (not skipped) for that member.
+        self.assertTrue(result, f"reminder was not sent: {result}")
+        mock_sendmail.assert_called_once()
+        email_content = str(mock_sendmail.call_args)
+        # The reminder should target the real member's email address.
+        self.assertIn(real_member.email, email_content, "Should send to real member email")
 
         # Most importantly: real member document was retrieved, not mocked
         verified_member = frappe.get_doc("Member", real_member.name)

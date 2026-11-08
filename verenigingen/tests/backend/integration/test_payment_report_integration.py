@@ -4,6 +4,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 
 
 class TestPaymentReportIntegration(EnhancedTestCase):
@@ -294,6 +295,8 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         
         # Mock successful email sending (infrastructure - appropriate)
         mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
+        # A skipped reminder is reported as success, so own the key instead of depending on the site (#2010).
+        own_notification_keys(self, "payment_reminder_urgent")
         
         # Execute reminder workflow with REAL payment data retrieval
         result = send_overdue_payment_reminders(
@@ -307,13 +310,10 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         self.assertTrue("success" in result)
         self.assertTrue("count" in result)
         
-        if result["success"] and result["count"] > 0:
-            print(f"✅ Real payment reminder workflow successful - {result['count']} reminders sent")
-            # The unified EmailService queues mail via the Email Queue and routes
-            # through templates / Frappe Notifications, so frappe.sendmail is not
-            # always the exit point; the real observable outcome is the count above.
-        else:
-            print("ℹ️ No overdue payments found for reminders - this may be expected with test data")
+        # The fixture owns overdue members, so reminders must really have been queued.
+        self.assertTrue(result["success"], result)
+        self.assertGreater(result["count"], 0, result)
+        self.assertEqual(mock_sendmail.call_count, result["count"])
 
     def test_complete_export_workflow_real_business_logic(self):
         """Test complete export workflow with REAL BUSINESS LOGIC
@@ -375,6 +375,8 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         
         # Mock successful operations (infrastructure - appropriate)
         mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
+        # A skipped reminder is reported as success, so own the key instead of depending on the site (#2010).
+        own_notification_keys(self, "payment_reminder_friendly")
         
         # Test bulk reminder action with REAL payment data filtering
         result = execute_bulk_payment_action(
@@ -387,15 +389,11 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         self.assertTrue("success" in result)
         self.assertTrue("count" in result)
         
-        if result["success"] and result["count"] > 0:
-            print(f"✅ Real bulk payment action successful - {result['count']} actions performed")
-            
-            # Verify infrastructure calls with real business data
-            action_calls = mock_sendmail.call_count
-            self.assertGreaterEqual(action_calls, 0)
-        else:
-            print("ℹ️ No bulk actions performed - may be expected with test data scenarios")
-        
+        # The fixture owns overdue members, so reminders must really have been queued.
+        self.assertTrue(result["success"], result)
+        self.assertGreater(result["count"], 0, result)
+        self.assertEqual(mock_sendmail.call_count, result["count"])
+
         # Reset mocks for next test
         mock_sendmail.reset_mock()
         
@@ -474,27 +472,19 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         from verenigingen.api.payment_processing import send_overdue_payment_reminders
         
         # Test with real data retrieval and simulated email failures
-        # First succeeds, second fails
-        mock_sendmail.side_effect = [True, Exception("Email service failed")]
-        
-        # Execute with real business logic but simulated email infrastructure failure
-        try:
-            result = send_overdue_payment_reminders()
-            
-            # Real business logic should handle partial failures gracefully
-            self.assertIsInstance(result, dict)
-            self.assertTrue("success" in result)
-            self.assertTrue("count" in result)
-            
-            if result["success"]:
-                print(f"✅ Real error handling working - partial success with {result['count']} reminders")
-            else:
-                print(f"ℹ️ Real error handling - operation failed: {result.get('error', 'Unknown error')}")
-                
-        except Exception as e:
-            # Real business logic may raise exceptions for critical failures
-            print(f"✅ Real error handling - exception raised as expected: {str(e)[:100]}")
-            self.assertIsInstance(e, Exception)
+        # A skipped reminder is reported as success, so own the key instead of depending on the site (#2010).
+        own_notification_keys(self, "payment_reminder_friendly")
+        # First succeeds, every later one fails
+        mock_sendmail.side_effect = [None, Exception("Email service failed")]
+
+        result = send_overdue_payment_reminders()
+
+        # The partial failure is absorbed: exactly the first reminder was really sent, and
+        # the failing send was attempted (so the loop did reach it) rather than skipped.
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["count"], 1, result)
+        self.assertGreaterEqual(mock_sendmail.call_count, 2)
 
 
 if __name__ == "__main__":

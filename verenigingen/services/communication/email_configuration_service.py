@@ -403,7 +403,10 @@ class EmailConfigurationService:
             return self._parse_email_list(notification_config.get("fixed_recipients", ""))
 
         elif policy == "Role-Based":
-            roles = notification_config.get("recipient_roles", "")
+            # A present-but-empty Text field comes back as None, not "" (#1997). No roles resolves
+            # to [] like Fixed/Custom with nothing configured; notify_administrators then falls
+            # back to the admin roles, so the alert is not dropped.
+            roles = notification_config.get("recipient_roles") or ""
             role_list = [r.strip() for r in roles.split(",") if r.strip()]
             return self._get_users_with_roles(role_list)
 
