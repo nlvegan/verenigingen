@@ -145,7 +145,7 @@ class TestMemberEventsCoverage(EnhancedTestCase):
 
         This proves the WHOLE chain: emitter -> registry -> emit_event inline
         dispatch -> real subscriber side effect (User.enabled flips to 0)."""
-        member, user = self._member_with_user(enabled=1)
+        member, user = self._member_with_user(enabled=1, status="Suspended")
         self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
 
         with self._no_import_flags():
@@ -169,7 +169,7 @@ class TestMemberEventsCoverage(EnhancedTestCase):
     # handle_user_account_updates -- the cleanest observable side effect
     # =====================================================================
     def test_user_account_disabled_on_suspend(self):
-        member, user = self._member_with_user(enabled=1)
+        member, user = self._member_with_user(enabled=1, status="Suspended")
         with self._no_import_flags():
             with self.assertNoErrorLog():
                 ms.handle_user_account_updates(
@@ -520,6 +520,8 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         """Approved member with a matching-postal-code chapter gets added to the
         chapter's members child table (the real product effect)."""
         member = self._member_with_address(pincode="1234AB")
+        # The job re-checks that the approval it was queued for still holds (#2144).
+        member.db_set("application_status", "Approved", update_modified=False)
         chapter = self.create_test_chapter(
             chapter_name=f"Evt Chapter {frappe.generate_hash(length=6)}",
             region=self._ensure_region(),
@@ -571,6 +573,8 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         deactivated and no Error Log is written.
         """
         member = self.create_test_member(first_name="ChapStatus", last_name="Member", birth_date="1990-01-01")
+        # The job re-checks that the suspension it was queued for still holds (#2144).
+        member.db_set("status", "Suspended", update_modified=False)
         chapter = self.create_test_chapter(
             chapter_name=f"Evt SChapter {frappe.generate_hash(length=6)}",
             region=self._ensure_region(),

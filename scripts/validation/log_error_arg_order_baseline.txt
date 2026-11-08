@@ -431,7 +431,6 @@ verenigingen/verenigingen/doctype/brand_settings/brand_settings.py::sync_brand_s
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter._emit_chapter_change_events::1
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter.after_rename::1
 verenigingen/verenigingen/doctype/chapter/managers/board_manager.py::BoardManager._save_chapter_with_board_changes::1
-verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py::ContributionAmendmentRequest.handle_mollie_sync_failure::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_donation_confirmation_email::2
 verenigingen/verenigingen/doctype/donation/donation.py::send_payment_confirmation_email::1
 verenigingen/verenigingen/doctype/donation_campaign/donation_campaign.py::update_campaign_progress::1
@@ -495,7 +494,6 @@ verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_
 verenigingen/verenigingen/doctype/team/team.py::Team._emit_team_change_events::1
 verenigingen/verenigingen/doctype/team/team.py::Team._handle_team_member_changes_atomic::1
 verenigingen/verenigingen/doctype/team_role/team_role.py::TeamRole.cleanup_orphaned_references::2
-verenigingen/verenigingen/doctype/verenigingen_email_configuration/verenigingen_email_configuration.py::send_test_email::1
 verenigingen/verenigingen/doctype/vip_import/vip_import.py::_process_account_creation::2
 verenigingen/verenigingen/doctype/volunteer/volunteer.py::create_volunteer_from_member::1
 verenigingen/verenigingen/page/membership_analytics/membership_analytics.py::calculate_projected_revenue::1
@@ -615,9 +613,6 @@ verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_don
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_subscription::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_client_info::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_payment_status::1
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_chargeback_webhook::2
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_payment_webhook::2
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::handle_refund_webhook::2
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::initiate_refund::2
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::test_webhook_processing::1
 verenigingen/verenigingen_payments/mollie/api/webhooks.py::handle_mollie_payment_webhook::1
@@ -629,7 +624,6 @@ verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger.clea
 verenigingen/verenigingen_payments/mollie/utils/logging.py::MollieLogger.error::1
 verenigingen/verenigingen_payments/mollie/utils/security.py::WebhookSecurityManager._load_security_settings::1
 verenigingen/verenigingen_payments/mollie/utils/unified_payment_entry_creator.py::create_unified_payment_entry::1
-verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::authenticate_mollie_webhook::1
 verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_bulk_payments::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_payment::1
