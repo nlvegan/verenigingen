@@ -1,0 +1,207 @@
+"""#2295: an ERRORED "is this operation critical?" lookup must not read as "not critical".
+
+``check_critical_operation_integration`` used to turn any exception into
+``{"is_critical": False}`` and cache that for 300s, so one failure skipped the critical
+gate for the endpoint for five minutes. Below it, the registry swallowed its own load
+errors into "no rule".
+
+The error is injected at ``frappe.db.exists`` for the "Critical Operation Rule" doctype,
+which is below every swallowing layer (framework except, registry except, rule lookup).
+Real ``@critical_api`` / ``@standard_api`` functions are called; the side effect is a list
+append inside the endpoint body.
+"""
+
+from unittest.mock import patch
+
+import frappe
+from frappe.exceptions import QueryDeadlockError
+
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.error_handling import ValidationError as VValidationError
+from verenigingen.utils.secure_operations import get_critical_operations_registry
+from verenigingen.utils.security.api_security_framework import (
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security.types import OperationType
+
+RULE_OP = "probe_2295_ruled_credit"
+UNRULED_CRITICAL_OP = "probe_2295_unruled_critical"
+PLAIN_OP = "probe_2295_plain_read"
+# A name the shipped fixtures define at security_level critical, on a high-level decorator.
+FIXTURE_CRITICAL_OP = "admin_cancel_subscription"
+THRESHOLD = 100
+SIDE_EFFECTS = []
+
+
+@critical_api(OperationType.FINANCIAL)
+def probe_2295_ruled_credit(amount=None):
+    SIDE_EFFECTS.append(("ruled", amount))
+    return {"ok": True}
+
+
+@critical_api(OperationType.FINANCIAL)
+def probe_2295_unruled_critical(amount=None):
+    SIDE_EFFECTS.append(("unruled_critical", amount))
+    return {"ok": True}
+
+
+@standard_api(OperationType.REPORTING)
+def probe_2295_plain_read():
+    SIDE_EFFECTS.append(("plain", None))
+    return {"ok": True}
+
+
+@high_security_api(OperationType.FINANCIAL)
+def admin_cancel_subscription():
+    SIDE_EFFECTS.append(("fixture_critical", None))
+    return {"ok": True}
+
+
+ALL_OPS = (RULE_OP, UNRULED_CRITICAL_OP, PLAIN_OP, FIXTURE_CRITICAL_OP)
+_real_exists = frappe.db.exists
+
+
+def _exists_raising(error):
+    def exists(dt, *args, **kwargs):
+        if dt == "Critical Operation Rule":
+            raise error
+        return _real_exists(dt, *args, **kwargs)
+
+    return exists
+
+
+class TestCriticalLookupFailClosed(VereningingenTestCase):
+    def setUp(self):
+        super().setUp()
+        SIDE_EFFECTS.clear()
+        self._remove_probe_rule()
+        rule = frappe.get_doc(
+            {
+                "doctype": "Critical Operation Rule",
+                "operation_name": RULE_OP,
+                "operation_type": "financial",
+                "security_level": "critical",
+                "enabled": 1,
+                "enable_business_validation": 1,
+                "amount_threshold": THRESHOLD,
+                "audit_level": "minimal",
+            }
+        )
+        rule.flags.ignore_permissions = True
+        rule.insert()
+        self._reset_caches()
+
+    def tearDown(self):
+        self._remove_probe_rule()
+        self._reset_caches()
+        super().tearDown()
+
+    def _remove_probe_rule(self):
+        for name in frappe.get_all("Critical Operation Rule", {"operation_name": RULE_OP}, pluck="name"):
+            frappe.delete_doc("Critical Operation Rule", name, force=True)
+
+    def _reset_caches(self):
+        registry = get_critical_operations_registry()
+        for op in ALL_OPS:
+            registry.operation_configs.pop(op, None)
+            frappe.cache().delete_value(f"critical_operation_rule:{op}")
+            frappe.cache.delete_value(f"critical_op_check:{__name__}.{op}")
+        frappe.cache().delete_value("critical_operation_rules")
+
+    def _call(self, fn, **kwargs):
+        with self.set_user("Administrator"):
+            return fn(**kwargs)
+
+    def _errored(self, fn, error=None, **kwargs):
+        """Call ``fn`` while every Critical Operation Rule existence lookup raises."""
+        self.expectErrorLog("Critical operation lookup failed")
+        injected = _exists_raising(error or RuntimeError("simulated lookup failure"))
+        # Mock justified: a transient DB error cannot be produced on demand.
+        with patch.object(frappe.db, "exists", injected):
+            return self._call(fn, **kwargs)
+
+    def _lookup_error_logs(self):
+        return frappe.db.count("Error Log", {"method": ["like", "%Critical operation lookup failed%"]})
+
+    def test_control_healthy_lookup_enforces_the_rule(self):
+        with self.assertRaises(VValidationError) as ctx:
+            self._call(probe_2295_ruled_credit, amount=THRESHOLD + 1)
+        self.assertIn("Critical business rule violations", str(ctx.exception))
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_healthy_path_is_unchanged(self):
+        self._call(probe_2295_ruled_credit, amount=THRESHOLD - 1)
+        self._call(probe_2295_plain_read)
+        self.assertEqual(SIDE_EFFECTS, [("ruled", THRESHOLD - 1), ("plain", None)])
+
+    def test_errored_lookup_for_an_endpoint_with_a_rule_is_refused(self):
+        before = self._lookup_error_logs()
+        with self.assertRaises(VValidationError) as ctx:
+            self._errored(probe_2295_ruled_credit, amount=1)
+        self.assertEqual(SIDE_EFFECTS, [], "the critical operation ran although its lookup errored")
+        message = str(ctx.exception)
+        for leak in (RULE_OP, "simulated", "RuntimeError", "lookup failure"):
+            self.assertNotIn(leak, message)
+        self.assertEqual(self._lookup_error_logs(), before + 1)
+
+    def test_errored_lookup_refuses_a_critical_endpoint_even_without_a_rule(self):
+        with self.assertRaises(VValidationError):
+            self._errored(probe_2295_unruled_critical, amount=1)
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_errored_lookup_refuses_an_endpoint_the_fixtures_know_as_critical(self):
+        with self.assertRaises(VValidationError):
+            self._errored(admin_cancel_subscription)
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_errored_lookup_for_an_endpoint_without_a_rule_proceeds(self):
+        """Opposite harm: a transient blip must not block ordinary endpoints."""
+        self.assertEqual(self._errored(probe_2295_plain_read), {"ok": True})
+        self.assertEqual(SIDE_EFFECTS, [("plain", None)])
+
+    def test_nothing_is_cached_after_an_error(self):
+        with self.assertRaises(VValidationError):
+            self._errored(probe_2295_ruled_credit, amount=1)
+        self.assertIsNone(frappe.cache.get_value(f"critical_op_check:{__name__}.{RULE_OP}"))
+        # The next call, lookup healthy, is a fully normal critical call: the rule applies.
+        with self.assertRaises(VValidationError) as ctx:
+            self._call(probe_2295_ruled_credit, amount=THRESHOLD + 1)
+        self.assertIn("Critical business rule violations", str(ctx.exception))
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_nothing_is_cached_after_an_error_for_a_proceeding_endpoint_either(self):
+        self._errored(probe_2295_plain_read)
+        self.assertIsNone(frappe.cache.get_value(f"critical_op_check:{__name__}.{PLAIN_OP}"))
+
+    def test_a_deadlock_propagates_unflattened(self):
+        with self.assertRaises(QueryDeadlockError):
+            self._errored(probe_2295_ruled_credit, error=QueryDeadlockError("1213"), amount=1)
+        self.assertEqual(SIDE_EFFECTS, [])
+        with self.assertRaises(QueryDeadlockError):
+            self._errored(probe_2295_plain_read, error=QueryDeadlockError("1213"))
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_a_failed_registry_load_does_not_leave_an_empty_singleton(self):
+        """Layer two: _load_configs used to swallow into {} and the singleton kept it."""
+        import verenigingen.utils.secure_operations as secure_operations
+
+        saved = secure_operations._critical_operations_registry
+        secure_operations._critical_operations_registry = None
+        frappe.cache().delete_value("critical_operation_rules")
+        real_get_all = frappe.get_all
+
+        def get_all(doctype, *args, **kwargs):
+            if doctype == "Critical Operation Rule":
+                raise RuntimeError("simulated load failure")
+            return real_get_all(doctype, *args, **kwargs)
+
+        try:
+            # Mock justified: a transient DB error cannot be produced on demand.
+            with patch.object(frappe, "get_all", get_all):
+                with self.assertRaises(RuntimeError):
+                    get_critical_operations_registry()
+            self.assertIsNone(secure_operations._critical_operations_registry)
+        finally:
+            secure_operations._critical_operations_registry = saved

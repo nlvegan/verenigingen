@@ -14,9 +14,11 @@ Architecture:
 - Comprehensive audit trails
 """
 
+import json
 import time
 from dataclasses import replace as dataclass_replace
-from functools import wraps
+from functools import lru_cache, wraps
+from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 import frappe
@@ -677,11 +679,7 @@ class APISecurityFramework:
             registry = get_critical_operations_registry()
 
             # Check various potential operation names
-            potential_operation_names = [
-                func_name,
-                f"{module_name.split('.')[-1]}_{func_name}",
-                f"api_{func_name}",
-            ]
+            potential_operation_names = self._potential_operation_names(func)
 
             for operation_name in potential_operation_names:
                 config = registry.get_operation_config(operation_name)
@@ -708,15 +706,51 @@ class APISecurityFramework:
                 f"Tried operation names: {potential_operation_names}."
             )
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").warning(
-                f"Failed to check critical operation integration: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # A failed lookup is not "not critical" (#2295), and it must not be cached:
+            # the old code stored {"is_critical": False} for 300s, so one blip skipped the
+            # critical gate for that endpoint for five minutes. The caller decides
+            # whether this request may proceed (see refuse_if_critical_lookup_failed).
+            frappe.log_error(
+                title="Critical operation lookup failed",
+                message=f"function={module_name}.{func_name}\n\n{frappe.get_traceback()}",
             )
+            return {"is_critical": False, "lookup_failed": True}
 
         # Cache the "not critical" result too (shorter cache time)
         result = {"is_critical": False}
         frappe.cache.set_value(cache_key, result, expires_in_sec=300)
         return result
+
+    @staticmethod
+    def _potential_operation_names(func: Callable) -> List[str]:
+        return [
+            func.__name__,
+            f"{func.__module__.split('.')[-1]}_{func.__name__}",
+            f"api_{func.__name__}",
+        ]
+
+    def refuse_if_critical_lookup_failed(
+        self, critical_op_info: dict, func: Callable, level: SecurityLevel
+    ) -> None:
+        """Refuse THIS request when the critical lookup errored for an endpoint with a known rule.
+
+        "Known" has to be decidable without the lookup that just failed, so it is read
+        from code and shipped files: the decorator's own declared level, or a name the
+        shipped fixtures carry as a critical rule. Everything else proceeds, so a
+        transient error does not stall ordinary endpoints (#2295).
+        """
+        if not critical_op_info.get("lookup_failed"):
+            return
+        if level != SecurityLevel.CRITICAL and not (
+            set(self._potential_operation_names(func)) & _fixture_critical_operation_names()
+        ):
+            return
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
 
     def validate_critical_operation_business_rules(self, operation_info: dict, **kwargs) -> List[str]:
         """Validate business rules for critical operations"""
@@ -810,6 +844,22 @@ class APISecurityFramework:
                 pass  # Don't fail the request if CSRF token generation fails
 
         return headers
+
+
+@lru_cache(maxsize=1)
+def _fixture_critical_operation_names() -> frozenset:
+    """Operation names the shipped fixtures define at security_level "critical".
+
+    Read from disk, never the database, because it answers "is there a critical rule?"
+    at the moment the database lookup has just failed. Only called on that error path.
+    """
+    names = set()
+    for path in Path(frappe.get_app_path("verenigingen", "fixtures")).glob("critical_operation_rule*.json"):
+        with open(path) as handle:
+            for row in json.load(handle):
+                if row.get("security_level") == "critical":
+                    names.add(row.get("operation_name"))
+    return frozenset(names)
 
 
 def _extract_doc_self_service_kwargs(args: tuple) -> Dict[str, Any]:
@@ -1006,6 +1056,7 @@ def api_security_framework(
 
                 # Critical operation integration (new)
                 critical_op_info = framework.check_critical_operation_integration(func, **validated_kwargs)
+                framework.refuse_if_critical_lookup_failed(critical_op_info, func, level)
 
                 # Business rule validation for critical operations
                 if critical_op_info.get("is_critical"):

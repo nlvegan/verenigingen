@@ -1174,32 +1174,35 @@ class CriticalOperationsRegistry:
         self._load_configs()
 
     def _load_configs(self):
-        """Load operation configurations from DocType (cached)"""
-        try:
-            # Import here to avoid circular dependencies
+        """Load operation configurations from DocType (cached)
+
+        A load error propagates (#2295). It used to become an empty rule set, which the
+        gate reads as "nothing is critical", and the singleton then kept that answer for
+        the life of the process. Letting it raise leaves the singleton unset, so the next
+        request retries the load.
+        """
+        # Import here to avoid circular dependencies
+        from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+            CriticalOperationRule,
+        )
+
+        self.operation_configs = CriticalOperationRule.get_all_rules()
+
+    def get_operation_config(self, operation_name: str) -> dict:
+        """Get configuration for a specific operation
+
+        Returns None only when the operation has no rule. A failed lookup raises (#2295):
+        None means "no rule", and the caller must not be able to confuse the two.
+        """
+        if operation_name not in self.operation_configs:
+            # Try to load fresh config for this operation
             from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
                 CriticalOperationRule,
             )
 
-            self.operation_configs = CriticalOperationRule.get_all_rules()
-        except Exception as e:
-            frappe.logger().warning(f"Failed to load critical operation rules: {str(e)}")
-            self.operation_configs = {}
-
-    def get_operation_config(self, operation_name: str) -> dict:
-        """Get configuration for a specific operation"""
-        if operation_name not in self.operation_configs:
-            # Try to load fresh config for this operation
-            try:
-                from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
-                    CriticalOperationRule,
-                )
-
-                config = CriticalOperationRule.get_rule_config(operation_name)
-                if config:
-                    self.operation_configs[operation_name] = config
-            except Exception as e:
-                frappe.logger().warning(f"Failed to load config for operation {operation_name}: {str(e)}")
+            config = CriticalOperationRule.get_rule_config(operation_name)
+            if config:
+                self.operation_configs[operation_name] = config
 
         return self.operation_configs.get(operation_name)
 
