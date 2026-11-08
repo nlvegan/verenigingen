@@ -2776,6 +2776,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     def create_test_volunteer(self, **kwargs):
         """Create test volunteer with automatic tracking"""
+        # The core factory takes ``member=``; EnhancedTestCase spells it ``member_name=``.
+        # Without this mapping ``member_name`` fell into the field overrides and the factory
+        # built a second Member (#2208).
+        if "member_name" in kwargs and kwargs.get("member") is None:
+            kwargs["member"] = kwargs.pop("member_name")
         volunteer = self.factory.create_test_volunteer(**kwargs)
         self.track_doc("Volunteer", volunteer.name)
         return volunteer
