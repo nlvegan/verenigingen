@@ -59,7 +59,7 @@ def _run_floods() -> dict:
         def rows_since(mark, *prefixes):
             frappe.init(site=SITE); frappe.connect()
             rows = frappe.db.sql(
-                "select method, error from `tabError Log` where creation >= %s", (mark,), as_dict=True
+                "select name, method, error from `tabError Log` where creation >= %s", (mark,), as_dict=True
             )
             frappe.destroy()
             return [
@@ -117,6 +117,16 @@ class TestLimiterRejectionsAreDeduped(EnhancedTestCase):
         super().setUpClass()
         frappe.cache.delete_keys("webhook_error_log_once:")
         cls.out = _run_floods()
+        # The subprocess committed these rows, so the in-process rollback cannot reach them.
+        cls.floods_rows = [r["name"] for kind in ("ip", "global", "webhook_id") for r in cls.out[kind]["rows"]]
+
+    def setUp(self):
+        super().setUp()
+        # track_document hands them to the harness drain, which deletes and commits (no bare commit here).
+        # Once per class: the first tearDown deletes them.
+        for name in type(self).floods_rows:
+            self.track_doc("Error Log", name)
+        type(self).floods_rows = []
 
     def _check(self, kind, minimum_rejections, expected_title):
         got = self.out[kind]
@@ -169,14 +179,46 @@ class TestMollieWrapperRowsAreDeduped(EnhancedTestCase):
         # the class and not constant).
         self.assertEqual(len(rows), 2, [r.name for r in rows])
         self.assertTrue(all(len(r.error or "") < 4500 for r in rows))
+        # frappe skips its own traceback when a message is given, so the row must carry one.
+        runtime_row = next(r for r in rows if "boom" in (r.error or ""))
+        self.assertIn("Traceback", runtime_row.error)
+        self.assertIn("webhooks.py", runtime_row.error)
+
+    def _same_class_from_two_ips(self, endpoint, title, old_message_prefix):
+        # Mock justified: execution context (the client address) of two anonymous callers
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook",
+            side_effect=RuntimeError("boom"),
+        ):
+            for ip in ("203.0.113.1", "203.0.113.2", "203.0.113.1"):
+                with patch.object(webhooks, "get_client_ip", return_value=ip):
+                    endpoint()
+        rows = self._rows(title, old_message_prefix)
+        self.assertEqual(len(rows), 2, [r.name for r in rows])
 
     def test_payment_wrapper(self):
         self.expectErrorLog("Mollie Webhook API", "Webhook endpoint error")
         self._flood(webhooks.handle_mollie_payment_webhook.__wrapped__, "Mollie Webhook API", "Webhook endpoint error")
 
-    def test_unified_wrapper(self):
-        self.expectErrorLog("Mollie Webhook Error", "Unexpected error in unified")
+    def test_payment_wrapper_same_class_from_two_ips_writes_two_rows(self):
+        self.expectErrorLog("Mollie Webhook API")
+        self._same_class_from_two_ips(
+            webhooks.handle_mollie_payment_webhook.__wrapped__, "Mollie Webhook API", "Webhook endpoint error"
+        )
+
+    def test_unified_wrapper_same_class_from_two_ips_writes_two_rows(self):
+        self.expectErrorLog("Mollie Webhook Error")
+        self._set_post_request()
+        self._same_class_from_two_ips(
+            webhooks.handle_unified_webhook.__wrapped__, "Mollie Webhook Error", "Unexpected error in unified"
+        )
+
+    def _set_post_request(self):
         original = getattr(frappe.local, "request", None)
         self.addCleanup(setattr, frappe.local, "request", original)
         frappe.local.request = Request(EnvironBuilder(method="POST", data=b"{}").get_environ())
+
+    def test_unified_wrapper(self):
+        self.expectErrorLog("Mollie Webhook Error", "Unexpected error in unified")
+        self._set_post_request()
         self._flood(webhooks.handle_unified_webhook.__wrapped__, "Mollie Webhook Error", "Unexpected error in unified")
