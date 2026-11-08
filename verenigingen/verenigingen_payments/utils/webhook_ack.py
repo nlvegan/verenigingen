@@ -11,7 +11,15 @@ changes the HTTP status (a real failure must stay non-2xx so the provider retrie
 cuts ``message_log`` back to its length on entry.
 """
 
+import hashlib
+
 import frappe
+
+# An anonymous caller chooses how many requests it sends and how long its ids are, so what a
+# failing webhook writes to the Error Log must be bounded by neither (#1822, #2136).
+ERROR_LOG_DEDUPE_SECONDS = 3600
+LOGGED_ID_LENGTH = 64
+LOGGED_MESSAGE_LENGTH = 4000
 
 
 def webhook_ack(messages_before: int) -> dict:
@@ -31,3 +39,31 @@ def webhook_ack(messages_before: int) -> dict:
 def message_log_length() -> int:
     """Length of ``message_log`` now; pass it to :func:`webhook_ack` later."""
     return len(frappe.local.message_log or [])
+
+
+def first_in_window(key: str, seconds: int = ERROR_LOG_DEDUPE_SECONDS) -> bool:
+    """True for the first call with ``key`` in ``seconds``; False for every repeat in the window."""
+    if frappe.cache.get_value(key):
+        return False
+    frappe.cache.set_value(key, 1, expires_in_sec=seconds)
+    return True
+
+
+def short_id(value) -> str:
+    """The first 64 characters of a caller-supplied id, for a log line."""
+    return str(value)[:LOGGED_ID_LENGTH]
+
+
+def log_error_once(title: str, message: str, *key_parts) -> bool:
+    """One Error Log row per (title, ``key_parts``) per hour, the message cut to 4000 chars.
+
+    ``key_parts`` must be things the caller cannot multiply at will (its IP, an exception
+    class), never the id it supplied. Returns whether a row was written. Keywords below
+    because this app's positional (title, message) order is routinely swapped.
+    """
+    fingerprint = "|".join([title, *(str(p) for p in key_parts)])
+    key = "webhook_error_log_once:" + hashlib.sha256(fingerprint.encode()).hexdigest()
+    if not first_in_window(key):
+        return False
+    frappe.log_error(title=title[:140], message=message[:LOGGED_MESSAGE_LENGTH])
+    return True

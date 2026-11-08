@@ -523,6 +523,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         return {
             "id": f"re_{frappe.generate_hash(length=8)}",
             "amount": {"value": f"{amount:.2f}", "currency": self.currency},
+            "status": "refunded",
             "createdAt": "2025-04-11T09:00:00+00:00",
         }
 

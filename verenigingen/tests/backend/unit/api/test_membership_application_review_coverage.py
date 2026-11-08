@@ -257,7 +257,7 @@ class TestActivatePendingChapterMemberships(EnhancedTestCase):
         )
         # No Chapter Member rows -> should complete silently.
         try:
-            _activate_pending_chapter_memberships(member)
+            _activate_pending_chapter_memberships(member, "No Such Chapter")
         except Exception as exc:  # pragma: no cover - defensive
             self.fail(f"_activate_pending_chapter_memberships raised: {exc}")
 
@@ -299,7 +299,7 @@ class TestActivatePendingChapterMemberships(EnhancedTestCase):
         self.assertTrue(pending)
         self.assertEqual(pending[0].status, "Pending")
 
-        _activate_pending_chapter_memberships(member)
+        _activate_pending_chapter_memberships(member, chapter.name)
 
         after = frappe.db.sql(
             "SELECT status FROM `tabChapter Member` WHERE member=%s AND parent=%s",

@@ -235,6 +235,17 @@ class TestSafeExtractDate(unittest.TestCase):
     def test_short_value_returns_none(self):
         self.assertIsNone(safe_extract_date({"created_at": "2024"}))
 
+    def test_mollie_camelcase_key_is_read_by_default(self):
+        """#2138: Mollie's refund/chargeback resources carry ``createdAt``, never ``created_at``."""
+        self.assertEqual(safe_extract_date({"createdAt": "2026-02-02T10:00:00+00:00"}), "2026-02-02")
+
+    def test_camelcase_fallback_applies_to_a_custom_field_too(self):
+        self.assertEqual(safe_extract_date({"paidAt": "2024-07-02T00:00:00Z"}, "paid_at"), "2024-07-02")
+
+    def test_snake_case_wins_when_both_are_present(self):
+        both = {"created_at": "2024-01-01T00:00:00Z", "createdAt": "2025-01-01T00:00:00Z"}
+        self.assertEqual(safe_extract_date(both), "2024-01-01")
+
 
 class TestExtractWebhookIds(unittest.TestCase):
     def test_payment_id_from_nested(self):

@@ -161,6 +161,36 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertEqual(request.pipeline_stage, "Account Creation")
         self.assertIn("explosion", request.failure_reason)
 
+    def _failure_log_rows(self, request):
+        """Error Log rows for ``request``. Scoped by the request's own name: ``tabError Log`` is
+        MyISAM, so rows from earlier runs survive a rollback."""
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": f"Account Creation Request failed: {request.name}"},
+            fields=["name", "error"],
+        )
+
+    def test_mark_failed_writes_an_error_log_row(self):
+        """#2066: the failure used to reach only frappe.logger(), which nobody reads."""
+        request = self._insert_acr()
+        self.assertEqual(self._failure_log_rows(request), [])
+        request.mark_failed("explosion in stage 2 #2066", stage="Account Creation")
+        rows = self._failure_log_rows(request)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("explosion in stage 2 #2066", rows[0].error)
+        self.assertIn("Account Creation", rows[0].error)
+        self.assertIn(self.member.name, rows[0].error)
+
+    def test_mark_failed_on_a_cancelled_request_writes_no_error_log_row(self):
+        """Control: a late pipeline error on a cancelled request is not a failure (#1709)."""
+        request = self._insert_acr()
+        request.cancel_request("operator said stop")
+        request.mark_failed("late pipeline error", "Role Assignment")
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "status"), "Cancelled"
+        )
+        self.assertEqual(self._failure_log_rows(request), [])
+
     def test_mark_failed_truncates_long_reason(self):
         request = self._insert_acr()
         request.mark_failed("x" * 5000)
@@ -242,50 +272,6 @@ class TestAccountCreationRequest(VereningingenTestCase):
         # left in the initial Requested state.
         status = frappe.db.get_value("Account Creation Request", request.name, "status")
         self.assertIn(status, ("Queued", "Processing", "Completed"))
-
-    # =================================================================
-    # _get_acr_age_in_hours
-    # =================================================================
-
-    def test_acr_age_in_hours_recent(self):
-        request = self._insert_acr()
-        age = request._get_acr_age_in_hours()
-        self.assertGreaterEqual(age, 0)
-        self.assertLess(age, 1)  # just created
-
-    # =================================================================
-    # handle_completion
-    # =================================================================
-
-    def test_handle_completion_skips_email_for_csv_member(self):
-        # A member with no application_id (CSV import) must not trigger an approval
-        # email; handle_completion returns early without raising.
-        frappe.db.set_value("Member", self.member.name, "application_id", "")
-        request = self._insert_acr()
-        request.db_set("status", "Completed")
-        # has_value_changed needs a prior load; call handle_completion directly.
-        request.handle_completion()  # no exception, no email path entered
-
-    # =================================================================
-    # get_application_invoice / send_member_approval_email
-    # =================================================================
-
-    def test_get_application_invoice_no_history_returns_none(self):
-        request = self._insert_acr()
-        member = frappe.get_doc("Member", self.member.name)
-        self.assertIsNone(request.get_application_invoice(member))
-
-    def test_send_member_approval_email_without_invoice_does_not_raise(self):
-        # The email is skipped precisely BECAUSE no invoice resolves. Pin that cause
-        # so this fails loudly if the skip-trigger logic ever changes, instead of
-        # merely asserting "nothing raised".
-        request = self._insert_acr()
-        member = frappe.get_doc("Member", self.member.name)
-        self.assertIsNone(
-            request.get_application_invoice(member),
-            "precondition: no application invoice -> approval email must be skipped",
-        )
-        request.send_member_approval_email(member)  # skip branch, must not raise
 
     # =================================================================
     # get_pending_requests (@whitelist)

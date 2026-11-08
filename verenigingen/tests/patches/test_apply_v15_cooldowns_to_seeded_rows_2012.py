@@ -3,7 +3,7 @@
 Existing-site state is built by rewriting ``notification_types``; the patch's ``execute`` is called
 directly (probe shortcut, stated). The real patch runner is exercised separately by a
 ``bench migrate`` recorded in the PR. ``notification_types`` is snapshotted and restored by hand
-because ``singleton_backup`` does not restore child tables (#2029).
+by hand (``singleton_backup`` has restored child tables since #2091; this is now redundant, #2159).
 
 Known, accepted by the ruling: a row an admin deliberately set to 60 is indistinguishable from the
 seeded default, so it is moved too.

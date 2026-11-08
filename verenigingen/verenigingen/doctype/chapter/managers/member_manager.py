@@ -330,6 +330,17 @@ class MemberManager(BaseManager):
             if not frappe.db.exists("Member", member_id):
                 frappe.throw(_("Member {0} does not exist").format(member_id))
 
+            # #2021: only Active members may request a chapter (as Chapter Join Request.validate
+            # already requires), so no Pending row is ever written for anyone else. Placed before
+            # the rejoin branch, which is a second writer of a Pending row. The message omits the
+            # status on purpose (#1590).
+            if frappe.db.get_value("Member", member_id, "status") != "Active":
+                return {
+                    "success": False,
+                    "message": _("Only active members can request to join a chapter"),
+                    "action": "not_active",
+                }
+
             # Check if member already exists in chapter
             existing_member = self._find_chapter_member(member_id)
             if existing_member:
@@ -690,7 +701,12 @@ class MemberManager(BaseManager):
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
 
     def remove_member(
-        self, member_id: str, leave_reason: str = None, permanent: bool = False, notify: bool = True
+        self,
+        member_id: str,
+        leave_reason: str = None,
+        permanent: bool = False,
+        notify: bool = True,
+        acting_as_member: bool = False,
     ) -> Dict:
         """
         Remove or disable a member from this chapter
@@ -700,6 +716,9 @@ class MemberManager(BaseManager):
             leave_reason: Reason for leaving
             permanent: Whether to remove completely or just disable
             notify: Whether to send notification
+            acting_as_member: The caller was already proved to BE `member_id` (Member.user), so
+                the Chapter save skips the permission check: a member's own leave needs no
+                Chapter:write (#2166). Only this member's own row is touched.
 
         Returns:
             Dict with operation result
@@ -737,7 +756,7 @@ class MemberManager(BaseManager):
             # No need to clear a specific primary_chapter field
 
             # Save chapter
-            self.chapter_doc.save()
+            self.chapter_doc.save(ignore_permissions=acting_as_member)
 
             # Update membership history tracking
             if permanent:

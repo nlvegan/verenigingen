@@ -7,6 +7,7 @@ Event-driven handlers for syncing Mollie subscriptions when membership amendment
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 
 
 def _sync_status_update_for_result(result):
@@ -127,16 +128,15 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         member = frappe.get_doc("Member", membership.member)
 
         # Get administrator emails
-        admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER]
-
-        admin_emails = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", admin_roles], "parenttype": "User"},
-            fields=["parent"],
-            distinct=True,
+        # Its own key (System Manager, Verenigingen Administrator and Financial Manager; the amendment
+        # request's failure alert has a narrower audience on contribution_sync_failed). The key's own
+        # recipients first, then enabled holders' emails; never Administrator (#2095).
+        recipients = resolve_admin_recipients(
+            notification_key="contribution_amendment_sync_failed",
+            default_roles=[Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER],
+            exclude_users=("Administrator",),
+            key_first=True,
         )
-
-        recipients = [admin["parent"] for admin in admin_emails]
 
         if not recipients:
             frappe.logger().warning("No administrators found to notify about Mollie sync issue")
@@ -158,20 +158,30 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         }
 
         # Send notification using EmailService
-        result = email_service.send_email(
+        # EmailService has no send_email, and returns an OperationResult (not a dict). The key is the one
+        # whose recipients were resolved above, so its enable switch and cooldown apply (#2174).
+        result = email_service.send_simple_email(
             recipients=recipients,
             subject=f"Mollie Subscription Sync Issue: {member.full_name}",
             message=_build_sync_issue_message(context),
             reference_doctype="Contribution Amendment Request",
             reference_name=amendment_doc.name,
+            notification_key="contribution_amendment_sync_failed",
+            # Per amendment: the key's per-recipient cooldown must not silence a different amendment.
+            cooldown_scope=amendment_doc.name,
         )
 
-        if result["success"]:
+        if result.skip_reason:
+            frappe.logger().info(f"Mollie subscription sync issue notification skipped: {result.skip_reason}")
+        elif result.success:
             frappe.logger().info(
                 f"📧 Sent Mollie subscription sync issue notification to {len(recipients)} administrators"
             )
         else:
-            frappe.logger().error(f"Failed to send notification: {result.get('errors', 'Unknown error')}")
+            frappe.log_error(
+                title="Mollie Amendment Notification Error",
+                message=f"Failed to send notification for amendment {amendment_doc.name}: {result.error_message}",
+            )
 
     except Exception as e:
         frappe.log_error(

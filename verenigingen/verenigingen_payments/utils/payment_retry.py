@@ -6,13 +6,13 @@ from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
-from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
 class PaymentRetryManager:
@@ -213,10 +213,20 @@ class PaymentRetryManager:
         """Send notification about escalated payment failure"""
         member = frappe.get_doc("Member", retry_record.member)
 
-        # Resolve escalation recipients via shared resolver (enabled users with email holding
-        # the Verenigingen Staff role).  The original queried Has Role directly returning user
-        # names; the resolver returns email addresses for enabled users only.
-        recipients = get_recipients_by_roles([Roles.VERENIGINGEN_STAFF])
+        # The payment_failure_final key's own recipients come first (Verenigingen Email
+        # Configuration), then enabled Verenigingen Staff; Administrator is never one (#2036).
+        recipients = resolve_admin_recipients(
+            notification_key="payment_failure_final",
+            default_roles=[Roles.VERENIGINGEN_STAFF],
+            exclude_users=("Administrator",),
+            key_first=True,
+        )
+        if not recipients:
+            frappe.log_error(
+                title="Payment retry escalation recipients",
+                message=f"Escalation for member {member.name} was not sent: no recipient is configured "
+                "for payment_failure_final and no enabled user holds the Verenigingen Staff role.",
+            )
 
         if recipients:
             # MIGRATED: Use unified EmailService with payment notification template

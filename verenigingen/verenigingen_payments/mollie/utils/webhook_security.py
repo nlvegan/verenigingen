@@ -17,6 +17,11 @@ from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
 )
+from verenigingen.verenigingen_payments.utils.webhook_ack import (
+    first_in_window,
+    log_error_once,
+    short_id,
+)
 
 
 def authenticate_mollie_webhook() -> str:
@@ -47,9 +52,12 @@ def authenticate_mollie_webhook() -> str:
     is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
 
     if not is_allowed:
-        frappe.log_error(
-            f"Mollie webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+        # Once per IP per hour, not per rejection: a flood is exactly what gets here, and the
+        # webhook id is the caller's own (#2136). Keywords: (title, message) is easy to swap.
+        log_error_once(
             "Mollie Webhook Rate Limit",
+            f"Mollie webhook rate limited: IP={ip_address}, webhook_id={short_id(webhook_id)}, reason={reason}",
+            ip_address,
         )
         raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
 
@@ -65,10 +73,7 @@ def authenticate_mollie_webhook() -> str:
     signature_header = frappe.request.headers.get("X-Mollie-Signature") if frappe.request else None
 
     if not payload:
-        frappe.log_error(
-            "Empty webhook payload received",
-            "Mollie Webhook Security Error",
-        )
+        log_error_once("Mollie Webhook Security Error", "Empty webhook payload received", ip_address)
         raise WebhookAuthenticationError("Empty webhook payload")
 
     try:
@@ -77,10 +82,13 @@ def authenticate_mollie_webhook() -> str:
         frappe.logger().info("Mollie webhook signature validated successfully")
 
     except WebhookAuthenticationError as e:
-        log_signature_validation_failed(
-            webhook_id="mollie",
-            expected_vs_actual={"error": str(e)},
-        )
+        # One security-event row per (IP, reason) per hour: this is reachable by anyone who
+        # adds an X-Mollie-Signature header (#2136).
+        if first_in_window(f"mollie_signature_failed:{ip_address}:{str(e)[:100]}"):
+            log_signature_validation_failed(
+                webhook_id="mollie",
+                expected_vs_actual={"error": str(e)},
+            )
         raise
 
     # STEP 2: Set webhook user context using shared service user resolution

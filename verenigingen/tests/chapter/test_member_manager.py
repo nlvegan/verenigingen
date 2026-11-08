@@ -488,7 +488,7 @@ class TestMemberManager(VereningingenTestCase):
 
         A key with no Verenigingen Email Configuration row counts as disabled (#1959), so the
         send is skipped unless a row exists. Seed only this key (not the whole registry, which
-        leaked 88 rows, #2029) and restore the original rows afterwards.
+        leaked 88 rows while singleton_backup skipped child tables, #2029; fixed in #2091) and restore the original rows afterwards.
 
         request_to_join commits mid-test, so the seeded row is COMMITTED; an uncommitted restore
         would then be rolled back by the class rollback. The restore therefore commits too.
@@ -517,7 +517,7 @@ class TestMemberManager(VereningingenTestCase):
         config.set("notification_types", rows)
         config.save()
         # request_to_join committed the seeded row, so only a committed restore leaves the site
-        # as we found it (#2029). Named _cleanup_* so the order-dependence scan records it as exempt.
+        # as we found it (#2029; singleton_backup would now do this too, #2159). Named _cleanup_* so the order-dependence scan records it as exempt.
         frappe.db.commit()
 
     @staticmethod
@@ -598,6 +598,9 @@ class TestMemberManager(VereningingenTestCase):
         self._reload_chapter()
         row = self.manager._find_chapter_member(member.name)
         self.assertEqual((row.status, row.enabled), ("Inactive", 1), "control: the rejoin state")
+        # #2021: only an Active member may request. Reinstatement is a db_set shortcut here (the
+        # row state above is the part driven through real writers).
+        member.db_set("status", "Active")
 
         result = self.manager.request_to_join(member.name, notify=True)
 

@@ -43,10 +43,13 @@ def _registry_row(key, meta):
     if meta["recipient_policy"] == "Role-Based":
         # Role-Based with the roles field empty makes get_recipients_for_notification raise
         # (.split on None), so name the admin roles until someone configures others.
-        row["recipient_roles"] = default_role_based_roles()
+        row["recipient_roles"] = default_role_based_roles(meta)
     return row
 
 
-def default_role_based_roles():
-    """Roles a new Role-Based row names until someone configures others (also used by Sync Registry)."""
-    return ", ".join(sorted(Roles.ADMIN_PAIR))
+def default_role_based_roles(meta=None):
+    """Roles a new Role-Based row names until someone configures others (also used by Sync Registry).
+
+    A registry entry may name its own ``recipient_roles``; otherwise the admin pair.
+    """
+    return (meta or {}).get("recipient_roles") or ", ".join(sorted(Roles.ADMIN_PAIR))

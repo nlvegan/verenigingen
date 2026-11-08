@@ -116,6 +116,12 @@ def _emit_team_event(event_name, event_data):
         entity_key="team",
         job_prefix="team",
         bulk_flag="bulk_team_operations",
+        # Subscribers mail, disable accounts and write history for the change, so they must
+        # not run ahead of (or without) the commit that made it (#2144, sibling of #2137).
+        after_commit=True,
+        # One job per volunteer, action and row start date: several rows can change in one Team
+        # save (#2144). Every emit_team_membership_changed call in team.py passes from_date.
+        job_id_keys=("volunteer", "action", "from_date") if event_name == "team_membership_changed" else (),
     )
 
 
