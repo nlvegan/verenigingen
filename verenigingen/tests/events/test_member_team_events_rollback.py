@@ -496,9 +496,9 @@ class TestTeamEventsRollback(_RollbackBase):
         service.send_templated_email.assert_called_once()
 
     def test_rolled_back_role_change_leaves_the_history_alone(self):
-        """A role change is reported as role_changed, or as removed(old role) + added(new
-        role) when the emitter's from_date keys differ in type. Rolled back, the row still
-        has the old role, so no such job may touch the history."""
+        """A role change is reported as role_changed (#2181 normalised the emitter's from_date
+        key, so it no longer arrives as removed + added). Rolled back, the row still has the
+        old role, so no such job may touch the history."""
         self._join_and_record_history()
         before = self._history_roles()
 
@@ -536,9 +536,9 @@ class TestTeamEventsRollback(_RollbackBase):
         )
 
     def test_removal_of_an_old_role_holds_while_the_volunteer_keeps_another_role(self):
-        """Real shape (test_team_member_lifecycle): a role change is emitted as removed(old
-        role) while the volunteer's row, same from_date, now holds the new role. That
-        removal is real and must still be processed. Probe shortcut: hand-built payload."""
+        """A removal naming a role the volunteer's row no longer holds is still processed.
+        Probe shortcut: hand-built payload. Since #2181 Team no longer emits this shape for a
+        role change (it is one role_changed), so this guards queued or foreign payloads only."""
         self._join_as_member_2144()
         row = frappe.get_doc("Team", self.team.name).team_members[0]
         with self._mail_boundary() as service:
