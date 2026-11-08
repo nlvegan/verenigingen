@@ -768,18 +768,20 @@ class TestManagerReadsDoNotSwallowFailures(PurposeScopedMandateFixture):
             self._manager().has_active_mandate(["a", "b"])
         self.assertNotIsInstance(caught.exception, ValueError)
 
-    def test_a_member_save_does_not_read_mandates_and_still_succeeds(self):
-        """The mixin helpers over these reads are not on the Member save path.
+    def test_the_financial_summary_degrades_to_empty_and_logs_on_a_mandate_query_failure(self):
+        """A mandate query failure reaches `get_financial_summary`'s own handler.
 
-        `validate_payment_method` was the only validate-time caller and it never ran
-        (#607). A Member with Active mandates saves, and the financial summary degrades
-        to {} (logged by its own handler) rather than raising on a query failure.
+        It returns {} and writes an Error Log row, instead of the old behaviour where the
+        swallowed failure read as "no mandate" and a populated summary came back. Scope of
+        this test: the summary path only. It makes no claim about the Member save path;
+        I checked by grep that no Member validate/on_update hook calls these helpers.
         """
-        self.member.reload()
-        self.member.save()
+        title_prefix = "Error getting financial summary"
         self.member.name = ["a", "b"]
-        self.expectErrorLog("Error getting financial summary")
-        self.assertEqual(self.member.get_financial_summary(), {})
+        self.expectErrorLog(title_prefix)
+        with self.assertErrorLog(title_prefix):
+            summary = self.member.get_financial_summary()
+        self.assertEqual(summary, {})
 
     def test_the_reads_still_answer_for_a_real_member(self):
         """Control: the fixture member has a membership mandate, so success is not vacuous."""
@@ -854,7 +856,7 @@ class TestDashboardDistinguishesRefusalFromAbsence(PurposeScopedMandateFixture):
         html = self._render_methods_card(self._dashboard_context())
         self.assertNotIn("SEPA Direct Debit not configured", html)
         self.assertNotIn("showBankSetupForm", html)
-        self.assertIn("more than one active direct debit authorisation", html)
+        self.assertIn("more than one active direct debit authorization", html)
 
     def test_the_card_still_says_not_configured_for_absence(self):
         frappe.db.set_value(
@@ -875,3 +877,27 @@ class TestDashboardDistinguishesRefusalFromAbsence(PurposeScopedMandateFixture):
         start = source.index("<!-- SEPA Direct Debit Card -->")
         end = source.index("<!-- Mollie Card -->")
         return frappe.render_template(source[start:end], context)
+
+
+    def _render_page(self):
+        """Whole-page render of /payment_dashboard for this member, (the suite runs as Administrator, which is_admin needs)."""
+        from frappe.website.serve import get_response
+        from frappe.website.utils import clear_website_cache
+
+        # The page response is cached by path alone, not by `member`, so a second render
+        # in the same run would be served the first one's HTML.
+        clear_website_cache()
+        frappe.form_dict.member = self.member.name
+        try:
+            response = get_response("payment_dashboard")
+            return response.get_data(as_text=True)
+        finally:
+            frappe.form_dict.pop("member", None)
+
+    def test_the_whole_page_shows_the_attention_card_only_for_the_ambiguous_state(self):
+        self.expectErrorLog("Ambiguous active SEPA mandate")
+        self.assertNotIn("sepa-attention-display", self._render_page())
+        self._make_second_membership_mandate_active()
+        html = self._render_page()
+        self.assertIn("sepa-attention-display", html)
+        self.assertIn("more than one active direct debit authorization", html)

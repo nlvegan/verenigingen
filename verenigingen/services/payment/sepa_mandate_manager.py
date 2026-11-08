@@ -1387,7 +1387,9 @@ def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Op
 
     Note:
         - Never throws exceptions for validation failures (returns failed
-          OperationResult); an ownership violation still raises
+          OperationResult), but a database/query failure while reading the
+          member's existing mandates now PROPAGATES (#607) instead of reading
+          as "no mandate"; an ownership violation still raises
           frappe.PermissionError (frappe.DoesNotExistError only if the
           CALLER has no member record of their own -- #1328 collapsed the
           "unknown member" and "foreign member" branches into a single
