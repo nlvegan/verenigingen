@@ -296,7 +296,11 @@ def can_use_bypass_validations(user: str = None) -> bool:
         user: Username to check (defaults to current session user)
 
     Returns:
-        True if user can use bypass_validations, False otherwise
+        True if user can use bypass_validations, False otherwise. A check that
+        itself errors also returns False (fail closed) and is recorded in the
+        Error Log (#857); secure_document_operation() calls this outside its
+        try block, so there an errored check surfaces as the ordinary "no
+        permission to bypass" refusal.
     """
     if user is None:
         user = frappe.session.user

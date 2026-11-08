@@ -56,6 +56,7 @@ class TestPermissionCheckErrors857(EnhancedTestCase):
     def test_errored_escalation_check_is_denied_and_recorded(self):
         from verenigingen.utils.secure_operations import can_request_system_escalation
 
+        self.expectErrorLog(CHECK_TITLE_PREFIX)
         since = frappe.utils.now_datetime()
         self.assertFalse(can_request_system_escalation(self._broken_user()))
         self.assertEqual(
@@ -65,6 +66,7 @@ class TestPermissionCheckErrors857(EnhancedTestCase):
     def test_errored_bypass_check_is_denied_and_recorded(self):
         from verenigingen.utils.secure_operations import can_use_bypass_validations
 
+        self.expectErrorLog(CHECK_TITLE_PREFIX)
         since = frappe.utils.now_datetime()
         self.assertFalse(can_use_bypass_validations(self._broken_user()))
         self.assertEqual(self._error_titles(since), [f"{CHECK_TITLE_PREFIX} can_use_bypass_validations"])
@@ -111,16 +113,28 @@ class TestPermissionCheckErrors857(EnhancedTestCase):
             secure_document_operation,
         )
 
+        from verenigingen.utils import secure_operations
+
+        self.expectErrorLog("Secure Operation Failed")
         user = self._make_user_857("Verenigingen Administrator")
         self.assertTrue(can_request_system_escalation(user.name))  # would be allowed to escalate
         doc = frappe._dict(doctype=BOGUS_DOCTYPE, name="x", docstatus=0)
-        result = self._call_as_857(
-            user.name,
-            secure_document_operation,
-            operation="save",
-            doc=doc,
-            justification="exercise the broken-check path for #857",
-        )
+        # Mock justified: spy only, wraps= calls through to the REAL context manager.
+        # The final message alone cannot tell "never escalated" from "escalated and
+        # the system user's check raised the same error", so assert on the entry.
+        with patch.object(
+            secure_operations,
+            "secure_user_context_with_validation",
+            wraps=secure_operations.secure_user_context_with_validation,
+        ) as escalation_entry:
+            result = self._call_as_857(
+                user.name,
+                secure_document_operation,
+                operation="save",
+                doc=doc,
+                justification="exercise the broken-check path for #857",
+            )
+        escalation_entry.assert_not_called()
         self.assertFalse(result.success)
         joined = " ".join(result.errors)
         self.assertIn("could not be completed", joined)
