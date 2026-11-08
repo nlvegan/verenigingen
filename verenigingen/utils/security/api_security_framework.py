@@ -14,6 +14,7 @@ Architecture:
 - Comprehensive audit trails
 """
 
+import sys
 import time
 from dataclasses import replace as dataclass_replace
 from functools import wraps
@@ -735,9 +736,15 @@ class APISecurityFramework:
         except Exception:
             # An errored evaluation is not "no violations" (#2282). The amount rule does
             # float() on a request kwarg, so a caller can trigger this on purpose.
+            # Type plus truncated text only: a full traceback echoes the caller's input
+            # (an oversized amount wrote a 100KB row).
+            error_type, error_value = sys.exc_info()[:2]
             frappe.log_error(
                 title="Critical business rule evaluation failed",
-                message=(f"operation={operation_info.get('operation_name')}\n\n{frappe.get_traceback()}"),
+                message=(
+                    f"operation={operation_info.get('operation_name')}\n"
+                    f"{error_type.__name__}: {str(error_value)[:200]}"
+                ),
             )
             # Same threshold the caller applies to a real violation: only a rule
             # classified "critical" blocks; a lower level proceeds, as its violations do.
