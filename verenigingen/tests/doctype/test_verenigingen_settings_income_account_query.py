@@ -25,7 +25,7 @@ class TestIncomeAccountQueryStandardChart(VereningingenTestCase):
         with suspend_insert_capture():
             cls.company = get_eur_test_company()
 
-    def _root(self, root_type):
+    def _account_root_of(self, root_type):
         return frappe.db.get_value(
             "Account",
             {"company": self.company, "root_type": root_type, "is_group": 1, "parent_account": ["is", "not set"]},
@@ -33,7 +33,7 @@ class TestIncomeAccountQueryStandardChart(VereningingenTestCase):
             order_by="name asc",
         )
 
-    def _leaf(self, label, parent, is_group=0):
+    def _make_account(self, label, parent, is_group=0):
         doc = frappe.get_doc(
             {
                 "doctype": "Account",
@@ -52,9 +52,9 @@ class TestIncomeAccountQueryStandardChart(VereningingenTestCase):
         return [r[0] for r in rows]
 
     def test_untyped_income_leaf_is_offered_and_non_income_is_not(self):
-        income_leaf = self._leaf("Income Leaf", self._root("Income"))
-        income_group = self._leaf("Income Group", self._root("Income"), is_group=1)
-        expense_leaf = self._leaf("Expense Leaf", self._root("Expense"))
+        income_leaf = self._make_account("Income Leaf", self._account_root_of("Income"))
+        income_group = self._make_account("Income Group", self._account_root_of("Income"), is_group=1)
+        expense_leaf = self._make_account("Expense Leaf", self._account_root_of("Expense"))
 
         # Precondition: this is the standard-chart shape, not a hand-typed account.
         self.assertFalse(income_leaf.account_type)
@@ -67,7 +67,7 @@ class TestIncomeAccountQueryStandardChart(VereningingenTestCase):
         self.assertNotIn(expense_leaf.name, offered, "a non-income leaf must not be offered")
 
     def test_scoped_to_the_requested_company(self):
-        income_leaf = self._leaf("Income Leaf", self._root("Income"))
+        income_leaf = self._make_account("Income Leaf", self._account_root_of("Income"))
         other_name = frappe.db.get_value(
             "Account",
             {"company": ["!=", self.company], "root_type": "Income", "is_group": 0},
