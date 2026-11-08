@@ -271,3 +271,35 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
         expected = {frappe.db.get_value("Member", m.name, "email") for m in (self.member, other)}
         self.assertEqual(set(recipients), expected)
         self.assertEqual(len(recipients), 2)
+
+    def test_two_members_added_by_add_member_in_one_transaction_are_each_welcomed_once(self):
+        """Reachable path: two real ``member_manager.add_member`` calls (one Chapter save
+        each) in one transaction, jobs deferred to commit (#2203). One job per id, last wins."""
+        other = self.create_test_member(
+            first_name="Third",
+            last_name="Joiner",
+            email=f"third.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+
+        def add_both():
+            for member in (self.member, other):
+                chapter = frappe.get_doc("Chapter", self.chapter.name)
+                self.assertTrue(chapter.member_manager.add_member(member.name, notify=False)["success"])
+
+        jobs = [
+            j for j in self._capture_jobs(add_both) if j["method"].endswith("handle_membership_notifications")
+        ]
+        self.assertEqual(len(jobs), 2, "precondition: one notification job per added member")
+        ids = [j["job_id"] for j in jobs]
+        self.assertEqual(len(set(ids)), 2, ids)
+
+        self._run_jobs(list({j["job_id"]: j for j in jobs}.values()))
+
+        welcomed = self._welcome_mails()
+        self.assertEqual(len(welcomed), 2, "each member gets exactly one welcome")
+        recipients = frappe.get_all(
+            "Email Queue Recipient", filters={"parent": ["in", welcomed]}, pluck="recipient"
+        )
+        expected = {frappe.db.get_value("Member", m.name, "email") for m in (self.member, other)}
+        self.assertEqual(sorted(recipients), sorted(expected))
