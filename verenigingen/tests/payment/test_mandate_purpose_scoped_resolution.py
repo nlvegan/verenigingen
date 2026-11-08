@@ -768,6 +768,19 @@ class TestManagerReadsDoNotSwallowFailures(PurposeScopedMandateFixture):
             self._manager().has_active_mandate(["a", "b"])
         self.assertNotIsInstance(caught.exception, ValueError)
 
+    def test_a_member_save_does_not_read_mandates_and_still_succeeds(self):
+        """The mixin helpers over these reads are not on the Member save path.
+
+        `validate_payment_method` was the only validate-time caller and it never ran
+        (#607). A Member with Active mandates saves, and the financial summary degrades
+        to {} (logged by its own handler) rather than raising on a query failure.
+        """
+        self.member.reload()
+        self.member.save()
+        self.member.name = ["a", "b"]
+        self.expectErrorLog("Error getting financial summary")
+        self.assertEqual(self.member.get_financial_summary(), {})
+
     def test_the_reads_still_answer_for_a_real_member(self):
         """Control: the fixture member has a membership mandate, so success is not vacuous."""
         manager = self._manager()
