@@ -210,7 +210,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
             )
 
     # -------------------------------------------------------------------------
-    # get / list / delete
+    # get / delete
     # -------------------------------------------------------------------------
 
     def test_get_payment_builds_endpoint(self):
@@ -229,28 +229,6 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         inner.get.side_effect = RuntimeError("boom")
         with self.assertRaises(PontoAPIError):
             client.get_payment(self.ACCOUNT_ID, "p9")
-
-    def test_list_payments_parses_all(self):
-        client, inner = self._make_client()
-        inner.get_paginated.return_value = [
-            _payment_api_data(payment_id="a"),
-            _payment_api_data(payment_id="b"),
-        ]
-        result = client.list_payments(self.ACCOUNT_ID, limit=10, max_pages=2)
-        inner.get_paginated.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payments",
-            limit=10,
-            max_pages=2,
-        )
-        self.assertEqual([p.id for p in result], ["a", "b"])
-
-    def test_list_payments_wraps_error(self):
-        from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError
-
-        client, inner = self._make_client()
-        inner.get_paginated.side_effect = RuntimeError("boom")
-        with self.assertRaises(PontoAPIError):
-            client.list_payments(self.ACCOUNT_ID)
 
     def test_delete_payment_builds_endpoint(self):
         client, inner = self._make_client()

@@ -35,7 +35,7 @@ Usage:
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
@@ -277,56 +277,6 @@ class PontoPaymentClient:
             raise PontoAPIError(
                 message=f"Failed to get payment status: {e}",
                 details={"payment_id": payment_id},
-            ) from e
-
-    def list_payments(
-        self,
-        account_id: str,
-        limit: int = 25,
-        max_pages: Optional[int] = None,
-    ) -> List[PaymentRequest]:
-        """
-        List payment requests for an account.
-
-        NOTE (#2279): the Ponto sandbox answers 404 "route not found" to GET
-        /accounts/{id}/payments (measured 2026-11-08); Ponto documents no list
-        endpoint for single payments. Nothing in the app calls this.
-
-        Uses cursor-based pagination to fetch all payments across multiple pages.
-
-        Args:
-            account_id: Ponto account UUID
-            limit: Items per page (default 25)
-            max_pages: Maximum pages to fetch (None for unlimited)
-
-        Returns:
-            List of PaymentRequest objects
-
-        Raises:
-            PontoAPIError: If request fails
-        """
-        try:
-            data = self._client.get_paginated(
-                f"/accounts/{account_id}/payments",
-                limit=limit,
-                max_pages=max_pages,
-            )
-
-            payments = []
-            for item in data:
-                payments.append(PaymentRequest.from_api_response(item))
-
-            return payments
-
-        except PontoIntegrationError:
-            # A typed Ponto error (an HTTP status, 401, 429, configuration) already says what
-            # failed; re-wrapping it would drop its status_code and its subclass (#1924).
-            raise
-        except Exception as e:
-            frappe.logger().error(f"Failed to list Ponto payments: {e}")
-            raise PontoAPIError(
-                message=f"Failed to list payments: {e}",
-                details={"account_id": account_id},
             ) from e
 
     def delete_payment(self, account_id: str, payment_id: str) -> bool:
