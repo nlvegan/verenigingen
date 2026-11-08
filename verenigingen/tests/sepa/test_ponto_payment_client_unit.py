@@ -108,9 +108,14 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         endpoint = inner.post.call_args.args[0]
         self.assertEqual(
             endpoint,
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests",
+            f"/accounts/{self.ACCOUNT_ID}/payments",
         )
-        attrs = inner.post.call_args.kwargs["data"]["data"]["attributes"]
+        # Sandbox-measured 2026-11-08 (#2279): single payment initiation is POST
+        # /accounts/{id}/payments with JSON:API type "payment". The old
+        # payment-initiation-requests route answers 404 "route not found".
+        body = inner.post.call_args.kwargs["data"]["data"]
+        self.assertEqual(body["type"], "payment")
+        attrs = body["attributes"]
         self.assertEqual(attrs["amount"], 100.0)
         self.assertEqual(attrs["redirectUri"], "https://site/cb")
         self.assertEqual(attrs["creditorAgent"], "ABNANL2A")
@@ -213,7 +218,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         inner.get.return_value = {"data": _payment_api_data(payment_id="p9")}
         result = client.get_payment(self.ACCOUNT_ID, "p9")
         inner.get.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests/p9"
+            f"/accounts/{self.ACCOUNT_ID}/payments/p9"
         )
         self.assertEqual(result.id, "p9")
 
@@ -233,7 +238,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         ]
         result = client.list_payments(self.ACCOUNT_ID, limit=10, max_pages=2)
         inner.get_paginated.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests",
+            f"/accounts/{self.ACCOUNT_ID}/payments",
             limit=10,
             max_pages=2,
         )
@@ -252,7 +257,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         inner.delete.return_value = True
         result = client.delete_payment(self.ACCOUNT_ID, "p3")
         inner.delete.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests/p3"
+            f"/accounts/{self.ACCOUNT_ID}/payments/p3"
         )
         self.assertTrue(result)
 

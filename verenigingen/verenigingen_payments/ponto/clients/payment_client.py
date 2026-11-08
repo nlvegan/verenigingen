@@ -212,14 +212,14 @@ class PontoPaymentClient:
 
         payload = {
             "data": {
-                "type": "paymentInitiationRequest",
+                "type": "payment",
                 "attributes": attributes,
             }
         }
 
         try:
             response = self._client.post(
-                f"/accounts/{account_id}/payment-initiation-requests",
+                f"/accounts/{account_id}/payments",
                 data=payload,
             )
 
@@ -263,7 +263,7 @@ class PontoPaymentClient:
             PontoAPIError: If request fails
         """
         try:
-            response = self._client.get(f"/accounts/{account_id}/payment-initiation-requests/{payment_id}")
+            response = self._client.get(f"/accounts/{account_id}/payments/{payment_id}")
 
             data = response.get("data", {})
             return PaymentRequest.from_api_response(data)
@@ -288,6 +288,10 @@ class PontoPaymentClient:
         """
         List payment requests for an account.
 
+        NOTE (#2279): the Ponto sandbox answers 404 "route not found" to GET
+        /accounts/{id}/payments (measured 2026-11-08); Ponto documents no list
+        endpoint for single payments. Nothing in the app calls this.
+
         Uses cursor-based pagination to fetch all payments across multiple pages.
 
         Args:
@@ -303,7 +307,7 @@ class PontoPaymentClient:
         """
         try:
             data = self._client.get_paginated(
-                f"/accounts/{account_id}/payment-initiation-requests",
+                f"/accounts/{account_id}/payments",
                 limit=limit,
                 max_pages=max_pages,
             )
@@ -342,7 +346,7 @@ class PontoPaymentClient:
             PontoAPIError: If deletion fails
         """
         try:
-            self._client.delete(f"/accounts/{account_id}/payment-initiation-requests/{payment_id}")
+            self._client.delete(f"/accounts/{account_id}/payments/{payment_id}")
 
             frappe.logger().info(f"Deleted Ponto payment request {payment_id}")
             return True
