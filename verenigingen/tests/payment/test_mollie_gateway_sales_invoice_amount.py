@@ -2,28 +2,29 @@
 # License: MIT
 
 """
-A Sales Invoice paid through guest ``mollie_checkout.make_payment`` charges its
-``outstanding_amount`` (#2225).
+A Sales Invoice is NOT payable through Mollie yet (#2225, #2244).
 
-``MollieGateway.process_payment`` built the Mollie amount from ``doc.amount``, which a Sales
-Invoice lacks, so every invoice payment ended in the generic "Could not create payment" error.
-Maintainer ruling (2026-11-07): charge ``outstanding_amount``; REFUSE when it is 0 (settled).
-Never ``grand_total`` of a partly paid invoice, never the client-sent amount.
+#2225 taught ``MollieGateway`` to charge a Sales Invoice's ``outstanding_amount`` (maintainer
+ruling 2026-11-07). Review then showed that a live payment for an invoice cannot be linked back
+(no ``payment_id``: a repeat call creates a second payment; the webhook resolver cannot map the
+payment to the invoice: the money is never booked), so the maintainer ruled (2026-11-08) that
+``process_payment`` REFUSES every Sales Invoice, before any Mollie call, until #2244 is fixed.
 
-Only Mollie's HTTP client is stubbed (``MollieSettings.get_mollie_client``); the request goes
-through the real ``make_payment`` -> ``load_owned_reference`` -> ``MollieGateway`` chain, and the
-assertions read the amount that actually reached ``client.payments.create``.
+* The gate is tested end to end through ``make_payment`` and directly on ``process_payment``
+  (the gate lives in the gateway so it covers every caller).
+* ``_amount_to_charge`` stays as the reviewed logic for when the gate is lifted; it is exercised
+  directly here (partly paid -> outstanding, never grand_total; settled/over-credited/draft ->
+  refuse). It takes only the document, so a client-sent amount cannot reach it.
 
-Caller identity (stated): the amount tests run as Administrator, NOT Guest. As a Guest,
-``MollieGateway.__init__`` is refused before ``process_payment`` is reached, because
-``get_mollie_settings`` is ``@high_security_api`` (measured on test_site_fresh; filed as its own
-issue). That is a separate blocker; these tests prove the amount ``process_payment`` sends once the
-gateway exists. The existence-oracle test below does run as Guest: it refuses at ownership.
+Only Mollie's HTTP client (``MollieSettings.get_mollie_client``) is stubbed. Amount tests run no
+gateway at all. The end-to-end tests run as Administrator because a Guest cannot construct
+``MollieGateway`` (#2237); the existence-oracle test runs as Guest and refuses at ownership.
 
-Probe shortcut (stated, per the dispatch brief): ``contact_email``, ``currency`` (EUR) and ``outstanding_amount`` are
-set directly with ``db_set`` after submit (the factory does this; a real partly paid invoice would
-come from a Payment Entry). Tests of the amount therefore prove the gateway's reading of the
-field, not that a Payment Entry produces it.
+Probe shortcut (stated): ``contact_email`` and ``outstanding_amount`` are set with ``db_set``
+after submit (the factory does the latter), so the amount tests prove the logic's reading of the
+field, not that a Payment Entry produces it. ``currency`` is pinned to EUR the same way (see
+``_mollie_invoice``). An EUR company fixture was not used: building one is a shared-fixture
+build the harness guards against.
 """
 
 import json
@@ -46,6 +47,9 @@ _GET_WEBHOOK_URL = (
 )
 
 
+GATE_MESSAGE = "Paying an invoice through this page is not available yet."
+
+
 def _fake_mollie_client():
     client = MagicMock()
     client.payments.create.return_value = SimpleNamespace(
@@ -57,7 +61,7 @@ def _fake_mollie_client():
     return client
 
 
-class TestMollieGatewaySalesInvoiceAmount(EnhancedTestCase):
+class TestMollieGatewaySalesInvoiceGate(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._original_user = frappe.session.user
@@ -77,17 +81,26 @@ class TestMollieGatewaySalesInvoiceAmount(EnhancedTestCase):
         email = f"inv-owner-{frappe.generate_hash()[:8]}@example.com"
         invoice.db_set("contact_email", email)
         # The harness company's currency is site-dependent (INR on some test sites) and Mollie
-        # refuses INR; this association bills in EUR. Pinned directly, like contact_email.
+        # refuses INR. Pinned to EUR so that WITHOUT the gate this invoice WOULD reach
+        # payments.create; with INR a missing gate would be hidden by the currency refusal.
         invoice.db_set("currency", "EUR")
         invoice.reload()
         return invoice, email
 
-    def _pay_via_checkout(self, name, email, *, client_amount=1.23, doctype="Sales Invoice", user="Administrator"):
+    def _mollie_stubs(self, client):
+        # Webhook URL construction needs a configured API key, which CI's sites lack; it is
+        # URL building, not Mollie's HTTP boundary, so it is stubbed alongside the client.
+        return (
+            patch(_GET_CLIENT, return_value=client),
+            patch(_GET_WEBHOOK_URL, return_value="https://example.test/webhook"),
+        )
+
+    def _pay_via_checkout(self, name, email, *, doctype="Sales Invoice", user="Administrator"):
         from verenigingen.verenigingen_payments.templates.pages.mollie_checkout import make_payment
 
         data = json.dumps(
             {
-                "amount": client_amount,
+                "amount": 1.23,
                 "title": "Invoice",
                 "description": "Invoice",
                 "payer_name": "Someone",
@@ -97,69 +110,46 @@ class TestMollieGatewaySalesInvoiceAmount(EnhancedTestCase):
             }
         )
         client = _fake_mollie_client()
-        # Webhook URL construction needs a configured API key, which CI's sites lack; it is
-        # URL building, not Mollie's HTTP boundary, so it is stubbed alongside the client.
-        with (
-            self.as_user(user),
-            patch(_GET_CLIENT, return_value=client),
-            patch(_GET_WEBHOOK_URL, return_value="https://example.test/webhook"),
-        ):
+        stub_client, stub_url = self._mollie_stubs(client)
+        with self.as_user(user), stub_client, stub_url:
             result = make_payment(
                 data=data, reference_doctype=doctype, reference_docname=name, gateway_name="Default"
             )
         return result, client
 
-    def _sent_amount(self, client):
-        client.payments.create.assert_called_once()
-        return client.payments.create.call_args.args[0]["amount"]
+    def _mollie_error_logs(self):
+        return frappe.db.count("Error Log", {"method": ["like", "Mollie Payment%"]})
 
-    def test_partly_paid_invoice_charges_outstanding_not_grand_total_or_client_amount(self):
+    # --- the gate -------------------------------------------------------------------------
+
+    def test_owned_invoice_through_make_payment_is_refused_before_mollie(self):
         invoice, email = self._mollie_invoice(grand_total=100.0, outstanding_amount=40.0)
-        outstanding = flt(invoice.outstanding_amount)
-        self.assertNotEqual(outstanding, flt(invoice.grand_total), "fixture must be partly paid")
+        logs_before = self._mollie_error_logs()
 
-        result, client = self._pay_via_checkout(invoice.name, email, client_amount=1.23)
-
-        self.assertEqual(result["status"], "Open", result)
-        sent = self._sent_amount(client)
-        self.assertEqual(sent["value"], f"{outstanding:.2f}")
-        self.assertEqual(sent["currency"], invoice.currency)
-        metadata = client.payments.create.call_args.args[0]["metadata"]
-        self.assertEqual(metadata["reference_doctype"], "Sales Invoice")
-        self.assertEqual(metadata["reference_docname"], invoice.name)
-
-    def test_unpaid_invoice_charges_its_outstanding(self):
-        invoice, email = self._mollie_invoice(grand_total=75.0)
         result, client = self._pay_via_checkout(invoice.name, email)
-        self.assertEqual(result["status"], "Open", result)
-        self.assertEqual(self._sent_amount(client)["value"], f"{flt(invoice.outstanding_amount):.2f}")
 
-    def _assert_refused_without_charge(self, invoice, email):
-        result, client = self._pay_via_checkout(invoice.name, email)
-        self.assertEqual(result["status"], "Error", result)
-        self.assertEqual(result["message"], "There is nothing left to pay on this document.")
-        self.assertIsNone(result["paymentUrl"])
         client.payments.create.assert_not_called()
+        self.assertEqual(result["status"], "Error", result)
+        self.assertEqual(result["message"], GATE_MESSAGE)
+        self.assertIsNone(result["paymentUrl"])
+        self.assertEqual(self._mollie_error_logs(), logs_before, "the gate is not an error")
 
-    def test_settled_invoice_is_refused_with_no_mollie_call(self):
-        invoice, email = self._mollie_invoice(grand_total=100.0, outstanding_amount=0.0)
-        self.assertEqual(flt(invoice.outstanding_amount), 0.0)
-        self.assertEqual(invoice.docstatus, 1)
-        self._assert_refused_without_charge(invoice, email)
+    def test_process_payment_refuses_an_invoice_for_a_direct_caller(self):
+        """The gate lives in the gateway, not in make_payment: PaymentHook and
+        process_donation_payment call process_payment directly."""
+        from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
-    def test_overcredited_invoice_is_refused_with_no_mollie_call(self):
-        invoice, email = self._mollie_invoice(grand_total=100.0, outstanding_amount=-20.0)
-        self._assert_refused_without_charge(invoice, email)
+        invoice, _email = self._mollie_invoice(grand_total=100.0, outstanding_amount=40.0)
+        client = _fake_mollie_client()
+        stub_client, stub_url = self._mollie_stubs(client)
+        with self.as_user("Administrator"), stub_client, stub_url:
+            result = MollieGateway("Default").process_payment(invoice, {})
 
-    def test_draft_invoice_is_refused_with_no_mollie_call(self):
-        """A draft's outstanding mirrors grand_total (#209/#856), so docstatus must gate it."""
-        invoice, email = self._mollie_invoice(grand_total=100.0, draft=True)
-        self.assertEqual(invoice.docstatus, 0)
-        self.assertGreater(flt(invoice.outstanding_amount), 0)
-        self._assert_refused_without_charge(invoice, email)
+        client.payments.create.assert_not_called()
+        self.assertEqual(result, {"status": "error", "message": GATE_MESSAGE})
 
-    def test_donation_still_charges_its_amount(self):
-        """Control: the Donation path is unchanged."""
+    def test_donation_still_reaches_mollie(self):
+        """Control: the gate is keyed on Sales Invoice only."""
         email = f"donor-{frappe.generate_hash()[:8]}@example.com"
         donor = self.create_test_donor(donor_email=email)
         donation = frappe.get_doc(
@@ -174,23 +164,55 @@ class TestMollieGatewaySalesInvoiceAmount(EnhancedTestCase):
                 "paid": 0,
             }
         ).insert()
-        result, client = self._pay_via_checkout(donation.name, email, client_amount=1.23, doctype="Donation")
+        result, client = self._pay_via_checkout(donation.name, email, doctype="Donation")
         self.assertEqual(result["status"], "Open", result)
-        self.assertEqual(self._sent_amount(client)["value"], f"{flt(donation.amount):.2f}")
+        client.payments.create.assert_called_once()
+        self.assertEqual(
+            client.payments.create.call_args.args[0]["amount"]["value"], f"{flt(donation.amount):.2f}"
+        )
 
-    def test_settled_invoice_refusal_to_a_stranger_matches_an_unknown_invoice(self):
-        """Existence oracle: ownership is decided BEFORE the amount, so a stranger who names a
-        real settled invoice sees exactly what they see for a name that does not exist."""
+    def test_gate_message_is_only_reachable_after_ownership_passes(self):
+        """Existence oracle: a stranger naming a real invoice gets exactly what an unknown name
+        gets (the ownership refusal), never the gate message; only the owner sees the gate."""
         self.expectErrorLog("Mollie Payment Error")  # the ownership refusal, both probes
-        invoice, _owner = self._mollie_invoice(grand_total=100.0, outstanding_amount=0.0)
+        invoice, owner_email = self._mollie_invoice(grand_total=100.0, outstanding_amount=40.0)
         stranger = f"stranger-{frappe.generate_hash()[:8]}@example.com"
 
-        def probe(name):
+        def probe(name, email, user):
             before_log = len(frappe.local.message_log)
-            result, client = self._pay_via_checkout(name, stranger, user="Guest")
+            result, client = self._pay_via_checkout(name, email, user=user)
             client.payments.create.assert_not_called()
             return result, list(frappe.local.message_log[before_log:])
 
-        known = probe(invoice.name)
-        unknown = probe("ACC-SINV-DOES-NOT-EXIST-2225")
+        known = probe(invoice.name, stranger, "Guest")
+        unknown = probe("ACC-SINV-DOES-NOT-EXIST-2225", stranger, "Guest")
         self.assertEqual(known, unknown)
+        self.assertNotEqual(known[0]["message"], GATE_MESSAGE)
+        owner = probe(invoice.name, owner_email, "Administrator")
+        self.assertEqual(owner[0]["message"], GATE_MESSAGE)
+
+    # --- _amount_to_charge: the logic kept for when #2244 lifts the gate ---------------------
+
+    def test_amount_to_charge_partly_paid_is_outstanding_not_grand_total(self):
+        from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
+
+        invoice, _email = self._mollie_invoice(grand_total=100.0, outstanding_amount=40.0)
+        self.assertNotEqual(flt(invoice.outstanding_amount), flt(invoice.grand_total))
+        self.assertEqual(MollieGateway._amount_to_charge(invoice), flt(invoice.outstanding_amount))
+
+    def test_amount_to_charge_refuses_settled_overcredited_and_draft(self):
+        from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
+
+        settled, _e = self._mollie_invoice(grand_total=100.0, outstanding_amount=0.0)
+        over, _e = self._mollie_invoice(grand_total=100.0, outstanding_amount=-20.0)
+        draft, _e = self._mollie_invoice(grand_total=100.0, draft=True)
+        self.assertEqual(settled.docstatus, 1)
+        self.assertEqual(draft.docstatus, 0)
+        self.assertGreater(flt(draft.outstanding_amount), 0, "a draft's outstanding mirrors grand_total")
+        for invoice in (settled, over, draft):
+            self.assertIsNone(MollieGateway._amount_to_charge(invoice), invoice.name)
+
+    def test_amount_to_charge_leaves_a_donation_amount_alone(self):
+        from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
+
+        self.assertEqual(MollieGateway._amount_to_charge(SimpleNamespace(doctype="Donation", amount=20.0)), 20.0)

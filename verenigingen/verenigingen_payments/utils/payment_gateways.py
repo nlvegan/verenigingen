@@ -171,6 +171,18 @@ class MollieGateway(PaymentGateway):
                 except Exception as e:
                     frappe.logger().error(f"📋 Error accessing donation.{attr}: {e}")
 
+            # GATE (maintainer ruling 2026-11-08): refuse a Sales Invoice BEFORE any Mollie call.
+            # Charging one would create a live payment that cannot be linked back: a Sales
+            # Invoice has no payment_id, so a repeat call creates a second payment, and the
+            # webhook resolver cannot map the payment to the invoice, so the money is never
+            # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
+            # mollie_checkout so it covers every caller of process_payment.
+            if getattr(donation, "doctype", None) == "Sales Invoice":
+                return {
+                    "status": "error",
+                    "message": _("Paying an invoice through this page is not available yet."),
+                }
+
             amount = self._amount_to_charge(donation)
             if amount is None:
                 return {
