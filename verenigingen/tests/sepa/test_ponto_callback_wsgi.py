@@ -134,6 +134,8 @@ SCRIPT = textwrap.dedent(
             PontoPaymentRequest,
         )
 
+        minted_request_urls = {{}}
+
         def make_submitted_link():
             d = frappe.new_doc("Ponto Payment Link")
             d.payment_type = "One-Time"
@@ -172,6 +174,8 @@ SCRIPT = textwrap.dedent(
             ):
                 d.submit()
             assert (d.docstatus, d.status) == (1, "Pending"), (d.docstatus, d.status)
+            # the redirectUri the doctype REALLY handed to Ponto at signing start (#2274)
+            minted_request_urls[d.name] = client.create_payment.call_args.kwargs["redirect_uri"]
             return d.name
 
         sub_link, sub_link_ctl = make_submitted_link(), make_submitted_link()
@@ -179,6 +183,9 @@ SCRIPT = textwrap.dedent(
         write_ctl, write_ok = make_link(), make_link()
         # rows for the short /ponto-return route
         short_ok, short_ctl, short_post = make_submitted_link(), make_submitted_link(), make_submitted_link()
+        minted_ok, minted_ctl, minted_post = (
+            make_submitted_request(), make_submitted_request(), make_submitted_request(),
+        )
         link_name, link_other = make_link(), make_link()
         req_name, req_other = make_request(), make_request()
         link_done = make_link("Executed", "WSGI-1883-RETURN-DETAILS")
@@ -279,6 +286,26 @@ SCRIPT = textwrap.dedent(
         fresh()
         out["short_proved"] = frappe.db.get_value("Ponto Payment Link", short_ok, ["status", "docstatus"])
         out["short_proved_location"] = path_of(rs)
+        # #2274: the URL a Payment Request really hands to Ponto, followed as the returning browser
+        # would (Ponto appends error=access_denied). Controls: another request's token, and a POST.
+        def minted(name):
+            return re.sub(r"^https?://[^/]+", "", minted_request_urls[name])
+
+        out["minted_path"] = minted(minted_ok).split("?")[0]
+        rm = get(minted(minted_ok) + "&error=access_denied")
+        out["minted_code"] = rm.status_code
+        out["minted_location"] = path_of(rm)
+        fresh()
+        out["minted_proved"] = frappe.db.get_value("Ponto Payment Request", minted_ok, ["status", "docstatus"])
+        other_token = gen(req_cb.CANCEL_TOKEN_PURPOSE, minted_ok)
+        get(f"{{SHORT}}?r={{minted_ctl}}&c={{other_token}}&error=access_denied")
+        client.post(
+            minted(minted_post) + "&error=access_denied",
+            headers=headers, environ_base={{"REMOTE_ADDR": "10.9.9.10"}},
+        )
+        out["minted_control_wrong_token"] = status_of("Ponto Payment Request", minted_ctl)
+        out["minted_control_post"] = status_of("Ponto Payment Request", minted_post)
+
         # A REFUSED request must be rolled back even if it WROTE something. Stand in for "something
         # a refused request wrote" by wrapping the cancel step so it also sets a marker. Only a
         # request that asks for the commit may keep it: the refused ones must not, the proved one
@@ -464,3 +491,19 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         is the control showing the same write IS visible when the commit was asked for."""
         self.assertEqual(self.out["refused_marker"], "WSGI-1883-DESC")
         self.assertEqual(self.out["proved_marker"], "MARKER-WRITTEN")
+
+    # ---- #2274: the Payment Request return URL the doctype mints --------------------------
+
+    def test_the_minted_payment_request_url_is_on_the_short_route(self):
+        self.assertEqual(self.out["minted_path"], "/ponto-return")
+
+    def test_the_minted_payment_request_url_cancels_a_really_submitted_request(self):
+        """The whole chain: URL minted at submit -> browser returns with access_denied -> the row is
+        Cancelled on a fresh connection. With the old URL (the module, not its function) the request
+        never reached payment_callback."""
+        self.assertEqual(self.out["minted_code"], 302)
+        self.assertEqual(self.out["minted_proved"], ["Cancelled", 1])
+
+    def test_the_minted_url_refuses_another_requests_token_and_a_post(self):
+        self.assertEqual(self.out["minted_control_wrong_token"], "Pending")
+        self.assertEqual(self.out["minted_control_post"], "Pending")

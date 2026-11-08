@@ -26,7 +26,6 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
@@ -121,13 +120,15 @@ class PontoPaymentRequest(Document):
         callback, that an `error=access_denied` comes from the browser we sent to Ponto
         (#1815). A custom redirect_uri replaces our callback, so it carries none."""
         from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-        from verenigingen.verenigingen_payments.ponto.api.payment_callback import CANCEL_TOKEN_PURPOSE
+        from verenigingen.verenigingen_payments.ponto.api.payment_callback import (
+            CANCEL_TOKEN_PURPOSE,
+            build_request_return_url,
+        )
 
         cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
-        return get_url(
-            f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
-            f"?payment_request={self.name}&cancel_token={cancel_token}"
-        )
+        # The short guest route (#2274): the /api/method/... form named the module, not its
+        # function, and was too long for Ponto's 255-character redirectUri limit.
+        return build_request_return_url(self.name, cancel_token)
 
     def create_ponto_payment(self):
         """
