@@ -230,7 +230,13 @@ class TestAuthAlertPatch2254(EnhancedTestCase):
             self.assertEqual(self._auth_row_state(), ("Custom", ""), roles)
 
     def test_an_admins_own_row_is_left_alone(self):
-        for policy, roles in (("Role-Based", "Verenigingen Treasurer"), ("Role-Based", "System Manager")):
+        # Fixed and Document-Field rows that still carry the stock roles string pin the policy condition.
+        for policy, roles in (
+            ("Role-Based", "Verenigingen Treasurer"),
+            ("Role-Based", "System Manager"),
+            ("Fixed", "System Manager, Verenigingen Administrator"),
+            ("Document-Field", "System Manager, Verenigingen Administrator"),
+        ):
             self._put_auth_row(policy, roles)
             importlib.import_module(self.PATCH).execute()
             self.assertEqual(self._auth_row_state(), (policy, roles))
