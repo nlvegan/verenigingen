@@ -156,6 +156,9 @@ class ApprovalCase(ApplicationDoorMixin, EnhancedTestCase):
             "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
         )
         frappe.db.set_value("Membership Dues Schedule", template, {"minimum_amount": 2.5, "billing_frequency": "Monthly"})
+        # Approval enforces the TYPE's minimum too, and submit now applies the same floor (#2127): bring the
+        # type down to the 2.5 this helper's 7.50 application was written against.
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 2.5)
         door = self._door(**({"monthly_dues_template": template} | (door_fields or {})))
         data = {
             "first_name": "Anna", "last_name": "Berg", "email": self.email, "address_line1": "Kerkstraat",
@@ -482,9 +485,10 @@ class TestApproveApplication(ApprovalCase):
     def test_expulsion_between_confirm_and_approval_refused(self):
         """A Pending applicant may reapply; an expulsion (real termination service) executed after the
         application was confirmed makes the Member Banned, and approval must not reactivate it."""
+        # Real order (#1989): staged while no Member exists. An Active member with the default
+        # application_status may not be staged, so the Member arrives afterwards, as an import does.
+        name = self._stage_and_confirm()
         member = self.create_test_member(email=self.email)
-        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
-        name = self._stage_and_confirm()  # control: staged, so this Member could reapply before the expulsion
         execute_real_termination(self, member.name, today(), termination_type="Expulsion")
         self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Banned")
 
@@ -495,10 +499,20 @@ class TestApproveApplication(ApprovalCase):
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
 
     def _quit_member_with_pending_application_status(self):
-        """PROBE SHORTCUT, stated: the factory's Pending Member (application_status Pending) stands in for a
-        MijnRood-synced Pending Member (#1855); the termination itself is the real service."""
+        """PROBE SHORTCUT, stated: a Pending-status factory Member stands in for a legacy or mid-approval
+        Pending Member; the termination itself is the real service."""
         member = self.create_test_member(email=self.email)
-        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending", "precondition")
+        # Second shortcut, stated: the factory member is Active, and an Active member may not reapply (#1989).
+        # The db write stands in for a legacy or mid-approval Pending Member: create_member_from_application
+        # (application_helpers.py:651) and _update_member create Pending/Pending, and it persists only as
+        # legacy data. MijnRood-synced members are NOT Pending (STATUS_MAP has no Pending): they are the
+        # #1989 state itself.
+        frappe.db.set_value("Member", member.name, "status", "Pending")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, ["status", "application_status"], as_dict=True),
+            {"status": "Pending", "application_status": "Pending"},
+            "precondition",
+        )
         return member
 
     def test_involuntarily_quit_member_with_pending_status_refused_at_approval(self):
@@ -765,6 +779,57 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual(frappe.db.count("Error Log", {"method": ["like", "Rejection mail failed%"]}), errors + 1)
         self.assertIn("smtp boom", frappe.get_all("Error Log", {"method": ["like", "Rejection mail failed%"]}, "error", order_by="creation desc", limit=1)[0].error)
 
+    def test_rejection_mail_skipped_by_a_disabled_key_is_reported_not_sent(self):
+        """A disabled notification key is a successful SKIP in EmailService; the reviewer must still be
+        told the applicant got no mail (#2096). The real service runs (spied, as the test above: this
+        harness captures frappe.sendmail, so the Email Queue cannot be read). Control: key on -> a real
+        queue result and mail_sent True; then the key is switched off."""
+        from verenigingen.services.communication.email_service import EmailService
+        from verenigingen.tests.utils.notification_state import own_notification_keys
+        from verenigingen.tests.utils.reminder_mail_state import (
+            configure_notification_key,
+            ensure_outgoing_email_account,
+        )
+
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "member_application_rejected")
+        real_send = EmailService.send_templated_email
+        results = []
+
+        def spy(service, *args, **kwargs):
+            results.append(real_send(service, *args, **kwargs))
+            return results[-1]
+
+        # Mock justified: spy on the mail boundary; the real service still runs
+        with patch.object(EmailService, "send_templated_email", spy):
+            first = self._stage_and_confirm()
+            self.assertTrue(self._reject_as(first)["mail_sent"], "control: an enabled key sends")
+            self.assertIsNone(results[-1].skip_reason, "control: a real send, not a skip")
+            self.assertTrue(results[-1].data.get("queued"))
+
+            configure_notification_key("member_application_rejected", 0, 0)
+            self.email = self._fresh_applicant_email()
+            second = self._stage_and_confirm()
+            errors = frappe.db.count("Error Log", {"method": ["like", "Rejection mail%"]})
+            frappe.clear_messages()
+            before = len(frappe.local.message_log)
+
+            result = self._reject_as(second)
+
+        self.assertTrue(results[-1].skip_reason, "precondition: the service reported a skip")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, second, "status"), "Rejected")
+        self.assertFalse(result["mail_sent"], "a skipped mail is not a sent mail")
+        self.assertIn("could not be sent", result["message"])
+        self.assertTrue(
+            any("could not be sent" in str(entry) for entry in list(frappe.local.message_log)[before:]),
+            "the reviewer is told through msgprint as well",
+        )
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Rejection mail%"]}),
+            errors,
+            "a deliberate skip is not an error",
+        )
+
     def test_mail_service_raising_is_reported_logged_and_keeps_the_rejection(self):
         name = self._stage_and_confirm()
         self.expectErrorLog("Rejection mail raised")
@@ -898,6 +963,94 @@ class TestApproveApplicationBoard(ApprovalCase):
 
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Rejected")
+
+
+class TestApprovalDefaultsBlankAccountHolder(ApprovalCase):
+    """#1988: an application with an IBAN and no account holder name. Approval fills the holder with the
+    applicant's full name (maintainer ruling 2026-11-03) and writes the IBAN history row as usual.
+
+    Driven through the real flow (submit_application / submit_short_application -> confirm ->
+    approve_application); no field is set directly to stand in for it."""
+
+    def _approval_errors(self, member_name):
+        """Error Log rows the approval's service layer wrote about this member (MyISAM: not rolled back)."""
+        return frappe.get_all(
+            "Error Log",
+            {"method": "MemberApprovalService Error", "error": ["like", f"%{member_name}%"]},
+            pluck="error",
+        )
+
+    def _assert_holder_defaulted(self, name, **approver):
+        result = self._approve_as(name, **approver)
+        self.assertTrue(result["success"], result)
+        member = frappe.get_doc("Member", frappe.db.get_value(SUBMISSION, name, "member"))
+        self.assertTrue(member.full_name)
+        self.assertEqual(member.bank_account_name, member.full_name)
+        rows = [row for row in member.iban_history if row.iban.replace(" ", "") == IBAN]
+        self.assertEqual(len(rows), 1, "one IBAN history row for the application's IBAN")
+        self.assertEqual((rows[0].bank_account_name, rows[0].is_active), (member.full_name, 1))
+        self.assertEqual(self._approval_errors(member.name), [])
+        return member
+
+    def test_full_form_blank_holder_defaults_to_full_name_as_admin(self):
+        name = self._stage_and_confirm(iban=IBAN)
+        self._assert_holder_defaulted(name)
+
+    def test_full_form_blank_holder_defaults_to_full_name_as_board_member(self):
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        name = self._stage_and_confirm(iban=IBAN)
+        self._assert_holder_defaulted(name, user=board.user)
+
+    def test_short_form_blank_holder_defaults_to_full_name(self):
+        name = self._stage_short_and_confirm(bank_account_name="")
+        self._assert_holder_defaulted(name)
+
+    def test_whitespace_holder_on_the_existing_member_counts_as_blank(self):
+        """The application's own whitespace is stripped upstream, so only a stored one reaches the helper's
+        strip. PROBE SHORTCUT, stated: the Member's whitespace holder is written straight to the database
+        (the forms cannot produce it); the termination, reapplication and approval are the real flow."""
+        member = self._voluntarily_quit_member_with_iban()
+        frappe.db.set_value("Member", member.name, "bank_account_name", "   ")
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
+        self.assertEqual(self._approval_errors(member.name), [])
+
+    def test_supplied_holder_is_kept(self):
+        name = self._stage_and_confirm(iban=IBAN, bank_account_name="J. Holder-Other")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member = frappe.get_doc("Member", frappe.db.get_value(SUBMISSION, name, "member"))
+        self.assertNotEqual(member.full_name, "J. Holder-Other")  # a real control: the default differs
+        self.assertEqual(member.bank_account_name, "J. Holder-Other")
+        rows = [row for row in member.iban_history if row.iban.replace(" ", "") == IBAN]
+        self.assertEqual([row.bank_account_name for row in rows], ["J. Holder-Other"])
+
+    def test_reapplication_of_quit_member_with_iban_and_no_holder(self):
+        """The fixture #1988's thread names: a Member with an IBAN and no holder who reapplies."""
+        member = self._voluntarily_quit_member_with_iban()
+        self.assertFalse(frappe.db.get_value("Member", member.name, "bank_account_name"))
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertEqual(member.bank_account_name, member.full_name)
+        self.assertEqual([row.bank_account_name for row in member.iban_history], [member.full_name])
+        self.assertEqual(self._approval_errors(member.name), [])
+
+    def test_reapplication_keeps_the_members_existing_holder(self):
+        """Control: a holder already on the Member is a supplied one; a blank application must not replace it."""
+        member = self._voluntarily_quit_member_with_iban(bank_account_name="Old Holder")
+        name = self._stage_short_and_confirm(bank_account_name="")
+        result = self._approve_as(name)
+        self.assertTrue(result["success"], result)
+        member.reload()
+        self.assertNotEqual(member.full_name, "Old Holder")
+        self.assertEqual(member.bank_account_name, "Old Holder")
+        self.assertEqual(self._approval_errors(member.name), [])
 
 
 class TestApplicationChanges(ApprovalCase):

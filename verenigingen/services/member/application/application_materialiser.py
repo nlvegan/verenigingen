@@ -24,6 +24,7 @@ from verenigingen.services.member.approval.application_helpers import (
     create_member_from_application,
     create_pending_chapter_membership,
     create_volunteer_record,
+    default_blank_account_holder,
     map_payment_method,
 )
 from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
@@ -158,6 +159,7 @@ def _update_member(application, data, member_name, address, application_id):
     _apply_application(member, application, data)
     if address:
         member.primary_address = address.name
+    default_blank_account_holder(member)  # after the names are applied; a held holder is kept (#1988)
     member.status = "Pending"  # so the approval core's preconditions hold
     member.application_status = "Pending"
     member.application_date = now_datetime()

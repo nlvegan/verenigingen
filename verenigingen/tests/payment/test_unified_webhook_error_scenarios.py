@@ -30,7 +30,8 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
     def setUp(self):
         """Set up test fixtures."""
         frappe.set_user("Administrator")
-        self.test_payment_id = "tr_test_error_scenarios"
+        # Unique per test: the non-2xx Error Log row is deduped per id for an hour (#1822).
+        self.test_payment_id = f"tr_test_error_scenarios_{frappe.generate_hash(length=8)}"
         # Reset response state so http_status_code from a prior test in the
         # same worker process cannot bleed into this test's assertions.
         frappe.local.response.http_status_code = 200

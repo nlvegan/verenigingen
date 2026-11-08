@@ -3,6 +3,7 @@ import unittest
 import frappe
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends
 from frappe.utils import today, add_days
 
 from verenigingen.utils.validation_utilities import QueryBuilder
@@ -29,6 +30,8 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # outgoing Email Account is configured; ensure one exists so the real
         # send path executes (and the frappe.sendmail mock is reachable).
         self._ensure_outgoing_email_account()
+        # #2015: only a real send is counted, so cooldown/enable state must be explicit
+        allow_reminder_sends()
 
         # Create real test member with Enhanced Test Factory
         self.test_member = self.create_test_member(

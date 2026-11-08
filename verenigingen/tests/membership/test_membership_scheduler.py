@@ -25,6 +25,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
 from verenigingen.verenigingen.doctype.membership import scheduler
 
 
@@ -144,6 +145,7 @@ class TestMembershipScheduler(VereningingenTestCase):
                     "name": "membership_renewal_reminder",
                     "subject": "Renewal reminder",
                     "response": "<p>Please renew {{ days_to_expiry }}</p>",
+                    "response_html": "<p>Please renew {{ days_to_expiry }}</p>",
                     "use_html": 1,
                 }
             )
@@ -162,9 +164,14 @@ class TestMembershipScheduler(VereningingenTestCase):
         email = frappe.db.get_value("Membership", self.membership.name, "email")
         self.assertTrue(email, "windowed membership must have an email for the send path")
 
+        # A skipped send is counted like a sent one, so own the key and read the Email Queue (#2010).
+        own_notification_keys(self, "membership_renewal_reminder")
+        queued_before = queued_mail_count(email)
+
         count = scheduler._send_renewal_reminders_impl()
         self.assertIsInstance(count, int)
         self.assertGreaterEqual(count, 1)
+        self.assertEqual(queued_mail_count(email), queued_before + 1)
 
     def test_send_renewal_reminders_public_runs(self):
         # Public entry point: acquires lock, delegates, releases. No record in a

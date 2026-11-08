@@ -251,7 +251,16 @@ $(document).ready(() => {
 			currentPayment && currentPayment.paymentID
 				? `&payment_id=${encodeURIComponent(currentPayment.paymentID)}`
 				: '';
-		const successUrl = `/payment-success?doctype=${pageConfig.reference_doctype}&docname=${pageConfig.reference_docname}${paymentIdParam}`;
+		// make_payment also returns a return token, minted only after it has verified the
+		// payer owns the document, for doctypes (Sales Invoice) that carry no payment_id
+		// field for the page to compare against (#1996).
+		const tokenParam =
+			currentPayment && currentPayment.returnToken
+				? `&token=${encodeURIComponent(currentPayment.returnToken)}`
+				: '';
+		// /payment_success (underscore) is this app's page; the hyphenated route belongs to the
+		// payments app and reports success for any outcome (#1996, until payments#192).
+		const successUrl = `/payment_success?doctype=${pageConfig.reference_doctype}&docname=${pageConfig.reference_docname}${paymentIdParam}${tokenParam}`;
 
 		setTimeout(() => {
 			window.location.href = successUrl;

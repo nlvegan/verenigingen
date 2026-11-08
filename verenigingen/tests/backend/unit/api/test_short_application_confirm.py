@@ -197,10 +197,12 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         other_type = self.create_test_membership_type()
         other_template = frappe.db.get_value("Membership Type", other_type.name, "dues_schedule_template")
         frappe.db.set_value("Membership Dues Schedule", other_template, "billing_frequency", "Monthly")
-        frappe.db.set_value(
-            "Membership Application Door",
-            self.door.name,
-            {"membership_type": other_type.name, "monthly_dues_template": other_template},
+        frappe.db.set_value("Membership Application Door", self.door.name, "membership_type", other_type.name)
+        frappe.db.set_value(  # doctype-ok: new in #2127
+            "Membership Application Door Plan",
+            self.door.plans[0].name,
+            "dues_template",
+            other_template,
         )
         return other_type
 
@@ -266,8 +268,9 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
                     frappe.db.set_value("Membership Dues Schedule", self.template, saved)
 
     def test_template_edited_to_another_frequency_after_the_door_was_saved_is_refused_at_submit(self):
-        """The door checks slot frequency only when it is saved; the template can still be edited.
-        A Monthly choice must never reach an Annual template (it would bill the amount yearly)."""
+        """The template can be edited after the door was saved. A form that still says Monthly (it names
+        a frequency, as a page loaded before plans did) must never reach a template now billed yearly:
+        it would bill the amount yearly."""
         # Straight to the column, as an import would: saving the template is refused while a door
         # uses it, so the submit check is what stops this route.
         frappe.db.set_value("Membership Dues Schedule", self.template, "billing_frequency", "Annual")
@@ -277,7 +280,7 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
             response = sa.submit_short_application(self.door.name, **data)
         finally:
             frappe.set_user(self._previous_user)
-        self.assertEqual(response, {"success": False, "message": "This payment frequency is not available."})
+        self.assertEqual(response, {"success": False, "message": "This payment plan is not available."})
         self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), 0)
 
     def _try_to_make_the_template_annual(self):

@@ -488,7 +488,7 @@ class MollieSettings(Document):
         if payment_id:
             url_params += f"&payment_id={payment_id}"
 
-        return get_url(f"payment-success?{url_params}")
+        return get_url(f"payment_success?{url_params}")
 
     def create_customer(self, customer_data):
         """

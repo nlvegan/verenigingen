@@ -467,8 +467,9 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                 },
             )
 
-        # Validate membership amount if custom amount is provided
-        amount_error = _validate_membership_amount(data) or _validate_selected_membership_type(data)
+        # The type check goes first: the amount validator looks the type up too, and its "not found"
+        # (message + Error Log row) would tell a guest an unknown name from a disabled one (#1962).
+        amount_error = _validate_selected_membership_type(data) or _validate_membership_amount(data)
         if amount_error:
             return amount_error
 
@@ -569,6 +570,17 @@ def _handle_existing_member(existing_member, data):
             },
         )
 
+    # Scenario 4: Active member - cannot reapply. Ahead of the application_status branches: that field is a
+    # Select with no default, so Frappe fills "Pending" for every Member that never had it written (a
+    # MijnRood import, most fixtures). An Active member reading "Pending" would otherwise be staged as a
+    # new application, and approving it overwrites the member's data and resets member_since (#1989).
+    if status == "Active":
+        return None, OperationResult.fail(
+            _("You are already an active member. Please login to manage your membership."),
+            errors=["already_active_member"],
+            context={"member_exists": True, "operation": "submit_application"},
+        )
+
     # Scenario 1: Rejected application - allow reapplication
     if app_status == "Rejected":
         frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
@@ -578,14 +590,6 @@ def _handle_existing_member(existing_member, data):
     if app_status == "Pending":
         frappe.logger().info(f"Update to pending application {member_name}")
         return "update", None
-
-    # Scenario 4: Active member - cannot reapply
-    if status == "Active":
-        return None, OperationResult.fail(
-            _("You are already an active member. Please login to manage your membership."),
-            errors=["already_active_member"],
-            context={"member_exists": True, "operation": "submit_application"},
-        )
 
     # Unknown status - block with contact message
     return None, _record_exists_failure()
@@ -600,9 +604,12 @@ def _record_exists_failure():
 
 
 def _validate_selected_membership_type(data):
-    """Refuse a type that does not exist. Creating the Member used to fail on it; staging would not."""
+    """Refuse a type that does not exist or is disabled (is_active). Creating the Member used to fail on
+    an unknown one; staging would not. One lookup and one message for both, so a guest cannot tell a
+    disabled type from a made-up name (#1962)."""
     chosen = data.get("selected_membership_type")
-    if chosen and not (isinstance(chosen, str) and frappe.db.exists("Membership Type", chosen)):
+    is_active = isinstance(chosen, str) and frappe.db.get_value("Membership Type", chosen, "is_active")
+    if chosen and not is_active:
         return OperationResult.fail(
             _("The selected membership type is not available."),
             errors=["invalid_membership_type"],

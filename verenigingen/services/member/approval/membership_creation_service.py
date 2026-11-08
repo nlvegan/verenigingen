@@ -651,7 +651,7 @@ class MembershipCreationService(StatelessService):
                 indicator="orange",
             )
 
-    def _create_membership_invoice(self, member_doc, membership, membership_type):
+    def _create_membership_invoice(self, member_doc, membership, membership_type, period_start=None):
         """
         Create membership invoice.
 
@@ -668,7 +668,7 @@ class MembershipCreationService(StatelessService):
         try:
             current_fee = member_doc.get_current_membership_fee()
             invoice = create_membership_invoice(
-                member_doc, membership, membership_type, current_fee["amount"]
+                member_doc, membership, membership_type, current_fee["amount"], period_start=period_start
             )
             self.logger.info(
                 f"MembershipCreationService: Created invoice {invoice.name} for {member_doc.name}"

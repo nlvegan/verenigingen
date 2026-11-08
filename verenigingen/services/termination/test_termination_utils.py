@@ -278,6 +278,54 @@ class TestTerminationUtils(EnhancedTestCase):
         self.assertGreaterEqual(result["processed"], 1)
 
     # ==================================================================
+    # staff alert events recorded by the two termination_overdue call sites (#1979)
+    # ==================================================================
+    def _termination_overdue_events(self):
+        # doctype-ok: added by this PR; the validator reads the installed app tree
+        return frappe.get_all(
+            "Staff Alert Event",
+            filters={
+                "notification_key": "termination_overdue",
+                "reference_doctype": "Membership Termination Request",
+            },
+            fields=["name", "reference_name", "attempts", "action_status"],
+        )
+
+    def test_the_daily_overdue_alert_is_one_event_that_recurs(self):
+        """Two daily runs about the same overdue problem are ONE Open event, not one row per run."""
+        member = self._make_member()
+        req = self._make_termination_request(member, status="Pending")
+        frappe.db.set_value(
+            "Membership Termination Request", req.name, "request_date", add_days(today(), -10)
+        )
+        tu.process_overdue_termination_requests()
+        first = self._termination_overdue_events()
+        tu.process_overdue_termination_requests()
+        second = self._termination_overdue_events()
+        self.assertEqual(len(first), 1, first)
+        self.assertEqual([e.name for e in second], [e.name for e in first])
+        self.assertEqual(second[0].attempts, first[0].attempts + 1)
+        self.assertEqual(second[0].action_status, "Open")
+
+    def test_the_compliance_alert_is_one_event_that_recurs_and_is_not_the_overdue_event(self):
+        self.expectErrorLog("Quit Member Without Executed Termination")
+        member = self._make_member()
+        frappe.db.set_value("Member", member.name, "status", "Quit")  # probe shortcut, see #1777 tests above
+        overdue_member = self._make_member()
+        overdue = self._make_termination_request(overdue_member, status="Pending")
+        frappe.db.set_value(
+            "Membership Termination Request", overdue.name, "request_date", add_days(today(), -10)
+        )
+        tu.process_overdue_termination_requests()
+        tu.audit_termination_compliance()
+        tu.audit_termination_compliance()
+        events = {e.reference_name: e for e in self._termination_overdue_events()}
+        self.assertEqual(
+            len(events), 2, "control: the overdue alert and the compliance alert are different problems"
+        )
+        self.assertEqual(sorted(e.attempts for e in events.values()), [1, 2])
+
+    # ==================================================================
     # generate_weekly_termination_report
     # ==================================================================
     def test_weekly_report_with_recent_request(self):

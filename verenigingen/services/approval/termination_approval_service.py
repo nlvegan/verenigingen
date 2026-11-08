@@ -265,6 +265,9 @@ class TerminationApprovalService(StatefulService):
                     f"Failed to send approval notification: {result.error_message}",
                     "Termination Approval Email Error",
                 )
+            elif result.skip_reason:
+                # Cooldown / disabled key / opt-out: nothing went out (#2096)
+                self.logger.info(f"Approval notification skipped: {result.skip_reason}")
             else:
                 self.logger.info(f"Approval notification sent to {self.request.secondary_approver}")
         except Exception as e:
@@ -324,6 +327,9 @@ class TerminationApprovalService(StatefulService):
                     f"Failed to send approved notification: {result.error_message}",
                     "Termination Approved Email Error",
                 )
+            elif result.skip_reason:
+                # Cooldown / disabled key / opt-out: nothing went out (#2096)
+                self.logger.info(f"Approved notification skipped: {result.skip_reason}")
             else:
                 self.logger.info(f"Approved notification sent to {self.request.requested_by}")
         except Exception as e:
@@ -364,6 +370,9 @@ class TerminationApprovalService(StatefulService):
                     f"Failed to send rejection notification: {result.error_message}",
                     "Termination Rejection Email Error",
                 )
+            elif result.skip_reason:
+                # Cooldown / disabled key / opt-out: nothing went out (#2096)
+                self.logger.info(f"Rejection notification skipped: {result.skip_reason}")
             else:
                 self.logger.info(f"Rejection notification sent to {self.request.requested_by}")
         except Exception as e:

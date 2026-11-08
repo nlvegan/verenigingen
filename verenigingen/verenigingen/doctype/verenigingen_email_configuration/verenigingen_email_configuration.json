@@ -17,6 +17,7 @@
   "column_break_recipients",
   "system_alert_emails",
   "fallback_admin_role",
+  "staff_alert_uncounted_users",
   "notification_registry_section",
   "notification_types",
   "operational_settings_section",
@@ -104,6 +105,12 @@
    "label": "Fallback Admin Role",
    "options": "Role",
    "description": "Role to use when no specific recipients are configured"
+  },
+  {
+   "fieldname": "staff_alert_uncounted_users",
+   "fieldtype": "Small Text",
+   "label": "Staff Alert: Users Who Do Not Count As Reached",
+   "description": "Comma-separated user names or emails. A staff alert delivered only to these users (or to Administrator, or to anyone who is not an enabled User) is reported as not delivered. Use it for shared or unattended accounts."
   },
   {
    "fieldname": "notification_registry_section",

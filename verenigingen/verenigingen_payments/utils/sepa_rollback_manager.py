@@ -26,7 +26,6 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
-from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
 class RollbackReason(Enum):
@@ -852,14 +851,21 @@ class SEPARollbackManager:
     def _get_notification_recipients(self, reason: RollbackReason) -> List[str]:
         """Get notification recipients based on rollback reason.
 
-        Resolves the enabled, non-empty emails of users holding the SEPA
-        management roles (System Manager / Verenigingen Administrator) via the
-        shared resolver.
+        The ``sepa_batch_error`` key's own recipients (Verenigingen Email Configuration) come
+        first, then the admin roles; Administrator is never a recipient and an empty result is
+        written to the Error Log once a day (#2036). The sends below use the same key.
         """
         try:
-            return get_recipients_by_roles([Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
+            from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+                get_financial_admin_emails,
+            )
+
+            return get_financial_admin_emails("sepa_batch_error")
         except Exception as e:
-            frappe.logger().warning(f"Error getting notification recipients: {str(e)}")
+            frappe.log_error(
+                title="SEPA rollback notification recipients",
+                message=f"Error getting notification recipients: {e}\n{frappe.get_traceback(with_context=False)}",
+            )
             return []
 
     def get_rollback_status(self, operation_id: str) -> Dict[str, Any]:

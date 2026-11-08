@@ -19,6 +19,7 @@ import frappe
 from frappe.utils import today, add_days, get_datetime
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends
 
 
 class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
@@ -77,8 +78,11 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         for key in notification_keys:
             if key in existing:
                 for nt in config.notification_types:
-                    if nt.notification_key == key and not nt.enabled:
+                    # #1999: a registered key is seeded with a real cooldown (payment_reminder_*
+                    # 10080/4320 min), which would throttle the repeat sends to this fixed member.
+                    if nt.notification_key == key and (not nt.enabled or nt.cooldown_minutes):
                         nt.enabled = 1
+                        nt.cooldown_minutes = 0
                         changed = True
             else:
                 config.append(
@@ -114,6 +118,8 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
                 "payment_failure",
             ]
         )
+        # #2015: only a real send is counted, so cooldown state must be explicit
+        allow_reminder_sends()
 
         # Create realistic test data using Enhanced Test Factory
         # This creates real members, chapters, invoices, etc. in the database.
@@ -292,7 +298,9 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         # Verify real business logic results
         self.assertTrue(result["success"], f"Payment reminder failed: {result.get('message')}")
         self.assertGreater(result["count"], 0, "Should find real overdue payments")
-        self.assertIn("successfully", result["message"])
+        # #2015: the message reports sent / skipped / failed instead of "sent successfully"
+        self.assertEqual((result["skipped"], result["failed"]), (0, 0), result)
+        self.assertEqual(result["sent"], result["count"])
         
         # Verify SMTP was called with real email content (not mocked content)
         mock_smtp.assert_called()

@@ -67,7 +67,8 @@ The test helper framework can be extended to support:
 
 import unittest
 
-from verenigingen.verenigingen.doctype.member.test_member import TestMember
+# Module, not class: a module-level TestCase is re-collected under this module (#1939).
+from verenigingen.verenigingen.doctype.member import test_member
 
 
 def run_member_tests():
@@ -99,7 +100,7 @@ def run_member_tests():
         - Success rate calculation handles division by zero gracefully
     """
     try:
-        suite = unittest.TestLoader().loadTestsFromTestCase(TestMember)
+        suite = unittest.TestLoader().loadTestsFromTestCase(test_member.TestMember)
         runner = unittest.TextTestRunner(verbosity=2)
         result = runner.run(suite)
 

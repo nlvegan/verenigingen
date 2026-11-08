@@ -25,6 +25,7 @@ import frappe
 from verenigingen.templates.pages import payment_success
 from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.ing_return import ing_return_token, stub_paynl_order_status
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 
@@ -207,34 +208,59 @@ class TestPagePaymentSuccess(EnhancedTestCase):
     # Pay.nl / ING Checkout return branch
     # ------------------------------------------------------------------
 
+    def _ing_return(self, order_id, status_code):
+        """Real transaction row + valid token; only the Pay.nl HTTP client is stubbed (#2038)."""
+        donation = self._make_donation()
+        txn = frappe.get_doc(
+            {
+                "doctype": "ING Checkout Transaction",
+                "transaction_id": order_id,
+                "status": "Pending",
+                "amount": 10.0,
+                "currency": "EUR",
+                "reference_doctype": "Donation",
+                "reference_name": donation.name,
+            }
+        ).insert()
+        self.track_doc("ING Checkout Transaction", txn.name)
+        context = frappe._dict()
+        with stub_paynl_order_status(status_code):
+            payment_success.handle_ing_checkout_return(
+                context, order_id, ing_return_token("Donation", donation.name)
+            )
+        return context
+
     def test_ing_checkout_completed_status(self):
         """Status code 100 from Pay.nl maps to 'completed'."""
-        context = frappe._dict()
-        with patch(
-            "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-            return_value={"success": True, "status_code": 100},
-        ):
-            payment_success.handle_ing_checkout_return(context, "EX-1234")
-        self.assertEqual(context.payment_status, "completed")
+        self.assertEqual(self._ing_return("EX-1234", 100).payment_status, "completed")
 
     def test_ing_checkout_cancelled_status(self):
         """Status code -90 from Pay.nl maps to 'cancelled'."""
-        context = frappe._dict()
-        with patch(
-            "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-            return_value={"success": True, "status_code": -90},
-        ):
-            payment_success.handle_ing_checkout_return(context, "EX-1234")
-        self.assertEqual(context.payment_status, "cancelled")
+        self.assertEqual(self._ing_return("EX-1235", -90).payment_status, "cancelled")
 
     def test_ing_checkout_api_failure_is_error(self):
-        """A non-success result from the Pay.nl API surfaces as an error status."""
+        """A Pay.nl API failure surfaces as an error status carrying its message."""
+        from verenigingen.verenigingen_payments.ing_checkout.client import PayNLError
+
+        donation = self._make_donation()
+        txn = frappe.get_doc(
+            {
+                "doctype": "ING Checkout Transaction",
+                "transaction_id": "EX-1236",
+                "status": "Pending",
+                "amount": 10.0,
+                "currency": "EUR",
+                "reference_doctype": "Donation",
+                "reference_name": donation.name,
+            }
+        ).insert()
+        self.track_doc("ING Checkout Transaction", txn.name)
         context = frappe._dict()
-        with patch(
-            "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-            return_value={"success": False, "message": "boom"},
-        ):
-            payment_success.handle_ing_checkout_return(context, "EX-1234")
+        with stub_paynl_order_status(100) as client:
+            client.get_order.side_effect = PayNLError("boom")
+            payment_success.handle_ing_checkout_return(
+                context, "EX-1236", ing_return_token("Donation", donation.name)
+            )
         self.assertEqual(context.payment_status, "error")
         self.assertEqual(context.payment_message, "boom")
 

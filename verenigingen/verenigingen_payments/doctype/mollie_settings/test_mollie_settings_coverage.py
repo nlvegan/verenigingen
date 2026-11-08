@@ -59,7 +59,7 @@ class TestMollieSettingsCoverage(EnhancedTestCase):
         """Without an override the default success URL carries doctype/docname/payment_id."""
         self.settings.redirect_url = None
         url = self.settings.get_redirect_url("Donation", "DON-0002", "tr_xyz")
-        self.assertIn("payment-success?", url)
+        self.assertIn("/payment_success?", url)
         self.assertIn("doctype=Donation", url)
         self.assertIn("docname=DON-0002", url)
         self.assertIn("payment_id=tr_xyz", url)
