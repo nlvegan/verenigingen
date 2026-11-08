@@ -30,11 +30,17 @@ events), and (b) declare the subscriber-noise titles via expectErrorLog() in
 setUp so the automatic tearDown check ignores only that known-benign noise.
 """
 
+import json
+from unittest.mock import patch
+
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.team import team as team_module
 from verenigingen.verenigingen.doctype.team.team import get_team_permission_query_conditions
+
+EMITTER_2181 = "verenigingen.verenigingen.doctype.team.team.emit_team_membership_changed"
 
 
 class TestTeamCoverage(EnhancedTestCase):
@@ -448,6 +454,99 @@ class TestTeamCoverage(EnhancedTestCase):
         vols = {m.volunteer for m in team.team_members}
         self.assertIn(new_vol.name, vols, "added member present")
         self.assertNotIn(member_vol.name, vols, "removed member gone")
+
+    # ------------------------------ #2181 membership event keys (form-shaped saves)
+
+    def _insert_team_2181(self, *vols_roles):
+        team = self._new_team()
+        for vol, role in vols_roles:
+            self._append_member(team, vol, team_role=role, role="Original")
+        team.insert()
+        self.track_doc("Team", team.name)
+        return team.name
+
+    def _desk_doc_2181(self, team_name):
+        """The doc a desk save builds: stored values round-tripped through JSON."""
+        stored = frappe.get_doc("Team", team_name)
+        return frappe.get_doc(json.loads(frappe.as_json(stored)))
+
+    def _captured_save_2181(self, doc):
+        calls = []
+        real = team_module.emit_team_membership_changed
+
+        def record(team_name, data):
+            calls.append(data)
+            return real(team_name, data)
+
+        with patch(EMITTER_2181, side_effect=record):
+            doc.save()
+        return calls
+
+    def test_desk_shaped_role_change_emits_one_role_changed(self):
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = self._desk_doc_2181(name)
+        self.assertIsInstance(doc.team_members[0].from_date, str, "premise: desk dates are strings")
+        self.assertNotIsInstance(
+            frappe.get_doc("Team", name).team_members[0].from_date, str, "premise: stored is a date"
+        )
+        doc.team_members[0].team_role = "Team Leader"
+
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["role_changed"], events)
+        self.assertEqual(events[0]["old_role"], "Team Member")
+        self.assertEqual(events[0]["role"], "Team Leader")
+
+    def test_in_memory_date_role_change_still_emits_one_role_changed(self):
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = frappe.get_doc("Team", name)
+        doc.team_members[0].team_role = "Team Leader"
+
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["role_changed"], events)
+
+    def test_two_rows_of_one_volunteer_with_different_dates_stay_distinct(self):
+        """Control: normalising the key must not merge distinct rows. Removing the older
+        row while the newer stays is a ``removed``, not a role change of the other."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="A", from_date=add_days(today(), -5))
+        self._append_member(team, vol, team_role="Team Leader", role="B", from_date=today())
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        doc.team_members = [m for m in doc.team_members if m.team_role == "Team Leader"]
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["removed"], events)
+        self.assertEqual(events[0]["old_role"], "Team Member")
+
+    def test_new_row_for_same_volunteer_with_other_date_is_added(self):
+        """Control: an extra row (new from_date) for a volunteer already on the team is an
+        ``added``; the existing row is untouched."""
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = self._desk_doc_2181(name)
+        doc.append(
+            "team_members",
+            {
+                "volunteer": vol.name,
+                "volunteer_name": vol.volunteer_name,
+                "team_role": "Team Leader",
+                "role_type": "Team Leader",
+                "role": "New",
+                "from_date": str(add_days(today(), 1)),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["added"], events)
 
     # --------------------------------- get_team_permission_query_conditions
 
