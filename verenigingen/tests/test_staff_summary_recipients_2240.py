@@ -12,7 +12,7 @@ Probe shortcut, said plainly: Administrator's ``role_profile_name`` is written w
 real site, which #2240 left unestablished. Administrator's roles are real Has Role rows.
 
 Run:
-    bench --site test_site_6 run-tests --app verenigingen --module verenigingen.tests.test_staff_summary_recipients_2240
+    bench --site <test site> run-tests --app verenigingen --module verenigingen.tests.test_staff_summary_recipients_2240
 """
 
 from unittest.mock import MagicMock, patch
@@ -74,8 +74,7 @@ class _Base(EnhancedTestCase):
         if self.seed_rows:
             ensure_notification_registry_rows()
         frappe.db.set_single_value(CONFIG, "admin_notification_emails", "")
-        for field in ("stuck_schedule_notification_emails",):
-            self._set_single("Verenigingen Settings", field, "")
+        self._set_single("Verenigingen Settings", "stuck_schedule_notification_emails", "")
         self._set_single("Verenigingen Payments Settings", "financial_admin_emails", "")
 
         suffix = frappe.generate_hash(length=5)
@@ -153,7 +152,7 @@ class _Base(EnhancedTestCase):
 
 
 class _WeeklyReport:
-    def test_weekly_termination_report_audience(self):
+    def _send_weekly_report(self):
         member = self.create_test_member(first_name="Wk", last_name=f"T{frappe.generate_hash(length=6)}")
         frappe.get_doc(
             {
@@ -168,6 +167,10 @@ class _WeeklyReport:
         ).insert()
         mail = self.mail()
         tu.generate_weekly_termination_report()
+        return mail
+
+    def test_weekly_termination_report_audience(self):
+        mail = self._send_weekly_report()
         self.assert_audience(mail)
         self.assertEqual(set(mail.keys), {WEEKLY_KEY}, "its own key: it must not borrow termination_overdue's row")
 
@@ -205,6 +208,22 @@ class TestSeededRowAudiences(_Base, _WeeklyReport, _DuesSummary):
     """The row a migrated site really has, seeded from the registry; the resolver uses it first."""
 
     seed_rows = True
+
+    def test_a_configured_admin_email_list_does_not_beat_the_seeded_role(self):
+        """With admin_notification_emails set, a seeded Role-Based row must still win.
+
+        Under a Document-Field row (the old seed of the dues key) the row resolves to nobody and the
+        resolver falls to the admin emails, so a role-less registry entry shows only here (#2169 review).
+        """
+        sentinel = "configured-admins-2240@example.org"
+        frappe.db.set_single_value(CONFIG, "admin_notification_emails", sentinel)
+        weekly = self._send_weekly_report()
+        with patch("verenigingen.verenigingen_payments.services.mollie_configuration_service.get_mollie_config"):
+            dues = self.mail()
+            dsac._send_summary_email(dict(self.RESULT))
+        for mail in (weekly, dues):
+            self.assertNotIn(sentinel, mail.recipients)
+            self.assert_audience(mail)
 
     def test_seeded_rows_name_the_old_audience(self):
         from verenigingen.notification_registry import NOTIFICATION_KEYS
