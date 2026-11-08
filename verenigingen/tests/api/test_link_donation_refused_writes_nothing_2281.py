@@ -27,6 +27,7 @@ import textwrap
 import frappe
 from frappe.utils import get_bench_path
 
+from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -54,6 +55,7 @@ _PROBE = textwrap.dedent(
         user = frappe.get_doc({{"doctype": "User", "email": email, "first_name": "Link2281",
                                "enabled": 1, "send_welcome_email": 0}}).insert(ignore_permissions=True)
         created.append(("User", email))
+        created.append(("Notification Settings", email))
         assign_role_profile_to_user(email, profile)
         secret = generate_keys(email)["api_secret"]
         frappe.db.commit()
@@ -66,6 +68,12 @@ _PROBE = textwrap.dedent(
             "is_anbi_eligible": 1, "anbi_consent": 1,
             "bsn_citizen_service_number": generate_valid_bsn()}}).insert(ignore_permissions=True)
         created.append(("Donor", donor.name))
+        # Donor.insert also creates a Customer named after the donor; it outlives the Donor.
+        customer = frappe.db.get_value("Customer", {{"customer_name": donor.donor_name}})
+        if customer:
+            created.append(("Customer", customer))
+            if frappe.db.exists("Contact", customer + "-" + customer):  # made by Customer.insert
+                created.append(("Contact", customer + "-" + customer))
         agreement = frappe.get_doc({{"doctype": "Periodic Donation Agreement", "donor": donor.name,
             "start_date": today(), "annual_amount": 1200, "payment_frequency": "Monthly",
             "payment_method": "Bank Transfer", "agreement_duration_years": "5 Years (ANBI Minimum)",
@@ -123,7 +131,14 @@ _PROBE = textwrap.dedent(
         print("RESULT" + json.dumps(out))
     finally:
         frappe.destroy(); frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")
-        for dt, name in reversed(created):
+        # User.insert also creates a Contact carrying the user's email; found here, once it exists.
+        for contact in frappe.get_all("Contact", filters={{"email_id": ["in", [n for dt, n in created if dt == "User"]]}},
+                                      pluck="name"):
+            created.append(("Contact", contact))
+        # Contacts last: deleting a User re-creates its Contact if it is already gone.
+        for dt, name in sorted(reversed(created), key=lambda row: row[0] == "Contact"):
+            if dt == "Notification Settings":
+                continue  # deleted with its User; listed only so its leftovers are scoped
             try:
                 if dt == "Donation":
                     frappe.db.set_value("Donation", name, "periodic_donation_agreement", None)
@@ -136,7 +151,33 @@ _PROBE = textwrap.dedent(
                 print("CLEANUP_FAILED " + dt + " " + name + " " + str(e))
         frappe.db.delete("Error Log", {{"method": "Donation Linking Error", "creation": [">=", started]}})
         frappe.db.commit()
-        print("LEFTOVER" + json.dumps([(dt, n) for dt, n in created if frappe.db.exists(dt, n)]))
+        # Rows the deletes and the requests leave behind, removed by the names this probe created.
+        # The API Audit Log has no reference, so it is scoped by user and the probe's own time window
+        # (the Administrator rows are the real role-profile assignment calls made by the fixtures).
+        users = [n for dt, n in created if dt == "User"] + ["Administrator"]
+        subjects = [dt + " " + n for dt, n in created]
+        def residue():
+            return {{
+                "API Audit Log": frappe.get_all("API Audit Log", filters={{"user": ["in", users],
+                    "creation": [">=", started]}}, pluck="name"),
+                "Version": [r for dt, n in created for r in frappe.get_all("Version",
+                    filters={{"ref_doctype": dt, "docname": n,
+                    "creation": [">=", started]}}, pluck="name")],
+                "Comment": frappe.get_all("Comment", filters={{"comment_type": "Deleted",
+                    "subject": ["in", subjects], "creation": [">=", started]}}, pluck="name") + [
+                    r for dt, n in created for r in frappe.get_all("Comment",
+                    filters={{"reference_doctype": dt, "reference_name": n,
+                    "creation": [">=", started]}}, pluck="name")],
+                "Deleted Document": [r for dt, n in created for r in frappe.get_all("Deleted Document",
+                    filters={{"deleted_doctype": dt, "deleted_name": n,
+                    "creation": [">=", started]}}, pluck="name")],
+            }}
+        for dt, names in residue().items():
+            if names:
+                frappe.db.delete(dt, {{"name": ["in", names]}})
+        frappe.db.commit()
+        left = [(dt, n) for dt, n in created if frappe.db.exists(dt, n)]
+        print("LEFTOVER" + json.dumps(left + [(dt, len(v)) for dt, v in residue().items() if v]))
         frappe.destroy()
     """
 )
@@ -197,8 +238,6 @@ class TestRefusalRollsBackOnlyItsOwnWrites2281(VereningingenTestCase):
     def test_work_done_before_the_refused_call_survives(self):
         from verenigingen.api.periodic_donation_operations import link_donation_to_agreement
         from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
-        from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
-
         user = self.create_test_user(
             f"link2281-{frappe.generate_hash(length=6)}0@example.com", roles=["Employee"]
         ).name
@@ -220,3 +259,29 @@ class TestRefusalRollsBackOnlyItsOwnWrites2281(VereningingenTestCase):
         self.assertTrue(frappe.db.exists("ToDo", marker.name), "refusal discarded earlier work")
         self.assertTrue(frappe.db.exists("Donation", donation.name))
         self.assertIsNone(frappe.db.get_value("Donation", donation.name, "periodic_donation_agreement"))
+
+    def test_a_deadlock_propagates_and_is_not_rolled_back_to_a_dead_savepoint(self):
+        """A 1213 destroys the savepoint and the transaction, so the endpoint must re-raise it
+        (the request-level rollback then runs) rather than answer OperationResult.fail or
+        issue a ROLLBACK TO SAVEPOINT that would raise 1305 over the real error.
+
+        The deadlock is injected at the agreement-link boundary: a real two-connection
+        deadlock cannot be forced from inside one test transaction."""
+        from unittest import mock
+
+        from verenigingen.api import periodic_donation_operations as ops
+        from verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement import (
+            PeriodicDonationAgreement,
+        )
+
+        donor = self.create_test_donor(anbi_consent=1, bsn_citizen_service_number=generate_valid_bsn())
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        donation = self.create_test_donation(donor=donor.name, amount=10.0, paid=1)
+
+        # Mock justified: injects the DB-level deadlock a single test transaction cannot produce.
+        with mock.patch.object(
+            PeriodicDonationAgreement, "add_donation_link", side_effect=frappe.QueryDeadlockError("1213")
+        ), mock.patch.object(ops, "rollback_to_savepoint", wraps=ops.rollback_to_savepoint) as rollback:
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ops.link_donation_to_agreement(donation=donation.name, agreement=agreement.name)
+        rollback.assert_not_called()
