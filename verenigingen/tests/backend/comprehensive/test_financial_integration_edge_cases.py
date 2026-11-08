@@ -26,10 +26,13 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         # ensure backing Region exists before creating the chapter.
         # A unique name per class run: Region autonames to a slug of region_name, so a lookup by the
         # unslugged label never found a leaked row and the next run died on a duplicate key (#2270).
+        # region_code is unique too (and validated as 2-5 uppercase letters/digits): a fixed "FTR" would
+        # die on a row an older run left behind.
+        suffix = frappe.generate_hash(length=5).upper()
         region = frappe.get_doc({
             "doctype": "Region",
-            "region_name": f"Financial Test Region {frappe.generate_hash(length=6)}",
-            "region_code": "FTR",
+            "region_name": f"Financial Test Region {suffix}",
+            "region_code": suffix,
         })
         region.insert(ignore_permissions=True)
         region_docname = region.name
@@ -108,17 +111,24 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         committed (production code under test commits), and the class-level rollback registered by the
         base would otherwise restore the deleted rows.
         """
+        failures = []
         for record in reversed(cls.test_records):
-            if record.doctype == "Membership Type":
-                # after_insert created a template that links back to the type; the type cannot go first
-                for template in frappe.get_all(
-                    "Membership Dues Schedule", {"membership_type": record.name}, pluck="name"
-                ):
-                    frappe.delete_doc("Membership Dues Schedule", template, force=True)
-            if record.doctype in ("Volunteer", "Member"):
-                cls._remove_account_creation_requests(record.name)
-            record.delete()
+            try:
+                if record.doctype == "Membership Type":
+                    # after_insert created a template that links back to the type; the type cannot go first
+                    for template in frappe.get_all(
+                        "Membership Dues Schedule", {"membership_type": record.name}, pluck="name"
+                    ):
+                        frappe.delete_doc("Membership Dues Schedule", template, force=True)
+                if record.doctype in ("Volunteer", "Member"):
+                    cls._remove_account_creation_requests(record.name)
+                record.delete()
+            except Exception as e:
+                failures.append(f"{record.doctype} {record.name}: {e}")
+        # Commit what was deleted even when a later delete failed, then fail loudly.
         frappe.db.commit()
+        if failures:
+            raise AssertionError("Could not delete class fixtures (#2270):\n" + "\n".join(failures))
 
     @classmethod
     def _remove_account_creation_requests(cls, source_record):
