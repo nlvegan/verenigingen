@@ -490,6 +490,49 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         agreement.reload()
         self.assertEqual([d for d in agreement.donations if d.donation == donation.name], [])
 
+    def _failed_link_audit_rows(self, since):
+        """Real API Audit Log rows: api_call_failed events for the link endpoint after ``since``."""
+        rows = frappe.get_all(
+            "API Audit Log",
+            filters={"event_type": "api_call_failed", "creation": [">=", since]},
+            fields=["name", "details"],
+        )
+        return [r for r in rows if "link_donation_to_agreement" in (r.details or "")]
+
+    def test_refused_link_is_audited_as_failed_and_a_successful_link_is_not(self):
+        """#352 review N1: with the inner ``link_donation`` decorator gone, a refused link
+        reached the audit trail only as the OUTER ``api_call_success`` (the endpoint catches
+        the error and returns a failure result). The endpoint now records the failure itself.
+        Asserted on real API Audit Log rows."""
+        from frappe.utils import now_datetime
+
+        donor = self._make_donor(anbi_consent=1)
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        ok_donation = self._make_paid_donation(donor.name, amount=150.0)
+        refused_donation = self._make_paid_donation(donor.name, amount=75.0)
+        self.expectErrorLog("Donation Linking Error")
+
+        since = now_datetime()
+        self.assertTrue(self._ok(link_donation_to_agreement(donation=ok_donation.name, agreement=agreement.name)))
+        self.assertEqual(self._failed_link_audit_rows(since), [], "a successful link must record no failure")
+
+        attacker = self.create_test_user(f"nolink-{frappe.generate_hash(length=6)}@example.com")
+        attacker.append("role_profiles", {"role_profile": "Verenigingen National Board Member"})
+        attacker.save(ignore_permissions=True)
+        frappe.set_user(attacker.name)
+        self.addCleanup(frappe.set_user, "Administrator")
+        result = link_donation_to_agreement(donation=refused_donation.name, agreement=agreement.name)
+        frappe.set_user("Administrator")
+
+        self.assertFalse(self._ok(result))
+        rows = self._failed_link_audit_rows(since)
+        self.assertEqual(len(rows), 1, f"a refused link must record exactly one api_call_failed: {rows}")
+        details = json.loads(rows[0].details)
+        self.assertEqual(details["function"], "link_donation_to_agreement")
+        self.assertEqual(details["security_level"], "critical")
+        self.assertEqual(details["user"], attacker.name)
+        self.assertEqual(frappe.db.get_value("API Audit Log", rows[0].name, "user"), attacker.name)
+
     # ================================================================== #
     # send_renewal_reminders
     #
