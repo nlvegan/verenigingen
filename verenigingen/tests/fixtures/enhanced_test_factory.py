@@ -3450,7 +3450,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 patch_obj.stop()
             except RuntimeError:
-                pass  # never started, or already stopped by tearDown
+                pass  # never started, or already stopped
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""
@@ -3629,9 +3629,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         Scope and Lifecycle:
             - Scope: Per-test instance (each test gets its own isolated mock)
-            - Lifecycle: Created in setUp(), destroyed in tearDown()
+            - Lifecycle: Created in setUp(), stopped by an addCleanup callback (not tearDown, see #2221)
             - Thread-safety: Safe - no shared state across test instances
-            - Cleanup: Automatic via tearDown() with hasattr() guards for robustness
+            - Cleanup: Automatic via addCleanup (runs after tearDown, LIFO) with hasattr() guards
 
         Implementation Details:
             - Uses unittest.mock.patch to intercept validate_rate_limits() calls

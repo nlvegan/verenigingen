@@ -80,7 +80,15 @@ class _VtNestsHarnessPatches(VereningingenTestCase):
 
 
 class TestHarnessPatchUnwindOrder(unittest.TestCase):
+    def _assert_all_real(self, targets):
+        """Each test checks its own starting state, so a leaked mock fails it cleanly."""
+        from unittest.mock import NonCallableMock
+
+        for target in targets:
+            self.assertNotIsInstance(_current_binding_at(target), NonCallableMock, target)
+
     def test_nested_patch_of_every_harness_target_restores_the_real_object(self):
+        self._assert_all_real(HARNESS_TARGETS)
         before = {t: _current_binding_at(t) for t in HARNESS_TARGETS}
         suite = unittest.TestSuite([_NestsHarnessPatches("step_noop")])
         result = unittest.TestResult()
@@ -94,6 +102,7 @@ class TestHarnessPatchUnwindOrder(unittest.TestCase):
         )
 
     def test_vereningingen_test_case_restores_the_real_object_for_every_mock_target(self):
+        self._assert_all_real(VT_TARGETS)
         before = {t: _current_binding_at(t) for t in VT_TARGETS}
         result = unittest.TestResult()
         unittest.TestSuite([_VtNestsHarnessPatches("step_noop")]).run(result)
