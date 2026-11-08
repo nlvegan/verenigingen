@@ -384,7 +384,6 @@ verenigingen/utils/payment_history_builder.py::build_payment_history_entry_from_
 verenigingen/utils/payment_history_validator.py::validate_and_repair_payment_history::2
 verenigingen/utils/payment_history_validator.py::validate_payment_history_integrity::1
 verenigingen/utils/performance_event_handlers.py::PerformanceEventHandlers.on_sepa_mandate_change::1
-verenigingen/utils/post_migration_hooks.py::cleanup_orphaned_workspace_links::1
 verenigingen/utils/post_migration_hooks.py::quick_workspace_health_check::1
 verenigingen/utils/post_migration_hooks.py::run_post_migration_workspace_health::2
 verenigingen/utils/retry_utilities.py::execute_with_deadlock_retry::2
