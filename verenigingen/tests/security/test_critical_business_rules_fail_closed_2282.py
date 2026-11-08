@@ -57,6 +57,11 @@ class TestCriticalBusinessRulesFailClosed(VereningingenTestCase):
         self._reset_caches()
         super().tearDown()
 
+    def _set_level(self, level):
+        name = frappe.get_all("Critical Operation Rule", {"operation_name": OPERATION}, pluck="name")[0]
+        frappe.db.set_value("Critical Operation Rule", name, "security_level", level)
+        self._reset_caches()
+
     def _drop_rule(self):
         for name in frappe.get_all("Critical Operation Rule", {"operation_name": OPERATION}, pluck="name"):
             frappe.delete_doc("Critical Operation Rule", name, force=True)
@@ -100,6 +105,39 @@ class TestCriticalBusinessRulesFailClosed(VereningingenTestCase):
         self.assertNotIn("abc", message, "refusal leaks the input / error text")
         self.assertNotIn("float", message)
 
+    def test_non_finite_amounts_are_refused_at_critical_level(self):
+        # float("nan") > 100 is False, so these used to slip past the threshold.
+        self.expectErrorLog("Critical business rule evaluation failed")
+        for value in ("nan", "NaN", "inf", "-inf"):
+            with self.subTest(amount=value):
+                with self.assertRaises(VValidationError):
+                    self._call(value)
+        self.assertEqual(SIDE_EFFECTS, [])
+
+    def test_below_critical_level_an_errored_evaluation_logs_and_proceeds(self):
+        """Control for the level check: a `high` rule behaves as its violations do (proceeds)."""
+        self.expectErrorLog("Critical business rule evaluation failed")
+        self._set_level("high")
+        before = frappe.db.count("Error Log", {"method": ["like", "%critical business rule%"]})
+        self.assertEqual(self._call("abc"), {"credited": "abc"})
+        self.assertEqual(SIDE_EFFECTS, ["abc"])
+        after = frappe.db.count("Error Log", {"method": ["like", "%critical business rule%"]})
+        self.assertEqual(after, before + 1)
+
+    def test_error_log_row_does_not_echo_oversized_input(self):
+        self.expectErrorLog("Critical business rule evaluation failed")
+        with self.assertRaises(VValidationError):
+            self._call("a" * 100000)
+        row = frappe.get_all(
+            "Error Log",
+            {"method": ["like", "%critical business rule%"]},
+            ["error"],
+            order_by="creation desc",
+            limit=1,
+        )[0]
+        self.assertLess(len(row.error), 1000)
+        self.assertIn("ValueError", row.error)
+
     def test_errored_evaluation_is_recorded_in_the_error_log(self):
         self.expectErrorLog("Critical business rule evaluation failed")
         before = frappe.db.count("Error Log", {"method": ["like", "%critical business rule%"]})
@@ -109,6 +147,8 @@ class TestCriticalBusinessRulesFailClosed(VereningingenTestCase):
         self.assertEqual(after, before + 1)
 
     def test_a_deadlock_propagates_unflattened(self):
+        """Patches ABOVE the swallowing layer (validate_business_rules), so it proves only the
+        `except` order in this function. The lower layers (config load) are #2295's."""
         registry = get_critical_operations_registry()
         original = registry.validate_business_rules
 

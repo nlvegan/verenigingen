@@ -36,6 +36,7 @@ Usage:
 # Impersonation Stack - Prevents nested impersonation attacks
 # =============================================================================
 # Thread-local storage for tracking active impersonations
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -1228,7 +1229,12 @@ class CriticalOperationsRegistry:
         if amount_threshold:
             # Check for amount in various possible kwargs
             amount = kwargs.get("amount") or kwargs.get("total_amount") or kwargs.get("grand_total")
-            if amount and float(amount) > amount_threshold:
+            amount_value = float(amount) if amount else 0.0
+            if not math.isfinite(amount_value):
+                # nan/inf compare False against any threshold and would slip past it (#2282).
+                # An evaluation error, so a critical rule refuses it.
+                raise ValueError("non-finite amount")
+            if amount and amount_value > amount_threshold:
                 violations.append(
                     f"Amount {amount} exceeds threshold {amount_threshold} for operation {operation_name}"
                 )
