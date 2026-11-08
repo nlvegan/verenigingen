@@ -216,16 +216,16 @@ class PontoPaymentLink(Document):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
             CANCEL_TOKEN_PURPOSE,
             RETURN_PROOF_PURPOSE,
+            build_return_url,
         )
 
         cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
         # A separate proof (#1833): without it payment_link_callback will not hand out the
         # payment_success token for this link.
         return_proof = generate_guest_return_token(RETURN_PROOF_PURPOSE, self.name)
-        callback_url = get_url(
-            f"/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"
-            f"?payment_link={self.name}&cancel_token={cancel_token}&return_proof={return_proof}"
-        )
+        # The short guest route, not /api/method/...: Ponto rejects a redirectUri over 255
+        # characters and the long path with both 64-hex tokens was 313 on veg11.
+        callback_url = build_return_url(self.name, cancel_token, return_proof)
 
         try:
             client = get_betaalverzoek_client()

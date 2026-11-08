@@ -586,7 +586,8 @@ POST /api/method/verenigingen.verenigingen_payments.ponto.api.webhook.handle_pon
 
 ```
 GET /api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback.payment_callback
-GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback
+GET /ponto-return?l=<link>&c=<cancel_token>&p=<return_proof>   (short guest route; what new links send to Ponto)
+GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback   (links created before the short route)
 GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_page
 ```
 

@@ -584,26 +584,198 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         with patch(LINK_CLIENT, return_value=link_client):
             link.create_ponto_payment_request()
         sent = link_client.create_payment_request.call_args.kwargs["redirect_uri"]
-        query = parse_qs(urlparse(sent).query)
-        self.assertEqual(query["payment_link"], [link.name])
+        parsed = urlparse(sent)
+        # The short guest route, not the ~100-char /api/method path (Ponto's 255 limit)
+        self.assertEqual(parsed.path, betaalverzoek_callback.PONTO_RETURN_ROUTE)
+        query = parse_qs(parsed.query)
+        self.assertEqual(query["l"], [link.name])
         self.assertTrue(
-            verify_guest_return_token(
-                betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["cancel_token"][0]
-            )
+            verify_guest_return_token(betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["c"][0])
         )
         # #1833: a SEPARATE proof, valid for its own purpose only
         self.assertTrue(
-            verify_guest_return_token(
-                betaalverzoek_callback.RETURN_PROOF_PURPOSE, link.name, query["return_proof"][0]
-            )
+            verify_guest_return_token(betaalverzoek_callback.RETURN_PROOF_PURPOSE, link.name, query["p"][0])
         )
-        self.assertNotEqual(query["return_proof"][0], query["cancel_token"][0])
+        self.assertNotEqual(query["p"][0], query["c"][0])
         self.assertFalse(
-            verify_guest_return_token(
-                betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["return_proof"][0]
-            )
+            verify_guest_return_token(betaalverzoek_callback.CANCEL_TOKEN_PURPOSE, link.name, query["p"][0])
         )
+        # both tokens keep their full 64-hex length
+        self.assertEqual((len(query["c"][0]), len(query["p"][0])), (64, 64))
 
+    # ---- the redirectUri must fit Ponto's 255-character limit --------------------------
+
+    def test_the_redirect_uri_fits_pontos_limit_for_a_long_host(self):
+        """Ponto answers HTTP 500 to a redirectUri over 255 characters (measured on the sandbox
+        2026-11-08). The /api/method form with both tokens was 313 on a 27-char host. A 68-char
+        host (https:// + a 60-char name) and the URL the doctype REALLY sends must still fit."""
+        host = "https://" + "h" * 52 + ".example.org"
+        self.assertEqual(len(host), 72)
+        link = self._make_ppl("Draft")
+        link_client = MagicMock()
+        link_client.create_payment_request.return_value = MagicMock(id="rid-255", redirect_link="https://p/s")
+        with patch.dict(frappe.local.conf, {"host_name": host}), patch(LINK_CLIENT, return_value=link_client):
+            link.create_ponto_payment_request()
+        sent = link_client.create_payment_request.call_args.kwargs["redirect_uri"]
+        self.assertTrue(sent.startswith(host), sent)
+        # literal 255 on purpose: Ponto's limit, not whatever constant the code under test declares
+        self.assertLessEqual(len(sent), 255, len(sent))
+
+    def test_the_redirect_uri_fits_for_a_name_that_outgrew_four_digits(self):
+        """PONTO-LINK-{####} is a counter; allow a name far past 4 digits on top of a long host."""
+        host = "https://" + "h" * 60
+        name = "PONTO-LINK-" + "9" * 9
+        with patch.dict(frappe.local.conf, {"host_name": host}):
+            url = betaalverzoek_callback.build_return_url(name, "c" * 64, "p" * 64)
+        self.assertLessEqual(len(url), betaalverzoek_callback.PONTO_REDIRECT_URI_MAX_LENGTH, len(url))
+
+    # ---- the short guest route /ponto-return runs the same callback --------------------
+
+    def _guest_short(self, **args):
+        """GET /ponto-return as Guest through the website renderer, like a browser. Returns every
+        guest-visible channel."""
+        from frappe.website.serve import get_response
+
+        env = EnvironBuilder(
+            path=betaalverzoek_callback.PONTO_RETURN_ROUTE,
+            query_string=args,
+            method="GET",
+            environ_overrides={"REMOTE_ADDR": f"10.19.{next(_ip) % 250}.{(next(_ip) % 250) + 1}"},
+        ).get_environ()
+        original_user = frappe.session.user
+        frappe.set_user("Guest")
+        frappe.local.request = Request(env)
+        frappe.local.form_dict = frappe._dict(args)
+        frappe.local.response = frappe._dict()
+        frappe.local.message_log = []
+        frappe.local.flags.commit = None
+        frappe.local.flags.redirect_location = None
+        queries = []
+        real_sql = frappe.db.sql
+
+        def counting_sql(*a, **kw):
+            queries.append(1)
+            return real_sql(*a, **kw)
+
+        try:
+            with patch.object(frappe.db, "sql", counting_sql):
+                response = get_response(betaalverzoek_callback.PONTO_RETURN_ROUTE.lstrip("/"))
+        finally:
+            seen = {
+                "status_code": response.status_code,
+                "location": response.headers.get("Location") or "",
+                "body": response.get_data(as_text=True),
+                "commit_flag": frappe.local.flags.commit,
+                "queries": len(queries),
+                "session_user": frappe.session.user,
+                "message_log": list(frappe.local.message_log or []),
+            }
+            frappe.set_user(original_user)
+        return seen
+
+    def _short(self, doc, cancel=None, proof=None, **extra):
+        args = {"l": doc.name}
+        if cancel:
+            args["c"] = cancel
+        if proof:
+            args["p"] = proof
+        args.update(extra)
+        return args
+
+    def test_short_route_with_a_valid_proof_redirects_to_payment_success(self):
+        from urllib.parse import parse_qs, urlparse
+
+        from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
+
+        link = self._make_ppl()
+        seen = self._guest_short(**self._short(link, proof=self._proof(link)))
+        self.assertEqual(seen["status_code"], 302)
+        parsed = urlparse(seen["location"])
+        self.assertEqual(parsed.path, "/payment_success")
+        query = parse_qs(parsed.query)
+        self.assertTrue(verify_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, link.name, query["token"][0]))
+
+    def test_short_route_proved_cancel_cancels_and_asks_for_the_commit(self):
+        link = self._make_ppl()
+        seen = self._guest_short(
+            **self._short(link, self._link_token(link), self._proof(link), error="access_denied")
+        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
+        self.assertTrue(seen["commit_flag"])
+
+    def test_short_route_without_a_valid_cancel_token_changes_nothing(self):
+        link, other = self._make_ppl(), self._make_ppl()
+        for label, token in {
+            "missing": None,
+            "other_links_token": self._link_token(other),
+            "return_proof_as_cancel": self._proof(link),
+        }.items():
+            with self.subTest(token=label):
+                seen = self._guest_short(**self._short(link, token, error="access_denied"))
+                self.assertEqual(
+                    frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization"
+                )
+                self.assertFalse(seen["commit_flag"])
+
+    def test_short_route_known_name_without_proof_answers_like_an_unknown_name(self):
+        """Every guest-visible channel, known vs unknown, on the short route: status code,
+        Location, body, message_log, session user, Error Log delta, query count. Control rows
+        are REAL links with a REAL (other) proof or token."""
+        link, other = self._make_ppl(), self._make_ppl()
+        # The website renderer warms its own route/settings caches on the first page it serves
+        # (measured: 13 queries on the very first call, 4 afterwards). That is the renderer, not the
+        # callback, so warm it; the callback's Payments Settings read is still made cold per call.
+        self._guest_short(l=UNKNOWN_LINK)
+        for label, extra in {
+            "no_proof": {},
+            "other_links_proof": {"p": self._proof(other)},
+            "cancel_token_as_proof": {"p": self._link_token(link)},
+            "wrong_token_access_denied": {"c": self._link_token(other), "error": "access_denied"},
+        }.items():
+            with self.subTest(case=label):
+                c0 = frappe.db.count("Error Log")
+                self._cold_settings_cache()
+                known = self._guest_short(l=link.name, **extra)
+                c1 = frappe.db.count("Error Log")
+                self._cold_settings_cache()
+                unknown = self._guest_short(l=UNKNOWN_LINK, **extra)
+                c2 = frappe.db.count("Error Log")
+                for seen, name in ((known, link.name), (unknown, UNKNOWN_LINK)):
+                    seen["location"] = seen["location"].replace(name, "<N>")
+                self.assertEqual(known["status_code"], unknown["status_code"])
+                self.assertEqual(known["location"], unknown["location"])
+                self.assertEqual(known["body"], unknown["body"])
+                self.assertEqual(known["message_log"], unknown["message_log"])
+                self.assertEqual(known["session_user"], unknown["session_user"])
+                self.assertEqual(known["queries"], unknown["queries"])
+                self.assertEqual(c1 - c0, c2 - c1)
+                self.assertNotIn("payment_success", known["location"])
+                self.assertFalse(known["commit_flag"])
+
+    def test_short_route_never_falls_back_to_administrator(self):
+        """No usable webhook_user: a proved cancel writes nothing and the session stays Guest."""
+        self._unset_webhook_user()
+        link = self._make_ppl()
+        seen = self._guest_short(
+            **self._short(link, self._link_token(link), self._proof(link), error="access_denied")
+        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Pending Authorization")
+        self.assertNotEqual(seen["session_user"], "Administrator")
+        self.assertFalse(seen["commit_flag"])
+
+    def test_the_long_api_url_stored_at_ponto_before_this_change_still_works(self):
+        """Links created before the short route carry /api/method/...?payment_link=&cancel_token=
+        &return_proof=; the long parameter names and the endpoint must keep working."""
+        link = self._make_ppl()
+        seen = self._guest_get(
+            LINK_CMD,
+            payment_link=link.name,
+            error="access_denied",
+            cancel_token=self._link_token(link),
+            return_proof=self._proof(link),
+        )
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
+        self.assertIn("/payment_success", seen["location"])
 
     # ---- #1833: payment-success token only against a signed return proof ----------
 

@@ -12,7 +12,12 @@ they are redirected back to this callback URL. This endpoint:
 2. Redirects to the payment_success page (status comes from the signed webhook)
 
 Usage:
-    Callback URL:
+    Return URL minted at signing start (build_return_url): the short guest route
+    https://your-site.com/ponto-return?l=<link>&c=<cancel_token>&p=<return_proof>
+    served by templates/pages/ponto-return, which runs payment_link_callback. Ponto rejects a
+    redirectUri over 255 characters, which the old /api/method/... path could not fit.
+
+    Links created before the short route still carry the long form, which keeps working:
     https://your-site.com/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback?payment_link=PONTO-LINK-0001
 """
 
@@ -41,6 +46,28 @@ CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
 # and from PONTO_RETURN_TOKEN_PURPOSE (the token it unlocks; if the two were the same string,
 # the token this callback hands out would itself pass as the proof for the next request).
 RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
+
+# Ponto rejects a payment-request redirectUri over 255 characters (HTTP 500, measured on the
+# sandbox 2026-11-08). The short guest route plus short parameter names keep the URL well
+# inside that for a long host; both tokens stay separate and full length.
+PONTO_RETURN_ROUTE = "/ponto-return"
+PONTO_REDIRECT_URI_MAX_LENGTH = 255
+
+# Query parameter -> short alias used on the PONTO_RETURN_ROUTE URL. The long names stay
+# accepted so links already stored at Ponto (and `error`, which Ponto appends) keep working.
+_SHORT_ARGS = {"payment_link": "l", "cancel_token": "c", "return_proof": "p"}
+
+
+def build_return_url(payment_link_name, cancel_token, return_proof):
+    """The redirectUri for a Ponto Payment Link: our short guest return route plus the proofs."""
+    return get_url(f"{PONTO_RETURN_ROUTE}?l={payment_link_name}&c={cancel_token}&p={return_proof}")
+
+
+def _return_arg(name):
+    """A callback query argument by its long name, else its short alias."""
+    args = frappe.request.args
+    value = args.get(name)
+    return value if value is not None else args.get(_SHORT_ARGS[name])
 
 
 def _payment_success_redirect(payment_link_name):
@@ -94,7 +121,7 @@ def payment_link_callback():
     if webhook_user:
         frappe.set_user(webhook_user)
 
-    payment_link_name = frappe.request.args.get("payment_link")
+    payment_link_name = _return_arg("payment_link")
 
     if not payment_link_name:
         frappe.logger().warning("Payment link callback received without payment_link")
@@ -142,9 +169,7 @@ def payment_link_callback():
 
 def _has_return_proof(payment_link_name):
     """True when the request carries the signed proof minted for THIS link at signing start."""
-    return verify_guest_return_token(
-        RETURN_PROOF_PURPOSE, payment_link_name, frappe.request.args.get("return_proof")
-    )
+    return verify_guest_return_token(RETURN_PROOF_PURPOSE, payment_link_name, _return_arg("return_proof"))
 
 
 def _cancel_link_if_proved(payment_link_name):
@@ -152,7 +177,7 @@ def _cancel_link_if_proved(payment_link_name):
     args = frappe.request.args
     if args.get("error") != "access_denied":
         return False
-    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_link_name, args.get("cancel_token")):
+    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_link_name, _return_arg("cancel_token")):
         return False
     doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
     if doc.status != "Pending Authorization":

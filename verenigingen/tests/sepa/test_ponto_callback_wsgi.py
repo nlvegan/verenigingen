@@ -176,6 +176,8 @@ SCRIPT = textwrap.dedent(
 
         sub_link, sub_link_ctl = make_submitted_link(), make_submitted_link()
         sub_req, sub_req_ctl = make_submitted_request(), make_submitted_request()
+        # rows for the short /ponto-return route
+        short_ok, short_ctl, short_post = make_submitted_link(), make_submitted_link(), make_submitted_link()
         link_name, link_other = make_link(), make_link()
         req_name, req_other = make_request(), make_request()
         link_done = make_link("Executed", "WSGI-1883-RETURN-DETAILS")
@@ -189,6 +191,9 @@ SCRIPT = textwrap.dedent(
             "req_other_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, req_other),
             "sub_link_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
             "sub_req_cancel": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
+            "short_ok_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
+            "short_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_ok),
+            "short_post_cancel": gen(link_cb.CANCEL_TOKEN_PURPOSE, short_post),
             "sub_link_ctl_wrong": gen(link_cb.CANCEL_TOKEN_PURPOSE, sub_link),
             "sub_req_ctl_wrong": gen(req_cb.CANCEL_TOKEN_PURPOSE, sub_req),
         }}
@@ -244,6 +249,46 @@ SCRIPT = textwrap.dedent(
         fresh()
         out["sub_link"] = frappe.db.get_value("Ponto Payment Link", sub_link, ["status", "docstatus"])
         out["sub_request"] = frappe.db.get_value("Ponto Payment Request", sub_req, ["status", "docstatus"])
+
+        # #1833 short route /ponto-return, same logic through the real app. The URL under test is
+        # the one the doctype mints (build_return_url), not a hand-built one.
+        def short(name, cancel=None, proof=None):
+            return link_cb.build_return_url(name, cancel or "x", proof or "x")
+
+        SHORT = link_cb.PONTO_RETURN_ROUTE
+
+        def path_of(resp):
+            return re.sub(r"^https?://[^/]+", "", resp.headers.get("Location") or "")
+
+        # controls: another row's token on a submitted link; a POST carrying a VALID token
+        # for its own row (the /api endpoint is GET-only, so is this); error other than access_denied
+        rc = get(short(short_ctl, tok["short_ctl_wrong"]).replace("?", "?error=access_denied&", 1))
+        rp = client.post(
+            short(short_post, tok["short_post_cancel"]).replace("?", "?error=access_denied&", 1),
+            headers=headers, environ_base={{"REMOTE_ADDR": "10.9.9.9"}},
+        )
+        out["short_control_wrong_token"] = status_of("Ponto Payment Link", short_ctl)
+        out["short_control_post"] = status_of("Ponto Payment Link", short_post)
+        out["short_control_post_location"] = path_of(rp)
+        # the proved cancel on a really submitted row, persisted on a fresh connection
+        rs = get(short(short_ok, tok["short_ok_cancel"]).replace("?", "?error=access_denied&", 1))
+        out["short_proved_code"] = rs.status_code
+        fresh()
+        out["short_proved"] = frappe.db.get_value("Ponto Payment Link", short_ok, ["status", "docstatus"])
+        out["short_proved_location"] = path_of(rs)
+        # return: proof present, proof absent on a known name, unknown name
+        done_url = link_cb.build_return_url(link_done, "x", tok["link_return"])
+        rr = get(re.sub(r"^https?://[^/]+", "", done_url))
+        out["short_return_code"] = rr.status_code
+        out["short_return_path"] = path_of(rr).split("?")[0]
+        page = get(path_of(rr))
+        out["short_return_page_has_details"] = "WSGI-1883-RETURN-DETAILS" in page.get_data(as_text=True)
+        rk = get(f"{{SHORT}}?l={{link_done}}")
+        ru = get(f"{{SHORT}}?l=PONTO-LINK-NOPE-0000")
+        out["short_known_no_proof"] = (rk.status_code, path_of(rk))
+        out["short_unknown"] = (ru.status_code, path_of(ru))
+        out["short_known_no_proof_body"] = rk.get_data(as_text=True)
+        out["short_unknown_body"] = ru.get_data(as_text=True)
 
         # the legitimate return: follow the redirect the callback ACTUALLY returns
         r = get(f"{{LINK}}?payment_link={{link_done}}&return_proof={{tok['link_return']}}")
@@ -364,3 +409,25 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         """Control: real submitted rows to get wrong, a real (other) token."""
         self.assertEqual(self.out["sub_control_link"], "Pending Authorization")
         self.assertEqual(self.out["sub_control_request"], "Pending")
+
+    # ---- #1833: the short guest return route /ponto-return -------------------------------
+
+    def test_short_route_proved_cancel_persists_on_a_really_submitted_row(self):
+        self.assertEqual(self.out["short_proved"], ["Cancelled", 1])
+        self.assertEqual(self.out["short_proved_code"], 302)
+
+    def test_short_route_refuses_another_rows_token_and_a_post(self):
+        """Controls: a token minted for another row, and a POST with a valid token for its own."""
+        self.assertEqual(self.out["short_control_wrong_token"], "Pending Authorization")
+        self.assertEqual(self.out["short_control_post"], "Pending Authorization")
+        self.assertEqual(self.out["short_control_post_location"], "/app/home")
+
+    def test_short_route_return_lands_on_the_details_page(self):
+        self.assertEqual(self.out["short_return_code"], 302)
+        self.assertEqual(self.out["short_return_path"], "/payment_success")
+        self.assertTrue(self.out["short_return_page_has_details"])
+
+    def test_short_route_known_name_without_proof_answers_like_an_unknown_name(self):
+        self.assertEqual(self.out["short_known_no_proof"], [302, "/app/home"])
+        self.assertEqual(self.out["short_known_no_proof"], self.out["short_unknown"])
+        self.assertEqual(self.out["short_known_no_proof_body"], self.out["short_unknown_body"])
