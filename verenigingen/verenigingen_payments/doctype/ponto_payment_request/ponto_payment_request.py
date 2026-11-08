@@ -116,6 +116,19 @@ class PontoPaymentRequest(Document):
                     self.ponto_account_name = mapping.ponto_account_name or mapping.ponto_iban
                     break
 
+    def _default_redirect_uri(self):
+        """Our callback URL, carrying the cancel_token that proves, on the guest-reachable
+        callback, that an `error=access_denied` comes from the browser we sent to Ponto
+        (#1815). A custom redirect_uri replaces our callback, so it carries none."""
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+        from verenigingen.verenigingen_payments.ponto.api.payment_callback import CANCEL_TOKEN_PURPOSE
+
+        cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
+        return get_url(
+            f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
+            f"?payment_request={self.name}&cancel_token={cancel_token}"
+        )
+
     def create_ponto_payment(self):
         """
         Create payment request in Ponto API.
@@ -126,12 +139,7 @@ class PontoPaymentRequest(Document):
         from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
 
         # Build redirect URI for callback
-        redirect_uri = self.redirect_uri
-        if not redirect_uri:
-            redirect_uri = get_url(
-                f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
-                f"?payment_request={self.name}"
-            )
+        redirect_uri = self.redirect_uri or self._default_redirect_uri()
 
         # Parse execution date if set
         exec_date = None
