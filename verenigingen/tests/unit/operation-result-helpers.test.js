@@ -460,6 +460,20 @@ describe('OperationResult helpers', () => {
 			expect(out).toContain('Closed');
 		});
 
+		test('markup encoded three times is still removed, however deep the encoding', () => {
+			const out = viaServerMessage('&amp;amp;lt;img src=x onerror=alert(1)&amp;amp;gt;Closed');
+			expect(out).not.toMatch(/<[a-z/!]/i);
+			expect(out).not.toMatch(/onerror/i);
+		});
+
+		test('text still changing after the pass limit yields the caller fallback, never a half-decoded string', () => {
+			let encoded = 'Tom & Jerry';
+			for (let i = 0; i < 6; i++) {
+				encoded = encoded.replace(/&/g, '&amp;');
+			}
+			expect(viaServerMessage(encoded)).toBe('Failed');
+		});
+
 		test('an unterminated tag is dropped, so a later ">" in a template cannot complete it', () => {
 			// The old /<[^>]*>/ needs a closing ">" and leaves these untouched.
 			expect(viaServerMessage('Closed <img src=x onerror=alert(1)')).not.toMatch(/<|onerror/i);
