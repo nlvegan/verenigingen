@@ -2884,28 +2884,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
         # _restore_throttle_user_limit().
 
-        # EMAIL MOCKING CLEANUP: Stop all email patches
-        try:
-            # Stop comprehensive email patches
-            if hasattr(self, "email_patches"):
-                for patch_obj in self.email_patches:
-                    try:
-                        patch_obj.stop()
-                    except Exception:
-                        pass  # Patch might already be stopped
-
-            # Legacy cleanup for backward compatibility
-            if hasattr(self, "sendmail_patch"):
-                self.sendmail_patch.stop()
-        except Exception:
-            pass  # Continue cleanup even if email patch cleanup fails
-
-        # RATE LIMIT MOCKING CLEANUP: Stop rate limit patch
-        try:
-            self._teardown_rate_limit_mocking()
-        except Exception:
-            pass  # Continue cleanup even if rate limit patch cleanup fails
-
+        # EMAIL / RATE-LIMIT PATCHES are deliberately NOT stopped here (#2221).
+        # unittest runs tearDown BEFORE addCleanup callbacks, so stopping them here
+        # restored the real objects early; a test's own nested patch of the same target
+        # (started in setUp, stopped via addCleanup) then put the harness mock back for
+        # the rest of the process. Their stops are registered with addCleanup in
+        # _setup_email_mocking / _setup_rate_limit_mocking, which unwinds LIFO after the
+        # test's own nested patches.
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
