@@ -178,8 +178,6 @@ verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetric
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_active_alerts::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_audit_summary::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_recent_errors::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.get_active_mandates::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.has_active_mandate::1
 verenigingen/services/termination/termination_execution_service.py::TerminationExecutionService.execute::1
 verenigingen/services/termination/termination_integration.py::cancel_dues_schedule_safe::2
 verenigingen/services/termination/termination_integration.py::cancel_membership_safe::1
