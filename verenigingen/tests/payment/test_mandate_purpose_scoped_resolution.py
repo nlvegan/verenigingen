@@ -901,3 +901,33 @@ class TestDashboardDistinguishesRefusalFromAbsence(PurposeScopedMandateFixture):
         html = self._render_page()
         self.assertIn("sepa-attention-display", html)
         self.assertIn("more than one active direct debit authorization", html)
+
+    def test_an_active_mollie_method_keeps_the_top_card_for_the_js_with_ambiguous_sepa(self):
+        """Mollie takes precedence in the TOP card; the SEPA card still needs attention.
+
+        Probe shortcut, stated: the Mollie state is set with `db.set_value` on the Member's
+        mollie fields (the page reads them from the Member), not created through a Mollie flow.
+        The JS fills `#active-method-display` with "Mollie Payments / Active", so that element
+        must render, and the top-card attention block must not take its place.
+        """
+        self.expectErrorLog("Ambiguous active SEPA mandate")
+        self._make_second_membership_mandate_active()
+        frappe.db.set_value(
+            "Member",
+            self.member.name,
+            {
+                "mollie_customer_id": "cst_probe12345",
+                "mollie_subscription_id": "sub_probe123",
+                "subscription_status": "active",
+            },
+        )
+        html = self._render_page()
+
+        top_start = html.index("Active Payment Method")
+        top_card = html[top_start : html.index("Next Payment Card", top_start)]
+        self.assertIn('id="active-method-display"', top_card)
+        self.assertNotIn("sepa-attention-display", top_card)
+
+        sepa_card = html[html.index("<!-- SEPA Direct Debit Card -->") : html.index("<!-- Mollie Card -->")]
+        self.assertIn("more than one active direct debit authorization", sepa_card)
+        self.assertIn("Needs attention", sepa_card)

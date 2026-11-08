@@ -316,8 +316,10 @@
                                 <div class="text-sm text-success-600"><i class="fa fa-check-circle mr-1"></i>{{ _("Active") }}</div>
                             </div>
                         </div>
-                        {% elif mandate_ambiguous %}
-                        <!-- Refused, not absent (#607): several Active mandates for dues -->
+                        {% elif mandate_ambiguous and not mollie_customers %}
+                        <!-- Refused, not absent (#607): several Active mandates for dues. A member with a
+                             Mollie customer falls through to the placeholder below so the JS can show Mollie as
+                             active, as before; the SEPA card carries the message either way. -->
                         <div id="sepa-attention-display" class="flex items-center gap-3 mt-3">
                             <div class="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center">
                                 <i class="fa fa-exclamation-triangle text-warning-500 text-2xl"></i>
