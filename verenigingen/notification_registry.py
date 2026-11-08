@@ -158,6 +158,17 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 1440,
     },
+    "termination_weekly_report": {
+        "label": "Weekly Termination Report",
+        "category": CATEGORY_ADMIN,
+        "description": "Weekly summary of termination requests, mailed to Verenigingen Administrators.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Its own key: termination_overdue's audience is the admin pair, this report never included
+        # System Managers (#2240, #2095).
+        "recipient_roles": "Verenigingen Administrator",
+        "cooldown_minutes": 0,
+    },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
         "category": CATEGORY_ADMIN,
@@ -418,9 +429,12 @@ NOTIFICATION_KEYS = {
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
-        "description": "Notification when a dues schedule is manually created for a member.",
+        "description": "Staff summary when dues schedules are created in bulk from the admin interface "
+        "or after a scheduled run with errors.",
         "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the summary always went to Verenigingen Administrators only (#2169, #2095).
+        "recipient_roles": "Verenigingen Administrator",
         "cooldown_minutes": 0,
     },
     "dues_amendment_approved": {
