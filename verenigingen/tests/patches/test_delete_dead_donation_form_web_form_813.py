@@ -15,30 +15,25 @@ NAME = "donation-form"
 
 
 class TestDeleteDeadDonationFormWebForm(FrappeTestCase):
-    def _leftover(self):
-        frappe.get_doc(
+    def _insert_web_form(self, title, route):
+        return frappe.get_doc(
             {
                 "doctype": "Web Form",
-                "title": "Donation Form",
-                "route": "donate-813-test",
+                "title": title,
+                "route": route,
                 "doc_type": "Donation",
                 "module": "Verenigingen",
                 "published": 0,
             }
         ).insert()
-        self.assertEqual(frappe.db.exists("Web Form", NAME), NAME, "control: the row exists")
-        self.addCleanup(self._remove_leftover)
 
-    @staticmethod
-    def _remove_leftover():
-        # Web Form insert commits, so the class rollback cannot remove the row: delete it for real,
-        # or a failing run leaves it behind and the next run skips instead of testing.
+    def _leftover(self):
+        # A pre-existing real row would collide with the insert; the harness rollback undoes this delete.
         frappe.db.delete("Web Form", {"name": NAME})
-        frappe.db.commit()
+        self._insert_web_form("Donation Form", "donate-813-test")
+        self.assertEqual(frappe.db.exists("Web Form", NAME), NAME, "control: the row exists")
 
     def test_the_leftover_row_is_deleted_and_a_second_run_is_a_noop(self):
-        if frappe.db.exists("Web Form", NAME):
-            self.skipTest("a real donation-form row already exists on this site")
         self._leftover()
         execute = importlib.import_module(PATCH).execute
         execute()
@@ -47,10 +42,11 @@ class TestDeleteDeadDonationFormWebForm(FrappeTestCase):
         self.assertFalse(frappe.db.exists("Web Form", NAME))
 
     def test_other_web_forms_are_untouched(self):
-        other = frappe.db.get_value("Web Form", {"name": ["!=", NAME]}, "name")
-        if not other:
-            self.skipTest("no other Web Form on this site")
+        self._leftover()
+        other = self._insert_web_form("Other 813 Form", "other-813-test").name
+        self.assertNotEqual(other, NAME, "control: a different row")
         importlib.import_module(PATCH).execute()
+        self.assertFalse(frappe.db.exists("Web Form", NAME))
         self.assertTrue(frappe.db.exists("Web Form", other))
 
     def test_the_patch_is_registered(self):
