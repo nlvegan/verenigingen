@@ -201,8 +201,11 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
                 _("Failed to link donation to agreement: {0}").format("; ".join(donation_result.errors))
             )
 
-        # Add to agreement's donation table
-        agreement_doc.link_donation(donation)
+        # Add to agreement's donation table. ``add_donation_link`` is the undecorated body:
+        # ``link_donation`` carries its own rate-limit bucket, so calling it from this
+        # already-rate-limited endpoint burned two buckets per action (#352). The save inside
+        # still runs under the caller's own permissions.
+        agreement_doc.add_donation_link(donation)
 
         frappe.db.commit()
 
