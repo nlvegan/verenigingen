@@ -20,10 +20,10 @@ def get_context(context):
 
     # Get member document (may need ignore_permissions for portal users)
     # Security: Verify member belongs to current user before using ignore_permissions
-    member_user = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
+    member_user = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
     current_user = frappe.session.user
 
-    if member_user.user != current_user and member_user.email != current_user:
+    if member_user.user != current_user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     try:
@@ -170,10 +170,8 @@ def update_member_address(address_data):
 
     # CORRECTED SECURE VERSION: Use proper permission validation for member access in address update
     # Verify member belongs to current user first
-    member_data = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
-    if not member_data or (
-        member_data.user != frappe.session.user and member_data.email != frappe.session.user
-    ):
+    member_data = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
+    if not member_data or member_data.user != frappe.session.user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     # Now safely get member document with proper security context
@@ -336,10 +334,8 @@ def get_current_address():
 
     # CORRECTED SECURE VERSION: Use proper permission validation for member access in address retrieval
     # Verify member belongs to current user first
-    member_data = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
-    if not member_data or (
-        member_data.user != frappe.session.user and member_data.email != frappe.session.user
-    ):
+    member_data = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
+    if not member_data or member_data.user != frappe.session.user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     # Now safely get member document with proper security context
