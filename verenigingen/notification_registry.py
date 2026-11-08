@@ -167,7 +167,6 @@ NOTIFICATION_KEYS = {
         # Its own key: termination_overdue's audience is the admin pair, this report never included
         # System Managers (#2240, #2095).
         "recipient_roles": "Verenigingen Administrator",
-        "cooldown_minutes": 0,
     },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
