@@ -204,33 +204,6 @@ class VerenigingenSettings(Document):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_income_account_query(
-    doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict
-):
-    """Filter for income accounts only.
-
-    Keys on root_type, not account_type: ERPNext's standard chart leaves account_type
-    empty on income leaves (#831, same class as #442).
-    """
-    company = filters.get("company") or frappe.defaults.get_global_default("company")
-
-    return frappe.db.sql(
-        """
-        SELECT name, account_name
-        FROM `tabAccount`
-        WHERE company = %s
-        AND root_type = 'Income'
-        AND is_group = 0
-        AND (name LIKE %s OR account_name LIKE %s)
-        ORDER BY name
-        LIMIT %s OFFSET %s
-    """,
-        (company, "%" + txt + "%", "%" + txt + "%", page_len, start),
-    )
-
-
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_organization_email_domain():
     """Get organization email domain setting for user creation"""
