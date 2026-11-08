@@ -15,6 +15,8 @@ Failures are injected at the layer that really raises:
   (a list is unhashable in its cache lookup).
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -124,3 +126,33 @@ class TestPermissionCheckErrors857(EnhancedTestCase):
         self.assertIn("could not be completed", joined)
         self.assertNotIn("Even system user", joined)
         self.assertNotIn("Insufficient permissions", joined)
+
+    # ---- a transaction-destroying DB error is NOT an "errored check" ----
+    # The check must not swallow a deadlock into False / PermissionCheckError: the
+    # transaction is gone and the caller must abandon the unit of work. The error
+    # is injected at the call INSIDE each helper that really raises it
+    # (get_roles / get_meta both hit the DB).
+    def test_deadlock_propagates_from_can_helpers_and_records_nothing(self):
+        from verenigingen.utils.secure_operations import (
+            can_request_system_escalation,
+            can_use_bypass_validations,
+        )
+
+        since = frappe.utils.now_datetime()
+        for helper in (can_request_system_escalation, can_use_bypass_validations):
+            # Mock justified: a real 1213 needs a second connection holding locks
+            with patch("frappe.get_roles", side_effect=frappe.QueryDeadlockError("1213")):
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    helper("someone@example.com")
+        self.assertEqual(self._error_titles(since), [])
+
+    def test_deadlock_propagates_from_validate_permissions(self):
+        from verenigingen.utils.secure_operations import validate_permissions
+
+        member = self._make_user_857("Verenigingen Member")
+        doc = frappe.new_doc("ToDo")
+        # Mock justified: a real 1213 needs a second connection holding locks.
+        # get_meta is the DB read frappe.has_permission makes on its real path.
+        with patch("frappe.get_meta", side_effect=frappe.QueryDeadlockError("1213")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._call_as_857(member.name, validate_permissions, doc, "create")
