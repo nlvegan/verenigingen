@@ -651,7 +651,10 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_SYSTEM,
         "description": "Alert for authentication anomalies like failed logins or suspicious access patterns.",
         "priority": PRIORITY_HIGH,
-        "recipient_policy": POLICY_ROLE_BASED,
+        # Custom, not Role-Based: the default audience is the holders of the Verenigingen System
+        # Administrator PROFILE, which a role list cannot name (#2254). A row an admin sets to Fixed or
+        # Role-Based still wins.
+        "recipient_policy": POLICY_CUSTOM,
     },
     "business_logic_alert": {
         "label": "Business Logic Alert",
