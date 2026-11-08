@@ -9,116 +9,18 @@ name: Server Tests (GitHub Hosted)
 # subpackages).
 
 on:
-  # #2184: queue runs. Inert until develop's ruleset enables the merge queue - no
-  # merge_group event fires before that. No `paths:` here on purpose: the queue
-  # needs every required check to REPORT, and a path-skipped workflow reports nothing.
+  # #2184 flip: the full suite runs ONCE PER QUEUE BATCH, on the exact tree that lands.
+  # - merge_group: runs the suite. develop's merge queue requires `Test Summary`.
+  # - pull_request: triggers only so `Test Summary` REPORTS on the PR (the `tests` job
+  #   below is skipped there; a skipped job reports success). No `paths:` on any trigger:
+  #   a path-skipped workflow reports nothing, so a required check would never arrive.
+  # - no push trigger: a develop push would re-run the suite the queue already ran on
+  #   that tree. The old per-file path lists (#1113/#1189/#1541/#1550) go with it - the
+  #   queue runs the suite unconditionally, so nothing can be filtered out of coverage.
   merge_group:
     types: [checks_requested]
-  push:
-    branches: [main, develop]
-    paths:
-      - 'verenigingen/**/*.py'
-      - 'verenigingen/**/*.js'
-      # #1113: scripts/ is a separate package, excluded above, but these three
-      # files ARE imported by verenigingen/tests/ (member_import_cleanup by
-      # test_member_import_cleanup_engine.py, create_period_closing_vouchers
-      # by test_create_period_closing_vouchers_pl_scan.py,
-      # migrate_fee_overrides_to_dues_schedules.py by
-      # test_fee_override_migration.py) -- so a change to one of them can
-      # silently break a test this suite runs. Not `scripts/**`: the rest of
-      # scripts/ (~320 files) is not imported by anything under
-      # verenigingen/, so widening further would only add load to an
-      # already runner-starved queue (#935) without covering anything more.
-      - 'scripts/migration/**/*.py'
-      # #1189: verenigingen/tests/unit/test_savepoint_rollback_cannot_mask_the_error.py
-      # now imports these two modules directly (extracted so the #561 ratchet has a
-      # fast, stdlib-only pre-commit/CI entry point). Listed as SPECIFIC files, not
-      # `scripts/validation/**/*.py`, on purpose -- that directory holds 108 files
-      # with 277 historical commits (vs. 27 files / 7 commits for scripts/migration/
-      # above), and only these 2 are imported by anything under verenigingen/tests/.
-      # A broad glob here would run the full server suite on every one of the other
-      # ~106 validator edits (a routine, frequent activity in this repo) for zero
-      # additional coverage, compounding #935's runner starvation. The tradeoff this
-      # accepts instead: a THIRD future scripts/validation/ import added under
-      # verenigingen/tests/ needs a human to add its path here too -- but
-      # scripts/validation/tests/test_workflow_path_filter.py (#1113/#1184) already
-      # fails loudly the moment that happens (it did, for exactly these two files,
-      # a few hours after #1191 merged), so the missing-coverage failure mode #1113
-      # was filed for is now caught by that guard rather than needing a wide glob to
-      # avoid it.
-      - 'scripts/validation/non_resumable_ast.py'
-      - 'scripts/validation/savepoint_rollback_validator.py'
-      # #1541: verenigingen/tests/unit/test_zabbix_churn_metric.py imports this file
-      # directly (sys.path-hack style, matching tests/test_doctype_name_ratchet.py) to
-      # test the Zabbix churn metric fix. Originally listed here by hand because
-      # test_workflow_path_filter.py's AST scan could not see a bare import after a
-      # sys.path.insert -- #1550 taught the scan that shape, so this entry (and the
-      # six below it) are now also found automatically by the dynamic scan; kept as
-      # explicit entries rather than a wide `scripts/**` glob for the same
-      # runner-starvation reason as #1189/#1113 above.
-      - 'scripts/monitoring/zabbix_integration.py'
-      # #1528/#1539: verenigingen/tests/unit/
-      # test_performance_profiler_current_chapter_display.py imports this file
-      # directly. Same rationale as #1189 above -- a single specific file, not
-      # `scripts/performance/**/*.py` (4 of its 5 files are not imported by
-      # anything under verenigingen/tests/).
-      - 'scripts/performance/performance_profiler.py'
-      # #1550: test_workflow_path_filter.py's AST scan only recognised
-      # `import scripts...`/`from scripts...` -- it could not see a
-      # `sys.path.insert(...)` + bare `import <name>` (the exact idiom the
-      # zabbix_integration.py entry above already uses) or an
-      # `importlib.util.spec_from_file_location(...)` file-path load, so each
-      # file below was already imported under verenigingen/tests/ and already
-      # missing from this filter, undetected. The scan now covers both shapes
-      # (see that test module's docstring) and found these six:
-      # tests/test_except_order_validator.py
-      - 'scripts/validation/except_order_validator.py'
-      # tests/test_doctype_name_ratchet.py
-      - 'scripts/validation/doctype_name_validator.py'
-      - 'scripts/validation/doctype_loader.py'
-      # tests/test_secure_operation_result_validator.py
-      - 'scripts/validation/secure_operation_result_validator.py'
-      # tests/test_check_new_test_failures.py
-      - 'scripts/testing/check_new_test_failures.py'
-      # tests/backend/validation/test_import_validation_integration.py
-      - 'scripts/validation/hooks_parser.py'
-      # tests/integration/test_permission_bypass_elimination_validation.py
-      - 'scripts/validation/test_quality_enforcer.py'
-      - 'pyproject.toml'
-      - '.github/workflows/server-tests.yml'
-      - '.github/workflows/_base-server-tests.yml'
-      - '.github/actions/setup/**'
   pull_request:
-    # `ready_for_review` is REQUIRED by the draft gate on the `tests` job below:
-    # without it, marking a draft ready fires no event and the suite would never
-    # run for that PR. The other three are GitHub's default set, which must be
-    # restated once `types` is given at all.
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, develop]
-    paths:
-      - 'verenigingen/**/*.py'
-      - 'verenigingen/**/*.js'
-      # See the matching push.paths comment above -- same rationale, #1113.
-      - 'scripts/migration/**/*.py'
-      # See the matching push.paths comment above -- same rationale, #1189.
-      - 'scripts/validation/non_resumable_ast.py'
-      - 'scripts/validation/savepoint_rollback_validator.py'
-      # See the matching push.paths comment above -- same rationale, #1541.
-      - 'scripts/monitoring/zabbix_integration.py'
-      # See the matching push.paths comment above -- same rationale, #1528/#1539.
-      - 'scripts/performance/performance_profiler.py'
-      # See the matching push.paths comment above -- same rationale, #1550.
-      - 'scripts/validation/except_order_validator.py'
-      - 'scripts/validation/doctype_name_validator.py'
-      - 'scripts/validation/doctype_loader.py'
-      - 'scripts/validation/secure_operation_result_validator.py'
-      - 'scripts/testing/check_new_test_failures.py'
-      - 'scripts/validation/hooks_parser.py'
-      - 'scripts/validation/test_quality_enforcer.py'
-      - 'pyproject.toml'
-      - '.github/workflows/server-tests.yml'
-      - '.github/workflows/_base-server-tests.yml'
-      - '.github/actions/setup/**'
   workflow_dispatch:
     inputs:
       frappe_branch:
@@ -135,42 +37,11 @@ on:
         default: true
 
 concurrency:
-  # A trunk push gets a group of its OWN, so no merge can cancel the run that is
-  # verifying the merge before it. A pull_request keeps the per-ref group and so
-  # keeps cancelling its own superseded runs.
-  #
-  # What was lost before this is per-merge ATTRIBUTION, not verification. Of the
-  # last 40 develop runs, 16 concluded `cancelled`, and all 16 of those commits
-  # are git-ancestors of a later develop commit whose run did conclude -- the
-  # head was always tested, as part of a superset. What you could not do is say
-  # WHICH merge broke it. The 08-12/13 chain is the case that matters: five
-  # merges cancelled in a row, terminal run red, no way to attribute it.
-  #
-  # Why the group and not just `cancel-in-progress`. With cancel-in-progress
-  # false, GitHub keeps at most ONE pending run per group and cancels older
-  # pending ones, so gating the flag alone trades cancelled-while-running for
-  # cancelled-while-pending and adds queueing latency on top -- simulated against
-  # the real history at the measured median duration (36.5 min over 24 completed
-  # runs, not the "about an hour" first claimed here): 4 still cancelled, 12
-  # delayed by up to 36 min. `queue: max` would raise that limit, and is
-  # documented, but this instance REJECTS the key -- pushing it produced a run
-  # that died in 1 second with zero jobs ("workflow file issue"), which is what a
-  # validation error looks like. Measured, not assumed. A per-commit group needs
-  # no pending semantics at all: two trunk runs are never in the same group.
-  #
-  # Cost, stated: trunk runs now go in parallel rather than replacing each other.
-  # 6 of 39 gaps between develop runs are under a minute -- five pushes landed
-  # within 25 seconds on 2026-08-16 -- so a burst can put several 14-job suites
-  # in flight at once. Those queue for runners at the ACCOUNT level, which
-  # delays them rather than cancelling them, and can slow PR feedback during a
-  # burst. That is the trade: runner contention for attribution.
-  #
-  # `github.ref` is `refs/pull/<n>/merge` for pull_request events, verified
-  # against this repo's own history (PR runs on one branch cancel each other; PR
-  # and develop runs overlap without cancelling), so PR and trunk never collide.
-  # merge_group: per-ref is right for the queue too - every queue run has its own
-  # gh-readonly-queue/... ref, so queue runs never cancel each other or a PR run.
-  group: server-tests-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  # Per ref. A pull_request run cancels its own superseded runs; every queue run has its
+  # own gh-readonly-queue/... ref, so queue runs never cancel each other or a PR run. The
+  # old per-commit group for trunk pushes went with the push trigger (#2184 flip).
+  # merge_group: per-ref is right for the queue too (see above).
+  group: server-tests-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -179,21 +50,14 @@ permissions:
 jobs:
   tests:
     name: Tests
-    # ~300 job-minutes per run, 63% of a full PR push's CI cost (#935). A draft PR
-    # is by definition not asking for a verdict yet, so it does not buy that. Pushes
-    # to main/develop and workflow_dispatch are unaffected -- only PR events are
-    # gated, and marking the PR ready fires `ready_for_review` above.
-    #
-    # Safe against the merge gate: `develop`'s ruleset requires Code Quality,
-    # Security Scan, Basic Validation (3.10/3.11), API Security Audit, Documentation
-    # Check, API Contract Validation, Controller Testing, Integration Validation,
-    # Quality Gate Summary, validation, fast-validation and the three ratchets --
-    # none of which live in this workflow. Skipping it therefore cannot leave a
-    # required check permanently unreported.
-    # merge_group: the full suite RUNS in the queue - that is the point of #2184. (Skipping
-    # it on pull_request is a separate change, made only once the queue is enabled.)
-    # Coverage below is collected in the queue as on push.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # ~300 job-minutes per run, 63% of a full PR push's CI cost (#935). Runs in the merge
+    # queue (and on workflow_dispatch), never on pull_request: the queue tests the batch on
+    # the exact tree that lands, so a per-push PR run bought nothing the queue does not.
+    # Skipping here is safe against the gate: a job skipped by `if:` reports success, and
+    # `summary` below reports `Test Summary` (required) on every PR.
+    # merge_group: the full suite RUNS in the queue - that is the point of #2184.
+    # Coverage below is collected in the queue and on dispatch.
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/_base-server-tests.yml
     # Pass org/repo secrets (CODECOV_TOKEN) through to the reusable workflow.
     secrets: inherit
@@ -220,7 +84,7 @@ jobs:
       # regenerate test_timings.json first, since a stale table quietly degrades
       # back toward count-based behaviour for every file missing from it.
       parallel-runs: 12
-      # On push/PR coverage is always collected; on manual dispatch the
+      # In the merge queue coverage is always collected; on manual dispatch the
       # checkbox still wins so you can run a fast, coverage-free dispatch.
       enable-coverage: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_coverage }}
 
@@ -235,11 +99,11 @@ jobs:
           status="${{ needs.tests.result }}"
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          # `skipped` is the draft-PR path from the gate on `tests`, not a failure.
-          # Without this branch the `if: always()` above turns every draft PR red
-          # here, which is exactly the outcome gating the suite was meant to avoid.
+          # `skipped` is the pull_request path from the gate on `tests`, not a failure: the
+          # suite runs in the merge queue instead (#2184). Without this branch the
+          # `if: always()` above would turn every PR red here.
           if [ "$status" == "skipped" ]; then
-            echo ":fast_forward: Test suite skipped: this PR is a draft. Mark it ready for review to run the full suite." >> $GITHUB_STEP_SUMMARY
+            echo ":fast_forward: Test suite skipped on the PR: it runs in the merge queue, on the tree that lands." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
           if [ "$status" == "success" ]; then
