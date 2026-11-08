@@ -1002,8 +1002,8 @@ class PontoGateway(PaymentGateway):
 
             if not insert_result.success:
                 frappe.log_error(
-                    f"Failed to create Ponto payment link: {'; '.join(insert_result.errors)}",
-                    "Ponto Gateway - Insert Error",
+                    title=f"Ponto Gateway - Insert Error: {donation.name}",
+                    message=f"Failed to create Ponto payment link: {'; '.join(insert_result.errors)}",
                 )
                 return {
                     "status": "error",
@@ -1025,7 +1025,19 @@ class PontoGateway(PaymentGateway):
             }
 
         except Exception as e:
-            frappe.log_error(f"Ponto payment link creation failed: {e}", "Ponto Gateway Error")
+            # PontoCreateError is the controller's refusal AFTER it wrote its own row, which
+            # names the link (#2114); a second row only duplicated it. Every other failure
+            # (a TimestampMismatchError at submit, the donation write-back, ...) was never
+            # logged by anyone, whatever its class.
+            from verenigingen.verenigingen_payments.doctype.ponto_payment_link.ponto_payment_link import (
+                PontoCreateError,
+            )
+
+            if not isinstance(e, PontoCreateError):
+                frappe.log_error(
+                    title=f"Ponto payment link creation failed: {donation.name}",
+                    message=frappe.get_traceback(),
+                )
             return {
                 "status": "error",
                 "message": _("Failed to create Ponto payment link: {0}").format(str(e)),

@@ -645,7 +645,6 @@ verenigingen/verenigingen_payments/utils/payment_gateways.py::MollieGateway.crea
 verenigingen/verenigingen_payments/utils/payment_gateways.py::MollieGateway.get_payment_status::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::MollieGateway.process_payment::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::MollieGateway.update_subscription::1
-verenigingen/verenigingen_payments/utils/payment_gateways.py::PontoGateway.process_payment::2
 verenigingen/verenigingen_payments/utils/payment_gateways.py::SEPAGateway._create_sepa_mandate::2
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_direct_subscription_after_first_payment::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_donation_subscription_after_first_payment::1
