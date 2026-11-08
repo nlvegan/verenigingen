@@ -281,11 +281,10 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
     # straight into that field with no check -- Frappe's _validate_selects()
     # then rejects it at insert() time.
     #
-    # The concrete, code-verified reachability path is donation_form.py's
-    # create_periodic_agreement_from_donation, which forwards the Donation
-    # Form's own payment_method value (options: Bank Transfer, SEPA Direct
-    # Debit, Mollie, Cash, Check -- see donation_form.json). Three of those
-    # five have no equivalent Select option here.
+    # The path that used to forward the Donation Form's own payment_method value
+    # (options: Bank Transfer, SEPA Direct Debit, Mollie, Cash, Check) was the
+    # web_form donation_form's create_periodic_agreement_from_donation, removed
+    # in #813. Three of those five have no equivalent Select option here.
     # ------------------------------------------------------------------ #
     def test_create_agreement_accepts_exact_select_options_unchanged(self):
         """The three exact Select options must pass through unmapped.
