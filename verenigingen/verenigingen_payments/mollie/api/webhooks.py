@@ -9,6 +9,7 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
+from ...utils.webhook_ack import log_error_once
 from ..exceptions import MollieSecurityError, MollieWebhookError
 
 
@@ -26,7 +27,8 @@ def handle_mollie_payment_webhook():
         return handle_payment_webhook()
 
     except Exception as e:
-        frappe.log_error(f"Webhook endpoint error: {e}", "Mollie Webhook API")
+        # Once an hour per exception class, not per request: the endpoint is guest-reachable (#2187).
+        log_error_once("Mollie Webhook API", f"Webhook endpoint error: {e}", type(e).__name__)
         frappe.response.http_status_code = 500
         return {"status": "error"}
 
@@ -63,7 +65,7 @@ def handle_unified_webhook():
         return {"status": "error"}
 
     except Exception as e:
-        frappe.log_error(f"Unexpected error in unified webhook: {e}", "Mollie Webhook Error")
+        log_error_once("Mollie Webhook Error", f"Unexpected error in unified webhook: {e}", type(e).__name__)
         frappe.response.http_status_code = 500
         return {"status": "error"}
 
