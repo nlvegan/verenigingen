@@ -143,45 +143,52 @@ class TestChapterExpenseReport(VereningingenTestCase):
         # file/run. The docs were also never tracked for cleanup, so they leaked.
         # Uniquify the identity per-run and track everything for teardown.
         unique = frappe.generate_hash(length=8)
-        member_last = f"Volunteer{unique}"
         volunteer_label = f"John Volunteer {unique}"
-
-        # Create a test volunteer using direct Frappe document creation
-        test_member = frappe.get_doc({
-            "doctype": "Member",
-            "first_name": "John",
-            "last_name": member_last,
-            "email": f"john.volunteer.{unique}@test.com",
-            "status": "Active"
-        })
-        test_member.insert()
-        self.track_doc("Member", test_member.name)
+        decoy_label = f"Decoy Volunteer {unique}"
 
         # The report looks a Volunteer up by Volunteer.employee_id == claim.employee
-        # (a Link to Employee), so a real Employee is needed. Tracked before the
-        # Volunteer so the Volunteer, which links to it, is drained first.
-        test_employee = frappe.get_doc({
-            "doctype": "Employee",
-            "first_name": f"Exp{unique}",
-            "gender": "Other",
-            "date_of_birth": "1990-01-01",
-            "date_of_joining": "2020-01-01",
-            "status": "Active",
-            "company": get_eur_test_company(),
-        }).insert()
-        self.track_doc("Employee", test_employee.name)
+        # (a Link to Employee), so real Employees are needed. Per identity the order
+        # is Member, Employee, Volunteer, so the Volunteer, which links to both, is
+        # drained first. The decoy is created AFTER the target and linked to a
+        # DIFFERENT Employee: a lookup that drops or loosens the employee_id filter
+        # (``{}``, ``["is", "set"]``) resolves the newest Volunteer, which is the
+        # decoy, so only the exact filter yields the target's name (#690 review).
+        company = get_eur_test_company()
+        employees = {}
+        for key, label in (("target", volunteer_label), ("decoy", decoy_label)):
+            member = frappe.get_doc({
+                "doctype": "Member",
+                "first_name": "John" if key == "target" else "Decoy",
+                "last_name": f"Volunteer{unique}",
+                "email": f"{key}.volunteer.{unique}@test.com",
+                "status": "Active"
+            })
+            member.insert()
+            self.track_doc("Member", member.name)
 
-        test_volunteer = frappe.get_doc({
-            "doctype": "Volunteer",
-            "volunteer_name": volunteer_label,
-            "member": test_member.name,
-            "employee_id": test_employee.name,
-            "status": "Active"
-        })
-        test_volunteer.insert()
-        self.track_doc("Volunteer", test_volunteer.name)
+            employee = frappe.get_doc({
+                "doctype": "Employee",
+                "first_name": f"Exp{key}{unique}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": company,
+            }).insert()
+            self.track_doc("Employee", employee.name)
+            employees[key] = employee
 
-        mock_expense_claims[0]["employee"] = test_employee.name
+            volunteer = frappe.get_doc({
+                "doctype": "Volunteer",
+                "volunteer_name": label,
+                "member": member.name,
+                "employee_id": employee.name,
+                "status": "Active"
+            })
+            volunteer.insert()
+            self.track_doc("Volunteer", volunteer.name)
+
+        mock_expense_claims[0]["employee"] = employees["target"].name
 
         # Mock justified: ERPNext external service - expense data with volunteer lookup
         with patch("frappe.get_list", return_value=mock_expense_claims), patch(
@@ -192,6 +199,7 @@ class TestChapterExpenseReport(VereningingenTestCase):
             self.assertEqual(len(result), 1)
             # Single expected value: the linked Volunteer's name, not the fallback.
             self.assertEqual(result[0]["volunteer_name"], volunteer_label)
+            self.assertNotEqual(result[0]["volunteer_name"], decoy_label)
             self.assertNotEqual(
                 result[0]["volunteer_name"],
                 mock_expense_claims[0]["employee_name"],
