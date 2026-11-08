@@ -23,6 +23,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Periodic Donation Agreement.payment_method is a Select with exactly these
 # three options (periodic_donation_agreement.json). Callers -- notably the
@@ -156,6 +157,9 @@ def create_periodic_agreement(
         return OperationResult.fail(_("Failed to create periodic donation agreement"), errors=[str(e)])
 
 
+_LINK_SAVEPOINT = "link_donation_to_agreement"
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str, Any]]:
@@ -169,6 +173,11 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
     Returns:
         OperationResult: Success status
     """
+    # Both sides of the link are written below, the Donation first. This endpoint answers a
+    # refusal with OperationResult.fail (HTTP 200), so frappe/app.py COMMITS the request;
+    # without a rollback to this savepoint a refused agreement save leaves the Donation
+    # pointing at an agreement that does not list it (#2281).
+    frappe.db.savepoint(_LINK_SAVEPOINT)
     try:
         # Validate donation and agreement
         donation_doc = frappe.get_doc("Donation", donation)
@@ -208,7 +217,12 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
 
         return OperationResult.ok({}, message=_("Donation linked to agreement successfully"))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A deadlock has already discarded the transaction; let the request-level rollback run.
+        raise
+
     except Exception as e:
+        rollback_to_savepoint(_LINK_SAVEPOINT)
         frappe.log_error(
             f"Failed to link donation: {str(e)}\n{traceback.format_exc()}", "Donation Linking Error"
         )
