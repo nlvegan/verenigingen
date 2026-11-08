@@ -208,7 +208,11 @@ class VerenigingenSettings(Document):
 def get_income_account_query(
     doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict
 ):
-    """Filter for income accounts only"""
+    """Filter for income accounts only.
+
+    Keys on root_type, not account_type: ERPNext's standard chart leaves account_type
+    empty on income leaves (#831, same class as #442).
+    """
     company = filters.get("company") or frappe.defaults.get_global_default("company")
 
     return frappe.db.sql(
@@ -216,7 +220,7 @@ def get_income_account_query(
         SELECT name, account_name
         FROM `tabAccount`
         WHERE company = %s
-        AND account_type = 'Income Account'
+        AND root_type = 'Income'
         AND is_group = 0
         AND (name LIKE %s OR account_name LIKE %s)
         ORDER BY name
