@@ -240,17 +240,14 @@ class PermissionCheckError(frappe.PermissionError):
     """
 
 
-def _record_permission_check_error(check: str, user: str, error: Exception):
-    """Make a failed permission CHECK visible in the Error Log (#857).
+def _permission_check_error_message(check: str, user: str, error: Exception) -> str:
+    """Body of the Error Log row for a permission CHECK that errored (#857).
 
     frappe.logger() output is not read anywhere (file handler only), so a
-    transient DB error looked identical to a legitimate "no". Callers still
-    fail closed; this only records that the answer was "unknown".
+    transient DB error looked identical to a legitimate "no". The handlers call
+    frappe.log_error themselves (keyword form) and still fail closed.
     """
-    frappe.log_error(
-        title=f"Permission check errored: {check}",
-        message=f"Check: {check}\nUser: {user}\nError: {error!r}\n\n{frappe.get_traceback()}",
-    )
+    return f"Check: {check}\nUser: {user}\nError: {error!r}\n\n{frappe.get_traceback()}"
 
 
 def can_request_system_escalation(user: str = None) -> bool:
@@ -280,7 +277,10 @@ def can_request_system_escalation(user: str = None) -> bool:
         raise
     except Exception as e:
         # Fail closed (never grants), but record that the check broke (#857).
-        _record_permission_check_error("can_request_system_escalation", user, e)
+        frappe.log_error(
+            title="Permission check errored: can_request_system_escalation",
+            message=_permission_check_error_message("can_request_system_escalation", user, e),
+        )
         return False
 
 
@@ -316,7 +316,10 @@ def can_use_bypass_validations(user: str = None) -> bool:
         raise
     except Exception as e:
         # Fail closed (never grants), but record that the check broke (#857).
-        _record_permission_check_error("can_use_bypass_validations", user, e)
+        frappe.log_error(
+            title="Permission check errored: can_use_bypass_validations",
+            message=_permission_check_error_message("can_use_bypass_validations", user, e),
+        )
         return False
 
 
