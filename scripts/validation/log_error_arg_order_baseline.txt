@@ -164,7 +164,6 @@ verenigingen/events/subscribers/expense_history_subscriber.py::handle_expense_cl
 verenigingen/events/subscribers/expense_history_subscriber.py::handle_expense_payment_made::1
 verenigingen/events/subscribers/member_subscribers.py::handle_cache_invalidation::1
 verenigingen/events/subscribers/member_subscribers.py::handle_lifecycle_notifications::1
-verenigingen/events/subscribers/member_subscribers.py::handle_user_account_updates::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_cancelled::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_events_batched::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_submitted::1

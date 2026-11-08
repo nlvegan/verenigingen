@@ -127,9 +127,6 @@ class TestMemberEventsRollback(_RollbackBase):
         member.user = self.user.name
         member.save(ignore_permissions=True)
 
-    def _user_enabled(self):
-        return frappe.db.get_value("User", self.user.name, "enabled")
-
     def _set_2144(self, **values):
         member = frappe.get_doc("Member", self.member.name)
         member.update(values)
@@ -171,40 +168,6 @@ class TestMemberEventsRollback(_RollbackBase):
         with self._mail_boundary() as service:
             self._run_jobs_2144(jobs, only="handle_status_change_notifications")
         service.send_notification.assert_not_called()
-
-    def test_user_account_job_ignores_a_status_the_member_does_not_have(self):
-        """Probe shortcut: the payload is hand-built (old != new). A real save emits
-        old_status == new_status (get_db_value runs after the write in on_update), so
-        handle_user_account_updates never disables anyone from a real event today; the
-        guard is for when that is fixed."""
-        data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs_2144(
-            [
-                {
-                    "method": MEMBER_JOBS + "handle_user_account_updates",
-                    "event_name": "member_lifecycle_changed",
-                    "event_data": data,
-                    "is_bulk_import": False,
-                }
-            ]
-        )
-        self.assertEqual(self._user_enabled(), 1)
-
-    def test_control_user_account_job_disables_when_the_member_is_suspended(self):
-        """Control for the test above: with the status really held, the user is disabled."""
-        self._suspend_2144()
-        data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs_2144(
-            [
-                {
-                    "method": MEMBER_JOBS + "handle_user_account_updates",
-                    "event_name": "member_lifecycle_changed",
-                    "event_data": data,
-                    "is_bulk_import": False,
-                }
-            ]
-        )
-        self.assertEqual(self._user_enabled(), 0)
 
     def _seat_in_chapter(self):
         chapter = self.create_test_chapter(
@@ -320,7 +283,7 @@ class TestMemberEventsRollback(_RollbackBase):
 
     def test_member_jobs_are_held_until_commit(self):
         jobs = self._capture_jobs_2144(self._suspend_2144) + self._capture_jobs_2144(self._approve_2144)
-        self.assertEqual(len(jobs), 5)
+        self.assertEqual(len(jobs), 4)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
 
 
