@@ -714,10 +714,7 @@ class APISecurityFramework:
             # the old code stored {"is_critical": False} for 300s, so one blip skipped the
             # critical gate for that endpoint for five minutes. The caller decides
             # whether this request may proceed (see refuse_if_critical_lookup_failed).
-            frappe.log_error(
-                title="Critical operation lookup failed",
-                message=f"function={module_name}.{func_name}\n\n{frappe.get_traceback()}",
-            )
+            _log_lookup_failure_once(module_name, func_name)
             return {"is_critical": False, "lookup_failed": True}
 
         # Cache the "not critical" result too (shorter cache time)
@@ -851,12 +848,35 @@ class APISecurityFramework:
         return headers
 
 
+LOOKUP_FAILURE_LOG_WINDOW_SECONDS = 60
+
+
+def _log_lookup_failure_once(module_name: str, func_name: str) -> None:
+    """Write the lookup failure to the Error Log at most once per window per exception type.
+
+    A sustained outage fails every request, and Error Log is MyISAM: one row per request
+    would flood it. The traceback is built inside the except block that calls this.
+    """
+    exc_type = type(sys.exc_info()[1]).__name__
+    key = f"critical_lookup_failure_logged:{exc_type}"
+    if frappe.cache().get_value(key):
+        return
+    frappe.cache().set_value(key, 1, expires_in_sec=LOOKUP_FAILURE_LOG_WINDOW_SECONDS)
+    frappe.log_error(
+        title="Critical operation lookup failed",
+        message=f"function={module_name}.{func_name}\n\n{frappe.get_traceback()}",
+    )
+
+
 @lru_cache(maxsize=1)
 def _fixture_critical_operation_names() -> frozenset:
     """Operation names the shipped fixtures define at security_level "critical".
 
     Read from disk, never the database, because it answers "is there a critical rule?"
     at the moment the database lookup has just failed. Only called on that error path.
+
+    An empty result is an error, not an answer: it would silently disable every refusal.
+    lru_cache does not cache a raised exception, so the next request retries the read.
     """
     names = set()
     for path in Path(frappe.get_app_path("verenigingen", "fixtures")).glob("critical_operation_rule*.json"):
@@ -864,6 +884,14 @@ def _fixture_critical_operation_names() -> frozenset:
             for row in json.load(handle):
                 if row.get("security_level") == "critical":
                     names.add(row.get("operation_name"))
+    if not names:
+        frappe.log_error(
+            title="Critical operation fixtures unreadable",
+            message="No security_level critical rule found in the shipped fixtures.",
+        )
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
     return frozenset(names)
 
 

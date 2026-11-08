@@ -11,6 +11,7 @@ Real ``@critical_api`` / ``@standard_api`` functions are called; the side effect
 append inside the endpoint body.
 """
 
+import tempfile
 from unittest.mock import patch
 
 import frappe
@@ -123,6 +124,7 @@ class TestCriticalLookupFailClosed(VereningingenTestCase):
             frappe.cache().delete_value(f"critical_operation_rule:{op}")
             frappe.cache.delete_value(f"critical_op_check:{__name__}.{op}")
         frappe.cache().delete_value("critical_operation_rules")
+        frappe.cache().delete_value("critical_lookup_failure_logged:RuntimeError")
 
     def _call(self, fn, **kwargs):
         with self.set_user("Administrator"):
@@ -232,3 +234,28 @@ class TestCriticalLookupFailClosed(VereningingenTestCase):
             self.assertIsNone(secure_operations._critical_operations_registry)
         finally:
             secure_operations._critical_operations_registry = saved
+
+    def test_a_sustained_failure_writes_one_error_log_row_per_window(self):
+        before = self._lookup_error_logs()
+        for _i in range(5):
+            self._errored(probe_2295_plain_read)
+        self.assertEqual(self._lookup_error_logs(), before + 1)
+        self.assertEqual(len(SIDE_EFFECTS), 5, "dedup of the log must not change who proceeds")
+
+    def test_unreadable_fixtures_fail_closed_and_are_not_cached(self):
+        """An empty fixture set would silently disable every refusal; it must refuse instead."""
+        self.expectErrorLog("Critical operation fixtures unreadable")
+        _fixture_critical_operation_names.cache_clear()
+        try:
+            with tempfile.TemporaryDirectory() as empty_dir:
+                # Mock justified: the shipped fixtures cannot be made unreadable on demand.
+                with patch.object(frappe, "get_app_path", return_value=empty_dir):
+                    with self.assertRaises(VValidationError):
+                        self._errored(probe_2295_plain_read)
+            self.assertEqual(SIDE_EFFECTS, [])
+            # Not cached: with the real fixtures back, the next errored call decides normally.
+            self.assertEqual(self._errored(probe_2295_plain_read), {"ok": True})
+            with self.assertRaises(VValidationError):
+                self._errored(admin_cancel_subscription)
+        finally:
+            _fixture_critical_operation_names.cache_clear()
