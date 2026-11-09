@@ -969,15 +969,19 @@ def escalate_conflicts(batch_id, conflicts):
     # filter, so it also returned the names of Reports and Pages holding those roles.
     recipients = get_financial_admin_emails("sepa_batch_error")
 
+    notified = 0
     if recipients:
         email_service = get_email_service()
-        email_service.send_simple_email(
+        result = email_service.send_simple_email(
             recipients=recipients,
             subject=f"Direct Debit Batch Conflicts - {batch_id}",
             message=escalation_message,
             delayed=False,
             notification_key="sepa_batch_error",
         )
+        # A skip (cooldown, disabled key, opt-out) or a failure notified nobody (#2178)
+        if result.success and not result.skip_reason:
+            notified = len(recipients)
 
     # Update batch status
     batch.add_comment("Comment", f"Conflicts escalated by {frappe.session.user}")
@@ -986,7 +990,7 @@ def escalate_conflicts(batch_id, conflicts):
         "success": True,
         "batch_id": batch_id,
         "escalated_conflicts": len(conflicts),
-        "notifications_sent": len(recipients),
+        "notifications_sent": notified,
     }
 
 

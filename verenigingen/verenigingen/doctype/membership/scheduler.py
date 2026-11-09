@@ -211,7 +211,7 @@ def _send_renewal_reminders_impl():
                 "company": frappe.defaults.get_global_default("company"),
             }
 
-            email_service.send_templated_email(
+            result = email_service.send_templated_email(
                 template_name=template,
                 recipients=[membership.email],
                 context=enhanced_context,
@@ -221,7 +221,10 @@ def _send_renewal_reminders_impl():
                 notification_key="membership_renewal_reminder",
             )
 
-            # Log the email
+            # A skip (cooldown, disabled key, opt-out) or a failure sent nothing (#2178)
+            if not result.success or result.skip_reason:
+                continue
+
             frappe.logger().info(
                 f"Sent renewal reminder to {membership.email} for membership {membership.name}"
             )

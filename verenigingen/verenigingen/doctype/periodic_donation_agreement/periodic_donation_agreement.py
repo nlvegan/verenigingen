@@ -471,7 +471,7 @@ class PeriodicDonationAgreement(Document):
                 ),
             }
 
-            email_service.send_templated_email(
+            result = email_service.send_templated_email(
                 template_name="periodic_agreement_cancellation",
                 recipients=[donor.donor_email],
                 context=context,
@@ -483,7 +483,10 @@ class PeriodicDonationAgreement(Document):
                 notification_key="periodic_donation_cancellation",
             )
 
-            self.db_set("cancellation_confirmation_sent", 1)
+            # Only a mail that was really queued counts: a skip (cooldown, disabled key, opt-out)
+            # or a failure must stay retryable (#2178)
+            if result.success and not result.skip_reason:
+                self.db_set("cancellation_confirmation_sent", 1)
 
         except Exception as e:
             frappe.log_error(

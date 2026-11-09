@@ -24,6 +24,11 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import (
+    configure_notification_key,
+    ensure_outgoing_email_account,
+)
 
 
 class TestContactRequestAutomation(VereningingenTestCase):
@@ -96,6 +101,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             send_follow_up_reminders,
         )
 
+        own_notification_keys(self, "contact_request_assigned")
+        ensure_outgoing_email_account(self)
         request = self._make_contact_request(
             subject="Needs follow-up",
             status="Open",
@@ -147,6 +154,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
+        own_notification_keys(self, "contact_request_escalated")
+        ensure_outgoing_email_account(self)
         # Urgent threshold is 1 day; request_date 5 days ago is well past it.
         request = self._make_contact_request(
             subject="Urgent overdue",
@@ -160,6 +169,48 @@ class TestContactRequestAutomation(VereningingenTestCase):
         request.reload()
         self.assertIn("ESCALATED", request.notes or "")
         self.assertIn("Managers notified", request.notes)
+
+    @patch("frappe.sendmail")
+    def test_follow_up_with_skipped_mail_does_not_advance_follow_up_date(self, _sendmail):
+        """A skipped reminder (#2178) must stay due: pushing the date out would suppress the next one."""
+        from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (
+            send_follow_up_reminders,
+        )
+
+        own_notification_keys(self, "contact_request_assigned")
+        configure_notification_key("contact_request_assigned", 0, 0)
+        ensure_outgoing_email_account(self)
+        request = self._make_contact_request(
+            subject="Skipped follow-up", status="Open", follow_up_date=today(), assigned_to="Administrator"
+        )
+
+        send_follow_up_reminders()
+
+        request.reload()
+        self.assertEqual(str(request.follow_up_date), today())
+        self.assertEqual(_sendmail.call_count, 0, "the key is disabled, so no mail may be built")
+
+    @patch("frappe.sendmail")
+    def test_escalation_with_skipped_mail_does_not_claim_managers_notified(self, _sendmail):
+        from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (
+            escalate_overdue_requests,
+        )
+
+        own_notification_keys(self, "contact_request_escalated")
+        configure_notification_key("contact_request_escalated", 0, 0)
+        ensure_outgoing_email_account(self)
+        request = self._make_contact_request(
+            subject="Skipped escalation",
+            status="Open",
+            urgency="Urgent",
+            request_date=add_days(today(), -5),
+        )
+
+        escalate_overdue_requests()
+
+        request.reload()
+        self.assertNotIn("Managers notified", request.notes or "")
+        self.assertEqual(_sendmail.call_count, 0)
 
     @patch("frappe.sendmail")
     def test_escalate_overdue_requests_skips_recent_low_urgency(self, _sendmail):

@@ -51,6 +51,7 @@ class _SendCapture:
 
         class _Result:
             success = True
+            skip_reason = None
             errors = []
 
             def get(self, *a, **k):
