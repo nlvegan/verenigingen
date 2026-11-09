@@ -185,6 +185,10 @@ class TestContactRequestAutomation(VereningingenTestCase):
         request = self._make_contact_request(
             subject="Skipped follow-up", status="Open", follow_up_date=today(), assigned_to="Administrator"
         )
+        # Inserting the request mails its own "new request" notice under a different key
+        # (contact_request_new / _urgent), which a site's cooldown state may or may not suppress.
+        # That is setup traffic, not the reminder under test.
+        _sendmail.reset_mock()
 
         send_follow_up_reminders()
 
@@ -207,6 +211,7 @@ class TestContactRequestAutomation(VereningingenTestCase):
             urgency="Urgent",
             request_date=add_days(today(), -5),
         )
+        _sendmail.reset_mock()  # the insert's own "new request" notice is setup traffic (other key)
 
         escalate_overdue_requests()
 
