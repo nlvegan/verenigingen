@@ -263,21 +263,27 @@ class TestMemberIDStartMovesCounter(EnhancedTestCase):
         row = frappe.db.sql("SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
         self._saved_counter = row[0][0] if row else None
         self._saved_cache = frappe.cache().get(COUNTER_KEY)
-        self.addCleanup(self._restore)
         self.max_id = MemberIDManager._get_max_numeric_member_id()
 
-    def _restore(self):
+    def tearDown(self):
+        # Settings.on_update commits (sync_category_options_to_doctypes), so every
+        # save in these tests is COMMITTED, and a cleanup run after tearDown would
+        # restore nothing durable. Restore here and commit it, then prove it.
         frappe.db.set_single_value(DOCTYPE, "member_id_start", self._saved_start)
         if self._saved_counter is not None:
             frappe.db.sql(
                 "UPDATE `tabSingles` SET value=%s WHERE doctype=%s AND field=%s",
                 (self._saved_counter, DOCTYPE, FIELD),
             )
+        frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+        frappe.db.commit()
         if self._saved_cache is None:
             frappe.cache().delete_value(COUNTER_KEY)
         else:
             frappe.cache().set(COUNTER_KEY, cint(self._saved_cache))
-        frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+        self.assertEqual(frappe.db.get_single_value(DOCTYPE, "member_id_start"), self._saved_start)
+        self.assertEqual(self._counter(), cint(self._saved_counter))
+        super().tearDown()
 
     def _preset(self, start, counter):
         frappe.db.set_single_value(DOCTYPE, "member_id_start", start)
@@ -340,9 +346,13 @@ class TestMemberIDStartMovesCounter(EnhancedTestCase):
         self.assertEqual(MemberIDManager.get_next_member_id(), counter + 1)
 
     def test_raising_start_below_existing_member_ids_does_not_move_counter(self):
+        # The stored counter LAGS the data (self-heal case): the sync must see the
+        # member id, not just the stored value, or it would drop the counter.
         member = self.create_test_member()
-        member.db_set("member_id", str(self.max_id + 20000), update_modified=False)
         top = self.max_id + 20000
-        self._preset(self.max_id + 10, top)
-        self._save_start(top - 50)
-        self.assertEqual(self._counter(), top)
+        member.db_set("member_id", str(top), update_modified=False)
+        self._preset(self.max_id + 10, top - 1000)
+        self._save_start(top - 50)  # a real raise, above the stored counter, below the data
+        self.assertGreaterEqual(self._counter(), top - 1000)
+        self.assertNotEqual(self._counter(), top - 50)
+        self.assertEqual(MemberIDManager.get_next_member_id(), top + 1)
