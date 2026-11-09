@@ -42,7 +42,12 @@ class WebhookErrorHandler:
     def log_error(
         self, message: str, exception: Optional[Exception] = None, extra_data: Optional[Dict] = None
     ) -> None:
-        """Log error message with correlation ID and optional exception details"""
+        """Log error message with correlation ID and optional exception details.
+
+        The Error Log row is deduped on the text of ``message`` before its first colon, so callers
+        must keep dynamic text (ids, exception text) AFTER the first colon: an f-string such as
+        ``f"Failed for {order_id}: ..."`` would bring back one row per request.
+        """
         log_message = f"❌ [{self.webhook_type}:{self.correlation_id}] {message}"
         if extra_data:
             log_message += f" | Data: {frappe.as_json(extra_data)}"

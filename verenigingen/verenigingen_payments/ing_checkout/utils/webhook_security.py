@@ -51,7 +51,7 @@ from verenigingen.utils.webhook.logging import (
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
 )
-from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once
+from verenigingen.verenigingen_payments.utils.webhook_ack import first_in_window, log_error_once
 
 # Cache for Pay.nl IP addresses (refreshed every hour)
 _paynl_ip_cache = {"ips": [], "last_updated": None}
@@ -264,10 +264,13 @@ def verify_ing_checkout_webhook(
             if verify_webhook_signature(payload, signature, secret):
                 signature_validated = True
             else:
-                log_signature_validation_failed(
-                    webhook_id="ing_checkout",
-                    expected_vs_actual={"signature_present": bool(signature)},
-                )
+                # Its Error Log row is written once an hour per caller IP, not per request: the
+                # endpoint is anonymous and any signature header reaches here (#2251, as #2136).
+                if first_in_window(f"ing_signature_failed:{get_client_ip()}"):
+                    log_signature_validation_failed(
+                        webhook_id="ing_checkout",
+                        expected_vs_actual={"signature_present": bool(signature)},
+                    )
                 raise INGCheckoutWebhookError(
                     message="Invalid webhook signature",
                     details={"reason": "Signature verification failed"},

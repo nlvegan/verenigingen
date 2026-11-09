@@ -26,6 +26,7 @@ _BASE = "/api/method/verenigingen.verenigingen_payments."
 _REQUESTS = 4
 _IP_ONE = "203.0.113.41"
 _IP_TWO = "203.0.113.42"
+_IP_SIGNED = "203.0.113.43"
 # What the handler used to put in the title, and what it puts there now.
 _TITLE_PREFIXES = ("Ing_Checkout_Payment Error", "Ing_Checkout_Mandate Error", "Ing_Checkout_Direct_Debit Error")
 
@@ -75,7 +76,34 @@ def _run_floods() -> dict:
         mark = now_mark()
         statuses = {{k: flood(v, {_IP_ONE!r}, Signature="bad") for k, v in ing.items()}}
         statuses["payment_other_ip"] = flood(ing["payment"], {_IP_TWO!r}, Signature="bad")
+        connect()
+        out["secret_was_set"] = bool(
+            frappe.get_single("Verenigingen Payments Settings").get_password(
+                "ing_checkout_webhook_secret", raise_exception=False
+            )
+        )
+        frappe.destroy()
         out["ing"] = {{"statuses": statuses, "rows": rows_since(mark)}}
+
+        # With a webhook secret configured (production) a bad signature reaches
+        # log_signature_validation_failed too. Set one for the flood, then put the setting back.
+        from frappe.utils.password import remove_encrypted_password, set_encrypted_password
+        DT = "Verenigingen Payments Settings"
+        connect()
+        original_secret = frappe.get_single(DT).get_password("ing_checkout_webhook_secret", raise_exception=False)
+        set_encrypted_password(DT, DT, "probe-secret", "ing_checkout_webhook_secret")
+        frappe.db.commit(); frappe.destroy()
+        try:
+            mark = now_mark()
+            statuses = flood(ing["payment"], {_IP_SIGNED!r}, Signature="bad")
+            out["ing_signed"] = {{"statuses": statuses, "rows": rows_since(mark)}}
+        finally:
+            connect()
+            if original_secret:
+                set_encrypted_password(DT, DT, original_secret, "ing_checkout_webhook_secret")
+            else:
+                remove_encrypted_password(DT, DT, "ing_checkout_webhook_secret")
+            frappe.db.commit(); frappe.destroy()
 
         # Ponto answers 200 and writes nothing while webhooks are disabled, so enable them for the
         # flood and put the setting back (committed, because the subprocess has its own connection).
@@ -113,7 +141,7 @@ class TestGuestFloodsWriteOneRowPerKind(EnhancedTestCase):
         frappe.cache.delete_keys("webhook_error_log_once:")
         cls.out = _run_floods()
         # The subprocess committed these rows, so the in-process rollback cannot reach them.
-        cls.flood_rows = [r["name"] for kind in ("ing", "ponto") for r in cls.out[kind]["rows"]]
+        cls.flood_rows = [r["name"] for kind in ("ing", "ing_signed", "ponto") for r in cls.out[kind]["rows"]]
 
     def setUp(self):
         super().setUp()
@@ -143,10 +171,23 @@ class TestGuestFloodsWriteOneRowPerKind(EnhancedTestCase):
             self.assertIn("Traceback", row["error"] or "")
 
     def test_ing_no_valid_security_layer_rejection_writes_one_row_per_ip(self):
+        if self.out["secret_was_set"]:
+            self.skipTest("a webhook secret is configured here, so the fail-closed branch is not reached")
+        # Control: the flood was refused as a signature failure (so the branch really ran).
+        self.assertEqual(self.out["ing"]["statuses"]["payment_other_ip"], [401] * _REQUESTS)
         rows = self._titled("ing", "ING Checkout webhook rejected")
-        # Two client IPs flooded: the site-config dependent rejection may not fire at all on a site that
-        # refuses earlier, but it must never be one row per request.
-        self.assertLessEqual(len(rows), 2, [r["method"] for r in rows])
+        # Payment is flooded from two IPs (mandate and direct debit share the first): one row per IP.
+        self.assertEqual(len(rows), 2, [r["method"] for r in rows])
+        self.assertEqual({_IP_ONE in r["error"] for r in rows}, {True, False})
+
+    def test_ing_bad_signature_with_a_secret_writes_one_row_per_kind(self):
+        """A configured secret adds log_signature_validation_failed: count ALL new rows, not by prefix."""
+        got = self.out["ing_signed"]
+        self.assertEqual(got["statuses"], [401] * _REQUESTS)
+        titles = sorted(r["method"] for r in got["rows"])
+        self.assertEqual(len(titles), 2, titles)
+        self.assertTrue(titles[0].startswith("Ing_Checkout_Payment Error"), titles)
+        self.assertIn("signature_validation_failed", titles[1])
 
     def test_ponto_signature_failures_write_one_row(self):
         self.assertEqual(self.out["ponto"]["statuses"], [401] * _REQUESTS)
