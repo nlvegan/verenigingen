@@ -107,13 +107,13 @@ _ROOT_BASES = {"TestCase", "FrappeTestCase", "IntegrationTestCase", "UnitTestCas
 
 def has_tests(source: str) -> bool:
     """True when the module defines something unittest can collect: a class with a test*
-    method, or a class that may INHERIT tests (it derives from a *TestCase/*Test base that is
-    imported, so its tests cannot be seen here, or from a local class that itself has tests).
+    method, or a class that may INHERIT tests (it derives from an imported *TestCase/*Test base, whose
+    tests cannot be seen here; a local base is judged by its own body).
     Deriving from a bare framework root (unittest.TestCase, EnhancedTestCase, ...) or from a
     local class with no tests does NOT count: tests/utils/test_base_framework.py is only
     `class VerenigingenTestCase(unittest.TestCase)` with a setUp, so `bench run-tests` prints no
-    OK line and the job reads it as RED (#2352). rule24_hook.sh's rule counted any *TestCase base,
-    which is how that module got through; a plain `class TestDataContext:` helper ran 0 tests too
+    OK line and the job reads it as RED (#2352). dispatch/rule24_hook.sh still uses the older rule
+    (any *TestCase base counts), which is how that module got through; a plain `class TestDataContext:` helper ran 0 tests too
     (#2211)."""
     try:
         tree = ast.parse(source)
@@ -125,26 +125,19 @@ def has_tests(source: str) -> bool:
         return getattr(b, "id", None) or getattr(b, "attr", "")
 
     def has_test_method(c):
-        return any(
-            isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name.startswith("test")
-            for m in c.body
-        )
+        return any(isinstance(m, ast.FunctionDef) and m.name.startswith("test") for m in c.body)
 
     classes = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
 
-    def may_have_tests(c, seen=()):
-        if has_test_method(c):
-            return True
-        for b in map(base, c.bases):
-            local = classes.get(b)
-            if local is not None:
-                if local.name not in seen and may_have_tests(local, seen + (c.name,)):
-                    return True
-            elif b.endswith(("TestCase", "Test")) and b not in _ROOT_BASES:
-                return True
-        return False
+    def may_inherit_tests(c):
+        # A LOCAL base is judged by its own body (it is visited below, so a mixin defining
+        # test_* keeps the module); only an imported base can hide inherited tests.
+        return any(
+            b not in classes and b.endswith(("TestCase", "Test")) and b not in _ROOT_BASES
+            for b in map(base, c.bases)
+        )
 
-    return any(may_have_tests(c) for c in classes.values())
+    return any(has_test_method(c) or may_inherit_tests(c) for c in classes.values())
 
 
 def runnable(root: Path, path: str) -> bool:

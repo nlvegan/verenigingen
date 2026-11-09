@@ -126,6 +126,12 @@ class SelectionRules(SelectorCase):
                    "class PerfCase(VerenigingenTestCase):\n    pass\n")
         self.assertEqual(self.pick(), [CENSUS_MOD])
 
+    def test_local_mixin_defining_tests_keeps_the_module(self):
+        self.write("verenigingen/tests/test_mixin.py",
+                   "from frappe.tests import FrappeTestCase\nclass Mixin:\n    def test_a(self):\n        pass\n"
+                   "class TestX(Mixin, FrappeTestCase):\n    pass\n")
+        self.assertIn("verenigingen.tests.test_mixin", self.pick())
+
     def test_non_test_file_pulls_its_namesake_test(self):
         self.write("verenigingen/utils/stale.py", "x = 2\n")
         self.assertIn("verenigingen.tests.test_stale_thing", self.pick())
