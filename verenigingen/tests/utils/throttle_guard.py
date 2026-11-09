@@ -18,23 +18,23 @@ _RAISED = 1000000
 
 
 def raise_throttle_user_limit(test):
-    """Call from a harness ``setUp``: raise the limit now, restore it via ``addCleanup``.
+    """Call from a harness ``setUp`` (instance) or ``setUpClass`` (the class): raise the
+    limit now, restore it via ``addCleanup`` / ``addClassCleanup``.
 
-    A cleanup rather than tearDown, so it still runs when setUp raises later.
+    A cleanup rather than tearDown, so it still runs when setUp raises later. The class
+    form covers Users inserted in setUpClass, which the per-test call does not reach.
     """
     previous = frappe.local.conf.get(_KEY)
-    test.addCleanup(_restore_throttle_user_limit, previous)
+    add_cleanup = test.addClassCleanup if isinstance(test, type) else test.addCleanup
+    add_cleanup(_restore_throttle_user_limit, previous)
     frappe.local.conf[_KEY] = _RAISED
 
 
 def _restore_throttle_user_limit(previous):
     """Delete the key when it was absent: a stored None makes ``count > limit`` raise
     TypeError instead of falling back to the default of 60. ``is None`` rather than
-    falsiness, so a deliberate 0 survives. Do not delete as dead code."""
-    try:
-        if previous is None:
-            frappe.local.conf.pop(_KEY, None)
-        else:
-            frappe.local.conf[_KEY] = previous
-    except Exception:
-        pass  # Never let cleanup mask a test result
+    falsiness, so a deliberate 0 survives."""
+    if previous is None:
+        frappe.local.conf.pop(_KEY, None)
+    else:
+        frappe.local.conf[_KEY] = previous

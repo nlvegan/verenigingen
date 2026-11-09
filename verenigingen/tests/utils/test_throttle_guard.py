@@ -5,6 +5,7 @@
 """#2256: VereningingenTestCase must not leave User creation exposed to "Throttled"."""
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 
@@ -43,22 +44,22 @@ class TestBaseRaisesThrottleLimit(VereningingenTestCase):
 
         cls.addClassCleanup(restore)
 
-    def test_a_61st_user_in_the_hour_is_not_throttled(self):
-        current = frappe.local.conf.get(_KEY)
-        frappe.local.conf[_KEY] = 1000000  # seeding must not throttle itself
-        try:
-            seeded = 0
-            while frappe.db.get_creation_count("User", 60) <= 60:
-                _insert_user("seed")
-                seeded += 1
-        finally:
-            if current is None:
-                frappe.local.conf.pop(_KEY, None)
-            else:
-                frappe.local.conf[_KEY] = current
-        self.assertGreater(frappe.db.get_creation_count("User", 60), 60)
-        # Real Users above the stock limit exist; the base class's own setUp state decides.
-        _insert_user("over")  # raises ValidationError("Throttled") if the base left it armed
+    def test_a_user_above_the_hourly_limit_is_not_throttled(self):
+        """The count is patched, not seeded: 61 real Users commit (User insert creates
+        Contacts outside the class rollback) and leaked into later modules. Only the one
+        User that must not be throttled is inserted for real, and removed again."""
+        # Mock justified: drives the over-60 condition without leaving 61 committed Users;
+        # the subject is the harness-raised limit in throttle_user_creation(), not row counting.
+        with patch.object(frappe.db, "get_creation_count", return_value=10_000):
+            user = _insert_user("over")  # raises ValidationError("Throttled") if armed
+        self.addCleanup(_remove_user, user.name)
+        self.assertTrue(frappe.db.exists("User", user.name))
+
+
+def _remove_user(name):
+    for contact in frappe.get_all("Contact", filters={"user": name}, pluck="name"):
+        frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
+    frappe.delete_doc("User", name, force=True, ignore_permissions=True)
 
 
 class TestRaiseThrottleUserLimitRestores(unittest.TestCase):

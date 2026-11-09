@@ -78,6 +78,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # in one process, on one DB connection, and frappe.db.rollback()
         # never touches session state.
         guard_session_variables(cls)
+        # #2256: also cover Users inserted in setUpClass (the per-test call comes too late).
+        raise_throttle_user_limit(cls)
 
         cls._ensure_test_environment()
         cls._track_created_docs = []
