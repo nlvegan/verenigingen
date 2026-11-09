@@ -37,6 +37,7 @@ from frappe.utils import get_bench_path
 from frappe.utils.password import update_password
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 ENDPOINT = "/api/method/verenigingen.api.payment_processing.send_overdue_payment_reminders"
 
@@ -52,7 +53,6 @@ _CHILD = textwrap.dedent(
     site, endpoint, cases = {site!r}, {endpoint!r}, json.loads({cases!r})
     frappe.init(site=site)
     frappe.connect()
-    frappe.clear_cache()
     frappe.destroy()
 
     import frappe.app
@@ -134,9 +134,20 @@ class TestPaymentProcessingHTTPIntegration(EnhancedTestCase):
     def _cleanup_committed_users(self):
         frappe.db.rollback()
         created = ("finance_user", "low_profile_user", "board_user")
+        failures = []
         for email in filter(None, (getattr(self, name, None) for name in created)):
-            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            try:
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+                # The logins in the child process leave rows delete_doc does not remove.
+                frappe.db.delete("Activity Log", {"user": email})
+                frappe.db.delete("Sessions", {"user": email})  # doctype-ok: core table tabSessions, no DocType record
+            except Exception as exc:
+                get_harness_logger("http-integration").warning(f"cleanup of {email} failed: {exc!r}")
+                failures.append(exc)
+                frappe.db.rollback()
         frappe.db.commit()
+        if failures:
+            raise failures[0]
 
     def _login(self, user):
         return {"usr": user, "pwd": self.password}

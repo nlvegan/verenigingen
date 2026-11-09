@@ -213,9 +213,8 @@ class TestExpenseApprovalMail(MailBodyEscapingBase):
     def test_approval_mail_escapes_employee_and_description(self):
         from verenigingen.services.volunteer import expense_handlers as eh
 
-        company = "_Test Company" if frappe.db.exists("Company", "_Test Company") else None
-        if not company:
-            self.skipTest("No Company available")
+        company = self.settings_company
+        self.assertTrue(company, "VereningingenTestCase.setUpClass pins no settings company")
         approver = f"approver-2307-{self.token}@example.org"
         self.create_test_user(approver, roles=["Expense Approver"])
         employee = frappe.get_doc(
