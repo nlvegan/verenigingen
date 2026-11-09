@@ -682,16 +682,6 @@ Note: `send_template_email()` and `get_email_template()` are internal helper fun
 
 ---
 
-## Overdue Application Notifications
-
-**Module:** `verenigingen.api.overdue_application_notifications`
-
-| Endpoint | Auth | Security Decorator | Description |
-|---|---|---|---|
-| `send_overdue_notifications(**kwargs)` | Login | -- | Sends notifications for overdue applications |
-
----
-
 ## Dashboard Charts
 
 **Module:** `verenigingen.api.dashboard_charts`
