@@ -17,6 +17,9 @@ from verenigingen.tests.backend.components import test_membership_application as
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import LOGGER_NAME
 from verenigingen.tests.member import test_member_utils as member_utils_tests
+from verenigingen.verenigingen.doctype.contribution_amendment_request import (
+    test_contribution_amendment_request_coverage as amendment_tests,
+)
 from verenigingen.tests.services.event_application.test_related_records_orchestrator import (
     _cleanup_dues_schedule,
 )
@@ -24,9 +27,9 @@ from verenigingen.tests.services.event_application.test_related_records_orchestr
 SCHEDULE = "Membership Dues Schedule"
 
 
-def _refuse_schedule_delete(real_delete):
+def _refuse_schedule_delete(real_delete, refused=(SCHEDULE,)):
     def delete_doc(doctype, *args, **kwargs):
-        if doctype == SCHEDULE:
+        if doctype in refused:
             raise frappe.ValidationError("refused by test")
         return real_delete(doctype, *args, **kwargs)
 
@@ -73,12 +76,67 @@ class TestDuesScheduleCleanupReportsFailures(EnhancedTestCase):
         self._assert_logs_failure(lambda: member_utils_tests.TestDuesScheduleUtilities._cleanup_member_schedules(fake), schedule)
         frappe.db.set_value(SCHEDULE, schedule, "membership", None)
 
+    def test_member_utils_membership_schedule_cleanup_logs_a_refused_delete(self):
+        member, schedule = self._real_schedule_name()
+        membership = self.create_test_membership(member_name=member.name)
+        frappe.db.set_value(SCHEDULE, schedule, "membership", membership.name)
+        fake = SimpleNamespace(member=member, membership=membership)
+        self._assert_logs_failure(
+            lambda: member_utils_tests.TestDuesScheduleUtilities._cleanup_membership_schedules(fake),
+            schedule,
+        )
+
     def test_membership_application_cleanup_logs_a_refused_delete(self):
         member, schedule = self._real_schedule_name()
         fake = SimpleNamespace()
         self._assert_logs_failure(
             lambda: application_tests.TestMembershipApplicationLoad._cleanup_member_completely(fake, member.name), schedule
         )
+
+    def _run_chapter_selection_flow(self, refused):
+        """Run the real TestChapterSelection test whose body ends in the inline cleanup, with
+        `frappe.delete_doc` refusing `refused`; return the ERROR lines logged."""
+        case_class = application_tests.TestChapterSelection
+        name = "test_chapter_data_persistence_through_approval_flow"
+        case_class.setUpClass()
+        case = case_class(name)
+        try:
+            case.setUp()
+            try:
+                # Mock justified: forces the delete failure the inline cleanup swallowed. Patched only
+                # around the test body, so the case's own tearDown drain can still delete.
+                with patch("frappe.delete_doc", side_effect=_refuse_schedule_delete(frappe.delete_doc, refused)):
+                    with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
+                        getattr(case, name)()
+            finally:
+                case.tearDown()
+                case.doCleanups()
+        finally:
+            case_class.tearDownClass()
+        return logged.output
+
+    def test_chapter_selection_inline_cleanup_logs_a_refused_schedule_delete(self):
+        output = self._run_chapter_selection_flow((SCHEDULE,))
+        self.assertTrue(any("could not delete " + SCHEDULE in line for line in output), output)
+
+    def test_chapter_selection_inline_cleanup_logs_a_failed_member_delete(self):
+        output = self._run_chapter_selection_flow(("Member",))
+        self.assertTrue(any("cleanup of member" in line for line in output), output)
+
+    def test_contribution_amendment_teardown_class_logs_a_refused_delete(self):
+        case_class = amendment_tests.TestContributionAmendmentRequestCoverage
+        case_class.setUpClass()
+        try:
+            schedules = frappe.get_all(SCHEDULE, {"member": case_class.member.name}, pluck="name")
+            if not schedules:
+                self.skipTest("class fixtures created no Dues Schedule, nothing for teardown to refuse")
+            # Mock justified: forces the delete failure the swallowed handler hid
+            with patch("frappe.delete_doc", side_effect=_refuse_schedule_delete(frappe.delete_doc)):
+                with self.assertLogs(LOGGER_NAME, level="ERROR") as logged:
+                    case_class.tearDownClass()
+            self.assertTrue(any(schedules[0] in line for line in logged.output), logged.output)
+        finally:
+            case_class.tearDownClass()
 
     def test_control_a_cleanup_that_succeeds_logs_nothing(self):
         _member, schedule = self._real_schedule_name()

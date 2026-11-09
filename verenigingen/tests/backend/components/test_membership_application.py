@@ -1484,7 +1484,8 @@ class TestChapterSelection(ApplicationFlowCase):
             if customer_name:
                 frappe.delete_doc("Customer", customer_name, force=True)
         except Exception:
-            pass
+            # The Member/Customer deletes were swallowed here too (#2271)
+            get_harness_logger("cleanup").error("cleanup of member %s failed", member_name, exc_info=True)
 
     def test_multiple_chapters_in_same_region(self):
         """Test handling of multiple chapters in the same region"""

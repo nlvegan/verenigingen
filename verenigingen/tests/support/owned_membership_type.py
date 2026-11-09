@@ -12,6 +12,10 @@ import frappe
 def make_owned_membership_type(test_case, **overrides):
     """Create an active Membership Type (plus its auto-created dues template) for `test_case`.
 
+    Separate from `EnhancedTestCase.create_test_membership_type` on purpose: the callers are plain
+    FrappeTestCase classes that cannot use that mixin method, and this one leaves the auto-created
+    template at its default rate instead of aligning it to the type's minimum.
+
     Removal is registered with `addCleanup`, template first: the template links to the type, so the
     type's delete is refused while it exists. The delete is NOT swallowed.
     """
