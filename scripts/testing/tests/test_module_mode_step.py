@@ -29,10 +29,14 @@ def step_script() -> str:
 
 
 class ModuleStep(unittest.TestCase):
-    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD):
+    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD, module_source: str = None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             (ws / "env" / "bin").mkdir(parents=True)
+            if module_source is not None:
+                src = ws / "apps" / "verenigingen" / (MOD.replace(".", "/") + ".py")
+                src.parent.mkdir(parents=True)
+                src.write_text(module_source)
             fake = ws / "fakebin"
             fake.mkdir()
             (fake / "bench").write_text(f"#!/bin/bash\ncat <<'EOT'\n{bench_output}\nEOT\nexit {bench_rc}\n")
@@ -60,6 +64,44 @@ class ModuleStep(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("::error::", out)
         self.assertRegex(out, r"(?i)skipped")
+
+    # #2364: a module that can never check anything in CI (live gateway credentials, a live
+    # web server) declares it, and is then reported instead of failing the PR.
+    MARKED = 'import unittest\n\nCI_ALWAYS_SKIPS = "needs Mollie test credentials"\n'
+
+    def test_an_all_skipped_module_with_the_marker_is_green_with_a_warning(self):
+        rc, out = self.run_step("Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source=self.MARKED)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::warning::", out)
+        self.assertIn("needs Mollie test credentials", out)
+        self.assertNotIn("::error::", out)
+
+    def test_an_all_skipped_module_without_the_marker_stays_red(self):
+        # Control: a source file exists, it just does not declare the marker.
+        rc, out = self.run_step("Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source="import unittest\n")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("::error::", out)
+
+    def test_a_marker_with_an_empty_reason_does_not_count(self):
+        rc, out = self.run_step(
+            "Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source='CI_ALWAYS_SKIPS = ""\n'
+        )
+        self.assertEqual(rc, 1, out)
+
+    def test_a_marker_mentioned_in_a_comment_does_not_count(self):
+        rc, out = self.run_step(
+            "Ran 2 tests in 0.1s\n\nOK (skipped=2)",
+            module_source='# CI_ALWAYS_SKIPS = "not really"\nimport unittest\n',
+        )
+        self.assertEqual(rc, 1, out)
+
+    def test_the_marker_does_not_rescue_a_module_that_collected_nothing(self):
+        rc, out = self.run_step("Ran 0 tests in 0.0s\n\nOK", module_source=self.MARKED)
+        self.assertEqual(rc, 1, out)
+
+    def test_the_marker_does_not_rescue_a_failing_module(self):
+        rc, out = self.run_step("Ran 2 tests\n\nFAILED (failures=1)", 1, module_source=self.MARKED)
+        self.assertEqual(rc, 1, out)
 
     def test_a_module_that_ran_zero_tests_is_red(self):
         rc, out = self.run_step("Ran 0 tests in 0.0s\n\nOK")
