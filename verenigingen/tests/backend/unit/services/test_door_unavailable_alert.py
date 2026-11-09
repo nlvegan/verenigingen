@@ -195,7 +195,12 @@ class TestDoorUnavailableAlertOverWsgi(VereningingenUnitTestCase):
                     "send_welcome_email": 0, "enabled": 1,
                     "roles": [{{"role": "Verenigingen Administrator"}}]}}).insert()
                 made["user"] = user.name
-                mtype = frappe.get_all("Membership Type", {{"dues_schedule_template": ["is", "set"]}}, pluck="name", limit=1)[0]
+                # Its OWN type and template (#2270): scanning for "any type with a template" picks whatever
+                # another module leaked (newest first), e.g. one whose template rate is below its minimum.
+                role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name") or frappe.db.get_value("Role Profile", {{}}, "name")
+                mtype = frappe.get_doc({{"doctype": "Membership Type", "membership_type_name": "Wsgi Type " + uuid.uuid4().hex[:8],
+                    "is_active": 1, "minimum_amount": 1.0, "role_profile": role_profile}}).insert().name
+                made["mtype"] = mtype
                 source = frappe.db.get_value("Membership Type", mtype, "dues_schedule_template")
                 template = frappe.copy_doc(frappe.get_doc("Membership Dues Schedule", source))
                 template.schedule_name = "Wsgi " + uuid.uuid4().hex[:6]
@@ -241,6 +246,11 @@ class TestDoorUnavailableAlertOverWsgi(VereningingenUnitTestCase):
                 for doctype, key in (("Membership Application Door", "door"), ("Membership Dues Schedule", "template"), ("User", "user")):
                     if made.get(key):
                         frappe.delete_doc(doctype, made[key], force=True)
+                if made.get("mtype"):
+                    # the type and its auto-created template link to each other: template first, then the type
+                    for tpl in frappe.get_all("Membership Dues Schedule", {{"membership_type": made["mtype"]}}, pluck="name"):
+                        frappe.delete_doc("Membership Dues Schedule", tpl, force=True)
+                    frappe.delete_doc("Membership Type", made["mtype"], force=True)
                 frappe.db.commit()
                 frappe.destroy()
             """

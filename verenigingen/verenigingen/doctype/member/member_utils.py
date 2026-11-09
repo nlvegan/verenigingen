@@ -1151,9 +1151,8 @@ def sync_member_counter_with_settings(doc, method=None):
     if doc.doctype != "Verenigingen Settings":
         return
 
+    # sync is raise-only, so no old-vs-new comparison is needed: a lowered start
+    # is a no-op. (The old code read the "old" value with get_db_value AFTER the
+    # write, so old == new and the sync could never run -- #2261.)
     if doc.has_value_changed("member_id_start"):
-        old_start = cint(doc.get_db_value("member_id_start")) or 1000
-        new_start = cint(doc.member_id_start) or 1000
-
-        if new_start > old_start:
-            MemberIDManager.sync_counter_with_settings()
+        MemberIDManager.sync_counter_with_settings(doc.member_id_start)

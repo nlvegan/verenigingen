@@ -22,6 +22,12 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+# Uncommitted, byte-for-byte (#2159). Names kept: the sibling recipient tests import them from here.
+from verenigingen.tests.utils.notification_state import (
+    restore_notification_rows as _restore_rows,
+    snapshot_notification_rows as _snapshot_rows,
+)
 from verenigingen.utils.notification_helpers import notify_administrators, resolve_admin_recipients
 from verenigingen.verenigingen_payments.api import sepa_batch_notifications as notif
 from verenigingen.verenigingen_payments.monitoring.balance_monitor import AlertType, BalanceMonitor
@@ -38,18 +44,6 @@ def _error_rows_titled(title):
 
 CONFIG_DOCTYPE = "Verenigingen Email Configuration"
 SEPA_KEY = "sepa_batch_error"
-
-
-def _snapshot_rows():
-    """Plain copy of the child rows (hand-rolled; singleton_backup has restored child tables since #2091, #2159)."""
-    fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"]
-    return [{f: r.get(f) for f in fields} for r in frappe.get_single(CONFIG_DOCTYPE).notification_types]
-
-
-def _restore_rows(rows):
-    config = frappe.get_single(CONFIG_DOCTYPE)
-    config.set("notification_types", rows)
-    config.save()
 
 
 def _put_key_row(key, policy, **fields):
@@ -319,15 +313,29 @@ class TestAlertingSystemCooldown(EnhancedTestCase):
         self.system = sas.SEPAAlertingSystem()
         self.system.notification_config["webhook_enabled"] = False
         # Mock justified: External Service - the outgoing mail hand-off; cooldown and EmailService run for real.
-        sendmail = patch("frappe.sendmail")
+        # frappe.sendmail is ALREADY a mock here: EnhancedTestCase.setUp installed it and its tearDown
+        # (which runs BEFORE addCleanup callbacks) restores the real function. A second patch("frappe.sendmail")
+        # would record that mock as "the original", and its addCleanup(stop) would put it back AFTER the
+        # harness restored the real one, leaving frappe.sendmail a MagicMock for the rest of the process (#2197).
+        self.sendmail = frappe.sendmail
+        self.sendmail.reset_mock()
         account = patch(
             "verenigingen.services.communication.email_service.EmailService._has_active_email_account",
             return_value=True,
         )
-        self.sendmail = sendmail.start()
         account.start()
-        self.addCleanup(sendmail.stop)
         self.addCleanup(account.stop)
+
+    @classmethod
+    def tearDownClass(cls):
+        """Control (#2197): no test of this class leaves frappe.sendmail mocked for the next module.
+
+        Runs after every test's tearDown AND cleanups. With the old stacked sendmail patch
+        this fails: the module after this one saw no Email Queue rows at all.
+        """
+        super().tearDownClass()
+        if isinstance(frappe.sendmail, MagicMock):
+            raise AssertionError("frappe.sendmail was left a mock after this class ran")
 
     def _alert(self, alert_id):
         return sas.SEPAAlert(

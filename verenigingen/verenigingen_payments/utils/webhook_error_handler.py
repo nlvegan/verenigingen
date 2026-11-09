@@ -12,7 +12,9 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.verenigingen_payments.utils.shared.responses import ResponseBuilder
+from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once
 
 
 class WebhookErrorHandler:
@@ -40,7 +42,12 @@ class WebhookErrorHandler:
     def log_error(
         self, message: str, exception: Optional[Exception] = None, extra_data: Optional[Dict] = None
     ) -> None:
-        """Log error message with correlation ID and optional exception details"""
+        """Log error message with correlation ID and optional exception details.
+
+        The Error Log row is deduped on the text of ``message`` before its first colon, so callers
+        must keep dynamic text (ids, exception text) AFTER the first colon: an f-string such as
+        ``f"Failed for {order_id}: ..."`` would bring back one row per request.
+        """
         log_message = f"❌ [{self.webhook_type}:{self.correlation_id}] {message}"
         if extra_data:
             log_message += f" | Data: {frappe.as_json(extra_data)}"
@@ -49,9 +56,17 @@ class WebhookErrorHandler:
 
         # Log full traceback for exceptions
         if exception:
-            frappe.log_error(
+            # One row per (webhook type, failure label, exception class, caller IP) per hour: the
+            # handlers run for anonymous callers, and the correlation id is minted per request, so a
+            # title or key carrying it (as this used to) gave every failing request its own row (#2251).
+            # The label is the static text before the first colon; what follows is the exception text.
+            log_error_once(
+                f"{self.webhook_type.title()} Error",
                 f"{message}: {str(exception)}\n\nCorrelation ID: {self.correlation_id}\n\n{traceback.format_exc()}",
-                f"{self.webhook_type.title()} Error [{self.correlation_id}]",
+                self.webhook_type,
+                message.split(":", 1)[0][:80],
+                type(exception).__name__,
+                get_client_ip(),
             )
 
     def handle_validation_error(self, error_message: str, details: Optional[Dict] = None) -> Dict[str, Any]:

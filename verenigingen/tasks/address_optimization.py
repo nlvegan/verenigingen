@@ -8,6 +8,8 @@ for optimal performance of the 'other members at address' functionality.
 import frappe
 from frappe.utils import now
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 
 def update_all_member_address_fingerprints():
     """
@@ -169,6 +171,7 @@ def refresh_member_address_displays():
                         frappe.logger().info(f"Refreshed {refreshed_count} member displays so far...")
 
                 except Exception as e:
+                    reraise_if_job_timeout(e)  # #2112: stop the loop; do not count it as a member error
                     error_str = str(e)
 
                     # Check for rate limiting errors
@@ -211,6 +214,7 @@ def refresh_member_address_displays():
         return result
 
     except Exception as e:
+        reraise_if_job_timeout(e)  # #2112: let RQ mark the job timed out
         frappe.log_error(f"Fatal error in address display refresh task: {str(e)}", "Address Refresh Task")
         return {"status": "error", "error": str(e)}
 
