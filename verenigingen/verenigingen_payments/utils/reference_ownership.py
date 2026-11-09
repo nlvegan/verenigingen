@@ -46,8 +46,9 @@ class PaymentReferenceRefused(frappe.ValidationError):
     """The one refusal for every way a guest-supplied payment reference can be unusable."""
 
 
-# Columns holding the owner's email, read by name without loading the document.
-_OWNER_EMAIL_COLUMN = {"Donation": "donor_email", "Sales Invoice": "contact_email"}
+# Columns holding the owner's email, read by name without loading the document (Sales Invoice and
+# Payment Plan Payment resolve through their own helpers in _owner_email_on_file).
+_OWNER_EMAIL_COLUMN = {"Donation": "donor_email"}
 
 
 def load_owned_reference(reference_doctype: str, reference_name: str, payer_email: str):
@@ -97,8 +98,40 @@ def _owner_email_on_file(reference_doctype: str, reference_name: str) -> str:
         # get_value("Member", "", ...) would read the first row.
         email = frappe.db.get_value("Member", {"name": member or ""}, "email")
         return (email or "").strip().lower()
+    if reference_doctype == "Sales Invoice":
+        return _sales_invoice_owner_email(reference_name)
     column = _OWNER_EMAIL_COLUMN[reference_doctype]
     return (frappe.db.get_value(reference_doctype, reference_name, column) or "").strip().lower()
+
+
+def _sales_invoice_owner_email(invoice_name: str) -> str:
+    """Billing contact of a Sales Invoice, else the email of the member it bills (#2103).
+
+    ERPNext fills ``contact_email`` only from the customer's primary contact, so most real
+    membership invoices have none. Member resolves through the invoice's ``member`` field, else
+    through its customer; a customer shared by several Members proves nothing (fail closed).
+    All three reads run whatever the name or the contact_email, so an unknown invoice, an owned
+    one and a forbidden one cost the same queries (#2045).
+    """
+    row = (
+        frappe.db.get_value(
+            "Sales Invoice", invoice_name, ["contact_email", "member", "customer"], as_dict=True
+        )
+        or frappe._dict()
+    )
+    member_email = frappe.db.get_value("Member", {"name": row.member or ""}, "email")
+    customer_emails = frappe.get_all(
+        "Member", filters={"customer": row.customer or ""}, pluck="email", limit=2
+    )
+    if row.member:
+        fallback = member_email
+    elif row.customer and len(customer_emails) == 1:
+        # `row.customer` guards the unknown invoice: its empty customer ran the query above only to
+        # keep the count equal, and must not adopt a Member whose customer is blank.
+        fallback = customer_emails[0]
+    else:
+        fallback = ""
+    return (row.contact_email or fallback or "").strip().lower()
 
 
 def trim_message_log(length: int) -> None:

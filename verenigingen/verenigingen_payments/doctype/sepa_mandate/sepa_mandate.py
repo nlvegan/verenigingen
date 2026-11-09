@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import getdate, today
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import get_member_name_for_board_access
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import (
@@ -415,9 +416,7 @@ def has_permission(doc, user=None, ptype=None):
             return False
 
         # Check if the mandate belongs to this member
-        member = frappe.db.get_value("Member", {"email": user}, "name") or frappe.db.get_value(
-            "Member", {"user": user}, "name"
-        )
+        member = get_member_name_for_board_access(user)
         return doc.member == member
 
     return False
@@ -441,9 +440,7 @@ def get_permission_query_conditions(user=None):
 
     # Members can only see their own mandates
     if frappe.db.get_value("Has Role", {"parent": user, "role": "Verenigingen Member"}, "name"):
-        member = frappe.db.get_value("Member", {"email": user}, "name") or frappe.db.get_value(
-            "Member", {"user": user}, "name"
-        )
+        member = get_member_name_for_board_access(user)
         if member:
             return f"`tabSEPA Mandate`.member = {frappe.db.escape(member)}"
 

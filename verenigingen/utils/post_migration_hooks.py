@@ -101,9 +101,8 @@ def quick_workspace_health_check(workspace_name):
     """
     Quick health check focused on migration-related issues
 
-    Prioritizes the most common migration-caused problems:
-    1. Broken links to deleted DocTypes/Reports
-    2. Content/Card Break synchronization issues
+    Focuses on the most common migration-caused problem:
+    content/Card Break synchronization issues
     """
 
     try:
@@ -123,23 +122,7 @@ def quick_workspace_health_check(workspace_name):
         # Fallback to basic check
         workspace = frappe.get_doc("Workspace", workspace_name)
 
-        # Check for broken links (common after DocType deletions)
-        broken_links = []
-        for link in workspace.links:
-            if link.type == "DocType" and not frappe.db.exists("DocType", link.link_to):
-                broken_links.append(link)
-            elif link.type == "Report" and not frappe.db.exists("Report", link.link_to):
-                broken_links.append(link)
-
-        # Remove broken links
         fixes_applied = 0
-        if broken_links:
-            for link in broken_links:
-                workspace.remove(link)
-            workspace.save()
-            frappe.db.commit()
-            fixes_applied += len(broken_links)
-            print(f"🗑️  Removed {len(broken_links)} broken links from {workspace_name}")
 
         # Basic content sync check
         card_breaks = [link.label for link in workspace.links if link.type == "Card Break"]
@@ -186,63 +169,3 @@ def quick_workspace_health_check(workspace_name):
             "Quick Workspace Health Check",
         )
         return None
-
-
-def cleanup_orphaned_workspace_links():
-    """
-    Clean up workspace links that point to non-existent targets
-
-    This is a focused cleanup for migration-related orphaned references.
-    """
-
-    try:
-        print("🧹 Cleaning up orphaned workspace links...")
-
-        # Get all workspace links
-        links = frappe.get_all(
-            "Workspace Link",
-            fields=["name", "parent", "label", "type", "link_to"],
-            filters={"type": ["in", ["DocType", "Report", "Dashboard"]]},
-        )
-
-        orphaned_links = []
-
-        for link in links:
-            target_exists = False
-
-            if link.type == "DocType":
-                target_exists = frappe.db.exists("DocType", link.link_to)
-            elif link.type == "Report":
-                target_exists = frappe.db.exists("Report", link.link_to)
-            elif link.type == "Dashboard":
-                target_exists = frappe.db.exists("Dashboard", link.link_to)
-
-            if not target_exists:
-                orphaned_links.append(link)
-
-        if orphaned_links:
-            # Group by workspace for better reporting
-            workspace_orphans = {}
-            for link in orphaned_links:
-                if link.parent not in workspace_orphans:
-                    workspace_orphans[link.parent] = []
-                workspace_orphans[link.parent].append(link)
-
-            # Remove orphaned links
-            # Security: Migration hook - runs during bench migrate with elevated privileges
-            for link in orphaned_links:
-                frappe.delete_doc("Workspace Link", link.name, ignore_permissions=True)
-
-            frappe.db.commit()
-
-            print(
-                f"🗑️  Removed {len(orphaned_links)} orphaned links from {len(workspace_orphans)} workspaces"
-            )
-            for workspace, links in workspace_orphans.items():
-                print(f"   - {workspace}: {len(links)} orphaned links removed")
-        else:
-            print("✅ No orphaned workspace links found")
-
-    except Exception as e:
-        print(f"⚠️  Orphaned link cleanup failed: {str(e)}")
-        frappe.log_error(f"Orphaned workspace link cleanup failed: {str(e)}", "Workspace Link Cleanup")

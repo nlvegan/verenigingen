@@ -11,7 +11,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
-from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -146,6 +146,47 @@ def get_auth_health_status():
         return {"success": False, "error": str(e), "health_status": "error"}
 
 
+AUTH_ALERT_KEY = "auth_monitoring_alert"
+AUTH_ALERT_PROFILE = "Verenigingen System Administrator"
+
+
+def get_auth_alert_recipients():
+    """Who the critical authentication alert goes to (maintainer ruling on #2254).
+
+    The key's own row in Verenigingen Email Configuration decides when someone has configured one.
+    The seeded row is Custom (it names nobody), so the default audience is the enabled holders of the
+    Verenigingen System Administrator role PROFILE, passed as the caller's own list. A ROLE filter would be
+    wrong: System Manager or Verenigingen Administrator alone is not that profile. The Administrator user
+    is never a recipient. With no holder the admin roles still get the alert, so it cannot vanish.
+    """
+    return resolve_admin_recipients(
+        notification_key=AUTH_ALERT_KEY,
+        extra_emails=_profile_holder_emails(AUTH_ALERT_PROFILE),
+        exclude_users=("Administrator",),
+        key_first=True,
+    )
+
+
+def _profile_holder_emails(profile):
+    """Emails of enabled users holding ``profile``, recorded in the ``role_profiles`` child table or in the
+    deprecated ``role_profile_name`` column (which mirrors only a user's FIRST profile)."""
+    holders = set(frappe.get_all("User", filters={"role_profile_name": profile}, pluck="name"))
+    if frappe.get_meta("User").has_field("role_profiles"):
+        holders.update(
+            frappe.get_all(
+                "User Role Profile", filters={"role_profile": profile, "parenttype": "User"}, pluck="parent"
+            )
+        )
+    if not holders:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", sorted(holders)], "enabled": 1, "email": ["is", "set"]},
+        pluck="email",
+        order_by="email asc",
+    )
+
+
 def alert_if_auth_issues():
     """
     Check for authentication issues and send alerts if necessary
@@ -172,10 +213,7 @@ def alert_if_auth_issues():
             Please check the system immediately.
             """
 
-            # Send to system administrators
-            recipients = frappe.get_all(
-                "User", filters={"role_profile_name": Roles.SYSTEM_MANAGER, "enabled": 1}, pluck="email"
-            )
+            recipients = get_auth_alert_recipients()
 
             if recipients:
                 email_service = get_email_service()
@@ -184,10 +222,11 @@ def alert_if_auth_issues():
                     subject=subject,
                     message=message,
                     delayed=False,
-                    notification_key="auth_monitoring_alert",
+                    notification_key=AUTH_ALERT_KEY,
                 )
-
-            frappe.logger().error(f"AUTH_MONITOR: Critical alert sent to {len(recipients)} administrators")
+                frappe.logger().error(
+                    f"AUTH_MONITOR: Critical alert sent to {len(recipients)} administrators"
+                )
 
         elif (
             health_status["health_status"] == "warning" and health_status["recent_errors"]["error_count"] > 5

@@ -4,11 +4,11 @@ Handles conversion between timezone-aware and timezone-naive datetimes,
 date range calculations, and Mollie API response filtering.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import frappe
-from frappe.utils import get_system_timezone
+from frappe.utils import convert_utc_to_system_timezone, get_system_timezone
 
 
 def ensure_timezone_aware(dt: datetime) -> datetime:
@@ -73,6 +73,41 @@ def parse_mollie_datetime(date_string: str) -> datetime:
     except (ValueError, TypeError) as e:
         frappe.logger().warning(f"Failed to parse Mollie datetime '{date_string}': {e}")
         return None
+
+
+def mollie_timestamp_to_local_date(value: Any) -> Optional[date]:
+    """The calendar day a Mollie timestamp falls on in the SITE's timezone (#2162).
+
+    Mollie stamps resources in UTC (``2026-03-03T23:30:00+00:00``), so cutting the first
+    ten characters books a late-evening event a day early for a site east of UTC. The
+    zone is ``System Settings.time_zone``, never a hardcoded one. A naive datetime is
+    taken as UTC (the module's convention for Mollie values); a bare date or a
+    ``YYYY-MM-DD`` string is already a local day and is returned as it is.
+
+    Returns None when ``value`` is empty or not a timestamp, so each caller keeps its
+    own fallback. It logs nothing: the value can come from a guest webhook body.
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, date):
+        return value
+    else:
+        text = str(value).strip()
+        moment = None
+        if len(text) == 10:
+            try:
+                return date.fromisoformat(text)
+            except ValueError:
+                pass
+        else:
+            moment = parse_mollie_datetime(text)
+        if moment is None:
+            # No Error Log row: safe_extract_date feeds this from guest webhook bodies, and
+            # a row per bogus request is unbounded (#2136). Callers fall back to today.
+            return None
+    return convert_utc_to_system_timezone(ensure_timezone_aware(moment)).date()
 
 
 def mollie_datetime_for_display(dt: datetime) -> str:

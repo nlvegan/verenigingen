@@ -128,12 +128,10 @@ class DonationRefundJournalEntryCreator:
         posting_date = None
         if refund_date:
             try:
-                if isinstance(refund_date, str):
-                    from dateutil import parser
+                # Site-local day of a Mollie UTC timestamp (#2162)
+                from ..utils.timezone_utils import mollie_timestamp_to_local_date
 
-                    posting_date = parser.parse(refund_date).date()
-                else:
-                    posting_date = getdate(refund_date)
+                posting_date = mollie_timestamp_to_local_date(refund_date)
             except (ValueError, TypeError, ImportError):
                 pass
         if not posting_date:

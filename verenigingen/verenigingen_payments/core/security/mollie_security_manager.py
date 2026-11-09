@@ -71,7 +71,7 @@ class MollieSecurityManager:
         webhook_secret = self.settings.get_webhook_secret()
         if not webhook_secret:
             self._create_security_alert("WEBHOOK_SECRET_MISSING", "critical")
-            frappe.log_error("Webhook secret not configured", "Mollie Security")
+            frappe.log_error(message="Webhook secret not configured", title="Mollie Security")
             raise SecurityException("Webhook secret not configured - cannot validate webhook security")
 
         # Validate timestamp to prevent replay attacks (5 minute window)
@@ -136,7 +136,7 @@ class MollieSecurityManager:
 
         except Exception as e:
             # Don't create critical alerts for disabled functionality
-            frappe.log_error(f"API key rotation info: {str(e)}", "Mollie Security Info")
+            frappe.log_error(message=f"API key rotation info: {str(e)}", title="Mollie Security Info")
             return {
                 "status": "info",
                 "message": _("API key rotation is not available for Mollie integration"),
@@ -165,7 +165,7 @@ class MollieSecurityManager:
             return encrypted.decode("utf-8")
 
         except Exception as e:
-            frappe.log_error(f"Encryption failed: {str(e)}", "Mollie Security")
+            frappe.log_error(message=f"Encryption failed: {str(e)}", title="Mollie Security")
             raise SecurityException(f"Failed to encrypt data: {str(e)}")
 
     def decrypt_sensitive_data(self, encrypted_data: str) -> str:
@@ -187,7 +187,7 @@ class MollieSecurityManager:
             return decrypted.decode("utf-8")
 
         except Exception as e:
-            frappe.log_error(f"Decryption failed: {str(e)}", "Mollie Security")
+            frappe.log_error(message=f"Decryption failed: {str(e)}", title="Mollie Security")
             raise SecurityException(f"Failed to decrypt data: {str(e)}")
 
     def _get_or_create_encryption_key(self) -> bytes:
@@ -223,7 +223,7 @@ class MollieSecurityManager:
                     "Manual intervention required. Please ensure the 'encryption_key' "
                     "Password field exists in Mollie Settings DocType and has proper permissions."
                 )
-                frappe.log_error(error_msg, "Mollie Security - CRITICAL")
+                frappe.log_error(message=error_msg, title="Mollie Security - CRITICAL")
                 self._create_security_alert(
                     "ENCRYPTION_KEY_STORAGE_FAILED",
                     "critical",
@@ -259,7 +259,7 @@ class MollieSecurityManager:
             return time_diff <= tolerance_seconds
 
         except Exception as e:
-            frappe.log_error(f"Timestamp validation failed: {str(e)}", "Mollie Security")
+            frappe.log_error(message=f"Timestamp validation failed: {str(e)}", title="Mollie Security")
             return False
 
     def _test_api_connectivity(self, api_key: str) -> bool:
@@ -283,7 +283,7 @@ class MollieSecurityManager:
             return True
 
         except Exception as e:
-            frappe.log_error(f"API connectivity test failed: {str(e)}", "Mollie Security")
+            frappe.log_error(message=f"API connectivity test failed: {str(e)}", title="Mollie Security")
             return False
 
     def _schedule_fallback_cleanup(self):
@@ -341,12 +341,13 @@ class MollieSecurityManager:
 
             if not result.success:
                 frappe.log_error(
-                    f"Failed to create Mollie audit log: {'; '.join(result.errors)}", "Mollie Security Audit"
+                    message=f"Failed to create Mollie audit log: {'; '.join(result.errors)}",
+                    title="Mollie Security Audit",
                 )
 
         except Exception as e:
             # Log error but don't fail the main operation
-            frappe.log_error(f"Failed to create audit log: {str(e)}", "Mollie Security Audit")
+            frappe.log_error(message=f"Failed to create audit log: {str(e)}", title="Mollie Security Audit")
 
     def _create_security_alert(self, alert_type: str, severity: str, details: str = None):
         """
@@ -359,7 +360,8 @@ class MollieSecurityManager:
         """
         # Log security alert
         frappe.log_error(
-            f"Security Alert: {alert_type}\nSeverity: {severity}\nDetails: {details}", "Mollie Security Alert"
+            message=f"Security Alert: {alert_type}\nSeverity: {severity}\nDetails: {details}",
+            title="Mollie Security Alert",
         )
 
         # Send notification to security team if critical
@@ -389,7 +391,9 @@ class MollieSecurityManager:
                         notification_key="mollie_security_alert",
                     )
             except Exception as e:
-                frappe.log_error(f"Failed to send security alert email: {str(e)}", "Mollie Security")
+                frappe.log_error(
+                    message=f"Failed to send security alert email: {str(e)}", title="Mollie Security"
+                )
 
     def _calculate_integrity_hash(self, audit_log) -> str:
         """
@@ -430,4 +434,4 @@ def cleanup_fallback_key():
             security_manager._create_audit_log("FALLBACK_KEY_CLEANUP", "success")
 
     except Exception as e:
-        frappe.log_error(f"Fallback key cleanup failed: {str(e)}", "Mollie Security")
+        frappe.log_error(message=f"Fallback key cleanup failed: {str(e)}", title="Mollie Security")

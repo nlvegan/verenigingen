@@ -38,6 +38,22 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
         frappe.flags.in_import = False
         frappe.flags.in_bulk_import = False
         frappe.flags.bulk_chapter_operations = False
+        # Frappe's throttle_user_creation() raises "Throttled" once more than
+        # `throttle_user_limit` Users were created in the last hour (#2202). It is exempt
+        # only under in_import, and VereningingenTestCase never sets in_import=True, so the
+        # throttle is armed for this class regardless of the flags above (EnhancedTestCase
+        # raises the limit in its own setUp; this base does not). Raise only that limit.
+        # A cleanup, not tearDown, so it runs even if setUp raises.
+        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
+        self.addCleanup(self._restore_throttle_limit_2202)
+        frappe.local.conf["throttle_user_limit"] = 1000000
+
+    def _restore_throttle_limit_2202(self):
+        # Delete when absent: a stored None would make `count > limit` raise TypeError.
+        if self._original_throttle_limit is None:
+            frappe.local.conf.pop("throttle_user_limit", None)
+        else:
+            frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
 
     def tearDown(self):
         for k, v in self._saved_flags.items():

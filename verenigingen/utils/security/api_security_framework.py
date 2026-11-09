@@ -14,9 +14,12 @@ Architecture:
 - Comprehensive audit trails
 """
 
+import json
+import sys
 import time
 from dataclasses import replace as dataclass_replace
-from functools import wraps
+from functools import lru_cache, wraps
+from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 import frappe
@@ -56,6 +59,7 @@ from verenigingen.utils.security.types import (
     SecurityLevel,
     SecurityProfile,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class APISecurityFramework:
@@ -676,11 +680,7 @@ class APISecurityFramework:
             registry = get_critical_operations_registry()
 
             # Check various potential operation names
-            potential_operation_names = [
-                func_name,
-                f"{module_name.split('.')[-1]}_{func_name}",
-                f"api_{func_name}",
-            ]
+            potential_operation_names = self._potential_operation_names(func)
 
             for operation_name in potential_operation_names:
                 config = registry.get_operation_config(operation_name)
@@ -707,15 +707,46 @@ class APISecurityFramework:
                 f"Tried operation names: {potential_operation_names}."
             )
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").warning(
-                f"Failed to check critical operation integration: {str(e)}"
-            )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # A failed lookup is not "not critical" (#2295), and it must not be cached:
+            # the old code stored {"is_critical": False} for 300s, so one blip skipped the
+            # critical gate for that endpoint for five minutes. The caller decides
+            # whether this request may proceed (see refuse_if_critical_lookup_failed).
+            _log_lookup_failure_once(module_name, func_name)
+            return {"is_critical": False, "lookup_failed": True}
 
         # Cache the "not critical" result too (shorter cache time)
         result = {"is_critical": False}
         frappe.cache.set_value(cache_key, result, expires_in_sec=300)
         return result
+
+    @staticmethod
+    def _potential_operation_names(func: Callable) -> List[str]:
+        return [
+            func.__name__,
+            f"{func.__module__.split('.')[-1]}_{func.__name__}",
+            f"api_{func.__name__}",
+        ]
+
+    def refuse_if_critical_lookup_failed(self, critical_op_info: dict, func: Callable) -> None:
+        """Refuse THIS request when the critical lookup errored for an endpoint with a known critical rule.
+
+        "Known" has to be decidable without the lookup that just failed, so it is read
+        from the SHIPPED fixtures only (maintainer ruling on #2295): the endpoint is
+        refused when one of its operation names is a `security_level: critical` rule
+        there. The decorator level alone does not count, so a `@critical_api` endpoint
+        without such a rule proceeds, and a transient error does not stall ordinary
+        endpoints.
+        """
+        if not critical_op_info.get("lookup_failed"):
+            return
+        if not set(self._potential_operation_names(func)) & _fixture_critical_operation_names():
+            return
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
 
     def validate_critical_operation_business_rules(self, operation_info: dict, **kwargs) -> List[str]:
         """Validate business rules for critical operations"""
@@ -729,10 +760,29 @@ class APISecurityFramework:
 
             return registry.validate_business_rules(operation_info["operation_name"], **kwargs)
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(
-                f"Failed to validate critical operation business rules: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # An errored evaluation is not "no violations" (#2282). The amount rule does
+            # float() on a request kwarg, so a caller can trigger this on purpose.
+            # Type plus truncated text only: a full traceback echoes the caller's input
+            # (an oversized amount wrote a 100KB row).
+            error_type, error_value = sys.exc_info()[:2]
+            frappe.log_error(
+                title="Critical business rule evaluation failed",
+                message=(
+                    f"operation={operation_info.get('operation_name')}\n"
+                    f"{error_type.__name__}: {str(error_value)[:200]}"
+                ),
             )
+            # Same threshold the caller applies to a real violation: only a rule
+            # classified "critical" blocks; a lower level proceeds, as its violations do.
+            if (operation_info.get("config") or {}).get("security_level") == "critical":
+                raise VValidationError(
+                    _(
+                        "This operation could not be verified against its business rules and was not performed."
+                    )
+                )
             return []
 
     def log_audit_event(
@@ -796,6 +846,71 @@ class APISecurityFramework:
                 pass  # Don't fail the request if CSRF token generation fails
 
         return headers
+
+
+LOOKUP_FAILURE_LOG_WINDOW_SECONDS = 60
+
+
+def _log_lookup_failure_once(module_name: str, func_name: str) -> None:
+    """Write the lookup failure to the Error Log at most once per window per exception type.
+
+    A sustained outage fails every request, and Error Log is MyISAM: one row per request
+    would flood it. The traceback is built inside the except block that calls this.
+
+    Never raises from the dedup: a cache error here would replace the lookup error
+    and turn into a raw 500 on every endpoint. If the cache fails the row is written
+    without dedup.
+    """
+    exc_type = type(sys.exc_info()[1]).__name__
+    key = f"critical_lookup_failure_logged:{exc_type}"
+    try:
+        if frappe.cache().get_value(key):
+            return
+        frappe.cache().set_value(key, 1, expires_in_sec=LOOKUP_FAILURE_LOG_WINDOW_SECONDS)
+    except Exception:
+        pass  # Dedup only: the Error Log row below is the record that matters.
+    frappe.log_error(
+        title="Critical operation lookup failed",
+        message=f"function={module_name}.{func_name}\n\n{frappe.get_traceback()}",
+    )
+
+
+@lru_cache(maxsize=1)
+def _fixture_critical_operation_names() -> frozenset:
+    """Operation names the shipped fixtures define at security_level "critical".
+
+    Read from disk, never the database, because it answers "is there a critical rule?"
+    at the moment the database lookup has just failed. Only called on that error path.
+
+    An empty result, or any read/parse failure, is an error, not an answer: it would
+    silently disable every refusal. lru_cache does not cache a raised exception, so the
+    next request retries the read. Deliberate: when the fixtures are unreadable AND a
+    lookup has failed, the request is refused whatever the endpoint (needs a broken
+    deployment plus a DB fault together).
+    """
+    names = set()
+    try:
+        for path in Path(frappe.get_app_path("verenigingen", "fixtures")).glob(
+            "critical_operation_rule*.json"
+        ):
+            with open(path) as handle:
+                for row in json.load(handle):
+                    if row.get("security_level") == "critical":
+                        names.add(row.get("operation_name"))
+    except Exception:
+        frappe.log_error(title="Critical operation fixtures unreadable", message=frappe.get_traceback())
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
+    if not names:
+        frappe.log_error(
+            title="Critical operation fixtures unreadable",
+            message="No security_level critical rule found in the shipped fixtures.",
+        )
+        raise VValidationError(
+            _("This operation could not be verified against its security rules and was not performed.")
+        )
+    return frozenset(names)
 
 
 def _extract_doc_self_service_kwargs(args: tuple) -> Dict[str, Any]:
@@ -976,9 +1091,9 @@ def api_security_framework(
                     )
 
                     # Enhanced content validation for TOCTOU protection.
-                    # Resolve the caller's member with the canonical user-first
-                    # resolver (Member.user, then Member.email) — matching the
-                    # ownership gate. An email-only lookup silently skipped this
+                    # Resolve the caller's member by the explicit Member.user link
+                    # ONLY (#1936, no Member.email fallback) — the same resolver as
+                    # the ownership gate. An email-only lookup silently skipped this
                     # deep check for members whose Member.user differs from their
                     # login email, disabling TOCTOU protection for that class of user.
                     current_user = frappe.session.user
@@ -992,6 +1107,7 @@ def api_security_framework(
 
                 # Critical operation integration (new)
                 critical_op_info = framework.check_critical_operation_integration(func, **validated_kwargs)
+                framework.refuse_if_critical_lookup_failed(critical_op_info, func)
 
                 # Business rule validation for critical operations
                 if critical_op_info.get("is_critical"):

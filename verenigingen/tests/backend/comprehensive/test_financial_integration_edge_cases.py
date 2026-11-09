@@ -9,7 +9,10 @@ from unittest.mock import patch  # Only for external API mocking (requests.post)
 import frappe
 from frappe.utils import add_days, flt, today
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    allocate_free_region_code,
+)
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
@@ -24,16 +27,18 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
 
         # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
         # ensure backing Region exists before creating the chapter.
-        test_region_name = "Financial Test Region"
-        region_docname = frappe.db.get_value("Region", {"region_name": test_region_name}, "name")
-        if not region_docname:
-            region = frappe.get_doc({
-                "doctype": "Region",
-                "region_name": test_region_name,
-                "region_code": "FTR",
-            })
-            region.insert(ignore_permissions=True)
-            region_docname = region.name
+        # A unique name per class run: Region autonames to a slug of region_name, so a lookup by the
+        # unslugged label never found a leaked row and the next run died on a duplicate key (#2270).
+        # region_code is unique too (and validated as 2-5 uppercase letters/digits): a fixed "FTR" would
+        # die on a row an older run left behind. allocate_free_region_code verifies the code is free.
+        suffix = allocate_free_region_code()
+        region = frappe.get_doc({
+            "doctype": "Region",
+            "region_name": f"Financial Test Region {suffix}",
+            "region_code": suffix,
+        })
+        region.insert(ignore_permissions=True)
+        region_docname = region.name
 
         cls.chapter = frappe.get_doc(
             {
@@ -46,6 +51,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         cls.chapter.name = "Financial Test Chapter"
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
+        cls.test_records.insert(0, region)  # reversed on teardown: removed after the chapter
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
         # minimum_amount, role_profile. Look up any Role Profile for the link.
@@ -93,12 +99,54 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         """Clean up test data"""
+        try:
+            cls._cleanup_class_rows()
+        finally:
+            super().tearDownClass()
+
+    @classmethod
+    def _cleanup_class_rows(cls):
+        """Delete every row setUpClass built, and make the deletes durable.
+
+        Not swallowed (#2270): the old per-record `except Exception: pass` hid a LinkExistsError on the
+        Membership Type, so the type, its auto-created template, the member and the volunteer stayed
+        committed for every later module in the shard. The commit is needed because the rows were
+        committed (production code under test commits), and the class-level rollback registered by the
+        base would otherwise restore the deleted rows.
+        """
+        failures = []
         for record in reversed(cls.test_records):
             try:
+                if record.doctype == "Membership Type":
+                    # after_insert created a template that links back to the type; the type cannot go first
+                    for template in frappe.get_all(
+                        "Membership Dues Schedule", {"membership_type": record.name}, pluck="name"
+                    ):
+                        frappe.delete_doc("Membership Dues Schedule", template, force=True)
+                if record.doctype in ("Volunteer", "Member"):
+                    cls._remove_account_creation_requests(record.name)
                 record.delete()
-            except Exception:
-                pass
-        super().tearDownClass()
+            except Exception as e:
+                failures.append(f"{record.doctype} {record.name}: {e}")
+        # Commit what was deleted even when a later delete failed, then fail loudly.
+        frappe.db.commit()
+        if failures:
+            raise AssertionError("Could not delete class fixtures (#2270):\n" + "\n".join(failures))
+
+    @classmethod
+    def _remove_account_creation_requests(cls, source_record):
+        """Volunteer.after_insert queues an Account Creation Request, which links to the volunteer (so the
+        delete is refused) and, once processed, owns a User and an Employee made for this test volunteer."""
+        for request in frappe.get_all(
+            "Account Creation Request",
+            {"source_record": source_record},
+            ["name", "created_user", "created_employee"],
+        ):
+            frappe.delete_doc("Account Creation Request", request.name, force=True)
+            if request.created_employee:
+                frappe.delete_doc("Employee", request.created_employee, force=True)
+            if request.created_user:
+                frappe.delete_doc("User", request.created_user, force=True)
 
     def setUp(self):
         """Set up each test"""

@@ -42,8 +42,8 @@ def request_payment_plan(
 
         # Validate member access
         if frappe.session.user != "Administrator":
-            member_email = frappe.db.get_value("Member", member, "email")
-            if member_email != frappe.session.user:
+            # Caller identity is the Member.user link only (#1936), not Member.email.
+            if frappe.db.get_value("Member", member, "user") != frappe.session.user:
                 frappe.throw(_("Access denied"))
 
         # Validate amount
@@ -112,15 +112,15 @@ def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[
     try:
         # Determine member
         if not member:
-            # Get member from current user (uses user field, with email fallback)
+            # Get member from current user (Member.user link only)
             member = get_current_user_member_name()
             if not member:
                 return OperationResult.fail(message=_("No member record found for current user"))
 
         # Validate access
         if frappe.session.user != "Administrator":
-            member_email = frappe.db.get_value("Member", member, "email")
-            if member_email != frappe.session.user:
+            # Caller identity is the Member.user link only (#1936), not Member.email.
+            if frappe.db.get_value("Member", member, "user") != frappe.session.user:
                 frappe.throw(_("Access denied"))
 
         # Get payment plans

@@ -141,10 +141,10 @@ def get_user_board_summary(user_email: str | None = None):
         if not user_email:
             user_email = frappe.session.user
 
-        # Get user's member record
-        user_member = frappe.db.get_value("Member", {"user": user_email}, "name")
-        if not user_member:
-            user_member = frappe.db.get_value("Member", {"email": user_email}, "name")
+        # Board identity is Member.user only (#1546, #1936): no Member.email fallback
+        from verenigingen.utils.member_utils import get_member_name_for_board_access
+
+        user_member = get_member_name_for_board_access(user_email)
 
         if not user_member:
             return {"success": False, "message": "No member record found for user"}
