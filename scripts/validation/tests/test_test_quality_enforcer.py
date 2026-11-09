@@ -721,8 +721,12 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # `frappe.flags.ignore_permissions = True` -- a real permission
         # bypass -- with nothing more than a comment); the count here is
         # unaffected since every annotated site used an enumerated name.
-        self.assertEqual(221, len(self.findings), "finding count moved")
-        self.assertEqual(199, len(tqe.counts_of(self.findings)), "key count moved")
+        # 221 -> 220 findings, 199 -> 198 keys (#2125): the deleted
+        # test_existing_account_currency_mismatch_is_fixed took its BUSINESS LOGIC
+        # MOCK finding with it (the method it tested, _fix_bank_account_currency,
+        # was removed by the #2125 ruling). Baseline shrink committed with the code.
+        self.assertEqual(220, len(self.findings), "finding count moved")
+        self.assertEqual(198, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them

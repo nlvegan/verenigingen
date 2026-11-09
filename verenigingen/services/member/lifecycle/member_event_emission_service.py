@@ -91,6 +91,17 @@ class MemberEventEmissionService(StatelessService):
 
         return result
 
+    @staticmethod
+    def _previous_value(member_doc: "Document", fieldname: str):
+        """The value ``fieldname`` held before this save (#2180).
+
+        Runs from ``on_update``, after the row is written, so ``get_db_value`` already
+        returns the NEW value and every payload read ``old == new``. Frappe loads
+        ``get_doc_before_save()`` before the write; it is None on insert.
+        """
+        before = member_doc.get_doc_before_save()
+        return before.get(fieldname) if before else None
+
     def _emit_application_status_event(self, member_doc: "Document") -> None:
         """Emit event for application status change.
 
@@ -99,7 +110,7 @@ class MemberEventEmissionService(StatelessService):
         """
         from verenigingen.events.member_events import emit_member_status_changed
 
-        old_status = member_doc.get_db_value("application_status")
+        old_status = self._previous_value(member_doc, "application_status")
         new_status = member_doc.application_status
 
         frappe.logger().info(
@@ -119,7 +130,7 @@ class MemberEventEmissionService(StatelessService):
         """
         from verenigingen.events.member_events import emit_member_lifecycle_changed
 
-        old_status = member_doc.get_db_value("status")
+        old_status = self._previous_value(member_doc, "status")
         new_status = member_doc.status
 
         frappe.logger().info(f"Member {member_doc.name} status changed: {old_status} -> {new_status}")
@@ -139,7 +150,7 @@ class MemberEventEmissionService(StatelessService):
             get_member_status_notification_service,
         )
 
-        old_status = member_doc.get_db_value("status")
+        old_status = self._previous_value(member_doc, "status")
         new_status = member_doc.status
 
         get_member_status_notification_service().send_status_change_notification(

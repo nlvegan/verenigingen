@@ -59,7 +59,8 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
             # Complete old role and start new one
             change_date = frappe.utils.today()
             team.complete_team_assignment_history(volunteer, old_role, from_date, change_date)
-            team.add_team_assignment_history(volunteer, role, change_date)
+            # from_date identifies the row; the history itself starts today.
+            team.add_team_assignment_history(volunteer, role, change_date, row_from_date=from_date)
 
         frappe.logger("events").info(f"Updated assignment history for {volunteer} in {team_name}")
 
@@ -273,10 +274,11 @@ def _team_membership_event_still_holds(team, event_data):
     """Whether the join/leave/role change this job was queued for is still in the Team (#2144).
 
     A rollback to a savepoint undoes the Team Member row but not a job queued for it, so the
-    job checks the row. Rows are matched by (volunteer, from_date) and by role: the emitter
-    can report a role change as ``removed`` (old role) plus ``added`` (new role), when its
-    from_date keys differ in type, and both rows then share volunteer and from_date. An
-    unknown action is left to the caller's own branches.
+    job checks the row. Rows are matched by (volunteer, from_date) and by role. Since #2181 the
+    emitter keys on a normalised date, so a role change arrives as ``role_changed``; the role
+    match stays so that a ``removed`` for a role the volunteer no longer holds is still processed;
+    that covers jobs already in flight, queued before #2181 as removed + added. An unknown action is left to
+    the caller's own branches.
     """
     action = event_data.get("action")
     from_date = event_data.get("from_date")

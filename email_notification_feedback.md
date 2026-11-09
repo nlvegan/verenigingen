@@ -26,7 +26,6 @@ key_mapping = {
     "member_approval": "member_application_approved",
     "member_suspension": "member_suspended",
     "member_termination": "member_terminated",
-    "member_reactivation": "member_activated",
     # ... add other mappings
 }
 notification_key = key_mapping.get(notification_type)

@@ -646,13 +646,18 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
     def test_the_alert_is_never_addressed_to_the_administrator_user(self):
         administrator_email = frappe.db.get_value("User", "Administrator", "email")
         self.assertTrue(administrator_email, "control: Administrator has an email to be matched")
-        # Control: the roles the alert is configured with DO match Administrator, so without an
-        # explicit exclusion it is a recipient.
+        # Control: Administrator DOES hold the roles the alert is configured with (so it would be a
+        # recipient if nothing excluded it), and the resolver now drops it at the source by User name
+        # (#1960; this line used to assert the opposite, i.e. it encoded the defect).
         from verenigingen.services.communication.email_configuration_service import (
             get_email_configuration_service,
         )
 
-        self.assertIn(
+        config = get_email_configuration_service().get_notification_config(ALERT_KEY)
+        roles = [r.strip() for r in (config.get("recipient_roles") or "").split(",") if r.strip()]
+        held = set(frappe.get_all("Has Role", {"parent": "Administrator"}, pluck="role"))
+        self.assertTrue(held & set(roles), "control: Administrator holds a role the alert is sent to")
+        self.assertNotIn(
             administrator_email, get_email_configuration_service().get_recipients_for_notification(ALERT_KEY)
         )
         req = self._cancelled_request("NoAdmin")
@@ -662,6 +667,30 @@ class TestSubmittedPontoPaymentRequest(_PontoUsers, _PontoPaymentRequestFixtures
         self.assertNotIn(administrator_email, recipients)
         self.assertNotIn("Administrator", recipients)
         self.assertEqual(sorted(recipients), self._fallback_recipients(), "control: real staff are kept")
+
+    def test_a_fixed_row_naming_the_administrator_address_is_never_handed_to_delivery(self):
+        """The alert's own ``exclude_users`` still matters for a Fixed row: the source exclusion (#1960)
+        covers role-based rows only. No staff user shares the address here, so only the exclusion can
+        empty the list; delivery would drop Administrator too, but the recipients handed over differ."""
+        administrator_email = frappe.db.get_value("User", "Administrator", "email")
+        self.assertFalse(
+            frappe.db.exists("User", {"email": administrator_email, "name": ["!=", "Administrator"]}),
+            "control: no other user shares Administrator's address",
+        )
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
+        config = frappe.get_single("Verenigingen Email Configuration")
+        for row in config.notification_types:
+            if row.notification_key == ALERT_KEY:
+                row.recipient_policy = "Fixed"
+                row.fixed_recipients = administrator_email
+        self._make_ignoring_permissions_save(config)
+        self.expectErrorLog(UNDELIVERED_TITLE)
+
+        recipients = self._recipients_the_alert_is_sent_to(self._cancelled_request("FixedAdmin"))
+
+        self.assertEqual(recipients, [])
 
     # ---- F4: an alert that reached nobody must be loud ----
 

@@ -16,6 +16,7 @@ from frappe.utils import cint
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.verenigingen_payments.utils.shared.sliding_window import SlidingWindowCounter
+from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once, short_id
 
 
 class WebhookRateLimitExceeded(frappe.ValidationError):
@@ -88,9 +89,10 @@ class WebhookRateLimiter:
 
             # Check global rate limit first (most critical)
             if not self._check_global_limit(current_time):
-                frappe.log_error(
-                    f"Global webhook rate limit exceeded: {self.global_requests.count(current_time)} requests in last minute",
+                # Once an hour per kind, not per rejected request (#2179).
+                log_error_once(
                     "Webhook DDoS Protection",
+                    f"Global webhook rate limit exceeded: {self.global_requests.count(current_time)} requests in last minute",
                 )
                 return False, f"System overloaded. Global rate limit exceeded ({self.global_limit}/min)"
 
@@ -101,7 +103,9 @@ class WebhookRateLimiter:
 
             # Check webhook ID rate limit (if provided)
             if webhook_id:
-                webhook_allowed, webhook_reason = self._check_webhook_id_limit(webhook_id, current_time)
+                webhook_allowed, webhook_reason = self._check_webhook_id_limit(
+                    webhook_id, current_time, ip_address
+                )
                 if not webhook_allowed:
                     return False, webhook_reason
 
@@ -129,10 +133,12 @@ class WebhookRateLimiter:
             # Increase penalty for this IP
             self.ip_penalties[ip_address] += 1
 
-            frappe.log_error(
+            # Keyed on the IP: one row per offending address per hour, not per request (#2179).
+            log_error_once(
+                "Webhook Rate Limiting",
                 f"IP rate limit exceeded: {ip_address} made {current_count} requests "
                 f"(limit: {effective_limit}, penalty: {penalty_multiplier}x)",
-                "Webhook Rate Limiting",
+                ip_address,
             )
 
             penalty_note = f" (penalty: {penalty_multiplier}x)" if penalty_multiplier > 0 else ""
@@ -143,7 +149,9 @@ class WebhookRateLimiter:
 
         return True, "IP rate limit check passed"
 
-    def _check_webhook_id_limit(self, webhook_id: str, current_time: float) -> Tuple[bool, str]:
+    def _check_webhook_id_limit(
+        self, webhook_id: str, current_time: float, ip_address: str
+    ) -> Tuple[bool, str]:
         """Check webhook ID-based rate limit (prevents duplicate webhook spam)."""
         if webhook_id not in self.webhook_requests:
             self.webhook_requests[webhook_id] = SlidingWindowCounter(self.time_window)
@@ -151,9 +159,13 @@ class WebhookRateLimiter:
 
         current_count = counter.count(current_time)
         if current_count >= self.webhook_id_limit:
-            frappe.log_error(
-                f"Webhook ID rate limit exceeded: {webhook_id} processed {current_count} times in last minute",
+            # The id is caller-chosen, so it is cut in the message and NOT in the dedupe key; the
+            # key is the requesting IP, which a caller cannot multiply (#2179).
+            log_error_once(
                 "Webhook Duplicate Protection",
+                f"Webhook ID rate limit exceeded: {short_id(webhook_id)} processed {current_count} times "
+                "in last minute",
+                ip_address,
             )
             return (
                 False,
