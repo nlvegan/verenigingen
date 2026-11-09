@@ -586,6 +586,11 @@ def get_mollie_bank_transaction_metrics():
     follows the split the reconciliation summary uses (#2082): a submitted row's state is
     ERPNext's ``status``; a draft's is the reconcile pool's own marker, because ERPNext keeps
     every draft at "Pending".
+
+    The window is ``creation``, deliberately not ``date``: ``date`` is Mollie's ``created_at``,
+    so a bulk backfill of old balance transactions would be invisible to a ``date`` window.
+    Cancelled rows are left out of the window: a cancelled row is neither reconciled nor
+    waiting for anyone, so counting it would only inflate the denominator.
     """
     from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
 
@@ -594,6 +599,7 @@ def get_mollie_bank_transaction_metrics():
         window = {
             "reference_number": ["like", "baltr_%"],
             "creation": [">=", add_to_date(now_datetime(), hours=-24)],
+            "docstatus": ["!=", 2],
         }
 
         def count(extra):

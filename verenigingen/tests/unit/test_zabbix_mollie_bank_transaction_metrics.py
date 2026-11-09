@@ -17,8 +17,10 @@ site carries ambient ``baltr_`` rows.
 import sys
 from pathlib import Path
 
+from unittest.mock import patch
+
 import frappe
-from frappe.utils import add_to_date, now_datetime, today
+from frappe.utils import add_to_date, get_datetime, now_datetime, today
 
 from verenigingen.tests.payment import test_creator_draft_reconcile_pool_2083 as pool_2083
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
@@ -79,14 +81,60 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
         self.assertEqual(bt.status, "Unreconciled" if submitted else "Pending")
         return bt
 
-    def _back_date_creation(self, bt, hours):
-        frappe.db.set_value(
-            "Bank Transaction",
-            bt.name,
-            "creation",
-            add_to_date(now_datetime(), hours=-hours),
-            update_modified=False,
+    def _back_date_creation(self, bt, creation):
+        """Probe shortcut: no flow yields an old row inside a test, so set ``creation``."""
+        frappe.db.set_value("Bank Transaction", bt.name, "creation", creation, update_modified=False)
+
+    def test_a_submitted_reconciled_row_in_the_window_is_not_unreconciled(self):
+        """Control: a row reconciled through ERPNext's own "create voucher" flow.
+
+        ``create_journal_entry_bts`` is what the Bank Reconciliation Tool runs; it books a
+        Journal Entry for the row and allocates it, so ERPNext (not this test) derives
+        status "Reconciled". Without this row a metric that treated every submitted row
+        as unreconciled would pass.
+        """
+        from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
+            create_journal_entry_bts,
         )
+
+        income = frappe.db.get_value(
+            "Account", {"company": self.company, "root_type": "Income", "is_group": 0}, "name"
+        )
+        self.assertTrue(income, "the shared test company has no income leaf account")
+        bt = self._baltr(submitted=True)
+        before = self._metrics()
+
+        je = create_journal_entry_bts(
+            bt.name,
+            reference_number=bt.reference_number,
+            reference_date=today(),
+            posting_date=today(),
+            entry_type="Journal Entry",
+            second_account=income,
+        )
+        je_doc = je if hasattr(je, "doctype") else frappe.get_doc("Journal Entry", je)
+        self.track_doc("Journal Entry", je_doc.name)
+        bt.reload()
+        self.assertEqual(bt.status, "Reconciled", "ERPNext did not reconcile the row")
+
+        after = self._metrics()
+
+        # The row was Unreconciled in `before` and is Reconciled in `after`: in the window
+        # either way, so only the unreconciled count moves.
+        self.assertEqual(after[COUNT], before[COUNT])
+        self.assertEqual(after[UNREC] - before[UNREC], -1)
+
+    def test_a_cancelled_row_is_in_neither_count(self):
+        """A cancelled row is neither reconciled nor waiting; it must not inflate the count."""
+        bt = self._baltr(submitted=True)
+        before = self._metrics()
+
+        bt.cancel()
+        self.assertEqual(frappe.db.get_value("Bank Transaction", bt.name, "docstatus"), 2)
+        after = self._metrics()
+
+        self.assertEqual(after[COUNT] - before[COUNT], -1)
+        self.assertEqual(after[UNREC] - before[UNREC], -1)
 
     def test_a_failed_draft_in_the_window_is_counted_as_unreconciled(self):
         before = self._metrics()
@@ -120,7 +168,7 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
     def test_an_old_unreconciled_row_outside_the_window_is_not_counted(self):
         before = self._metrics()
         old = self._baltr(submitted=True)
-        self._back_date_creation(old, hours=72)
+        self._back_date_creation(old, add_to_date(now_datetime(), hours=-72))
 
         after = self._metrics()
 
@@ -128,14 +176,23 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
         self.assertEqual(after[UNREC], before[UNREC])
 
     def test_the_window_is_24_hours_not_since_yesterdays_midnight(self):
-        """A row 30h old is outside; one 12h old is inside (control)."""
-        before = self._metrics()
-        outside = self._baltr(submitted=True)
-        self._back_date_creation(outside, hours=30)
-        inside = self._baltr(submitted=True)
-        self._back_date_creation(inside, hours=12)
+        """A row 30h before "now" is outside; one 12h before is inside (control).
 
-        after = self._metrics()
+        The clock the metric reads is pinned to 23:00 today. A 30h-old row is then 17:00
+        yesterday, which a "since yesterday's midnight" window includes at EVERY real hour
+        of the day (against the live clock it only does after 06:00, so a CI run in the
+        small hours would not tell the two windows apart).
+        """
+        # Mock justified: the clock is an execution-context input, not business logic.
+        pinned_now = get_datetime(f"{today()} 23:00:00")
+        with patch.object(zabbix_integration, "now_datetime", return_value=pinned_now):
+            before = self._metrics()
+            outside = self._baltr(submitted=True)
+            self._back_date_creation(outside, add_to_date(pinned_now, hours=-30))
+            inside = self._baltr(submitted=True)
+            self._back_date_creation(inside, add_to_date(pinned_now, hours=-12))
+
+            after = self._metrics()
 
         self.assertEqual(after[COUNT] - before[COUNT], 1)
         self.assertEqual(after[UNREC] - before[UNREC], 1)
@@ -143,7 +200,7 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
     def test_old_backlog_cannot_push_the_rate_negative(self):
         """Many old unreconciled rows and one fresh clean draft: the rate stays in 0..100."""
         for _ in range(3):
-            self._back_date_creation(self._baltr(submitted=True), hours=100)
+            self._back_date_creation(self._baltr(submitted=True), add_to_date(now_datetime(), hours=-100))
         self._baltr(submitted=False)
 
         metrics = self._metrics()
