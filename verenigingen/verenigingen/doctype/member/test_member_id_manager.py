@@ -356,3 +356,43 @@ class TestMemberIDStartMovesCounter(EnhancedTestCase):
         self.assertGreaterEqual(self._counter(), top - 1000)
         self.assertNotEqual(self._counter(), top - 50)
         self.assertEqual(MemberIDManager.get_next_member_id(), top + 1)
+
+
+class TestStaleSettingsSaveKeepsCounter(TestMemberIDStartMovesCounter):
+    """#2316: a Settings doc loaded BEFORE ids were issued must not roll the counter back.
+
+    ``last_member_id`` is a read-only field of the Settings Single, and a Single save
+    rewrites every field from the in-memory doc. The ids are issued through the real
+    ``get_next_member_id``; the stale doc is a real ``frappe.get_doc`` loaded earlier.
+    Setup/teardown inherit the committed restore from the parent class (Settings.on_update
+    commits mid-save). Subclassing re-runs the parent's tests too, which is intended.
+    """
+
+    def _stale_doc_then_issue(self, issued=3):
+        counter = self.max_id + 400
+        self._preset(self.max_id + 10, counter)
+        stale = frappe.get_doc(DOCTYPE)  # the "form loaded in a browser tab"
+        self.assertEqual(cint(stale.last_member_id), counter)
+        last = [MemberIDManager.get_next_member_id() for _ in range(issued)][-1]
+        self.assertEqual(last, counter + issued)
+        return stale, last
+
+    def test_stale_save_does_not_roll_the_counter_back(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.save()
+        self.assertEqual(self._counter(), last)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 1)
+
+    def test_stale_save_raising_start_moves_counter_to_start_not_back(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.member_id_start = last + 5000  # raise above the counter
+        stale.save()
+        self.assertEqual(self._counter(), last + 5000)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 5001)
+
+    def test_stale_save_lowering_start_keeps_the_issued_counter(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.member_id_start = 1  # lowering does nothing
+        stale.save()
+        self.assertEqual(self._counter(), last)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 1)

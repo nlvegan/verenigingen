@@ -5,6 +5,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -12,12 +13,30 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 class VerenigingenSettings(Document):
     def validate(self):
+        self._keep_issued_member_id_counter()
         self.validate_national_board_chapter_change()
         self.validate_donation_accounts()
         self.validate_grace_period_settings()  # Moved from hooks.py
         self.validate_chapter_dues_accounts()
         self.validate_creation_user()
         self._check_deprecated_email_fields()
+
+    def _keep_issued_member_id_counter(self):
+        """Never write a stale ``last_member_id`` back (#2316).
+
+        The field is read-only and owned by ``MemberIDManager.get_next_member_id``,
+        but a Single save rewrites every field from the in-memory doc, so a form
+        loaded before IDs were issued would roll the counter back and let them be
+        issued again. Re-read the real value under the same FOR UPDATE lock the
+        issuer takes; the lock is held until the commit in ``on_update``, so no ID
+        can be issued between this read and the write.
+        """
+        row = frappe.db.sql(
+            "SELECT value FROM `tabSingles` WHERE doctype = %s AND field = 'last_member_id' FOR UPDATE",
+            (self.doctype,),
+        )
+        if row and row[0][0] is not None:
+            self.last_member_id = cint(row[0][0])
 
     def on_update(self):
         from verenigingen.utils.document_categories import sync_category_options_to_doctypes
