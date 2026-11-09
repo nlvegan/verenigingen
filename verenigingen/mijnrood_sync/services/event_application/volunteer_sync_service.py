@@ -637,7 +637,7 @@ class MijnRoodVolunteerSyncService:
         try:
             notify_administrators(
                 subject=subject,
-                message=f"<p>{message}</p>",
+                message=f"<p>{frappe.utils.escape_html(message)}</p>",
                 notification_key="chapter_board_removed",
                 category="Chapter",
                 document_type="MijnRood Sync Event",
