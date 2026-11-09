@@ -333,6 +333,7 @@ class PontoWebhookVerifier:
                 details={
                     "reason": "JWT aud claim does not match application ID",
                     "expected_audience": self.application_id,
+                    "received_audience": received_audience(signature),
                 },
             )
         except jwt.InvalidIssuerError:
@@ -364,6 +365,24 @@ class PontoWebhookVerifier:
                 message="Webhook verification failed",
                 details={"error": str(e)},
             )
+
+
+def received_audience(signature) -> Any:
+    """The ``aud`` a webhook JWT claims, read WITHOUT verifying it, for diagnostics only (#2172).
+
+    Called after verification already failed, so nothing trusts the value; it is a public app id.
+    ``aud`` may be a string or a list, and may be missing. Never raises: a token that cannot be
+    read yields None, and the value is cut so a caller cannot bloat the Error Log.
+    """
+    try:
+        aud = jwt.decode(signature, options={"verify_signature": False}).get("aud")
+    except Exception:
+        return None
+    if isinstance(aud, str):
+        return aud[:200]
+    if isinstance(aud, list):
+        return [str(a)[:200] for a in aud[:5]]
+    return None if aud is None else str(aud)[:200]
 
 
 def verify_ponto_webhook(

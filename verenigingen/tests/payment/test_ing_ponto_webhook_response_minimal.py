@@ -281,3 +281,75 @@ class TestPontoWebhookAck(_GuestWebhookCase):
             f"{PONTO}.handle_ponto_webhook", self._event(), headers={"Signature": "jwt"}
         )
         self.assertEqual((status, body), (200, {"status": "ok"}))
+
+
+class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
+    """#2172: a refused audience must leave BOTH the expected and the received value in the Error Log.
+
+    Real RS512 JWT, real verification and real dispatch; only the JWKS fetch is stubbed.
+    Probe shortcut, stated per the brief: the settings switches are written with
+    ``set_single_value`` and restored on cleanup.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.tests.sepa.test_ponto_webhook_security_unit import _build_jwk, _generate_keypair
+
+        for field, value in (
+            ("enable_webhooks", 1),
+            ("require_webhook_signature", 1),
+            ("webhook_application_id", f"expected-{uuid.uuid4().hex[:10]}"),
+        ):
+            old = frappe.db.get_single_value("Ponto Settings", field)
+            frappe.db.set_single_value("Ponto Settings", field, value)
+            self.addCleanup(frappe.db.set_single_value, "Ponto Settings", field, old)
+        self.expected = frappe.db.get_single_value("Ponto Settings", "webhook_application_id")
+        self.private_pem, public_key = _generate_keypair()
+        signing_key, _ = _build_jwk(public_key)
+        patcher = patch(
+            "verenigingen.verenigingen_payments.ponto.utils.webhook_security.PontoWebhookVerifier._fetch_signing_key",
+            return_value=signing_key,
+        )  # Mock justified: JWKS HTTP fetch
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _deliver(self, audience, issuer=None):
+        from verenigingen.tests.sepa.test_ponto_webhook_security_unit import TEST_ISSUER, _make_token
+
+        raw = json.dumps(
+            {"data": {"id": f"evt-{uuid.uuid4().hex[:8]}", "type": "pontoConnect.nope", "attributes": {}}}
+        ).encode()
+        token = _make_token(self.private_pem, raw, audience=audience, issuer=issuer or TEST_ISSUER)
+        return self._post(f"{PONTO}.handle_ponto_webhook", raw=raw, headers={"Signature": token})
+
+    def _audience_rows(self):
+        return [t for t in self._error_log_texts() if "Invalid webhook audience" in t]
+
+    def test_mismatched_audience_is_refused_and_both_values_are_logged(self):
+        received = f"received-{uuid.uuid4().hex[:10]}"
+        body, status, messages = self._deliver(received)
+        self.assertEqual((status, body), (401, {"status": "error"}))
+        rows = [t for t in self._audience_rows() if received in t]
+        self.assertEqual(len(rows), 1, "the refusal must write one Error Log row naming the received aud")
+        self.assertIn(self.expected, rows[0])
+        self.assertNotIn(received, " ".join(messages), "the received aud must not reach the caller")
+
+    def test_list_audience_is_logged_and_still_refused(self):
+        received = [f"one-{uuid.uuid4().hex[:8]}", f"two-{uuid.uuid4().hex[:8]}"]
+        _, status, _ = self._deliver(received)
+        self.assertEqual(status, 401)
+        rows = [t for t in self._audience_rows() if received[0] in t]
+        self.assertEqual(len(rows), 1)
+        self.assertIn(received[1], rows[0])
+
+    def test_unreadable_unverified_claims_never_raise_out_of_the_handler(self):
+        from verenigingen.verenigingen_payments.ponto.utils.webhook_security import received_audience
+
+        self.assertIsNone(received_audience("not-a-jwt"))
+        self.assertIsNone(received_audience(None))
+        self.assertEqual(received_audience(self._token_without_aud()), None)
+
+    def _token_without_aud(self):
+        import jwt
+
+        return jwt.encode({"iss": "x"}, self.private_pem, algorithm="RS512")
