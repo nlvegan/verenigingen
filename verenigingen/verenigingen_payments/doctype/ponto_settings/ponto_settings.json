@@ -450,7 +450,7 @@
     },
     {
       "depends_on": "eval:doc.enable_webhooks && doc.require_webhook_signature",
-      "description": "Must equal the client ID of the environment in use (sandbox or production); the webhook JWT audience is the client ID. Leave blank to use it automatically.",
+      "description": "Should equal the client ID of the environment in use. Leave blank to use it. Measured on the sandbox: the webhook JWT audience is the client ID.",
       "fieldname": "webhook_application_id",
       "fieldtype": "Data",
       "label": "Webhook Application ID"

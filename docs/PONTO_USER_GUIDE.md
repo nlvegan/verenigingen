@@ -477,7 +477,7 @@ sync_interval_hours: Hours between automatic syncs (integer, default: 6)
 last_sync_time: Last successful sync timestamp (read-only, auto-managed)
 enable_webhooks: Enable Ponto webhook notifications (boolean)
 require_webhook_signature: Require JWT signature verification on webhooks (boolean, default: enabled)
-webhook_application_id: Application ID for webhook JWT verification from Ibanity developer console
+webhook_application_id: Should equal the client ID of the environment in use (the webhook JWT audience; measured on the sandbox). Leave blank to use it
 webhook_url: Auto-generated webhook endpoint URL (read-only)
 ```
 
