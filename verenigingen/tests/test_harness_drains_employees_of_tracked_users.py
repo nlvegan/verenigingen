@@ -108,6 +108,16 @@ class TestHarnessDrainsEmployeesOfTrackedUsers(VereningingenTestCase):
         self._create_committed_1886()
         self._must_be_gone.append(employee)
 
+    def test_employee_is_registered_after_its_user_so_it_drains_first(self):
+        # force delete ignores links, so the end state hides the order; pin it directly.
+        email = self._tracked_user()
+        employee = _insert_employee_1886(email, self.settings_company)
+        self._create_committed_1886()
+        self._must_be_gone.append(employee)
+        self._track_employees_of_tracked_users()
+        names = [(d["doctype"], d["name"]) for d in self._test_docs]
+        self.assertGreater(names.index(("Employee", employee)), names.index(("User", email)))
+
     def test_employee_that_predates_the_test_is_left_alone(self):
         # The test tracks a User that already had an Employee before setUp.
         self.track_doc("User", self._old_email)

@@ -353,7 +353,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         (HRMS later dies with "Could not find From User", #1689/#1694). Registered AFTER
         its User, so the reverse-order drain deletes the Employee first. Runs after the
         rollback, so only committed rows are seen; Employees that existed before setUp
-        are left alone.
+        are left alone. Sees only Users tracked per test (`_test_docs`); a User tracked at
+        class level is invisible to it.
         """
         before = getattr(self, "_employees_before_test", None)
         users = [d["name"] for d in self._test_docs if d["doctype"] == "User"]
