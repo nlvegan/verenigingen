@@ -10,7 +10,7 @@ Selection (union, de-duplicated, sorted):
 
   a. OWN     every test module the PR adds or changes. Deleted modules and modules with no
              test method are skipped (a module with nothing to collect prints no OK line, a
-             false red: the same two rules as dispatch/rule24_hook.sh).
+             false red: rule24_hook.sh skips both too but uses an older, looser has-tests rule).
   b. DERIVED test modules for changed NON-test .py files, bounded by --derived-cap: first
              a test named after the file (test_<stem>*.py), then test files that mention
              the file's dotted module path. Cheap and heuristic on purpose.
