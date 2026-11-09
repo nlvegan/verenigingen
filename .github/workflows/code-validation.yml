@@ -1551,6 +1551,9 @@ jobs:
     # run has no PR to comment on. #2190 made the validator able to fail, so a queue run
     # now relies on the PR-time run of this job (a PR run compares one PR at a time).
     # NB #2323: the validator is currently blind (swallowed AttributeError), so this still finds nothing.
+    # Fixing #2323 makes this REQUIRED job fail on every PR until the findings are baselined or
+    # fixed; measure the count in CI, not on a bench (CI loads ~151 doctypes, a bench ~1168,
+    # so the counts differ).
     if: github.event_name == 'pull_request'
 
     steps:

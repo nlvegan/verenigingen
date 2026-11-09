@@ -14,7 +14,10 @@ from pathlib import Path
 
 _WORKFLOW = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "code-validation.yml"
 _VALIDATOR = "enhanced_field_reference_validator.py"
-_SWALLOW = re.compile(r"\|\|\s*(echo|true|:)\b|;\s*true\b|\bset \+e\b")
+_SWALLOW = re.compile(
+    r"\|\|\s*(echo\b|(/bin/)?true\b|:|exit\s+0\b|\(\s*exit\s+0\s*\))"
+    r"|;\s*(true|exit\s+0)\b|\bset \+e\b"
+)
 _STEP_START = re.compile(r"^\s*-\s+name:")
 _JOB_START = re.compile(r"^  [A-Za-z0-9_-]+:\s*(#.*)?$")
 
@@ -67,7 +70,9 @@ class FieldValidatorCanFailCITests(unittest.TestCase):
     def test_the_swallow_detector_can_fire(self):
         # Control for the regex itself.
         self.assertTrue(_SWALLOW.search('python x.py || echo "completed with issues"'))
-        self.assertTrue(_SWALLOW.search("python x.py || true"))
+        for swallow in ("|| true", "|| :", "|| exit 0", "|| (exit 0)", "|| /bin/true", "; exit 0"):
+            with self.subTest(swallow=swallow):
+                self.assertTrue(_SWALLOW.search("python x.py " + swallow))
         self.assertFalse(_SWALLOW.search("python x.py --pre-commit"))
 
 
