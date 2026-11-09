@@ -5,9 +5,10 @@ import random
 import frappe
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
-from frappe.utils import add_days, get_datetime, now_datetime
+from frappe.utils import add_days, flt, get_datetime, now_datetime
 
 from verenigingen.api import short_application as sa
+from verenigingen.services.member.application.door_plans import offered_plans
 from verenigingen.services.member.application.short_application_confirm import CONFIRM_TOKEN_PURPOSE
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
@@ -177,6 +178,114 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         self.assertTrue(response["success"], response)
         self._assert_confirmed_without_a_member(name)
 
+    def _two_plan_door_and_submission(self):
+        """A door offering a Monthly and an Annual plan, and an unconfirmed application that chose the
+        Monthly plan by its row name through the real submit endpoint."""
+        annual = self._plan_template("Annual", mode="Flexible")
+        door = self._door(
+            plans=[
+                {"dues_template": self.template, "is_default": 1},
+                {"dues_template": annual, "is_default": 0},
+            ]
+        )
+        monthly_row = next(row.name for row in door.plans if row.dues_template == self.template)
+        name = self._confirm_submit(door=door, plan=monthly_row, frequency="Monthly")
+        self.assertEqual(json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))["plan"], monthly_row)
+        return door, monthly_row, name
+
+    def test_plan_removed_after_submit_gets_its_own_message_and_expires(self):
+        door, monthly_row, name = self._two_plan_door_and_submission()
+        door = frappe.get_doc("Membership Application Door", door.name)
+        door.plans = [row for row in door.plans if row.name != monthly_row]
+        door.plans[0].is_default = 1
+        door.save()
+        members_before = frappe.db.count("Member")
+        bad_token = self._confirm(name, token="0" * 64)
+
+        outcome = self._confirm(name)
+
+        self.assertEqual(bad_token[0], REFUSAL)  # an unvalidated token never reaches the plan message
+        self.assertEqual(
+            outcome[0],
+            {
+                "success": False,
+                "message": "The membership option you chose is no longer offered. Please apply again.",
+            },
+        )
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
+        self.assertEqual(self._members(), [])
+        self.assertEqual(frappe.db.count("Member"), members_before)
+
+    def test_plan_row_that_now_belongs_to_another_door_is_refused(self):
+        """Control for the `parent` condition: the named row still EXISTS, on a different real door.
+        Probe shortcut: the row's `parent` is rewritten directly to the other door (a plan row name is
+        unique and cannot be re-added to another door through the form, so no real flow reaches this
+        state). Existence alone must not be enough."""
+        door, monthly_row, name = self._two_plan_door_and_submission()
+        other_door = self._door(plans=[{"dues_template": self._plan_template("Annual"), "is_default": 1}])
+        frappe.db.set_value("Membership Application Door Plan", monthly_row, "parent", other_door.name)
+        self.assertTrue(
+            frappe.db.exists("Membership Application Door Plan", {"name": monthly_row, "parent": other_door.name})
+        )
+
+        outcome = self._confirm(name)
+
+        self.assertEqual(outcome[0]["message"], "The membership option you chose is no longer offered. Please apply again.")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Expired")
+        self.assertEqual(self._members(), [])
+
+    def test_plan_edited_after_submit_still_confirms_at_the_snapshotted_amount(self):
+        """Control: the plan row still exists, only its postal minimum moved far above the amount."""
+        door, monthly_row, name = self._two_plan_door_and_submission()
+        snapshot = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        frappe.db.set_value(  # doctype-ok: new in #2127
+            "Membership Application Door Plan", monthly_row, "postal_minimum", flt(snapshot["amount"]) + 90
+        )
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._assert_confirmed_without_a_member(name)
+        confirmed = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        self.assertEqual(confirmed["amount"], snapshot["amount"])
+        self.assertEqual(confirmed["amount"], self.amount)
+
+    def test_plan_no_longer_offerable_but_still_on_the_door_still_confirms(self):
+        """Control: the template now charges a Fixed rate below its own minimum, so the door stops
+        offering the plan (diagnose_plans drops it), yet the row exists. An 'is it offered now' check
+        would refuse here; the ruling is to honour what the applicant saw."""
+        door, monthly_row, name = self._two_plan_door_and_submission()
+        snapshot = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.template,
+            {"contribution_mode": "Fixed", "dues_rate": 0.01, "minimum_amount": 2.5},
+        )
+        self.assertNotIn(
+            monthly_row, [plan["id"] for plan in offered_plans(frappe.get_doc("Membership Application Door", door.name))]
+        )
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._assert_confirmed_without_a_member(name)
+        confirmed = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        self.assertEqual(confirmed["amount"], snapshot["amount"])
+
+    def test_payload_from_before_plans_without_a_plan_key_still_confirms(self):
+        """Probe shortcut: the `plan` key is deleted from the staged payload directly, standing in for a
+        row staged before #2127 (submit now always writes one). Such a submission has no plan to check."""
+        name = self._confirm_submit()
+        payload = json.loads(frappe.db.get_value(SUBMISSION, name, "payload"))
+        self.assertIn("plan", payload)
+        del payload["plan"]
+        frappe.db.set_value(SUBMISSION, name, "payload", json.dumps(payload))
+
+        response, _log = self._confirm(name)
+
+        self.assertTrue(response["success"], response)
+        self._assert_confirmed_without_a_member(name)
+
     def test_member_became_active_meanwhile_gets_identical_refusal_and_expires(self):
         name = self._confirm_submit()
         existing = self.create_test_member(email=self.email)
@@ -197,10 +306,12 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
         other_type = self.create_test_membership_type()
         other_template = frappe.db.get_value("Membership Type", other_type.name, "dues_schedule_template")
         frappe.db.set_value("Membership Dues Schedule", other_template, "billing_frequency", "Monthly")
-        frappe.db.set_value(
-            "Membership Application Door",
-            self.door.name,
-            {"membership_type": other_type.name, "monthly_dues_template": other_template},
+        frappe.db.set_value("Membership Application Door", self.door.name, "membership_type", other_type.name)
+        frappe.db.set_value(  # doctype-ok: new in #2127
+            "Membership Application Door Plan",
+            self.door.plans[0].name,
+            "dues_template",
+            other_template,
         )
         return other_type
 
@@ -266,8 +377,9 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
                     frappe.db.set_value("Membership Dues Schedule", self.template, saved)
 
     def test_template_edited_to_another_frequency_after_the_door_was_saved_is_refused_at_submit(self):
-        """The door checks slot frequency only when it is saved; the template can still be edited.
-        A Monthly choice must never reach an Annual template (it would bill the amount yearly)."""
+        """The template can be edited after the door was saved. A form that still says Monthly (it names
+        a frequency, as a page loaded before plans did) must never reach a template now billed yearly:
+        it would bill the amount yearly."""
         # Straight to the column, as an import would: saving the template is refused while a door
         # uses it, so the submit check is what stops this route.
         frappe.db.set_value("Membership Dues Schedule", self.template, "billing_frequency", "Annual")
@@ -277,7 +389,7 @@ class TestShortApplicationConfirm(ApplicationDoorMixin, VereningingenUnitTestCas
             response = sa.submit_short_application(self.door.name, **data)
         finally:
             frappe.set_user(self._previous_user)
-        self.assertEqual(response, {"success": False, "message": "This payment frequency is not available."})
+        self.assertEqual(response, {"success": False, "message": "This payment plan is not available."})
         self.assertEqual(frappe.db.count(SUBMISSION, {"email": self.email}), 0)
 
     def _try_to_make_the_template_annual(self):

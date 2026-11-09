@@ -11,31 +11,11 @@ Covers:
 - bulk_apply_team_role_profiles() — the admin button path
 """
 
-import importlib
-import sys
 from unittest.mock import MagicMock, patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-# Patch @validate_api_input decorator before team_management module loads.
-# It's used without parentheses on sync_team_with_volunteers (pre-existing bug)
-# which causes a TypeError at import time.
-import verenigingen.utils.validation.api_validators as _validators
-
-_orig_validate = _validators.validate_api_input
-
-
-def _patched_validate_api_input(*args, **kwargs):
-    if args and callable(args[0]) and not kwargs:
-        return args[0]
-    return _orig_validate(*args, **kwargs)
-
-
-_validators.validate_api_input = _patched_validate_api_input
-if "verenigingen.api.team_management" in sys.modules:
-    importlib.reload(sys.modules["verenigingen.api.team_management"])
 
 
 class TestSyncTeamLeadRole(EnhancedTestCase):
@@ -250,8 +230,7 @@ class TestOnTeamMembersChange(EnhancedTestCase):
 class TestBulkApplyTeamRoleProfiles(EnhancedTestCase):
     """Tests for bulk_apply_team_role_profiles() admin button.
 
-    The team_management module has a pre-existing decorator bug (@validate_api_input
-    used without arguments on sync_team_with_volunteers). We patch it to allow import.
+    The endpoint is wrapped by several decorators; the tests call the unwrapped function.
     """
 
     def _get_inner_fn(self):

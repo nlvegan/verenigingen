@@ -7,8 +7,8 @@ seeds too. Only ADDS rows: an existing row (including a disabled one) is never t
 
 Real flow: the handler is looked up in ``hooks.lifecycle.after_migrate`` by name. Probe shortcut:
 the "old site" state is built by deleting rows from the Single directly; a real ``bench migrate``
-was not run. ``singleton_backup`` does not back up child tables (#2029), so the rows are
-snapshotted and restored by ``addCleanup``.
+was not run. The rows are not snapshotted: nothing here commits, so the class-level rollback puts
+them back (#2159).
 """
 
 import frappe
@@ -34,21 +34,9 @@ def _migrate_seed_handler():
 class TestNotificationRegistrySeedOnMigrate(FrappeTestCase):
     def setUp(self):
         super().setUp()
-        # Snapshot BEFORE seeding: a site may legitimately carry no rows, and must end the same way.
-        self.baseline = {k: dict(r.as_dict()) for k, r in _rows().items()}
-        self.addCleanup(self._put_back_snapshot)
         ensure_notification_registry_rows()
         self.keys = sorted(NOTIFICATION_KEYS)
         self.assertGreaterEqual(len(self.keys), 4, "control: the registry has keys to play with")
-
-    def _put_back_snapshot(self):
-        # Not singleton_backup: it skips child tables (#2029). Put back exactly what was there.
-        config = frappe.get_single(DOCTYPE)
-        config.notification_types = []
-        for row in self.baseline.values():
-            row = {k: v for k, v in row.items() if k not in ("name", "creation", "modified", "idx")}
-            config.append("notification_types", row)
-        config.save()
 
     def _config_without(self, *dropped, edit=None):
         config = frappe.get_single(DOCTYPE)

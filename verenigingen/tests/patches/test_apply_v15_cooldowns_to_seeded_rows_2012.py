@@ -2,8 +2,8 @@
 
 Existing-site state is built by rewriting ``notification_types``; the patch's ``execute`` is called
 directly (probe shortcut, stated). The real patch runner is exercised separately by a
-``bench migrate`` recorded in the PR. ``notification_types`` is snapshotted and restored by hand
-because ``singleton_backup`` does not restore child tables (#2029).
+``bench migrate`` recorded in the PR. ``notification_types`` is not snapshotted: nothing here commits,
+so the class-level rollback puts the rows back (#2159).
 
 Known, accepted by the ruling: a row an admin deliberately set to 60 is indistinguishable from the
 seeded default, so it is moved too.
@@ -50,20 +50,8 @@ def _set_cooldown_rows(cooldowns):
 class TestApplyV15Cooldowns(FrappeTestCase):
     def setUp(self):
         super().setUp()
-        self._snapshot = [
-            {k: v for k, v in r.as_dict().items() if k not in IGNORED}
-            for r in frappe.get_single(DOCTYPE).notification_types
-        ]
-        self.addCleanup(self._put_back_notification_rows)
         self.ruled = ruled_v15_cooldowns(NOTIFICATION_KEYS)
         self.changing = {k: v for k, v in self.ruled.items() if v != 60}
-
-    def _put_back_notification_rows(self):
-        config = frappe.get_single(DOCTYPE)
-        config.notification_types = []
-        for row in self._snapshot:
-            config.append("notification_types", row)
-        config.save()
 
     def test_a_row_at_60_gets_the_ruled_value_for_every_changing_key(self):
         self.assertGreater(len(self.changing), 15, "control: there are keys to move")

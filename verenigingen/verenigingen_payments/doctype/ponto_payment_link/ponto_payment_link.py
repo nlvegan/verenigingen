@@ -48,6 +48,14 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
 )
 
 
+class PontoCreateError(frappe.ValidationError):
+    """Raised after create_ponto_payment_request has written its own Error Log row (#2182).
+
+    A subclass, so every existing `except frappe.ValidationError` caller still works. Callers
+    that would otherwise log the failure again can skip exactly this one.
+    """
+
+
 class PontoPaymentLink(Document):
     """Controller for Ponto Payment Link DocType."""
 
@@ -210,9 +218,15 @@ class PontoPaymentLink(Document):
             formatted_description = self.format_description(self.description)
 
         # Build redirect URI for callback
+        # The cancel_token proves, on the guest-reachable callback, that an
+        # `error=access_denied` comes from the browser we sent to Ponto (#1815).
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import CANCEL_TOKEN_PURPOSE
+
+        cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
         callback_url = get_url(
             f"/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"
-            f"?payment_link={self.name}"
+            f"?payment_link={self.name}&cancel_token={cancel_token}"
         )
 
         try:
@@ -244,12 +258,13 @@ class PontoPaymentLink(Document):
 
         except Exception as e:
             frappe.log_error(
-                title="Ponto payment link creation failed",
+                title=f"Ponto payment link creation failed: {self.name}",
                 message=str(e),
             )
             frappe.throw(
                 _("Failed to create payment link in Ponto: {0}").format(str(e)),
                 title=_("Ponto API Error"),
+                exc=PontoCreateError,
             )
 
     def cancel_ponto_request(self):

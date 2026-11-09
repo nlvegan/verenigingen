@@ -6,7 +6,30 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+# Every field _build_config reads; get_all_rules selects exactly these.
+CONFIG_FIELDS = [
+    "operation_name",
+    "operation_type",
+    "security_level",
+    "required_roles",
+    "required_permissions",
+    "rate_limit_calls",
+    "rate_limit_period_seconds",
+    "rate_limit_scope",
+    "allow_system_user",
+    "bypass_validations",
+    "enable_business_validation",
+    "amount_threshold",
+    "audit_level",
+    "requires_justification",
+    "monitor_execution_time",
+    "execution_time_threshold_ms",
+    "monitor_failure_rate",
+    "failure_rate_threshold_percent",
+]
 
 
 class CriticalOperationRule(Document):
@@ -259,21 +282,7 @@ class CriticalOperationRule(Document):
     def _get_admin_emails(self):
         """Get list of admin emails for notifications"""
         try:
-            admins = frappe.get_all(
-                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-            )
-
-            admin_emails = []
-            for admin in admins:
-                try:
-                    user = frappe.get_doc("User", admin.parent)
-                    if user.enabled and user.email and "@" in user.email:
-                        admin_emails.append(user.email)
-                except Exception:
-                    continue  # Skip problematic user records
-
-            return admin_emails
-
+            return _security_policy_digest_recipients()
         except Exception:
             return []
 
@@ -299,40 +308,7 @@ class CriticalOperationRule(Document):
             try:
                 rule = frappe.get_doc("Critical Operation Rule", operation_name)
                 if rule.enabled:
-                    config = {
-                        "operation_name": rule.operation_name,
-                        "operation_type": rule.operation_type,
-                        "security_level": rule.security_level,
-                        "required_roles": [
-                            r.strip() for r in (rule.required_roles or "").split(",") if r.strip()
-                        ],
-                        "required_permissions": [
-                            p.strip() for p in (rule.required_permissions or "").split(",") if p.strip()
-                        ],
-                        "rate_limit": {
-                            "calls": rule.rate_limit_calls if rule.rate_limit_calls is not None else 10,
-                            "period_seconds": rule.rate_limit_period_seconds
-                            if rule.rate_limit_period_seconds is not None
-                            else 3600,
-                            "scope": rule.rate_limit_scope or "per_user",
-                        },
-                        "allow_system_user": rule.allow_system_user,
-                        "bypass_validations": [
-                            v.strip() for v in (rule.bypass_validations or "").split(",") if v.strip()
-                        ],
-                        "business_rules": {
-                            "enabled": rule.enable_business_validation,
-                            "amount_threshold": rule.amount_threshold,
-                        },
-                        "audit_level": rule.audit_level,
-                        "requires_justification": rule.requires_justification,
-                        "monitoring": {
-                            "execution_time": rule.monitor_execution_time,
-                            "execution_time_threshold_ms": rule.execution_time_threshold_ms or 5000,
-                            "failure_rate": rule.monitor_failure_rate,
-                            "failure_rate_threshold_percent": rule.failure_rate_threshold_percent or 10,
-                        },
-                    }
+                    config = CriticalOperationRule._build_config(rule)
 
                     # Cache for 5 minutes with explicit invalidation on update/delete
                     frappe.cache().set_value(cache_key, config, expires_in_sec=300)
@@ -345,21 +321,59 @@ class CriticalOperationRule(Document):
         return config
 
     @staticmethod
+    def _build_config(rule) -> dict:
+        """Config dict for an enabled rule; ``rule`` is a Document or a row with the same fields."""
+        return {
+            "operation_name": rule.operation_name,
+            "operation_type": rule.operation_type,
+            "security_level": rule.security_level,
+            "required_roles": [r.strip() for r in (rule.required_roles or "").split(",") if r.strip()],
+            "required_permissions": [
+                p.strip() for p in (rule.required_permissions or "").split(",") if p.strip()
+            ],
+            "rate_limit": {
+                "calls": rule.rate_limit_calls if rule.rate_limit_calls is not None else 10,
+                "period_seconds": (
+                    rule.rate_limit_period_seconds if rule.rate_limit_period_seconds is not None else 3600
+                ),
+                "scope": rule.rate_limit_scope or "per_user",
+            },
+            "allow_system_user": rule.allow_system_user,
+            "bypass_validations": [
+                v.strip() for v in (rule.bypass_validations or "").split(",") if v.strip()
+            ],
+            "business_rules": {
+                "enabled": rule.enable_business_validation,
+                "amount_threshold": rule.amount_threshold,
+            },
+            "audit_level": rule.audit_level,
+            "requires_justification": rule.requires_justification,
+            "monitoring": {
+                "execution_time": rule.monitor_execution_time,
+                "execution_time_threshold_ms": rule.execution_time_threshold_ms or 5000,
+                "failure_rate": rule.monitor_failure_rate,
+                "failure_rate_threshold_percent": rule.failure_rate_threshold_percent or 10,
+            },
+        }
+
+    @staticmethod
     def get_all_rules() -> dict:
         """Get all enabled rules (cached)"""
         cache_key = "critical_operation_rules"
         rules = frappe.cache().get_value(cache_key)
 
         if not rules:
-            rule_docs = frappe.get_all(
-                "Critical Operation Rule", filters={"enabled": 1}, fields=["operation_name"]
+            # One query for every enabled rule. This used to call get_rule_config per rule
+            # (exists + get_doc = 2 queries each): ~4300 queries whenever the 5 minute
+            # cache expired on a site carrying the 2000+ shipped rules (#2025).
+            rule_rows = frappe.get_all(
+                "Critical Operation Rule",
+                filters={"enabled": 1},
+                fields=CONFIG_FIELDS,
+                limit_page_length=0,
             )
 
-            rules = {}
-            for rule_doc in rule_docs:
-                config = CriticalOperationRule.get_rule_config(rule_doc.operation_name)
-                if config:
-                    rules[rule_doc.operation_name] = config
+            rules = {row.operation_name: CriticalOperationRule._build_config(row) for row in rule_rows}
 
             # Cache for 5 minutes with explicit invalidation on update/delete
             frappe.cache().set_value(cache_key, rules, expires_in_sec=300)
@@ -424,17 +438,7 @@ def send_security_policy_change_digest():
         return
 
     # Get admin emails
-    admins = frappe.get_all(
-        "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-    )
-    admin_emails = []
-    for admin in admins:
-        try:
-            user = frappe.get_doc("User", admin.parent)
-            if user.enabled and user.email and "@" in user.email:
-                admin_emails.append(user.email)
-        except Exception:
-            continue
+    admin_emails = _security_policy_digest_recipients()
 
     if not admin_emails:
         frappe.logger("critical_operation_rule").info(
@@ -498,3 +502,16 @@ def send_security_policy_change_digest():
 
     except Exception as e:
         frappe.logger("critical_operation_rule").warning(f"Could not send security policy digest: {str(e)}")
+
+
+def _security_policy_digest_recipients():
+    """Who gets the security policy digest: the key's own recipients, else enabled System Managers.
+
+    Never the Administrator user (#2095).
+    """
+    return resolve_admin_recipients(
+        notification_key="security_policy_digest",
+        default_roles=[Roles.SYSTEM_MANAGER],
+        exclude_users=("Administrator",),
+        key_first=True,
+    )

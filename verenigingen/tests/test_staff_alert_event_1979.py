@@ -11,7 +11,7 @@ literal. The event table is MyISAM, so its rows survive rollback: every test rem
 
 Two documented shortcuts, both inserting a Notification Log row directly because the real flow cannot
 create it: ``test_a_log_row_for_administrator_does_not_count_as_reached`` (``create_system_notification``
-addresses by email and ``admin@example.com`` is not a User name) and
+drops Administrator, so the row can only be inserted directly) and
 ``test_a_disabled_users_log_row_is_not_counted`` (it never creates one for a disabled user).
 """
 
@@ -81,13 +81,6 @@ class TestStaffAlertEvent(FrappeTestCase):
         # below stick (a bare commit is gated). Without it each test leaks its Note and User.
         self._config_backup = singleton_backup(CONFIG)
         self._config_backup.__enter__()
-        # singleton_backup does NOT cover child tables (its docstring says so): the notification_types
-        # rows these tests write would survive it. Keep the originals and put them back in tearDown.
-        fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Column Break"]
-        self._original_rows = [
-            {k: v for k, v in row.as_dict().items() if k in fields}
-            for row in frappe.get_single(CONFIG).notification_types
-        ]
 
     def tearDown(self):
         for note in self._notes:
@@ -101,7 +94,6 @@ class TestStaffAlertEvent(FrappeTestCase):
             frappe.db.delete("Notification Log", {"for_user": user})
             frappe.delete_doc("User", user, force=True)
         frappe.db.delete("Error Log", {"method": ["like", "Staff Alert Event could not be recorded%"]})
-        _set_config_rows(self._original_rows)
         self._config_backup.__exit__(None, None, None)
         super().tearDown()
 
@@ -223,8 +215,8 @@ class TestStaffAlertEvent(FrappeTestCase):
 
     def test_a_log_row_for_administrator_does_not_count_as_reached(self):
         """Probe shortcut: the row is inserted directly, because ``create_system_notification`` cannot
-        create one for Administrator on this bench (it addresses by email, ``admin@example.com`` is not
-        a User name); see the next test for the real flow."""
+        create one for Administrator (it drops that user, #1958), so the "row exists" case needs a
+        direct insert; the next test is the real flow."""
         note = self._note()
         event = staff_alert_events.begin_event(SEEDED_KEY, "s", "direct", "Note", note)
         frappe.get_doc(
@@ -248,9 +240,11 @@ class TestStaffAlertEvent(FrappeTestCase):
         with singleton_backup(CONFIG):
             _set_config_rows([_config_row(SEEDED_KEY, fixed="Administrator")])
             result = self._alert(SEEDED_KEY, note)
+        # Since #1958 + the Administrator ruling the helper drops Administrator: no row, no error.
         self.assertFalse(result.get("notifications_created"), "control: nothing was created")
         event = self._only_event(note)
-        self.assertEqual((event.outcome, event.recipient_count), ("Failed", 0))
+        self.assertEqual(_log_users(event.name), [], "control: no log joins the event")
+        self.assertEqual((event.outcome, event.recipient_count), ("No recipient", 0))
 
     def test_a_user_configured_as_not_counting_is_not_reached_and_the_same_user_otherwise_is(self):
         note_a, note_b = self._note(), self._note()
@@ -436,7 +430,7 @@ class TestStaffAlertEvent(FrappeTestCase):
         self.assertIn("payment_plan_request", REQUIRES_ACTION_KEYS)
         self.assertNotIn("sepa_batch_warning", REQUIRES_ACTION_KEYS)
 
-    def test_the_three_notify_administrators_keys_are_marked_staff_alert_at_the_call_site(self):
+    def test_the_notify_administrators_keys_are_marked_staff_alert_at_the_call_site(self):
         marked = {}
         for path in APP_ROOT.rglob("*.py"):
             if "tests" in path.parts or "node_modules" in path.parts:
@@ -453,8 +447,22 @@ class TestStaffAlertEvent(FrappeTestCase):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
+        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) and
+        # mijnrood_disabled_default_type (#2094) are literal-key call sites, and the loop below still demands it is marked staff_alert=True.
         self.assertEqual(
-            set(marked), {SEEDED_KEY, "termination_overdue", INFO_KEY}, "control: all three keys were found"
+            set(marked),
+            {
+                SEEDED_KEY,
+                "termination_overdue",
+                INFO_KEY,
+                "dues_schedule_creation_failed",
+                "mijnrood_disabled_default_type",
+                "mijnrood_chapter_move_failed",
+                # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
+                # is marked staff_alert=True like the rest; the loop below still checks every flag.
+                "ponto_executed_unbookable",
+            },
+            "control: every literal-key call site was found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")

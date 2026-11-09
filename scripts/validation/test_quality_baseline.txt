@@ -123,7 +123,6 @@ verenigingen/tests/payment/test_payment_logger_adoption.py::TestWebhookReceivedL
 verenigingen/tests/payment/test_ponto_doctype_unit.py::TestPontoSettingsApi.test_test_connection_failure_returns_error::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/payment/test_ponto_doctype_unit.py::TestPontoSettingsApi.test_test_connection_success::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/payment/test_ponto_settings_methods_unit.py::TestFetchPontoAccounts.test_bank_account_creation_error_is_collected::BUSINESS LOGIC MOCK PROHIBITED::1
-verenigingen/tests/payment/test_ponto_settings_methods_unit.py::TestFetchPontoAccounts.test_existing_account_currency_mismatch_is_fixed::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/payment/test_ponto_settings_methods_unit.py::TestFetchPontoAccounts.test_existing_account_is_updated::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/payment/test_ponto_settings_methods_unit.py::TestFetchPontoAccounts.test_missing_company_throws::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/payment/test_ponto_settings_methods_unit.py::TestFetchPontoAccounts.test_new_account_is_added_with_bank_account::BUSINESS LOGIC MOCK PROHIBITED::1

@@ -139,115 +139,6 @@ class TestMemberEventsCoverage(EnhancedTestCase):
             frappe.flags.bulk_member_operations = saved
         # No dispatch happened -> nothing to assert beyond "no error logged".
 
-    def test_emit_lifecycle_changed_dispatches_and_disables_user(self):
-        """End-to-end: emit_member_lifecycle_changed -> handle_user_account_updates
-        disables the linked User when the member is Suspended.
-
-        This proves the WHOLE chain: emitter -> registry -> emit_event inline
-        dispatch -> real subscriber side effect (User.enabled flips to 0)."""
-        member, user = self._member_with_user(enabled=1)
-        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
-
-        with self._no_import_flags():
-            with self._run_events_synchronously():
-                with self.assertNoErrorLog():
-                    member_events.emit_member_lifecycle_changed(
-                        member.name,
-                        {
-                            "old_status": "Active",
-                            "new_status": "Suspended",
-                            "status_type": "lifecycle",
-                        },
-                    )
-        self.assertEqual(
-            frappe.db.get_value("User", user.name, "enabled"),
-            0,
-            "Suspended lifecycle event should disable the linked user account",
-        )
-
-    # =====================================================================
-    # handle_user_account_updates -- the cleanest observable side effect
-    # =====================================================================
-    def test_user_account_disabled_on_suspend(self):
-        member, user = self._member_with_user(enabled=1)
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Suspended"},
-                )
-        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
-
-    def test_user_account_enabled_on_reactivate(self):
-        member, user = self._member_with_user(enabled=0)
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Suspended", "new_status": "Active"},
-                )
-        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
-
-    def test_user_account_unchanged_status_is_noop(self):
-        """old_status == new_status -> handler returns before touching the user."""
-        member, user = self._member_with_user(enabled=1)
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Active"},
-                )
-        # No change -> still enabled.
-        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 1)
-
-    def test_user_account_skipped_on_bulk_import(self):
-        """is_bulk_import=True is the ONLY reason the user is not disabled here."""
-        member, user = self._member_with_user(enabled=1)
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Suspended"},
-                    is_bulk_import=True,
-                )
-        self.assertEqual(
-            frappe.db.get_value("User", user.name, "enabled"),
-            1,
-            "bulk import should skip the user-account update",
-        )
-
-    def test_user_account_no_member_name_is_noop(self):
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed", {"old_status": "Active", "new_status": "Suspended"}
-                )
-
-    def test_user_account_member_without_user_is_noop(self):
-        """Member with no linked User -> handler must not raise/log."""
-        member = self.create_test_member(first_name="NoUser", last_name="Member", birth_date="1990-01-01")
-        member.db_set("user", None, update_modified=False)
-        member.reload()
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Suspended"},
-                )
-
-    def test_user_account_deleted_member_is_noop(self):
-        """get_doc_if_exists returns None for a deleted member -> clean return."""
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_user_account_updates(
-                    "member_lifecycle_changed",
-                    {
-                        "member": "Member-does-not-exist-zzz",
-                        "old_status": "Active",
-                        "new_status": "Suspended",
-                    },
-                )
-
     # =====================================================================
     # handle_cache_invalidation
     # =====================================================================
@@ -520,6 +411,8 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         """Approved member with a matching-postal-code chapter gets added to the
         chapter's members child table (the real product effect)."""
         member = self._member_with_address(pincode="1234AB")
+        # The job re-checks that the approval it was queued for still holds (#2144).
+        member.db_set("application_status", "Approved", update_modified=False)
         chapter = self.create_test_chapter(
             chapter_name=f"Evt Chapter {frappe.generate_hash(length=6)}",
             region=self._ensure_region(),
@@ -571,6 +464,8 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         deactivated and no Error Log is written.
         """
         member = self.create_test_member(first_name="ChapStatus", last_name="Member", birth_date="1990-01-01")
+        # The job re-checks that the suspension it was queued for still holds (#2144).
+        member.db_set("status", "Suspended", update_modified=False)
         chapter = self.create_test_chapter(
             chapter_name=f"Evt SChapter {frappe.generate_hash(length=6)}",
             region=self._ensure_region(),

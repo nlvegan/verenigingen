@@ -57,24 +57,9 @@ def _set_empty_role_row_1997(key):
     assert not _config_row_1997(key).recipient_roles, "control: the row has no roles"
 
 
-def _snapshot_rows_1997():
-    """Plain copy of the child rows; ``singleton_backup`` does not restore child tables (#2029)."""
-    fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"]
-    return [{f: r.get(f) for f in fields} for r in frappe.get_single(DOCTYPE).notification_types]
-
-
-def _restore_rows_1997(rows):
-    config = frappe.get_single(DOCTYPE)
-    config.set("notification_types", rows)
-    config.save()
-
-
 class TestRoleBasedEmptyRoles(FrappeTestCase):
     def setUp(self):
-        # Own the child rows (#2029: singleton_backup does not restore them, and it commits, so it would
-        # make a leak permanent). Uncommitted here, so the class-level rollback also undoes it.
-        rows = _snapshot_rows_1997()
-        self.addCleanup(_restore_rows_1997, rows)
+        # No snapshot of the child rows: nothing here commits, so the class-level rollback puts them back (#2159).
         self.role_key = _registry_key_with_policy_1997("Role-Based")
 
     def test_reader_returns_empty_list_instead_of_raising(self):

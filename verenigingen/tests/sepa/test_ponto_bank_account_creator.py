@@ -125,25 +125,18 @@ class TestCreatePontoBankAccount(FrappeTestCase):
         self.assertEqual(ba.company, self.company)
         self.assertEqual(ba.is_company_account, 1)
 
-    def test_is_idempotent_on_rerun(self):
+    def test_rerun_does_not_silently_reuse_an_existing_account(self):
+        """#2125: no IBAN/name fallback. A second create for the same Ponto account
+        is refused (GL name already owned by a Bank Account), never merged."""
         account = _ponto_account(TestIBAN.ING_1, account_id="acc-idem-1")
 
         first = create_ponto_bank_account(account, self.company)
         self.assertTrue(first["success"], msg=first.get("error"))
 
         second = create_ponto_bank_account(account, self.company)
-        self.assertTrue(second["success"], msg=second.get("error"))
-
-        # Same documents returned both times -- no duplicates.
-        self.assertEqual(first["bank"], second["bank"])
-        self.assertEqual(first["gl_account"], second["gl_account"])
-        self.assertEqual(first["bank_account"], second["bank_account"])
-
-        # Exactly one Bank Account exists for the IBAN.
-        self.assertEqual(
-            frappe.db.count("Bank Account", {"iban": TestIBAN.ING_1}),
-            1,
-        )
+        self.assertFalse(second["success"])
+        self.assertIn("cannot be reused", second["error"])
+        self.assertEqual(frappe.db.count("Bank Account", {"iban": TestIBAN.ING_1}), 1)
 
     def test_account_name_uses_description(self):
         account = _ponto_account(

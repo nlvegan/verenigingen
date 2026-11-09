@@ -14,8 +14,8 @@ from frappe.utils import flt
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
 from verenigingen.verenigingen_payments.utils.reference_ownership import (
-    ALLOWED_REFERENCE_DOCTYPES,
-    verify_payer_owns_reference as _verify_payer_owns_reference,
+    load_owned_reference,
+    trim_message_log,
 )
 
 
@@ -107,8 +107,9 @@ def initiate_payment(
 
     Guest-reachable by design (#1048): reference_doctype is restricted to
     ALLOWED_REFERENCE_DOCTYPES, and the resolved document's on-file email
-    must match payer_email before anything else runs -- see
-    _verify_payer_owns_reference for what this does and does not close off.
+    must match payer_email before anything else runs. An unknown name and
+    one the caller does not own are refused identically (#2045) -- see
+    load_owned_reference.
     The amount actually forwarded to the gateway is derived from that
     document via _resolve_reference_amount, NOT from the caller-supplied
     `amount` argument below (kept in the signature for API stability; its
@@ -145,14 +146,13 @@ def initiate_payment(
             "message": "..."
         }
     """
+    message_log_length = len(frappe.local.message_log)
     try:
-        if reference_doctype not in ALLOWED_REFERENCE_DOCTYPES:
-            frappe.throw(_("Payment reference not found"))
-
-        ref_doc = frappe.get_doc(reference_doctype, reference_name)
-        _verify_payer_owns_reference(reference_doctype, ref_doc, payer_email)
+        ref_doc = load_owned_reference(reference_doctype, reference_name, payer_email)
         resolved_amount = _resolve_reference_amount(reference_doctype, ref_doc)
     except Exception as e:
+        # Anything queued on the way would reach the Guest as _server_messages (#2045).
+        trim_message_log(message_log_length)
         frappe.log_error(
             title="Initiate Payment Ownership Check Failed",
             message=(f"initiate_payment refused for {reference_doctype}/{reference_name}: {e}"),

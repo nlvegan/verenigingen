@@ -102,7 +102,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Sync Status",
-      "options": "OK\nFailed\nNeeds Re-authorization",
+      "options": "OK\nFailed\nNeeds Re-authorization\nPaused",
       "read_only": 1
     },
     {

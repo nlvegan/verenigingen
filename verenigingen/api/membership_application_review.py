@@ -97,26 +97,23 @@ def _sanitize_text_fields(text_fields):
     return sanitized
 
 
-def _activate_pending_chapter_memberships(member):
-    """Activate any Chapter Member rows that are 'Pending' for this member.
+def _activate_pending_chapter_memberships(member, applied_chapter):
+    """Activate the Pending Chapter Member row of the chapter the application was for.
 
-    The membership application form creates Chapter Member rows in status
-    ``Pending`` at submit time (when the applicant picks a chapter). On
-    approval, those rows must be flipped to ``Active`` so the member's
-    chapter assignment is real. The deprecated ``MemberLifecycleService``
-    had this step in ``_perform_post_approval_setup``; it now lives here
-    so the canonical approval path is behaviourally complete.
+    ``materialise_member`` writes that row Pending when the application names a chapter (since #1765 the
+    application form writes no row at submit time); approval flips it to ``Active`` so the member's chapter
+    assignment is real. Only that chapter's row is touched (#2064): a Pending row in any OTHER chapter is a
+    request that chapter's board has not decided (``request_to_join``), and approving an application does not
+    decide it. No applied chapter (the applicant named none) means nothing to activate.
 
-    Note on Chapter Member SQL: it is a child table on Chapter, so the
-    chapter name lives in ``parent`` (not in a ``chapter`` column).
-    Filtering by ``member`` + ``status='Pending'`` finds every pending row
-    for the member regardless of which chapter it belongs to - in practice
-    a member usually has at most one, but multi-chapter applications exist.
+    Note on Chapter Member SQL: it is a child table on Chapter, so the chapter name lives in ``parent``.
 
     Errors are logged but do not fail the approval - the membership and
     invoice have already been created at the call site, and a follow-up
     chapter manual activation is recoverable.
     """
+    if not applied_chapter:
+        return
     try:
         from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
@@ -124,9 +121,9 @@ def _activate_pending_chapter_memberships(member):
             """
             SELECT parent AS chapter
             FROM `tabChapter Member`
-            WHERE member = %s AND status = 'Pending'
+            WHERE member = %s AND parent = %s AND status = 'Pending'
             """,
-            (member.name,),
+            (member.name, applied_chapter),
             as_dict=True,
         )
         for row in pending:
@@ -166,8 +163,9 @@ def assign_member_to_chapter(member, chapter, notify=None):
             notify=notify,  # Pass through notification override
         )
 
-        # already_exists is the ordinary case of approving with the applicant's own chapter (its
-        # Pending row is activated afterwards), so only other outcomes are failures. The
+        # already_exists is the ordinary case of approving with the applicant's own chapter or a chapter
+        # holding the member's Pending row (add_member leaves that row; _activate_pending_chapter_memberships
+        # flips the applied and the reviewer's chapter afterwards), so only other outcomes are failures. The
         # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
         # nowhere anyone reads (#1797).
         if not result.get("success") and result.get("action") != "already_exists":
@@ -521,7 +519,14 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
 
 
 def _approve_membership_application_locked(
-    member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+    member_name,
+    membership_type,
+    chapter,
+    notes,
+    create_invoice,
+    activate_as_volunteer,
+    application_name=None,
+    applied_chapter=None,
 ):
     """Core approval logic, run by approve_application while it holds the per-application advisory lock.
 
@@ -604,13 +609,13 @@ def _approve_membership_application_locked(
         # member by validate_chapter_permission_or_throw.
         member.db_set("current_chapter", member.current_chapter, update_modified=False)
 
-    # Activate any pre-existing pending Chapter Member rows. The application
-    # form creates a Chapter Member row in status "Pending" when the applicant
-    # chooses a chapter at submit time. The deprecated MemberLifecycleService
-    # had this step; the canonical path needs it too so members don't lose
-    # their chapter assignment on approval. T4.1 §2.3 - ported here before
-    # the lifecycle service is deleted.
-    _activate_pending_chapter_memberships(member)
+    # Activate the Pending row materialise_member wrote for the application's own chapter; Pending rows
+    # in other chapters are undecided join requests and stay as they are (#2064).
+    _activate_pending_chapter_memberships(member, applied_chapter)
+    if chapter and chapter != applied_chapter:
+        # assign_member_to_chapter left an existing Pending row in the reviewer's chapter as it was
+        # (add_member returns already_exists); the reviewer assigning it is the decision (#2064).
+        _activate_pending_chapter_memberships(member, chapter)
 
     # Get invoice and membership type docs for downstream steps
     invoice = None
@@ -618,6 +623,7 @@ def _approve_membership_application_locked(
         invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
     membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
+    _mark_invoice_failed(application_name, create_invoice, invoice)
     billing_amount = _calculate_billing_amount(member, invoice, membership_type_doc)
     should_activate_volunteer = _activate_volunteer_if_requested(member, activate_as_volunteer)
     user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
@@ -720,11 +726,15 @@ def _approve_application_locked(
             }
         )
         response = _approve_membership_application_locked(
-            member.name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+            member.name,
+            membership_type,
+            chapter,
+            notes,
+            create_invoice,
+            activate_as_volunteer,
+            application_name=application.name,
+            applied_chapter=application.chapter,
         )
-        if response.get("invoice_failed"):
-            # Staff can retry only a marked application (#1900); create_invoice=False is never marked.
-            application.db_set("invoice_failed_on", now_datetime(), update_modified=False)
     except NON_RESUMABLE_DB_ERRORS:
         raise  # the server already discarded the transaction, and the savepoint with it
     except Exception:  # swallow-ok: re-raised below
@@ -734,6 +744,26 @@ def _approve_application_locked(
     response["member"] = member.name
     response["application"] = application.name
     return response
+
+
+def _mark_invoice_failed(application_name, create_invoice, invoice):
+    """Persist the retry marker (#1900) for an application whose REQUESTED invoice could not be created.
+
+    Called inside the core right after the invoice step and BEFORE the account step, whose own commit
+    (member_user_account_service, Pattern 1) persists it together with the Approval. Written after the core
+    returned (#2055) it came after that commit, so a crash in between left an Approved application with a
+    failed invoice and no marker: never in the retry list, its held approval mail never sent. Staff can retry
+    only a marked application; create_invoice=False is never marked. The core is also called without an
+    application (tests only; one production caller), which has nothing to mark.
+    """
+    if application_name and create_invoice and not invoice:
+        frappe.db.set_value(
+            "Membership Application Submission",
+            application_name,
+            "invoice_failed_on",
+            now_datetime(),
+            update_modified=False,
+        )
 
 
 def _lock_pending_review_application(application_name, refusal):
@@ -929,7 +959,7 @@ def _mail_information_request(application, info_needed) -> bool:
 
 
 def _notify_rejection_reporting_failure(application, sanitized) -> bool:
-    """Mail the applicant; False (and an Error Log row) when the mail failed or the service raised.
+    """Mail the applicant; False when the mail was skipped (no Error Log row), failed or the service raised (one).
 
     The rejection stays committed either way: the decision is made, a mail is a side effect, and rolling
     back would make the reviewer redo a decision because an SMTP-side service failed. The reviewer is told
@@ -945,6 +975,10 @@ def _notify_rejection_reporting_failure(application, sanitized) -> bool:
         frappe.log_error(
             title=f"Rejection mail raised for application {application.name}", message=frappe.get_traceback()
         )
+        return False
+    if result.skip_reason:
+        # Emails off, key disabled, cooldown or opt-out: nothing was sent, and that is not an error, but the
+        # reviewer must still be told the applicant got no mail (#2096)
         return False
     if result.success:
         return True
@@ -1231,9 +1265,14 @@ def _invoices_of_this_membership(member, membership):
         return []
     base = {"customer": member.customer, "is_membership_invoice": 1, "docstatus": ["<", 2]}
     fields = ["name", "docstatus", "custom_coverage_start_date"]
-    rows = frappe.get_all("Sales Invoice", {**base, "membership": membership.name}, fields)
+    # LOCKING reads (#2090): the retry runs under an advisory lock, but a plain read returns this
+    # transaction's snapshot, taken before a racing winner committed its invoice. When the winner's mail
+    # failed its marker stays set, so the loser gets this far and would create a second invoice.
+    rows = frappe.db.get_values(
+        "Sales Invoice", {**base, "membership": membership.name}, fields, as_dict=True, for_update=True
+    )
     if membership.start_date:
-        rows += frappe.get_all(
+        rows += frappe.db.get_values(
             "Sales Invoice",
             {
                 **base,
@@ -1241,6 +1280,8 @@ def _invoices_of_this_membership(member, membership):
                 "custom_coverage_start_date": [">=", membership.start_date],
             },
             fields,
+            as_dict=True,
+            for_update=True,
         )
     return sorted(
         rows,
@@ -1257,6 +1298,17 @@ def _existing_or_new_membership_invoice(member, membership, membership_type):
     existing = _invoices_of_this_membership(member, membership)
     submitted = [row.name for row in existing if row.docstatus == 1]
     if submitted:
+        if not frappe.db.exists("Sales Invoice", submitted[0]):
+            # The locking read found it, this transaction's snapshot does not: it was committed after this
+            # request began (#2090), by a racing retry or the dues scheduler. Refuse, as a loser is refused
+            # when that winner's mail went out; a retry started now sees the invoice and sends its mail
+            # without creating another.
+            frappe.throw(
+                _(
+                    "Invoice {0} was created a moment ago, by another retry or the invoice scheduler. Retry "
+                    "again to send its approval email."
+                ).format(submitted[0])
+            )
         return frappe.get_doc("Sales Invoice", submitted[0]), False
     if existing:
         frappe.throw(

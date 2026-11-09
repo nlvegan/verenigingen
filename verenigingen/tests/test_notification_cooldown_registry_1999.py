@@ -35,6 +35,12 @@ RULED = {
     "payment_failure_final": 0,
     "subscription_cancelled": 0,
     "subscription_suspended": 0,
+    # #2127: dedupe is per door and per reason via a Redis claim (door_alerts docstring), so the key has no
+    # per-recipient cooldown of its own.
+    "door_unavailable": 0,
+    # Per-event staff alerts, not throttled (#2174): the default 60 mailed staff about one request an hour.
+    "contact_request_new": 0,
+    "contact_request_urgent": 0,
 }
 
 

@@ -12,6 +12,11 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+def _normalise_iban(iban):
+    """Spaces and case do not make a different IBAN."""
+    return (iban or "").replace(" ", "").upper()
+
+
 class PaymentMixin:
     """Mixin for payment-related functionality"""
 
@@ -210,33 +215,6 @@ class PaymentMixin:
         coverage = get_payment_coverage_service().get_coverage_from_invoice(invoice)
         return (coverage.start_date, coverage.end_date)
 
-    def validate_payment_method(self):
-        """Validate payment method and related fields"""
-        if not hasattr(self, "payment_method"):
-            memberships = frappe.get_all(
-                "Membership",
-                filters={"member": self.name, "status": ["!=", "Cancelled"]},
-                fields=["name", "membership_type", "status"],
-            )
-
-            for membership in memberships:
-                # Check if member has SEPA mandates (indicates SEPA payment method)
-                sepa_mandates = frappe.get_all(
-                    "SEPA Mandate", filters={"member": self.name, "status": "Active"}, limit=1
-                )
-                if sepa_mandates:
-                    default_mandate = self.get_default_sepa_mandate()
-                    if not default_mandate:
-                        frappe.msgprint(
-                            _(
-                                "Member {0} has a membership with SEPA Direct Debit payment method but no active SEPA mandate."
-                            ).format(self.name),
-                            indicator="yellow",
-                        )
-                    break
-
-            return
-
     def set_payment_reference(self):
         """Generate a unique payment reference for this membership"""
         if not self.payment_reference and self.name:
@@ -364,11 +342,21 @@ class PaymentMixin:
         Keeps inline implementation. Deactivates old entries via in-memory mutation
         (not SQL UPDATE) so Frappe's child table save persists the changes.
         """
-        try:
-            # Get old IBAN from database
-            old_iban = frappe.db.get_value("Member", self.name, "iban")
+        # Read outside the try below: its blanket `except Exception` would swallow the
+        # refusal raised by the holder check and turn it back into a raw MandatoryError
+        # on the history child row (#2022).
+        old_iban = frappe.db.get_value("Member", self.name, "iban")
+        # validate_iban_format has already re-spaced self.iban, so a legacy unspaced
+        # stored value differs textually from an untouched IBAN: compare normalised.
+        iban_changed = bool(old_iban) and _normalise_iban(old_iban) != _normalise_iban(self.iban)
+        if iban_changed and not (self.bank_account_name or "").strip():
+            frappe.throw(
+                _("Please fill in the account holder (Account Holder Name) before changing the IBAN."),
+                title=_("Account holder required"),
+            )
 
-            if old_iban and old_iban != self.iban:
+        try:
+            if iban_changed:
                 # Deactivate previous IBAN history records in memory so Frappe
                 # persists the change when saving the child table.
                 for row in self.iban_history:

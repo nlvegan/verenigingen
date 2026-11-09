@@ -42,13 +42,16 @@ def confirmable_submission(submission_name, token):
 
 def submitted_template_still_valid(source, payload) -> bool:
     """The submitted template must still be a template of the type snapshotted at submit, and of
-    the frequency the applicant chose. The full form carries no template: its type must still exist."""
+    the frequency the applicant chose. The full form carries no template: its type must still be
+    active (a disabled one is treated like a vanished one: approval would refuse it, #2070)."""
     if source == "Full Form":
         chosen = payload.get("selected_membership_type")
-        return not chosen or bool(frappe.db.exists("Membership Type", chosen))
+        return not chosen or _type_is_active(chosen)
+    if not _type_is_active(payload.get("membership_type")):
+        return False
     template = payload.get("selected_dues_schedule")
     if not template:  # Housemate: no template, approval falls back to the type's own
-        return bool(payload.get("membership_type"))
+        return True
     row = frappe.db.get_value(
         "Membership Dues Schedule",
         template,
@@ -61,6 +64,36 @@ def submitted_template_still_valid(source, payload) -> bool:
         and row.membership_type == payload.get("membership_type")
         and row.billing_frequency == payload.get("frequency")
     )
+
+
+def plan_removed_refusal() -> dict:
+    """Only reachable once the token has validated, so it names the reason (#2131 ruling)."""
+    return {
+        "success": False,
+        "message": _("The membership option you chose is no longer offered. Please apply again."),
+    }
+
+
+def chosen_plan_still_on_door(source, payload, door) -> bool:
+    """The plan row the applicant chose must still be on the door (#2131: a removed option is refused;
+    an edited one keeps the price the applicant saw). A payload without a plan (staged before #2127,
+    Housemate, full form) has none to check. Existence only, not whether the plan is offerable now."""
+    plan = payload.get("plan")
+    if source == "Full Form" or not plan:
+        return True
+    return bool(
+        isinstance(plan, str)
+        and door
+        and frappe.db.exists(
+            "Membership Application Door Plan",
+            {"name": plan, "parent": door, "parenttype": "Membership Application Door"},
+        )
+    )
+
+
+def _type_is_active(name) -> bool:
+    """One lookup for "exists and is_active": a missing or non-string name reads as not active."""
+    return isinstance(name, str) and bool(frappe.db.get_value("Membership Type", name, "is_active"))
 
 
 def expire(name):

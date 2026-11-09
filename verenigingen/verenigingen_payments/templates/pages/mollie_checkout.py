@@ -39,8 +39,8 @@ from frappe.utils import cint, fmt_money
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, public_api
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.verenigingen_payments.utils.reference_ownership import (
-    ALLOWED_REFERENCE_DOCTYPES,
-    verify_payer_owns_reference as _verify_payer_owns_reference,
+    load_owned_reference,
+    trim_message_log,
 )
 
 no_cache = 1
@@ -138,13 +138,9 @@ def get_mollie_settings(reference_docname, gateway_name):
         frappe.throw(_("Payment gateway configuration error. Please contact support."))
 
 
-# ALLOWED_REFERENCE_DOCTYPES / _resolve_reference_owner_email /
-# _verify_payer_owns_reference used to be defined here; #1048 needed the
-# identical logic for a second guest-reachable endpoint
-# (verenigingen_payments.hooks.api.initiate_payment) and copy-pasting them
-# tripped scripts/validation/duplicate_helper_validator.py's ratchet, so
-# they were extracted to verenigingen_payments.utils.reference_ownership
-# (imported above) -- import from there instead of re-copying a third time.
+# The reference allowlist and ownership check live in
+# verenigingen_payments.utils.reference_ownership (shared with
+# hooks.api.initiate_payment); import from there instead of re-copying.
 
 
 @frappe.whitelist(allow_guest=True)
@@ -161,10 +157,10 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
 
     Guest-reachable by design (no session exists yet for a payer who has not
     logged in). reference_doctype is restricted to ALLOWED_REFERENCE_DOCTYPES
-    and reference_docname's document is resolved only after the caller's
+    and reference_docname's document is loaded only after the caller's
     ``data.payer_email`` is confirmed to match that document's on-file email
-    (#1032) -- see _verify_payer_owns_reference for what this does and does
-    not close off.
+    (#1032). An unknown name and one the caller does not own are refused
+    identically (#2045) -- see load_owned_reference.
 
     Args:
         data (str): JSON string containing payment data
@@ -175,22 +171,15 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
     Returns:
         dict: Payment status and URL information
     """
+    message_log_length = len(frappe.local.message_log)
     try:
         # Parse payment data
         data = json.loads(data)
 
-        # Reject any doctype outside the allowlist before ever touching
-        # frappe.get_doc for it -- an arbitrary caller-supplied doctype has no
-        # business being loaded here at all (#1032).
-        if reference_doctype not in ALLOWED_REFERENCE_DOCTYPES:
-            frappe.throw(_("Payment reference not found"))
-
-        # Get the document being paid for
-        doc = frappe.get_doc(reference_doctype, reference_docname)
-
         # Refuse unless the caller proves a relationship to this specific
-        # document via its on-file email (#1032).
-        _verify_payer_owns_reference(reference_doctype, doc, data.get("payer_email"))
+        # document via its on-file email (#1032): an off-allowlist doctype, an
+        # unknown name and someone else's document all fail the same way (#2045).
+        doc = load_owned_reference(reference_doctype, reference_docname, data.get("payer_email"))
 
         # Check if payment already exists
         existing_payment_id = getattr(doc, "payment_id", None)
@@ -231,6 +220,8 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
         return result
 
     except Exception as e:
+        # Anything queued on the way would reach the Guest as _server_messages (#2045).
+        trim_message_log(message_log_length)
         frappe.log_error(f"Mollie payment processing error: {str(e)}", "Mollie Payment Error")
         return {
             "status": "Error",

@@ -163,19 +163,12 @@ class UnifiedWebhookWrapperService:
             try:
                 refund_id = pending_refund["refund_id"]
                 refund_amount = pending_refund["amount"]
-                refund_date = pending_refund.get("refund_date")
+                refund_date = self._reversal_date_or_today(
+                    pending_refund.get("refund_date"), "refund", refund_id
+                )
 
-                # Parse refund_date to proper date format
-                parsed_date = refund_date
-                if isinstance(refund_date, str):
-                    try:
-                        from dateutil import parser
-
-                        parsed_date = parser.parse(refund_date).date()
-                    except (ValueError, TypeError, ImportError):
-                        parsed_date = frappe.utils.getdate()
-                elif not parsed_date:
-                    parsed_date = frappe.utils.getdate()
+                # Parse refund_date to proper date format (site-local day, #2162)
+                parsed_date = self._parse_reversal_date(refund_date)
 
                 # Build unique reference number for this refund -- the one key every
                 # reversal route agrees on.
@@ -748,6 +741,7 @@ class UnifiedWebhookWrapperService:
                 reversal_id=chargeback["chargeback_id"],
                 amount=chargeback["amount"],
                 reversal_type="chargeback",
+                reversal_date=chargeback.get("chargeback_date"),
                 reason=chargeback.get("reason") or None,
             )
             for chargeback in state.pending_chargebacks
@@ -1755,16 +1749,44 @@ class UnifiedWebhookWrapperService:
             currency = frappe.db.get_value("Account", gl_account, "account_currency")
         return currency or frappe.db.get_value("Company", config["company"], "default_currency")
 
+    def _reversal_date_or_today(self, reversal_date, reversal_type, reversal_id):
+        """The reversal's own date, or today when no active Fiscal Year covers it (#1806).
+
+        Booking on Mollie's own date (rather than today) means a reversal of an old
+        payment can land outside every Fiscal Year, and the Journal/Payment Entry is
+        then refused for good while Mollie retries and gives up. Booking on today
+        is what happened before the date was carried, so it is the no-worse fallback.
+        The Fiscal Year is looked up without a company: the company is not known
+        this early, and a company-specific year is the rarer setup.
+        """
+        if not reversal_date:
+            return reversal_date
+        from erpnext.accounts.utils import get_fiscal_year
+
+        parsed = self._parse_reversal_date(reversal_date)
+        if get_fiscal_year(parsed, verbose=0, raise_on_missing=False):
+            return parsed
+        today = frappe.utils.getdate()
+        frappe.log_error(
+            title="Mollie Reversal Date Outside Fiscal Year",
+            message=(
+                f"{reversal_type} {reversal_id} is dated {parsed}, which is in no active Fiscal Year; "
+                f"booking it on {today} instead."
+            ),
+        )
+        return today
+
     @staticmethod
     def _parse_reversal_date(reversal_date):
-        """Mollie sends ISO strings; downstream wants a date."""
-        if isinstance(reversal_date, str):
-            try:
-                from dateutil import parser
+        """Mollie sends ISO strings; downstream wants a date.
 
-                return parser.parse(reversal_date).date()
-            except (ValueError, TypeError, ImportError):
-                return frappe.utils.getdate()
+        A timestamp becomes the SITE-local day (#2162): dateutil's ``.date()`` kept the UTC
+        wall-clock day, so a 23:30 UTC reversal booked a day early east of UTC.
+        """
+        if isinstance(reversal_date, str):
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
+
+            return mollie_timestamp_to_local_date(reversal_date) or frappe.utils.getdate()
         return reversal_date or frappe.utils.getdate()
 
     def _repair_reversal_history(
@@ -1880,6 +1902,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(
                 f"🔄 Processing {reversal_type} webhook for {reversal_id} (payment: {payment_id})"
             )
+            reversal_date = self._reversal_date_or_today(reversal_date, reversal_type, reversal_id)
 
             # What did the forward payment actually book? Do NOT re-classify the
             # Mollie payment: the forward path mutates the classifier's own inputs
@@ -2052,17 +2075,8 @@ class UnifiedWebhookWrapperService:
             history_failure = None
             if reversal_ref_name and donation_doc:
                 try:
-                    # Parse reversal date to proper format
-                    parsed_date = reversal_date
-                    if isinstance(reversal_date, str):
-                        try:
-                            from dateutil import parser
-
-                            parsed_date = parser.parse(reversal_date).date()
-                        except (ValueError, TypeError, ImportError):
-                            parsed_date = frappe.utils.getdate()
-                    elif not parsed_date:
-                        parsed_date = frappe.utils.getdate()
+                    # Parse reversal date to proper format (site-local day, #2162)
+                    parsed_date = self._parse_reversal_date(reversal_date)
 
                     # Append payment history entry for reversal
                     donation_doc.reload()

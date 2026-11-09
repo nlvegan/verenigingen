@@ -39,8 +39,9 @@ from verenigingen.verenigingen_payments.utils.shared.severity import Severity
 # type identity for isinstance checks and ``AlertSeverity(value)`` round-trips.
 AlertSeverity = Severity
 
-# Registered key for these alerts' enable switch and cooldown (closest existing SEPA alert key).
-SEPA_ALERT_NOTIFICATION_KEY = "sepa_batch_scheduler_alert"
+# Registered key for these alerts' recipients, enable switch and cooldown. Its own key, seeded with the
+# admin pair: it must not share the batch scheduler's key, which is for Financial Managers (#2093).
+SEPA_ALERT_NOTIFICATION_KEY = "sepa_monitoring_alert"
 
 
 def _cooldown_scope(alert_id, escalation_level):

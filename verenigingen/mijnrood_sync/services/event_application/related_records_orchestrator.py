@@ -19,6 +19,7 @@ reset_acr_dedup(); peer services call each other via their
 ``get_xxx_service()`` accessors.
 """
 
+import hashlib
 from typing import Optional
 
 import frappe
@@ -32,6 +33,15 @@ from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.utils.service_logger import get_service_logger
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.related_records")
+
+MOVE_FAILED_ALERT_KEY = "mijnrood_chapter_move_failed"
+MOVE_FAILED_REALERT_SECONDS = 24 * 3600
+
+
+def move_failed_alert_claim_key(member_name: str, chapter_name: str, reason: str) -> str:
+    """The Redis key that holds the once-a-day claim for one member's failed move to one chapter, for one reason."""
+    reason_hash = hashlib.sha1((reason or "").encode()).hexdigest()[:10]
+    return frappe.cache.make_key(f"{MOVE_FAILED_ALERT_KEY}:{member_name}:{chapter_name}:{reason_hash}")
 
 
 class MijnRoodRelatedRecordsOrchestrator:
@@ -51,6 +61,10 @@ class MijnRoodRelatedRecordsOrchestrator:
         # member and volunteer entry points log one Error Log row between them. Not "queued":
         # nothing was queued, and is_acr_queued() must stay False.
         self._acr_blocked_reported: set[tuple[str, str]] = set()
+        # Failed chapter moves seen during the current event, alerted by flush_pending_alerts() once the
+        # event is committed (#2199): the alert's rows and its once-a-day claim must not be taken inside a
+        # transaction the event may still roll back.
+        self._pending_move_alerts: list[tuple[str, str, str, str]] = []
 
     def reset_acr_dedup(self) -> None:
         """Clear the per-event ACR dedup set.
@@ -60,6 +74,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         """
         self._acr_queued_members.clear()
         self._acr_blocked_reported.clear()
+        self.discard_pending_alerts()
 
     def is_acr_queued(self, member_name: str) -> bool:
         """True if an ACR has already been queued for this member in the
@@ -226,12 +241,97 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Chapter Assignment Failed: {member_name}",
                 message=frappe.get_traceback(),
             )
+            self._alert_chapter_move_failed(member_name, chapter_name, str(e), event)
             return _("Chapter assignment error: {0}").format(str(e))
 
         if result.get("success"):
             self.logger.info("Assigned member %s to chapter %s", member_name, chapter_name)
             return _("Assigned to chapter '{0}'").format(chapter_name)
-        return _("Chapter assignment failed: {0}").format(result.get("message", "unknown"))
+        reason = result.get("message", "unknown")
+        self._alert_chapter_move_failed(member_name, chapter_name, reason, event)
+        return _("Chapter assignment failed: {0}").format(reason)
+
+    def discard_pending_alerts(self) -> None:
+        """Forget the failed moves of an event that was rolled back: its re-apply will see them again."""
+        self._pending_move_alerts.clear()
+
+    def flush_pending_alerts(self) -> None:
+        """Send the alerts queued during the event. Call only AFTER the event's commit (#2199).
+
+        Sent inside the event, the Notification Log rows were undone by the savepoint that backs out a
+        failed member update and by the full rollback, while the once-a-day claim in Redis survived and
+        suppressed every retry. Here a rollback can no longer take them back, and a rolled-back event
+        never reaches this method, so its re-apply alerts instead of finding a stale claim.
+        """
+        pending, self._pending_move_alerts = self._pending_move_alerts, []
+        for member_name, chapter_name, reason, event_name in pending:
+            self._alert_chapter_move_failed_now(member_name, chapter_name, reason, event_name)
+
+    def _alert_chapter_move_failed(self, member_name: str, chapter_name: str, reason: str, event) -> None:
+        """Queue the staff alert for a chapter move that did not happen (#2199), sent after the commit.
+
+        The event is consumed either way and MijnRood does not resend, so without this the only trace is
+        the applied message.
+        """
+        self._pending_move_alerts.append(
+            (member_name, chapter_name, reason, getattr(event, "name", "") or "")
+        )
+
+    def _alert_chapter_move_failed_now(
+        self, member_name: str, chapter_name: str, reason: str, event_name: str
+    ) -> None:
+        """Tell staff once a day. The alert must never undo the sync, so a failure here is logged and swallowed."""
+        claim = move_failed_alert_claim_key(member_name, chapter_name, reason)
+        try:
+            # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
+            if not frappe.cache.set(claim, "1", ex=MOVE_FAILED_REALERT_SECONDS, nx=True):
+                return
+            delivered = self._send_chapter_move_failed_alert(member_name, chapter_name, reason, event_name)
+        except Exception:
+            frappe.cache.delete(claim)  # so the next failure tries again
+            frappe.log_error(title="MijnRood chapter-move alert failed", message=frappe.get_traceback())
+            return
+        if not delivered:
+            frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
+
+    def _send_chapter_move_failed_alert(
+        self, member_name: str, chapter_name: str, reason: str, event_name: str
+    ) -> bool:
+        """Raise the staff alert; True when at least one notification was actually created."""
+        from frappe.utils import escape_html
+
+        from verenigingen.utils.notification_helpers import notify_administrators
+
+        full_name = frappe.db.get_value("Member", member_name, "full_name") or member_name
+        # The failed move was rolled back, so these are the chapters the member is still in.
+        sources = frappe.get_all(
+            "Chapter Member", filters={"member": member_name, "enabled": 1}, pluck="parent"
+        )
+        result = notify_administrators(
+            subject=f"MijnRood chapter move failed for {member_name}",
+            message=(
+                f"<p>MijnRood moved member <b>{escape_html(full_name)}</b> ({escape_html(member_name)}) "
+                f"to chapter <b>{escape_html(chapter_name)}</b>, but the move did not happen. The member "
+                f"is still in: <b>{escape_html(', '.join(sources) or 'no chapter')}</b>.</p>"
+                f"<p>Reason: {escape_html(reason)}</p>"
+                f"<p>Action required: fix the cause and move the member by hand. MijnRood will not send "
+                f"this change again (event {escape_html(event_name)}). This alert "
+                "repeats at most once a day for the same member, chapter and reason.</p>"
+            ),
+            notification_key="mijnrood_chapter_move_failed",  # literal: key discovery greps for it
+            document_type="Member",
+            document_name=member_name,
+            event_reference=f"mijnrood_chapter_move_failed:{member_name}",
+            # ruling 2026-11-01: staff alerts never go to Administrator
+            exclude_users=["Administrator"],
+            staff_alert=True,
+        )
+        result = result or {}
+        return (
+            bool(result.get("success"))
+            and not result.get("skipped")
+            and bool(result.get("notifications_created"))
+        )
 
     def _handle_division_field_change(
         self, member_name: str, changed_fields: list, event, field_name: str = "division_id"
@@ -344,8 +444,8 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         ``_find_blocking_request`` also returns a Failed request with retries left, and
         nothing retries a standalone one unattended (only a staff ``retry_failed_request``).
-        ``mark_failed`` writes only ``frappe.logger`` (never read), so without this row the
-        member has no account and no trace anywhere.
+        ``mark_failed`` logs the original failure once (#2066), not each attempt it blocks, so
+        without this row the member's blocked attempt leaves no trace.
         """
         status = frappe.db.get_value("Account Creation Request", blocking_request, "status")
         if status != "Failed":

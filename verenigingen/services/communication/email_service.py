@@ -259,7 +259,6 @@ class EmailService(StatelessService):
                 "chapter_membership_approval": "chapter_membership_approved",
                 "member_suspension": "Member Suspension Notification",
                 "member_termination": "Member Termination Notification",
-                "member_reactivation": "Member Reactivation Notification",
                 "member_rejection": "membership_application_rejected",
                 "payment_failure": "Payment Failure Notification",
                 "sepa_mandate_created": "SEPA Mandate Created",
@@ -272,7 +271,6 @@ class EmailService(StatelessService):
                 "chapter_membership_approval": "chapter_membership_approved",
                 "member_suspension": "member_suspended",
                 "member_termination": "member_terminated",
-                "member_reactivation": "member_activated",
                 "member_rejection": "member_application_rejected",
                 "payment_failure": "payment_failure",
                 "sepa_mandate_created": "sepa_mandate_created",
@@ -834,6 +832,8 @@ class EmailService(StatelessService):
                 "organization_name": getattr(settings, "company_name", ""),
                 "contact_email": getattr(settings, "contact_email", ""),
                 "website_url": getattr(settings, "website_url", ""),
+                # Absolute site URL for links; templates read {{ base_url }} (#2020)
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
                 # Brand assets for templates
@@ -844,6 +844,7 @@ class EmailService(StatelessService):
         except Exception:
             return {
                 "organization_name": "",
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
             }

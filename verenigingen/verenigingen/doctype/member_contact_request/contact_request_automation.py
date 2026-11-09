@@ -5,10 +5,11 @@ Handles automated workflows for member contact requests and CRM integration
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, escape_html, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -57,8 +58,8 @@ def send_follow_up_reminders():
                 <h3>Contact Request Follow-up Reminder</h3>
                 <p>This is a reminder that the following contact request needs follow-up:</p>
 
-                <p><strong>Request:</strong> {request.subject}</p>
-                <p><strong>Member:</strong> {request.member_name}</p>
+                <p><strong>Request:</strong> {escape_html(request.subject)}</p>
+                <p><strong>Member:</strong> {escape_html(request.member_name)}</p>
                 <p><strong>Urgency:</strong> {request.urgency}</p>
                 <p><strong>Follow-up Date:</strong> {request.follow_up_date}</p>
 
@@ -125,18 +126,13 @@ def escalate_contact_request(request, overdue_days):
     """Escalate a specific contact request"""
 
     # Get managers to escalate to
-    managers = frappe.get_all(
-        "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"}, fields=["parent"]
+    # The key's own recipients first, then enabled Verenigingen Administrators; never Administrator (#2095).
+    manager_emails = resolve_admin_recipients(
+        notification_key="contact_request_escalated",
+        default_roles=[Roles.VERENIGINGEN_ADMIN],
+        exclude_users=("Administrator",),
+        key_first=True,
     )
-
-    if not managers:
-        return
-
-    manager_emails = []
-    for manager in managers:
-        user = frappe.get_doc("User", manager.parent)
-        if user.enabled and user.email:
-            manager_emails.append(user.email)
 
     if manager_emails:
         subject = f"ESCALATION: Overdue Contact Request - {request.subject}"
@@ -144,8 +140,8 @@ def escalate_contact_request(request, overdue_days):
         <h3 style="color: #dc3545;">Contact Request Escalation</h3>
         <p>The following contact request is overdue and requires immediate attention:</p>
 
-        <p><strong>Request:</strong> {request.subject}</p>
-        <p><strong>Member:</strong> {request.member_name}</p>
+        <p><strong>Request:</strong> {escape_html(request.subject)}</p>
+        <p><strong>Member:</strong> {escape_html(request.member_name)}</p>
         <p><strong>Urgency:</strong> {request.urgency}</p>
         <p><strong>Submitted:</strong> {request.request_date}</p>
         <p><strong>Days Overdue:</strong> {overdue_days}</p>
@@ -240,9 +236,9 @@ def auto_close_resolved_requests():
                 subject = f"Contact Request Closed: {request.subject}"
                 message = f"""
                 <h3>Contact Request Closed</h3>
-                <p>Dear {request.member_name},</p>
+                <p>Dear {escape_html(request.member_name)},</p>
 
-                <p>Your contact request "{request.subject}" has been marked as closed.</p>
+                <p>Your contact request "{escape_html(request.subject)}" has been marked as closed.</p>
 
                 <p>If you need further assistance with this matter, please feel free to submit a new contact request through the member portal.</p>
 

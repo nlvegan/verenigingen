@@ -249,9 +249,11 @@ class TemplateCreationService(StatelessService):
                     f"Template '{membership_type_doc.dues_schedule_template}' is not marked as a template"
                 )
 
-        # Check if member already has a schedule
+        # Check if member already has a schedule. A Cancelled one is finished (e.g. its
+        # membership was cancelled) and must not block the next membership's schedule (#1938).
         existing = DocumentExistenceValidator.check_document_exists(
-            "Membership Dues Schedule", {"member": member_name, "is_template": 0}
+            "Membership Dues Schedule",
+            {"member": member_name, "is_template": 0, "status": ["!=", "Cancelled"]},
         )
         if existing:
             frappe.throw(f"Member {member_name} already has a dues schedule: {existing}")

@@ -6,6 +6,7 @@ from frappe.utils import add_days, getdate, now_datetime, today
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -455,15 +456,13 @@ class ContributionAmendmentRequest(Document):
             email_service = get_email_service()
 
             # Get administrator emails
-            admin_roles = Roles.ADMIN_PAIR
-            admin_emails = frappe.get_all(
-                "Has Role",
-                filters={"role": ["in", list(admin_roles)], "parenttype": "User"},
-                fields=["parent"],
-                distinct=True,
+            # The key's own recipients first, then enabled admin-pair holders' emails; never Administrator (#2095).
+            recipients = resolve_admin_recipients(
+                notification_key="contribution_sync_failed",
+                default_roles=list(Roles.ADMIN_PAIR),
+                exclude_users=("Administrator",),
+                key_first=True,
             )
-
-            recipients = [admin["parent"] for admin in admin_emails]
 
             if recipients:
                 # Get member details for notification
@@ -492,20 +491,27 @@ class ContributionAmendmentRequest(Document):
                     reference_doctype="Contribution Amendment Request",
                     reference_name=self.name,
                     notification_key="contribution_sync_failed",
+                    # The key's default cooldown is per recipient per key: without a scope, one failed
+                    # amendment's alert silences every other amendment's for an hour.
+                    cooldown_scope=self.name,
                 )
 
-                if result.get("success"):
+                # An OperationResult, not a dict. A skip (key disabled, cooldown, master switch off) is a
+                # successful result that sent nothing, so it must not be logged as sent (#2044).
+                if result.skip_reason:
+                    frappe.logger().info(f"Failure notification skipped: {result.skip_reason}")
+                elif result.success:
                     frappe.logger().info(f"Sent failure notification to {len(recipients)} administrators")
                 else:
                     frappe.log_error(
-                        f"Failed to send Mollie sync failure notification: {result.get('message')}",
-                        "Mollie Sync Notification Error",
+                        title="Mollie Sync Notification Error",
+                        message=f"Failed to send Mollie sync failure notification: {result.error_message}",
                     )
 
         except Exception as email_error:
             frappe.log_error(
-                f"Failed to send Mollie sync failure notification: {str(email_error)}",
-                "Mollie Sync Notification Error",
+                title="Mollie Sync Notification Error",
+                message=f"Failed to send Mollie sync failure notification: {str(email_error)}",
             )
 
     @frappe.whitelist()

@@ -18,7 +18,9 @@ row is visible to a worker or to the wait loop's fresh read. The worker pipeline
 (``AccountCreationManager``) is a stand-in: it either completes the request on the worker's
 own connection or leaves it Processing, as a worker that died mid-pipeline would. The batch
 function, its worker threads and commit, the wait loop and the tracker are real, except
-``frappe.enqueue`` (recorded, not run) and ``time.sleep`` (a tick counter; no real wait).
+``frappe.enqueue`` (recorded, not run) and the wait loop's ``time.sleep`` on the calling thread
+(a tick counter; no real wait). The workers' 0.5s throttle runs on pool threads and really
+sleeps (``patch_thread_sleep`` records the calling thread only); it is not asserted.
 """
 
 from unittest.mock import patch
@@ -27,6 +29,7 @@ import frappe
 
 from verenigingen.services.member.account import account_creation_api as api
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.scoped_sleep import patch_thread_sleep
 
 WAIT_TICK = 3  # the wait loop's sleep; the worker's own throttle sleeps 0.5
 FULL_TIMEOUT_TICKS = 600 // WAIT_TICK
@@ -127,7 +130,7 @@ class TestBatchWaitSeesCommitsFromOtherConnections(VereningingenTestCase):
 
         remaining = [{"batch_id": "b2", "batch_number": 2, "request_names": ["x"], "request_count": 1}]
         with (
-            patch("time.sleep", fake_sleep),
+            patch_thread_sleep(fake_sleep),
             patch.object(frappe, "enqueue", fake_enqueue),
             patch.object(api, "AccountCreationManager", worker_cls),
         ):

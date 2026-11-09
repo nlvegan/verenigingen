@@ -5,17 +5,18 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "frequency",
-  "amount"
+  "dues_template",
+  "amount",
+  "frequency"
  ],
  "fields": [
   {
-   "fieldname": "frequency",
-   "fieldtype": "Select",
+   "description": "The template of the plan this amount is offered on (each template is one plan on a door).",
+   "fieldname": "dues_template",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Frequency",
-   "options": "Monthly\nAnnual",
-   "reqd": 1
+   "label": "Plan Template",
+   "options": "Membership Dues Schedule"
   },
   {
    "fieldname": "amount",
@@ -24,6 +25,15 @@
    "label": "Amount",
    "options": "EUR",
    "reqd": 1
+  },
+  {
+   "description": "Deprecated: only read by the #2127 migration patch.",
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Frequency (deprecated)",
+   "options": "Monthly\nAnnual",
+   "read_only": 1
   }
  ],
  "istable": 1,
