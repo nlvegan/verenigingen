@@ -127,9 +127,6 @@ class TestMemberEventsRollback(_RollbackBase):
         member.user = self.user.name
         member.save(ignore_permissions=True)
 
-    def _user_enabled(self):
-        return frappe.db.get_value("User", self.user.name, "enabled")
-
     def _set_2144(self, **values):
         member = frappe.get_doc("Member", self.member.name)
         member.update(values)
@@ -171,40 +168,6 @@ class TestMemberEventsRollback(_RollbackBase):
         with self._mail_boundary() as service:
             self._run_jobs_2144(jobs, only="handle_status_change_notifications")
         service.send_notification.assert_not_called()
-
-    def test_user_account_job_ignores_a_status_the_member_does_not_have(self):
-        """Probe shortcut: the payload is hand-built (old != new). A real save emits
-        old_status == new_status (get_db_value runs after the write in on_update), so
-        handle_user_account_updates never disables anyone from a real event today; the
-        guard is for when that is fixed."""
-        data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs_2144(
-            [
-                {
-                    "method": MEMBER_JOBS + "handle_user_account_updates",
-                    "event_name": "member_lifecycle_changed",
-                    "event_data": data,
-                    "is_bulk_import": False,
-                }
-            ]
-        )
-        self.assertEqual(self._user_enabled(), 1)
-
-    def test_control_user_account_job_disables_when_the_member_is_suspended(self):
-        """Control for the test above: with the status really held, the user is disabled."""
-        self._suspend_2144()
-        data = {"member": self.member.name, "old_status": "Active", "new_status": "Suspended"}
-        self._run_jobs_2144(
-            [
-                {
-                    "method": MEMBER_JOBS + "handle_user_account_updates",
-                    "event_name": "member_lifecycle_changed",
-                    "event_data": data,
-                    "is_bulk_import": False,
-                }
-            ]
-        )
-        self.assertEqual(self._user_enabled(), 0)
 
     def _seat_in_chapter(self):
         chapter = self.create_test_chapter(
@@ -320,7 +283,7 @@ class TestMemberEventsRollback(_RollbackBase):
 
     def test_member_jobs_are_held_until_commit(self):
         jobs = self._capture_jobs_2144(self._suspend_2144) + self._capture_jobs_2144(self._approve_2144)
-        self.assertEqual(len(jobs), 5)
+        self.assertEqual(len(jobs), 4)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
 
 
@@ -496,9 +459,9 @@ class TestTeamEventsRollback(_RollbackBase):
         service.send_templated_email.assert_called_once()
 
     def test_rolled_back_role_change_leaves_the_history_alone(self):
-        """A role change is reported as role_changed, or as removed(old role) + added(new
-        role) when the emitter's from_date keys differ in type. Rolled back, the row still
-        has the old role, so no such job may touch the history."""
+        """A role change is reported as role_changed (#2181 normalised the emitter's from_date
+        key, so it no longer arrives as removed + added). Rolled back, the row still has the
+        old role, so no such job may touch the history."""
         self._join_and_record_history()
         before = self._history_roles()
 
@@ -536,9 +499,9 @@ class TestTeamEventsRollback(_RollbackBase):
         )
 
     def test_removal_of_an_old_role_holds_while_the_volunteer_keeps_another_role(self):
-        """Real shape (test_team_member_lifecycle): a role change is emitted as removed(old
-        role) while the volunteer's row, same from_date, now holds the new role. That
-        removal is real and must still be processed. Probe shortcut: hand-built payload."""
+        """A removal naming a role the volunteer's row no longer holds is still processed.
+        Probe shortcut: hand-built payload. Since #2181 Team no longer emits this shape for a
+        role change (it is one role_changed), so this guards queued or foreign payloads only."""
         self._join_as_member_2144()
         row = frappe.get_doc("Team", self.team.name).team_members[0]
         with self._mail_boundary() as service:

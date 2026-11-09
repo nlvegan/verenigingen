@@ -14,6 +14,7 @@ Architecture:
 - Comprehensive audit trails
 """
 
+import sys
 import time
 from dataclasses import replace as dataclass_replace
 from functools import wraps
@@ -56,6 +57,7 @@ from verenigingen.utils.security.types import (
     SecurityLevel,
     SecurityProfile,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class APISecurityFramework:
@@ -729,10 +731,29 @@ class APISecurityFramework:
 
             return registry.validate_business_rules(operation_info["operation_name"], **kwargs)
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(
-                f"Failed to validate critical operation business rules: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # An errored evaluation is not "no violations" (#2282). The amount rule does
+            # float() on a request kwarg, so a caller can trigger this on purpose.
+            # Type plus truncated text only: a full traceback echoes the caller's input
+            # (an oversized amount wrote a 100KB row).
+            error_type, error_value = sys.exc_info()[:2]
+            frappe.log_error(
+                title="Critical business rule evaluation failed",
+                message=(
+                    f"operation={operation_info.get('operation_name')}\n"
+                    f"{error_type.__name__}: {str(error_value)[:200]}"
+                ),
             )
+            # Same threshold the caller applies to a real violation: only a rule
+            # classified "critical" blocks; a lower level proceeds, as its violations do.
+            if (operation_info.get("config") or {}).get("security_level") == "critical":
+                raise VValidationError(
+                    _(
+                        "This operation could not be verified against its business rules and was not performed."
+                    )
+                )
             return []
 
     def log_audit_event(
@@ -976,9 +997,9 @@ def api_security_framework(
                     )
 
                     # Enhanced content validation for TOCTOU protection.
-                    # Resolve the caller's member with the canonical user-first
-                    # resolver (Member.user, then Member.email) — matching the
-                    # ownership gate. An email-only lookup silently skipped this
+                    # Resolve the caller's member by the explicit Member.user link
+                    # ONLY (#1936, no Member.email fallback) — the same resolver as
+                    # the ownership gate. An email-only lookup silently skipped this
                     # deep check for members whose Member.user differs from their
                     # login email, disabling TOCTOU protection for that class of user.
                     current_user = frappe.session.user

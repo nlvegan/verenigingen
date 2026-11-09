@@ -17,6 +17,7 @@ from verenigingen.patches.v15_0.add_team_chapter_notification_types import execu
 from verenigingen.services.communication.email_configuration_service import (
     get_email_configuration_service,
 )
+from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 from verenigingen.tests.test_notification_registry_seed_1959 import _rows
 
 DOCTYPE = "Verenigingen Email Configuration"
@@ -27,24 +28,16 @@ STAFF_ROLE = "Verenigingen Staff"
 class TestTeamPatchRecipientPolicy(FrappeTestCase):
     def setUp(self):
         super().setUp()
-        self.baseline = {k: dict(r.as_dict()) for k, r in _rows().items()}
-        self.addCleanup(self._cleanup_restore_snapshot)
+        # singleton_backup, not an uncommitted restore: the patch under test commits its own save, and
+        # the restore must be committed too or the class-level rollback would bring the patch's rows back
+        # (measured: 88 -> 89 rows on the site). It restores the rows byte for byte (#2159).
+        backup = SingletonBackup(DOCTYPE)
+        backup.backup()
+        self.addCleanup(backup.restore)
         config = frappe.get_single(DOCTYPE)
         config.notification_types = [r for r in config.notification_types if r.notification_key not in KEYS]
         config.save()
         self.assertFalse(set(KEYS) & set(_rows()), "control: the two rows are really missing")
-
-    def _cleanup_restore_snapshot(self):
-        # Not singleton_backup: it skips child tables (#2029).
-        config = frappe.get_single(DOCTYPE)
-        config.notification_types = []
-        for row in self.baseline.values():
-            row = {k: v for k, v in row.items() if k not in ("name", "creation", "modified", "idx")}
-            config.append("notification_types", row)
-        config.save()
-        # The patch under test commits its own save, so the restore must be committed too or the
-        # class-level rollback would bring the patch's rows back (measured: 88 -> 89 rows on the site).
-        frappe.db.commit()
 
     def _staff_user(self):
         email = "staff-2027@example.com"

@@ -26,7 +26,7 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_url
+from frappe.utils import flt, get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import atomic_status_transition
@@ -34,6 +34,8 @@ from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
     alert_executed_on_cancelled_row,
+    alert_executed_unbookable,
+    alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
     refuse_unless_system_update,
@@ -116,6 +118,19 @@ class PontoPaymentRequest(Document):
                     self.ponto_account_name = mapping.ponto_account_name or mapping.ponto_iban
                     break
 
+    def _default_redirect_uri(self):
+        """Our callback URL, carrying the cancel_token that proves, on the guest-reachable
+        callback, that an `error=access_denied` comes from the browser we sent to Ponto
+        (#1815). A custom redirect_uri replaces our callback, so it carries none."""
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+        from verenigingen.verenigingen_payments.ponto.api.payment_callback import CANCEL_TOKEN_PURPOSE
+
+        cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
+        return get_url(
+            f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
+            f"?payment_request={self.name}&cancel_token={cancel_token}"
+        )
+
     def create_ponto_payment(self):
         """
         Create payment request in Ponto API.
@@ -126,12 +141,7 @@ class PontoPaymentRequest(Document):
         from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
 
         # Build redirect URI for callback
-        redirect_uri = self.redirect_uri
-        if not redirect_uri:
-            redirect_uri = get_url(
-                f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
-                f"?payment_request={self.name}"
-            )
+        redirect_uri = self.redirect_uri or self._default_redirect_uri()
 
         # Parse execution date if set
         exec_date = None
@@ -225,6 +235,8 @@ class PontoPaymentRequest(Document):
             new_status = map_request_status(payment.status) or self.status
             if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
                 return {"status": self.status}  # cancelled row: finance alerted, doc untouched (#1848)
+            if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_blocked():
+                return {"status": self.status}  # blocked: staff alerted, doc untouched (#2125)
             if is_refused_move(self.status, new_status):
                 new_status = self.status
 
@@ -305,6 +317,7 @@ class PontoPaymentRequest(Document):
         bank_account = None
         for mapping in settings.bank_account_mappings:
             if mapping.ponto_account_id == self.ponto_account:
+                self._refuse_unusable_mapping(mapping)
                 bank_account = mapping.bank_account
                 break
 
@@ -373,6 +386,157 @@ class PontoPaymentRequest(Document):
 
         return bank_account, company, paid_from, party_type, party
 
+    def _alert_if_executed_unbookable(self) -> bool:
+        """Ponto says EXECUTED but this request's mapping is paused or disabled (#2125).
+
+        The Payment Entry would book against a shared or wrong-currency GL, so it is refused,
+        but the money has moved: tell staff ONCE, naming the row and amount, and leave the
+        row untouched (not Executed, not Paid, no Payment Entry). Returns True if handled.
+
+        Alerts and returns instead of raising, like the #1848 cancelled-row alert: a raise
+        would be rolled back by the caller's savepoint together with the Notification Log,
+        and the hourly poll would write a new Error Log row every hour. A mapping that is
+        simply missing still falls through to the prerequisites' own error.
+        """
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        settings = frappe.get_single("Ponto Settings")
+        mapping = next(
+            (m for m in settings.bank_account_mappings if m.ponto_account_id == self.ponto_account), None
+        )
+        if not mapping or (mapping.get("enabled") and mapping.get("sync_status") != "Paused"):
+            return False
+        alert_executed_unbookable(self, PontoConfigurationService.unusable_reason(mapping))
+        return True
+
+    def _refuse_unusable_mapping(self, mapping):
+        """A paused (or disabled) account's Bank Account may be shared or in the wrong currency:
+        never book a Payment Entry against it (#2125). Names the pause reason."""
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        if mapping.get("sync_status") == "Paused" or not mapping.get("enabled"):
+            frappe.throw(
+                _("Ponto account {0} cannot be used: {1}").format(
+                    self.ponto_account, PontoConfigurationService.unusable_reason(mapping)
+                ),
+                title=_("Ponto Account Paused"),
+            )
+
+    def _alert_if_executed_blocked(self) -> bool:
+        """Paused mapping, or an ambiguous Payment Entry situation: alert staff, change nothing."""
+        return self._alert_if_executed_unbookable() or self._alert_if_payment_entry_conflict()
+
+    def _alert_if_payment_entry_conflict(self) -> bool:
+        """Ponto says EXECUTED and a same-Reference Payment Entry makes booking ambiguous (#2125).
+
+        Decided BEFORE the status moves, like the paused-mapping alert: a raise (or a return
+        inside the caller's savepoint) would roll the alert back or leave the row Executed with
+        no Payment Entry, and the hourly poll would write Error Log rows forever. Prerequisites
+        that cannot be resolved fall through to their own error."""
+        if self.payment_entry:
+            return False
+        logged = len(frappe.local.message_log)
+        try:
+            _, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
+        except frappe.ValidationError:
+            del frappe.local.message_log[logged:]
+            return False
+        verdict = self._payment_entry_verdict(party, company, paid_from, party_type)
+        if verdict.action != "conflict":
+            return False
+        alert_payment_entry_conflict(self, verdict.reason, verdict.entries)
+        return True
+
+    def _payment_entry_verdict(self, party, company, paid_from, party_type):
+        """Classify the Payment Entries that carry this request as Reference No (cancelled ones
+        are ignored): ``none`` (book), ``link`` (one matching submitted entry) or ``conflict``."""
+        entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": self.name, "docstatus": ["in", [0, 1]]},
+            fields=[
+                "name",
+                "docstatus",
+                "party_type",
+                "party",
+                "paid_from",
+                "paid_amount",
+                "payment_type",
+                "company",
+                "paid_from_account_currency",
+            ],
+            order_by="creation asc, name asc",
+        )
+        names = [e.name for e in entries]
+        if not entries:
+            return frappe._dict(action="none", entries=[])
+        drafts = [e.name for e in entries if e.docstatus == 0]
+        if drafts:
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_(
+                    "a draft Payment Entry carries this request as its Reference No; booking "
+                    "beside it would double-book once the draft is submitted"
+                ),
+            )
+        if len(entries) > 1:
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_("more than one submitted Payment Entry carries this request as its Reference No"),
+            )
+        e = entries[0]
+        if (
+            e.party_type != party_type
+            or e.party != party
+            or e.paid_from != paid_from
+            or flt(e.paid_amount) != flt(self.amount)
+            or e.payment_type != "Pay"
+            or e.company != company
+            or e.paid_from_account_currency != self.currency
+        ):
+            return frappe._dict(
+                action="conflict",
+                entries=names,
+                reason=_(
+                    "the Payment Entry carrying this request as its Reference No differs in "
+                    "party, paying bank account, amount, payment type, company or currency"
+                ),
+            )
+        return frappe._dict(action="link", entries=names)
+
+    def _link_existing_payment_entry(self, party, company, paid_from, party_type) -> bool:
+        """Link, instead of booking again, a submitted Payment Entry that already carries this
+        request as its Reference No (#2125).
+
+        An executed payment on a paused account is not booked; staff may book it by hand while
+        it is blocked. Once the pause clears, the next refresh would book it a second time.
+        Linking is right when it matches exactly. Anything ambiguous was alerted before the
+        status moved (``_alert_if_payment_entry_conflict``); reaching it here means a race, so
+        it is refused rather than booked beside.
+        """
+        verdict = self._payment_entry_verdict(party, company, paid_from, party_type)
+        if verdict.action == "none":
+            return False
+        if verdict.action == "conflict":
+            frappe.throw(
+                _(
+                    "Payment Entry {0} already carries {1} as its Reference No but conflicts: {2}. "
+                    "Not booking again; correct or cancel it first."
+                ).format(", ".join(verdict.entries), self.name, verdict.reason),
+                title=_("Payment Entry Conflict"),
+            )
+        self.payment_entry = verdict.entries[0]
+        self.save()
+        frappe.logger().info(
+            f"Linked existing Payment Entry {self.payment_entry} to Ponto payment {self.name}"
+        )
+        return True
+
     @as_system_update
     def create_payment_entry(self):
         """
@@ -389,6 +553,9 @@ class PontoPaymentRequest(Document):
             return  # Already created
 
         bank_account, company, paid_from, party_type, party = self._validate_payment_entry_prerequisites()
+
+        if self._link_existing_payment_entry(party, company, paid_from, party_type):
+            return
 
         from erpnext.accounts.party import get_party_account
 
@@ -442,6 +609,9 @@ class PontoPaymentRequest(Document):
         """
         if new_status == "Executed" and alert_executed_on_cancelled_row(self, self.ponto_payment_id):
             return False  # cancelled row: finance alerted, doc untouched (#1848)
+
+        if new_status == "Executed" and self.status != "Executed" and self._alert_if_executed_blocked():
+            return False  # blocked: staff alerted, doc untouched (#2125)
 
         if new_status == self.status or is_refused_move(self.status, new_status):
             return False

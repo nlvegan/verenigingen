@@ -530,6 +530,17 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "ponto_executed_unbookable": {
+        "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request whose Ponto "
+        "account mapping is paused or disabled, so no Payment Entry may be booked against it. Also carries "
+        "the Payment Entry conflict alerts: a Payment Entry that already carries the request as its "
+        "Reference No differs (party, paying bank account, amount, ...) or is ambiguous (a draft, or "
+        "more than one). The money has moved: check the bank and book the payment by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "door_unavailable": {
         "label": "Application Door Unavailable (Admin)",
         "category": CATEGORY_ADMIN,
@@ -651,7 +662,10 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_SYSTEM,
         "description": "Alert for authentication anomalies like failed logins or suspicious access patterns.",
         "priority": PRIORITY_HIGH,
-        "recipient_policy": POLICY_ROLE_BASED,
+        # Custom, not Role-Based: the default audience is the holders of the Verenigingen System
+        # Administrator PROFILE, which a role list cannot name (#2254). A row an admin sets to Fixed or
+        # Role-Based still wins.
+        "recipient_policy": POLICY_CUSTOM,
     },
     "business_logic_alert": {
         "label": "Business Logic Alert",
@@ -720,6 +734,8 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "recipient_roles": "Verenigingen Administrator",
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_urgent": {
         "label": "Urgent Contact Request Received",
@@ -727,6 +743,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to Verenigingen Administrators and System Managers when a member files an urgent contact request.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_response_sent": {
         "label": "Contact Request Response",
@@ -832,6 +850,7 @@ NOTIFICATION_KEYS = {
 REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
+        "ponto_executed_unbookable",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",

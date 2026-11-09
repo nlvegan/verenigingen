@@ -14,6 +14,7 @@ from verenigingen.services.customer_group_resolver import resolve_non_group_cust
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 
 class Donor(Document):
@@ -772,6 +773,7 @@ class Donor(Document):
                 return contact
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2112
                 attempt_num = attempt + 1
                 is_last_attempt = attempt_num == max_retries
 

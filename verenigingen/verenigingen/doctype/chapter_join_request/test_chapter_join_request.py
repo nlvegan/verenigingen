@@ -1049,21 +1049,35 @@ class TestChapterJoinRequest(EnhancedTestCase):
     def test_join_chapter_refuses_a_member_matched_only_by_email(self):
         """#1853 (maintainer ruling 2026-11-01, reverses the old email-fallback premise of this test):
         join_chapter identifies the caller by Member.user ONLY. A user whose email merely matches a
-        Member's is refused with a clear message and no request is created."""
+        Member's is refused and no request is created.
+
+        #1936: the refusal now comes from the @self_service_api gate (a PermissionError), because the
+        gate resolves the caller by Member.user too. Before, the gate admitted the email match and the
+        in-body #1853 check returned success=False. The gate refuses an email-only user exactly as it
+        refuses a user with no Member at all (control below), so the refusal is not an existence oracle."""
         from verenigingen.api import chapter_join
 
         user = self._role_user_email("Verenigingen Member")
         member = self.create_test_member(status="Active", email=user)
         self.assertFalse(frappe.db.get_value("Member", member.name, "user"))
         with _UserSwitcher(user):
-            result = chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
-        self.assertFalse(result["success"])
-        self.assertIn("not linked to a member record", result["error"]["message"])
+            with self.assertRaises(frappe.PermissionError) as email_only:
+                chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
+        self.assertIn("No member record found", str(email_only.exception))
         self.assertFalse(
             frappe.db.exists(
                 "Chapter Join Request", {"member": member.name, "chapter": self.test_chapter.name}
             )
         )
+
+        # Control: a user with no Member at all gets the identical refusal.
+        no_member_user = self._role_user_email("Verenigingen Member")
+        self.assertFalse(frappe.db.exists("Member", {"user": no_member_user}))
+        self.assertFalse(frappe.db.exists("Member", {"email": no_member_user}))
+        with _UserSwitcher(no_member_user):
+            with self.assertRaises(frappe.PermissionError) as no_member:
+                chapter_join.join_chapter(chapter_name=self.test_chapter.name, introduction="Hello")
+        self.assertEqual(str(email_only.exception), str(no_member.exception))
 
     def test_join_chapter_works_for_a_member_linked_by_user(self):
         """Control for the refusal above: the same flow with Member.user set succeeds."""
