@@ -27,11 +27,13 @@ _REQUESTS = 4
 _IP_ONE = "203.0.113.41"
 _IP_TWO = "203.0.113.42"
 _IP_SIGNED = "203.0.113.43"
+_IP_SIGNED_TWO = "203.0.113.44"
+_PROBE_SECRET = "probe-secret"
 # What the handler used to put in the title, and what it puts there now.
 _TITLE_PREFIXES = ("Ing_Checkout_Payment Error", "Ing_Checkout_Mandate Error", "Ing_Checkout_Direct_Debit Error")
 
 
-def _run_floods() -> dict:
+def _run_guest_webhook_floods() -> dict:
     script = textwrap.dedent(
         f"""
         import json
@@ -56,11 +58,11 @@ def _run_floods() -> dict:
             frappe.destroy()
             return rows
 
-        def flood(path, ip, **headers):
+        def flood(path, ip, prefix="x", **headers):
             statuses = []
             for i in range({_REQUESTS}):
                 r = client.post(
-                    BASE + path, data=b'{{"id": "x%d"}}' % i,
+                    BASE + path, data=b'{{"id": "%s%d"}}' % (prefix.encode(), i),
                     headers={{"X-Frappe-Site-Name": SITE, "Content-Type": "application/json", **headers}},
                     environ_base={{"REMOTE_ADDR": ip}},
                 )
@@ -73,6 +75,17 @@ def _run_floods() -> dict:
             "mandate": "ing_checkout.api.webhook.handle_mandate",
             "direct_debit": "ing_checkout.api.webhook.handle_direct_debit",
         }}
+        # A killed earlier run can leave the probe secret on the site (its finally never ran). Treat
+        # that as "no secret was set" and heal it, or it would be captured as the original and
+        # restored forever, and the fail-closed test would skip silently.
+        from frappe.utils.password import remove_encrypted_password, set_encrypted_password
+        DT = "Verenigingen Payments Settings"
+        connect()
+        if frappe.get_single(DT).get_password("ing_checkout_webhook_secret", raise_exception=False) == {_PROBE_SECRET!r}:
+            remove_encrypted_password(DT, DT, "ing_checkout_webhook_secret")
+            frappe.db.commit()
+            out["healed_probe_secret"] = True
+        frappe.destroy()
         mark = now_mark()
         statuses = {{k: flood(v, {_IP_ONE!r}, Signature="bad") for k, v in ing.items()}}
         statuses["payment_other_ip"] = flood(ing["payment"], {_IP_TWO!r}, Signature="bad")
@@ -87,16 +100,15 @@ def _run_floods() -> dict:
 
         # With a webhook secret configured (production) a bad signature reaches
         # log_signature_validation_failed too. Set one for the flood, then put the setting back.
-        from frappe.utils.password import remove_encrypted_password, set_encrypted_password
-        DT = "Verenigingen Payments Settings"
         connect()
         original_secret = frappe.get_single(DT).get_password("ing_checkout_webhook_secret", raise_exception=False)
-        set_encrypted_password(DT, DT, "probe-secret", "ing_checkout_webhook_secret")
+        set_encrypted_password(DT, DT, {_PROBE_SECRET!r}, "ing_checkout_webhook_secret")
         frappe.db.commit(); frappe.destroy()
         try:
             mark = now_mark()
             statuses = flood(ing["payment"], {_IP_SIGNED!r}, Signature="bad")
-            out["ing_signed"] = {{"statuses": statuses, "rows": rows_since(mark)}}
+            statuses_two = flood(ing["payment"], {_IP_SIGNED_TWO!r}, prefix="y", Signature="bad")
+            out["ing_signed"] = {{"statuses": statuses, "statuses_two": statuses_two, "rows": rows_since(mark)}}
         finally:
             connect()
             if original_secret:
@@ -139,7 +151,7 @@ class TestGuestFloodsWriteOneRowPerKind(EnhancedTestCase):
     def setUpClass(cls):
         super().setUpClass()
         frappe.cache.delete_keys("webhook_error_log_once:")
-        cls.out = _run_floods()
+        cls.out = _run_guest_webhook_floods()
         # The subprocess committed these rows, so the in-process rollback cannot reach them.
         cls.flood_rows = [r["name"] for kind in ("ing", "ing_signed", "ponto") for r in cls.out[kind]["rows"]]
 
@@ -172,6 +184,7 @@ class TestGuestFloodsWriteOneRowPerKind(EnhancedTestCase):
 
     def test_ing_no_valid_security_layer_rejection_writes_one_row_per_ip(self):
         if self.out["secret_was_set"]:
+            # (a probe secret left by a killed run is healed in the subprocess, so this is a real secret)
             self.skipTest("a webhook secret is configured here, so the fail-closed branch is not reached")
         # Control: the flood was refused as a signature failure (so the branch really ran).
         self.assertEqual(self.out["ing"]["statuses"]["payment_other_ip"], [401] * _REQUESTS)
@@ -184,10 +197,14 @@ class TestGuestFloodsWriteOneRowPerKind(EnhancedTestCase):
         """A configured secret adds log_signature_validation_failed: count ALL new rows, not by prefix."""
         got = self.out["ing_signed"]
         self.assertEqual(got["statuses"], [401] * _REQUESTS)
+        self.assertEqual(got["statuses_two"], [401] * _REQUESTS)
         titles = sorted(r["method"] for r in got["rows"])
-        self.assertEqual(len(titles), 2, titles)
-        self.assertTrue(titles[0].startswith("Ing_Checkout_Payment Error"), titles)
-        self.assertIn("signature_validation_failed", titles[1])
+        # Two IPs, each keyed by IP in BOTH guards (the handler row's key carries get_client_ip(), as does
+        # the security-event guard): 2 handler rows + 2 security-event rows. A guard keyed globally (one
+        # key for every caller) would write 1 security row, not 2.
+        self.assertEqual(len(titles), 4, titles)
+        self.assertEqual(sum(t.startswith("Ing_Checkout_Payment Error") for t in titles), 2, titles)
+        self.assertEqual(sum("signature_validation_failed" in t for t in titles), 2, titles)
 
     def test_ponto_signature_failures_write_one_row(self):
         self.assertEqual(self.out["ponto"]["statuses"], [401] * _REQUESTS)
