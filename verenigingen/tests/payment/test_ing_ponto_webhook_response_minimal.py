@@ -320,9 +320,17 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
             {"data": {"id": f"evt-{uuid.uuid4().hex[:8]}", "type": "pontoConnect.nope", "attributes": {}}}
         ).encode()
         token = _make_token(self.private_pem, raw, audience=audience, issuer=issuer or TEST_ISSUER)
+        self.last_token = token
         # unique per delivery: log_error_once dedupes per IP per hour, so a prior row could hide ours
         ip = f"2001:db8::{uuid.uuid4().hex[:4]}"
         return self._post(f"{PONTO}.handle_ponto_webhook", raw=raw, headers={"Signature": token}, ip=ip)
+
+    def _assert_token_not_leaked(self, body, messages):
+        """A signed token is replayable until it expires; it must reach neither the Error Log nor the caller."""
+        self.assertTrue(self.last_token)
+        for text in self._error_log_texts():
+            self.assertNotIn(self.last_token, text, "the raw webhook token must not be written to the Error Log")
+        self.assertNotIn(self.last_token, json.dumps(body) + " ".join(messages))
 
     def _audience_rows(self):
         return [t for t in self._error_log_texts() if "Invalid webhook audience" in t]
@@ -335,6 +343,7 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
         self.assertEqual(len(rows), 1, "the refusal must write one Error Log row naming the received aud")
         self.assertIn(self.expected, rows[0])
         self.assertNotIn(received, " ".join(messages), "the received aud must not reach the caller")
+        self._assert_token_not_leaked(body, messages)
 
     def test_list_audience_is_logged_and_still_refused(self):
         received = [f"one-{uuid.uuid4().hex[:8]}", f"two-{uuid.uuid4().hex[:8]}"]
@@ -373,8 +382,9 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
 
     def test_mismatched_issuer_is_refused_and_both_values_are_logged(self):
         received = f"https://evil-{uuid.uuid4().hex[:8]}.example"
-        _, status, _ = self._deliver(self.expected, issuer=received)
+        body, status, messages = self._deliver(self.expected, issuer=received)
         self.assertEqual(status, 401)
+        self._assert_token_not_leaked(body, messages)
         rows = [t for t in self._error_log_texts() if "Invalid webhook issuer" in t and received in t]
         self.assertEqual(len(rows), 1)
         self.assertIn("expected_issuer", rows[0])
