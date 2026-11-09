@@ -359,7 +359,8 @@ class TestPeriodicDonationAgreementFormSepaRefusal(EnhancedTestCase):
 
         user_email = f"pda.sepa.test.{frappe.generate_hash(length=8)}@example.com"
         self.create_test_user(user_email, roles=["Verenigingen Member"])
-        self.create_test_member(email=user_email)
+        # Linked by Member.user: the gate no longer admits an email-only match (#1936).
+        self.create_test_member(email=user_email, user=user_email)
 
         original_user = frappe.session.user
         try:

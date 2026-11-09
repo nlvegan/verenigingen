@@ -316,6 +316,19 @@
                                 <div class="text-sm text-success-600"><i class="fa fa-check-circle mr-1"></i>{{ _("Active") }}</div>
                             </div>
                         </div>
+                        {% elif mandate_ambiguous and not mollie_customers %}
+                        <!-- Refused, not absent (#607): several Active mandates for dues. A member with a
+                             Mollie customer falls through to the placeholder below so the JS can show Mollie as
+                             active, as before; the SEPA card carries the message either way. -->
+                        <div id="sepa-attention-display" class="flex items-center gap-3 mt-3">
+                            <div class="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center">
+                                <i class="fa fa-exclamation-triangle text-warning-500 text-2xl"></i>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold text-gray-900">{{ _("SEPA Direct Debit") }}</div>
+                                <div class="text-sm text-gray-500">{{ _("Needs attention, please contact the office") }}</div>
+                            </div>
+                        </div>
                         {% else %}
                         <!-- Check for active Mollie - will be updated by JS -->
                         <div id="active-method-display" class="flex items-center gap-3 mt-3">
@@ -561,7 +574,7 @@
                                     </div>
                                 </div>
                                 <span class="inline-flex items-center px-3 py-1 {% if current_mandate %}bg-success-500{% else %}bg-gray-400{% endif %} text-white rounded-full text-xs font-semibold">
-                                    {% if current_mandate %}<i class="fa fa-check mr-1"></i>{{ _("Enabled") }}{% else %}{{ _("Disabled") }}{% endif %}
+                                    {% if current_mandate %}<i class="fa fa-check mr-1"></i>{{ _("Enabled") }}{% elif mandate_ambiguous %}{{ _("Needs attention") }}{% else %}{{ _("Disabled") }}{% endif %}
                                 </span>
                             </div>
 
@@ -591,6 +604,11 @@
                                 <i class="fa fa-info-circle mr-1"></i>
                                 {{ _("Automatic collection enabled for membership fees") }}
                             </p>
+                            {% elif mandate_ambiguous %}
+                            <div class="bg-white rounded-lg border border-warning-300 p-6 text-center">
+                                <i class="fa fa-exclamation-triangle text-warning-500 text-3xl mb-3"></i>
+                                <p class="text-gray-700 font-medium mb-3">{{ _("We found more than one active direct debit authorization for your membership fees. Please contact the office so they can sort this out; no new setup is needed.") }}</p>
+                            </div>
                             {% else %}
                             <div class="bg-white rounded-lg border border-gray-200 p-6 text-center">
                                 <i class="fa fa-university text-gray-400 text-3xl mb-3"></i>

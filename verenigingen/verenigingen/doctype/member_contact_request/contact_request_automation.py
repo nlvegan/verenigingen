@@ -5,7 +5,7 @@ Handles automated workflows for member contact requests and CRM integration
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, escape_html, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -58,8 +58,8 @@ def send_follow_up_reminders():
                 <h3>Contact Request Follow-up Reminder</h3>
                 <p>This is a reminder that the following contact request needs follow-up:</p>
 
-                <p><strong>Request:</strong> {request.subject}</p>
-                <p><strong>Member:</strong> {request.member_name}</p>
+                <p><strong>Request:</strong> {escape_html(request.subject)}</p>
+                <p><strong>Member:</strong> {escape_html(request.member_name)}</p>
                 <p><strong>Urgency:</strong> {request.urgency}</p>
                 <p><strong>Follow-up Date:</strong> {request.follow_up_date}</p>
 
@@ -140,8 +140,8 @@ def escalate_contact_request(request, overdue_days):
         <h3 style="color: #dc3545;">Contact Request Escalation</h3>
         <p>The following contact request is overdue and requires immediate attention:</p>
 
-        <p><strong>Request:</strong> {request.subject}</p>
-        <p><strong>Member:</strong> {request.member_name}</p>
+        <p><strong>Request:</strong> {escape_html(request.subject)}</p>
+        <p><strong>Member:</strong> {escape_html(request.member_name)}</p>
         <p><strong>Urgency:</strong> {request.urgency}</p>
         <p><strong>Submitted:</strong> {request.request_date}</p>
         <p><strong>Days Overdue:</strong> {overdue_days}</p>
@@ -236,9 +236,9 @@ def auto_close_resolved_requests():
                 subject = f"Contact Request Closed: {request.subject}"
                 message = f"""
                 <h3>Contact Request Closed</h3>
-                <p>Dear {request.member_name},</p>
+                <p>Dear {escape_html(request.member_name)},</p>
 
-                <p>Your contact request "{request.subject}" has been marked as closed.</p>
+                <p>Your contact request "{escape_html(request.subject)}" has been marked as closed.</p>
 
                 <p>If you need further assistance with this matter, please feel free to submit a new contact request through the member portal.</p>
 

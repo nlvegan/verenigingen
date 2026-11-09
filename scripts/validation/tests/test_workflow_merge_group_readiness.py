@@ -241,5 +241,75 @@ class TestQueueWorkflowsAreReady(unittest.TestCase):
         )
 
 
+
+def _on_block(text: str) -> list[str]:
+    """The lines of the top-level `on:` block (comments dropped)."""
+    lines = text.splitlines()
+    start = lines.index("on:")
+    block = []
+    for line in lines[start + 1 :]:
+        if re.match(r"^\S", line):
+            break
+        if line.strip() and not line.lstrip().startswith("#"):
+            block.append(line)
+    return block
+
+
+def _job_field(text: str, job: str, field: str) -> str:
+    """A scalar field (`if`, `name`, `needs`, ...) of a top-level job, or "" if absent."""
+    lines = text.splitlines()
+    i = lines.index(f"  {job}:")
+    for line in lines[i + 1 :]:
+        if re.match(r"^  \S", line):
+            break
+        m = re.match(rf"^    {re.escape(field)}:\s*(.*)$", line)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _job_if(text: str, job: str) -> str:
+    """The `if:` expression of a top-level job, or "" if it has none."""
+    return _job_field(text, job, "if")
+
+
+class TestServerTestsRunsTheSuiteOnlyInTheQueue(unittest.TestCase):
+    """#2184's flip: the 12-shard suite (~300 job-min) runs once per queue batch, not per push.
+
+    Safe only while develop's merge queue requires `Test Summary` (set 2026-11-07): the PR
+    must still REPORT it, the queue must run the suite, and nothing may skip the workflow.
+    """
+
+    def setUp(self):
+        self.text = (_WORKFLOWS / "server-tests.yml").read_text()
+
+    def test_no_trigger_carries_a_path_filter(self):
+        # A path-skipped workflow reports nothing, and Test Summary is required on the PR.
+        self.assertEqual([l for l in _on_block(self.text) if re.match(r"^\s+paths(-ignore)?:", l)], [])
+
+    def test_it_still_triggers_on_pull_request_and_merge_group(self):
+        triggers = {l.strip().rstrip(":") for l in _on_block(self.text) if re.match(r"^  \S", l)}
+        self.assertLessEqual({"pull_request", "merge_group"}, triggers)
+
+    def test_a_develop_push_does_not_rerun_the_suite(self):
+        # The queue already ran it on the exact tree that lands.
+        triggers = {l.strip().rstrip(":") for l in _on_block(self.text) if re.match(r"^  \S", l)}
+        self.assertNotIn("push", triggers)
+
+    def test_the_suite_job_skips_pull_request_and_runs_otherwise(self):
+        self.assertEqual(_job_if(self.text, "tests"), "github.event_name != 'pull_request'")
+
+    def test_the_summary_still_reports_when_the_suite_is_skipped(self):
+        self.assertEqual(_job_if(self.text, "summary"), "always()")
+
+    def test_the_required_check_keeps_its_exact_name(self):
+        # Ruleset "Merge gates for default branch" requires the context "Test Summary": a renamed
+        # job never reports it, so every PR and every queue entry would wait until timeout.
+        self.assertEqual(_job_field(self.text, "summary", "name"), "Test Summary")
+
+    def test_the_summary_reads_the_suite_result(self):
+        # Without `needs: tests`, needs.tests.result is empty and the gate no longer reflects shards.
+        self.assertEqual(_job_field(self.text, "summary", "needs"), "tests")
+
 if __name__ == "__main__":
     unittest.main()

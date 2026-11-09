@@ -48,6 +48,14 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
 )
 
 
+class PontoCreateError(frappe.ValidationError):
+    """Raised after create_ponto_payment_request has written its own Error Log row (#2182).
+
+    A subclass, so every existing `except frappe.ValidationError` caller still works. Callers
+    that would otherwise log the failure again can skip exactly this one.
+    """
+
+
 class PontoPaymentLink(Document):
     """Controller for Ponto Payment Link DocType."""
 
@@ -262,6 +270,7 @@ class PontoPaymentLink(Document):
             frappe.throw(
                 _("Failed to create payment link in Ponto: {0}").format(str(e)),
                 title=_("Ponto API Error"),
+                exc=PontoCreateError,
             )
 
     def cancel_ponto_request(self):

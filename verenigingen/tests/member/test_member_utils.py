@@ -19,6 +19,7 @@ Key Features Tested:
 - Field existence validation against DocType schemas
 """
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
     get_active_membership_for_current_user,
     # Membership functions
@@ -122,6 +124,10 @@ class TestMemberUtils(EnhancedTestCase):
                 last_name="Member",
                 roles=["Verenigingen Member"],
             )
+        # The current-user lookups resolve by Member.user ONLY (#1936): sharing
+        # an email with the User is no longer an identity. Link explicitly.
+        frappe.db.set_value("Member", self.member.name, "user", self.test_users["member_user"])
+        self.member.reload()
 
     def _ensure_membership_type(self, membership_type_name=None):
         """Create an active membership type via the factory and return it.
@@ -227,6 +233,19 @@ class TestMemberUtils(EnhancedTestCase):
 
         member_name = get_current_user_member_name()
         self.assertEqual(member_name, self.member.name)
+
+    @patch("frappe.session")
+    def test_get_current_user_member_name_ignores_email_only_match(self, mock_session):
+        """#1936 control: a Member whose email equals the caller's but whose
+        Member.user is NOT the caller is not the caller's identity. Fails if
+        the email fallback ever returns."""
+        frappe.db.set_value("Member", self.member.name, "user", None, update_modified=False)
+        self.assertEqual(
+            frappe.db.get_value("Member", self.member.name, "email"), self.test_users["member_user"]
+        )
+        mock_session.user = self.test_users["member_user"]
+
+        self.assertIsNone(get_current_user_member_name())
 
     @patch("frappe.session")
     def test_get_current_user_member_name_not_found(self, mock_session):
@@ -553,10 +572,18 @@ class TestMemberUtils(EnhancedTestCase):
         )
 
         def _call(member_id):
+            # Compare every channel, not just the exception: type, message,
+            # message_log (frappe.throw appends before raising) and Error Log.
+            frappe.local.message_log = []  # Mock justified: execution-context reset (trim before call)
+            errors_before = frappe.db.count("Error Log")
             try:
                 validate_member_ownership(member_id)
             except Exception as e:
-                return type(e), str(e)
+                logged = [
+                    (json.loads(m) if isinstance(m, str) else m).get("message")
+                    for m in frappe.local.message_log
+                ]
+                return type(e), str(e), logged, frappe.db.count("Error Log") - errors_before
             self.fail(f"validate_member_ownership({member_id!r}) did not raise")
 
         with patch("frappe.session") as mock_session:
@@ -572,6 +599,12 @@ class TestMemberUtils(EnhancedTestCase):
         # (e.g. both silently swallowed) while still passing the equality
         # check above.
         self.assertEqual(foreign_result[0], frappe.PermissionError)
+        # Control: the message_log channel was actually populated (an empty pair
+        # would make the equality above vacuous for that channel).
+        self.assertTrue(foreign_result[2])
+        # The caller is the linked Member's own user, with no blanket Member
+        # access: only the member-role user, not an admin role.
+        self.assertFalse(set(frappe.get_roles(self.test_users["member_user"])) & Roles.ADMIN_ROLES)
 
     def test_validate_member_ownership_no_current_member(self):
         """Test member ownership validation when current user has no member record"""
