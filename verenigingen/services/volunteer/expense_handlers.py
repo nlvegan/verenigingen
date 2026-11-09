@@ -274,6 +274,8 @@ def _get_expense_description(doc):
 
 def _build_expense_approval_message(context):
     """Build HTML message for expense approval notification."""
+    # employee_name and the claim item descriptions are typed by the claimant: escape them.
+    escape = frappe.utils.escape_html
     return f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -288,11 +290,11 @@ def _build_expense_approval_message(context):
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Expense ID:")}</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{context['expense_id']}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{escape(context['expense_id'])}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Submitted By:")}</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{context['employee_name']}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{escape(context['employee_name'])}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Amount:")}</strong></td>
@@ -304,7 +306,7 @@ def _build_expense_approval_message(context):
                     </tr>
                     <tr>
                         <td style="padding: 8px 0;"><strong>{_("Description:")}</strong></td>
-                        <td style="padding: 8px 0;">{context['description']}</td>
+                        <td style="padding: 8px 0;">{escape(context['description'])}</td>
                     </tr>
                 </table>
             </div>
