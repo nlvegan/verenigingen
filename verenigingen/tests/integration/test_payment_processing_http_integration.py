@@ -25,6 +25,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 # Read by the PR-side "Run selected test modules" step (#2364): these tests send real
 # HTTP to a live web server, and a CI runner has none, so every test skips there.
+# A test added to this module therefore never runs in CI: put logic tests elsewhere.
 CI_ALWAYS_SKIPS = "needs a live web server at get_url(), which a CI runner does not have"
 
 

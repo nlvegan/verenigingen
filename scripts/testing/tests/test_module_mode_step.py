@@ -29,14 +29,17 @@ def step_script() -> str:
 
 
 class ModuleStep(unittest.TestCase):
-    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD, module_source: str = None):
+    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD, module_source=None, sources=None):
+        sources = dict(sources or {})
+        if module_source is not None:
+            sources[MOD] = module_source
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             (ws / "env" / "bin").mkdir(parents=True)
-            if module_source is not None:
-                src = ws / "apps" / "verenigingen" / (MOD.replace(".", "/") + ".py")
-                src.parent.mkdir(parents=True)
-                src.write_text(module_source)
+            for module, text in sources.items():
+                src = ws / "apps" / "verenigingen" / (module.replace(".", "/") + ".py")
+                src.parent.mkdir(parents=True, exist_ok=True)
+                src.write_text(text)
             fake = ws / "fakebin"
             fake.mkdir()
             (fake / "bench").write_text(f"#!/bin/bash\ncat <<'EOT'\n{bench_output}\nEOT\nexit {bench_rc}\n")
@@ -94,6 +97,26 @@ class ModuleStep(unittest.TestCase):
             module_source='# CI_ALWAYS_SKIPS = "not really"\nimport unittest\n',
         )
         self.assertEqual(rc, 1, out)
+
+    def test_a_whitespace_only_reason_does_not_count(self):
+        rc, out = self.run_step(
+            "Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source='CI_ALWAYS_SKIPS = "  "\n'
+        )
+        self.assertEqual(rc, 1, out)
+
+    def test_each_module_is_judged_by_its_own_marker(self):
+        # Review of #2366: with one module per test, an implementation that read the FIRST
+        # module's file for every module survived. Marked first, unmarked second.
+        other = "verenigingen.tests.test_fake_unmarked"
+        rc, out = self.run_step(
+            "Ran 2 tests in 0.1s\n\nOK (skipped=2)",
+            modules=f"{MOD} {other}",
+            sources={MOD: self.MARKED, other: "import unittest\n"},
+        )
+        self.assertEqual(rc, 1, out)
+        self.assertIn(f"::warning::{MOD} ", out)
+        self.assertIn(f"::error::{other} checked nothing", out)
+        self.assertNotIn(f"::error::{MOD} ", out)
 
     def test_the_marker_does_not_rescue_a_module_that_collected_nothing(self):
         rc, out = self.run_step("Ran 0 tests in 0.0s\n\nOK", module_source=self.MARKED)

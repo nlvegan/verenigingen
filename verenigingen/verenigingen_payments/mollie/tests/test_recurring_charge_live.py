@@ -62,6 +62,7 @@ from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
 
 # Read by the PR-side "Run selected test modules" step (#2364): CI has no gateway
 # credentials by design, so every test here skips there.
+# A test added to this module therefore never runs in CI: put logic tests elsewhere.
 CI_ALWAYS_SKIPS = "needs Mollie test credentials, which CI deliberately lacks"
 
 # Mollie-accepted test IBAN that yields an immediately-valid SEPA mandate.

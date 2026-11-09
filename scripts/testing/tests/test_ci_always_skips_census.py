@@ -9,6 +9,7 @@ never a quiet way to get a PR green.
 Stdlib only.
 """
 
+import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -16,9 +17,6 @@ from pathlib import Path
 APP = Path(__file__).resolve().parents[3]
 PKG = APP / "verenigingen"
 
-# The exact pattern the workflow step reads. A marker it would NOT read is an error too:
-# it would look declared and still fail every PR that selects the module.
-GATE_READS = re.compile(r"""^CI_ALWAYS_SKIPS = ["'][^"']+["']""", re.M)
 ANY_MARKER = re.compile(r"^\s*CI_ALWAYS_SKIPS\b", re.M)
 
 EXPECTED = {
@@ -36,8 +34,26 @@ def marked_modules():
         text = path.read_text(encoding="utf-8", errors="replace")
         if ANY_MARKER.search(text):
             module = ".".join(path.relative_to(APP).with_suffix("").parts)
-            found[module] = bool(GATE_READS.search(text))
+            found[module] = text
     return found
+
+
+def _step_module():
+    """The step tests' module, loaded by path so this works under `discover -s` and `-m`.
+    Kept as a module object, never a top-level TestCase name, so it is not collected twice."""
+    path = Path(__file__).with_name("test_module_mode_step.py")
+    spec = importlib.util.spec_from_file_location("_module_mode_step_for_census", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def gate_accepts(source: str) -> bool:
+    """Run the REAL workflow step on an all-skipped module with this source. Asking the
+    gate itself (not a copy of its pattern) is what keeps this census from drifting from it."""
+    runner = _step_module().ModuleStep("test_ok_module_is_green")
+    rc, out = runner.run_step("Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source=source)
+    return rc == 0 and "::warning::" in out
 
 
 class CiAlwaysSkipsCensus(unittest.TestCase):
@@ -45,7 +61,8 @@ class CiAlwaysSkipsCensus(unittest.TestCase):
         self.assertEqual(set(marked_modules()), EXPECTED)
 
     def test_every_marker_is_one_the_gate_actually_reads(self):
-        unread = sorted(m for m, read in marked_modules().items() if not read)
+        # A marker the gate does not read looks declared and still fails every PR that selects it.
+        unread = sorted(m for m, src in marked_modules().items() if not gate_accepts(src))
         self.assertEqual(unread, [], "write it as a top-level CI_ALWAYS_SKIPS = \"<reason>\"")
 
 

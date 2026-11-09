@@ -279,7 +279,7 @@ jobs:
               # an all-SKIPPED run qualifies: a module that collected nothing is still red.
               # The set of marked modules is pinned by test_ci_always_skips_census.py.
               src="${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/${m//.//}.py"
-              reason=$(grep -m1 -E "^CI_ALWAYS_SKIPS = [\"'][^\"']+[\"']" "$src" 2>/dev/null | sed -E "s/^CI_ALWAYS_SKIPS = [\"']([^\"']+)[\"'].*/\1/" || true)
+              reason=$(grep -m1 -E "^CI_ALWAYS_SKIPS = [\"'][^\"'[:space:]][^\"']*[\"']" "$src" 2>/dev/null | sed -E "s/^CI_ALWAYS_SKIPS = [\"']([^\"']+)[\"'].*/\1/" || true)
               if [ "$ran" -gt 0 ] && [ -n "$reason" ]; then
                 echo "::warning::$m checked nothing in CI (ran $ran, $skipped skipped), as it declares: $reason"
               else
