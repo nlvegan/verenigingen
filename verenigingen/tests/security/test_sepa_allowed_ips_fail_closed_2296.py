@@ -91,8 +91,8 @@ class TestSepaAllowedIpsFailClosed(VereningingenTestCase):
             self.assertTrue(self._allowed(manager))
 
     def test_manager_built_during_failure_recovers_when_the_read_works_again(self):
-        self.expectErrorLog("SEPA allowed IPs could not be read")
         """__init__ must not freeze 'no allowlist' (the manager is a process-wide singleton)."""
+        self.expectErrorLog("SEPA allowed IPs could not be read")
         with self._settings_read(raises=frappe.db.OperationalError(2013, "Lost connection")):
             manager = SEPAAuthorizationManager()
         with self._settings_read(value=ALLOWED_IP):
@@ -112,3 +112,16 @@ class TestSepaAllowedIpsFailClosed(VereningingenTestCase):
             manager = SEPAAuthorizationManager()
         self.assertCountEqual(manager.allowed_ips, ["192.0.2.1", ALLOWED_IP])
         self.assertEqual(frappe.conf["sepa_allowed_ips"], ["192.0.2.1"])
+
+    def test_string_site_config_is_split_and_merged_with_settings(self):
+        """A comma-separated string in site config used to hit str.extend (AttributeError),
+        be swallowed to [] and switch the allowlist OFF."""
+        listed, second, settings_ip = "192.0.2.1", "192.0.2.2", ALLOWED_IP
+        frappe.conf["sepa_allowed_ips"] = f"{listed}, {second}"  # tearDown restores frappe.conf
+        with self._settings_read(value=settings_ip):
+            manager = SEPAAuthorizationManager()
+        self.assertCountEqual(manager.allowed_ips, [listed, second, settings_ip])
+        self._http_from(listed)
+        self.assertTrue(self._allowed(manager))
+        self._http_from(OTHER_IP)
+        self.assertFalse(self._allowed(manager))
