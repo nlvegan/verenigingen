@@ -285,6 +285,43 @@ class TestSetupWorkspace(FrappeTestCase):
             "setup_workspace must never leave the site without the workspace",
         )
 
+    def test_setup_workspace_creates_the_custom_block_a_fresh_install_lacks(self):
+        # #2150: `install-app` runs after_install BEFORE the fixtures sync, so on a fresh
+        # install the Custom HTML Block the shipped workspace names does not exist yet and
+        # workspace.save() raised "Could not find Row #1: Custom Block Name: Page Links".
+        # Reproduce that state by deleting the block (the Workspace row stays), then run the step.
+        block_names = frappe.get_all(
+            "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+        )
+        self.assertTrue(block_names, "the shipped workspace must reference a Custom HTML Block")
+        for name in block_names:
+            frappe.db.delete("Custom HTML Block", {"name": name})
+            self.assertFalse(frappe.db.exists("Custom HTML Block", name), "precondition: block removed")
+        self.addCleanup(setup_mod.ensure_workspace_custom_blocks)
+
+        # A workspace link to be added only by update_workspace_links proves the later
+        # steps, which the failing save used to skip, completed.
+        label = "Termination & Appeals"
+        frappe.db.delete("Workspace Link", {"parent": "Verenigingen", "label": label})
+
+        setup_mod.setup_workspace()
+
+        for name in block_names:
+            self.assertTrue(frappe.db.exists("Custom HTML Block", name), f"{name} was not created")
+        self.assertTrue(
+            frappe.db.exists("Workspace Link", {"parent": "Verenigingen", "label": label}),
+            "update_workspace_links did not complete",
+        )
+
+    def test_ensure_workspace_custom_blocks_leaves_an_existing_block_alone(self):
+        name = frappe.get_all(
+            "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+        )[0]
+        setup_mod.ensure_workspace_custom_blocks()  # make sure it exists
+        frappe.db.set_value("Custom HTML Block", name, "html", "<p>edited</p>")
+        setup_mod.ensure_workspace_custom_blocks()
+        self.assertEqual(frappe.db.get_value("Custom HTML Block", name, "html"), "<p>edited</p>")
+
     def test_cleanup_removes_only_links_to_missing_doctypes(self):
         # After cleanup, no remaining DocType-type link may point at a
         # non-existent DocType.
