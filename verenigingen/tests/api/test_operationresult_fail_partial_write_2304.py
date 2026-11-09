@@ -31,7 +31,9 @@ import textwrap
 import frappe
 from frappe.utils import get_bench_path
 
+from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 _PROBE = textwrap.dedent(
     """
@@ -261,3 +263,112 @@ class TestOperationResultFailPartialWrite2304(EnhancedTestCase):
         self.assertIs(control["success"], True, control)
         self.assertEqual(control["comments"], 1, control)
         self.assertEqual(control["consent"], 0, control)
+
+
+class TestRollbackIsScopedAndDeadlockPropagates2304(VereningingenTestCase):
+    """In-process pins for the two parts of the fix that the WSGI test above cannot see (the
+    shape of 87bdfb4ba for #2281).
+
+    * Earlier work survives: a full ``frappe.db.rollback()`` passes the WSGI test too (it removes
+      the half-write just as well) but discards everything the request wrote before the call.
+    * A deadlock (1213) has already destroyed the transaction and its savepoints, so the endpoint
+      must re-raise it, not answer ``OperationResult.fail`` or ROLLBACK TO a dead savepoint.
+      A single test transaction cannot produce a real deadlock, so it is injected at the write."""
+
+    def _admin_user(self):
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        user = self.create_test_user(
+            f"half2304-{frappe.generate_hash(length=6)}0@example.com", roles=["Employee"]
+        ).name
+        assign_role_profile_to_user(user, "Verenigingen Administrator")
+        return user
+
+    def _linked_donor(self):
+        # Donor->Customer sync is gated off in tests unless this flag is set (as in test_donor_customer_api).
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Half2304 {frappe.generate_hash(length=6)}"
+        donor.donor_type = "Individual"
+        donor.donor_email = f"h{frappe.generate_hash(length=6)}@example.com"
+        donor.flags.enable_customer_sync_in_test = True
+        donor.save()
+        donor.reload()
+        self.track_doc("Donor", donor.name)
+        customer = donor.customer
+        if customer:
+            self.track_doc("Customer", customer)
+        self.assertTrue(customer, "Donor.insert is expected to create and link a Customer")
+        frappe.db.set_value("Customer", customer, "donor", donor.name)
+        return donor, customer
+
+    def _marker(self):
+        marker = frappe.get_doc(
+            {"doctype": "ToDo", "description": f"earlier-work-2304-{frappe.generate_hash(length=6)}"}
+        ).insert()
+        self.track_doc("ToDo", marker.name)
+        return marker.name
+
+    def test_unlink_refusal_keeps_earlier_work_and_undoes_its_own(self):
+        from verenigingen.api.donor_customer_management import unlink_donor_customer
+
+        user = self._admin_user()
+        donor, customer = self._linked_donor()
+        marker = self._marker()
+        with self.set_user(user):
+            self.assertFalse(frappe.has_permission("Customer", "delete"))
+            self.expectErrorLog("Donor Customer Unlink Error")
+            result = unlink_donor_customer(donor_name=donor.name, remove_customer=1)
+        self.assertIs(result["success"], False, result)
+        self.assertTrue(frappe.db.exists("ToDo", marker), "refusal discarded earlier work")
+        self.assertEqual(frappe.db.get_value("Donor", donor.name, "customer"), customer)
+
+    def test_unlink_deadlock_propagates(self):
+        from unittest import mock
+
+        from verenigingen.api import donor_customer_management as ops
+
+        donor, _customer = self._linked_donor()
+        # Mock justified: injects the DB-level deadlock a single test transaction cannot produce.
+        with mock.patch.object(
+            frappe.model.document.Document, "delete", side_effect=frappe.QueryDeadlockError("1213")
+        ), mock.patch.object(ops, "rollback_to_savepoint", wraps=ops.rollback_to_savepoint) as rollback:
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ops.unlink_donor_customer(donor_name=donor.name, remove_customer=1)
+        rollback.assert_not_called()
+
+    def test_consent_refusal_keeps_earlier_work_and_undoes_its_own(self):
+        from verenigingen.api.anbi_operations import update_anbi_consent
+
+        user = self._admin_user()
+        donor = self.create_test_donor(anbi_consent=1, bsn_citizen_service_number=generate_valid_bsn())
+        # Hand-set legacy state: Donor.validate rejects this address on every real insert/save.
+        frappe.db.set_value("Donor", donor.name, "donor_email", "not-an-email")
+        marker = self._marker()
+        with self.set_user(user):
+            self.expectErrorLog("ANBI Consent Update Error")
+            result = update_anbi_consent(donor=donor.name, consent="0", reason="2304 earlier-work pin")
+        self.assertIs(result["success"], False, result)
+        self.assertTrue(frappe.db.exists("ToDo", marker), "refusal discarded earlier work")
+        self.assertEqual(frappe.db.get_value("Donor", donor.name, "anbi_consent"), 1)
+        self.assertEqual(
+            frappe.db.count(
+                "Comment",
+                {"reference_doctype": "Donor", "reference_name": donor.name, "content": ["like", "ANBI consent withdrawn%"]},
+            ),
+            0,
+        )
+
+    def test_consent_deadlock_propagates(self):
+        from unittest import mock
+
+        from verenigingen.api import anbi_operations as ops
+        from verenigingen.verenigingen.doctype.donor.donor import Donor
+
+        donor = self.create_test_donor(anbi_consent=1, bsn_citizen_service_number=generate_valid_bsn())
+        # Mock justified: injects the DB-level deadlock a single test transaction cannot produce.
+        with mock.patch.object(Donor, "save", side_effect=frappe.QueryDeadlockError("1213")), mock.patch.object(
+            ops, "rollback_to_savepoint", wraps=ops.rollback_to_savepoint
+        ) as rollback:
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ops.update_anbi_consent(donor=donor.name, consent="0", reason="x")
+        rollback.assert_not_called()
