@@ -309,7 +309,23 @@ class TestServerTestsRunsTheSuiteOnlyInTheQueue(unittest.TestCase):
 
     def test_the_summary_reads_the_suite_result(self):
         # Without `needs: tests`, needs.tests.result is empty and the gate no longer reflects shards.
-        self.assertEqual(_job_field(self.text, "summary", "needs"), "tests")
+        # The pre-queue census jobs are read too: a PR is green only when pr-tests succeeded.
+        needs = _job_field(self.text, "summary", "needs")
+        self.assertEqual(needs, "[tests, select-pr-modules, pr-tests]")
+
+    def test_the_census_jobs_run_on_pull_request_only(self):
+        # The queue and dispatch run the whole suite; a census job there would only spend runners.
+        self.assertEqual(_job_if(self.text, "select-pr-modules"), "github.event_name == 'pull_request'")
+        self.assertTrue(
+            (_job_if(self.text, "pr-tests") or "").startswith("github.event_name == 'pull_request'")
+        )
+
+    def test_an_empty_selection_cannot_fall_back_to_the_whole_suite(self):
+        # Empty `test-modules` means "run everything" in the reusable workflow (60 minutes).
+        self.assertIn("needs.select-pr-modules.outputs.modules != ''", _job_if(self.text, "pr-tests"))
+
+    def test_the_summary_refuses_a_pull_request_whose_census_did_not_succeed(self):
+        self.assertIn('[ "$pr_status" == "success" ]', self.text)
 
 if __name__ == "__main__":
     unittest.main()

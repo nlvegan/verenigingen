@@ -1,0 +1,44 @@
+# PR-side census: test modules that scan the WHOLE tree (AST, file globs, endpoint/registry
+# inventories) and so redden on a change in a file the PR never named. Run on every pull
+# request by server-tests.yml's `pr-tests` job (#2184 follow-up), read by
+# select_pr_test_modules.py. One dotted module per line; '#' starts a comment.
+#
+# Admission rule: the module reads the tree/registries (not just one module's behaviour)
+# and runs in well under a minute. Seconds are local, test_site_2, 2026-11-09, ONE
+# `bench run-tests --module` each including ~7s of process start-up. Total ~9.5 min.
+# A line that no longer resolves to a module with a test class FAILS the selector: delete
+# a census module's line in the same PR that deletes the module, never leave it dangling.
+#
+# Why these: #2293 deleted a guest endpoint and reddened the guest-endpoint floor in
+# test_public_api_guest_access; #2272 edited a test file and reddened the AST invariants in
+# test_fixture_isolation_invariants. Neither module was in the PR's own diff.
+
+verenigingen.tests.test_fixture_isolation_invariants          # 117s  AST invariants over test files (#2272)
+verenigingen.tests.integration.test_public_api_guest_access   # 22s   guest-endpoint scan + webhook floor (#2293)
+verenigingen.tests.test_notification_sender_keys_registered_1999  # 53s  every notify key a sender uses is registered
+verenigingen.tests.test_staff_alert_event_1979                # 45s   literal-key census of staff alert events
+verenigingen.tests.test_site_timezone_naive_now               # 35s   naive process-clock ratchet over the tree
+verenigingen.tests.utils.test_enqueue_bind_contracts          # 28s   frappe.enqueue call contracts
+verenigingen.tests.payment.test_mollie_integration_invariants # 27s   Mollie call-site invariants
+verenigingen.tests.test_doctype_name_ratchet                  # 22s   DocType-name ratchet
+verenigingen.tests.unit.test_operation_result_http_status_kwarg  # 22s  OperationResult kwarg census
+verenigingen.tests.test_log_error_context_is_a_mapping        # 19s   log_error context-argument shape
+verenigingen.tests.unit.test_handle_api_error_endpoints_non_resumable  # 18s
+verenigingen.tests.security.test_client_ip_sources            # 16s   client-IP source census
+verenigingen.tests.test_no_company_scan_by_currency           # 16s   no company lookup by currency
+verenigingen.tests.unit.test_savepoint_rollback_cannot_mask_the_error  # 16s
+verenigingen.tests.unit.test_setup_patches_have_cleanup       # 15s   setup patches have cleanup
+verenigingen.tests.test_donation_docstatus_filters            # 15s   Donation docstatus filter scan
+verenigingen.tests.security.test_api_security_framework_coverage  # 13s  API security decorator coverage
+verenigingen.tests.security.test_log_security_event_valid_types   # 12s  log_security_event type census
+verenigingen.tests.test_no_db_clock_modified_writes           # 11s
+verenigingen.tests.sepa.test_ponto_status_map_parity          # 11s   Ponto status map parity
+verenigingen.tests.test_all_imports                           # 9s    every module imports
+verenigingen.tests.backend.portal.test_shipped_api_calls_are_whitelisted  # 9s  JS->API whitelist census
+verenigingen.tests.test_js_form_on_registration_targets       # 8s
+verenigingen.tests.utils.test_barrel_init_no_self_import      # 4s
+verenigingen.tests.test_visible_help_text_has_no_developer_notes  # 3s
+verenigingen.tests.test_hooks_modules                         # 3s   hooks.py paths resolve
+verenigingen.tests.test_doctype_permission_rows               # 2s
+verenigingen.tests.test_check_new_test_failures               # 2s   committed failure baseline stays empty
+verenigingen.tests.services.test_fee_change_history_single_writer  # 2s

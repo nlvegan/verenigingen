@@ -35,6 +35,18 @@ on:
         description: 'Enable coverage collection'
         type: boolean
         default: false
+      test-modules:
+        description: >-
+          Space-separated dotted test modules. Empty (default): the whole suite via
+          run-parallel-tests, gated against the known-failure and known-leak baselines.
+          Non-empty (the PR-side census job): ONLY these modules, one `run-tests` each,
+          and the job fails on the first non-OK module. Use with parallel-runs 1.
+        type: string
+        default: ''
+      test-timeout-minutes:
+        description: 'Timeout of each test shard'
+        type: number
+        default: 60
 
 jobs:
   # Generate test indices for parallel execution
@@ -131,7 +143,7 @@ jobs:
     # mariadb:10.6 service container offers none ("SSL is required, but the server
     # does not support it"). Move back to ubuntu-latest only with client TLS handled (#1706).
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
 
     strategy:
       fail-fast: false
@@ -201,6 +213,7 @@ jobs:
           enable-coverage: ${{ inputs.enable-coverage }}
 
       - name: Run Tests
+        if: ${{ inputs.test-modules == '' }}
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
           # We do NOT fail the job on the suite's own exit code here; the next
@@ -219,7 +232,50 @@ jobs:
             ${{ inputs.enable-coverage && '--with-coverage' || '' }} \
             2>&1 | tee "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" || true
 
+      # Module mode (inputs.test-modules, the PR-side census job). Each module is its own
+      # `run-tests` process, judged on the WHOLE output: green = exit 0 plus a unittest `OK`
+      # line plus no `FAILED` line. The OK-line requirement matters: a module that collects
+      # nothing exits 0 having run nothing, and must not read as a pass. Names arrive through
+      # an env var and are re-validated here, so the list is never interpolated into the
+      # script text. All modules run even after a failure, so one PR run reports every red.
+      - name: Run selected test modules
+        if: ${{ inputs.test-modules != '' }}
+        env:
+          MODULES: ${{ inputs.test-modules }}
+        run: |
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          fail=0
+          count=0
+          for m in $MODULES; do
+            count=$((count + 1))
+            if ! [[ "$m" =~ ^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$ ]]; then
+              echo "::error::refusing module name that is not a dotted identifier"
+              fail=1
+              continue
+            fi
+            echo "::group::$m"
+            start=$(date +%s)
+            set +e
+            out=$(bench --site test_site run-tests --app ${{ github.event.repository.name }} --module "$m" 2>&1)
+            rc=$?
+            set -e
+            echo "$out"
+            echo "::endgroup::"
+            echo "$m: exit $rc in $(( $(date +%s) - start ))s"
+            if [ "$rc" -ne 0 ] || ! grep -qE '^OK( \(.*\))?$' <<<"$out" || grep -qE '^FAILED \(' <<<"$out"; then
+              echo "::error::$m is RED (exit $rc)"
+              fail=1
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::test-modules was set but held no module; refusing to pass having run nothing"
+            exit 1
+          fi
+          echo "ran $count module(s)"
+          exit $fail
+
       - name: Gate on new test failures
+        if: ${{ inputs.test-modules == '' }}
         run: |
           python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_new_test_failures.py" \
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
@@ -235,7 +291,7 @@ jobs:
         # regression arriving alongside a test failure would surface a whole CI cycle
         # later. The two gates answer different questions. `!cancelled()` rather than
         # `always()`, so a cancelled job does not run it and report a missing log.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && inputs.test-modules == '' }}
         run: |
           python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_test_leaks.py" \
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
