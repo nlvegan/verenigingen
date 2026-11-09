@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime, today
+from frappe.utils import add_days, add_to_date, cint, cstr, flt, get_datetime, now_datetime, today
 
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
@@ -525,50 +525,7 @@ def get_mollie_payment_metrics():
             metrics["frappe.mollie.settlements.amount_24h"] = -1
 
         # === Bank Transaction Processing Metrics ===
-        try:
-            # Count balance transactions processed in last 24 hours
-            yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-
-            balance_transactions_24h = frappe.db.count(
-                "Bank Transaction",
-                {"reference_number": ["like", "baltr_%"], "creation": [">=", yesterday_str]},
-            )
-
-            metrics["frappe.mollie.bank_transactions.count_24h"] = balance_transactions_24h
-
-            # Count unreconciled balance transactions
-            unreconciled = frappe.db.count(
-                "Bank Transaction", {"reference_number": ["like", "baltr_%"], "status": "Unreconciled"}
-            )
-
-            metrics["frappe.mollie.bank_transactions.unreconciled"] = unreconciled
-
-            # Reconciliation health check
-            if balance_transactions_24h > 0:
-                reconciliation_rate = (
-                    (balance_transactions_24h - unreconciled) / balance_transactions_24h
-                ) * 100
-                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = round(reconciliation_rate, 2)
-
-                if reconciliation_rate < 80:
-                    metrics["frappe.mollie.bank_transactions.health"] = 0  # 0 = problem
-                elif reconciliation_rate < 95:
-                    metrics["frappe.mollie.bank_transactions.health"] = 1  # 1 = attention
-                else:
-                    metrics["frappe.mollie.bank_transactions.health"] = 2  # 2 = healthy
-            else:
-                # No transactions in 24h - cannot determine health
-                metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = -1  # Unknown
-                metrics["frappe.mollie.bank_transactions.health"] = -1  # Unknown state
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error getting Mollie bank transaction metrics: {str(e)}",
-                "Zabbix Mollie Bank Transaction Error",
-            )
-            metrics["frappe.mollie.bank_transactions.count_24h"] = -1
-            metrics["frappe.mollie.bank_transactions.unreconciled"] = -1
-            metrics["frappe.mollie.bank_transactions.health"] = -1
+        metrics.update(get_mollie_bank_transaction_metrics())
 
         # === API Health Check ===
         # Use latency measured during balance fetch (no duplicate API call)
@@ -617,6 +574,63 @@ def get_mollie_payment_metrics():
         # Return safe defaults
         metrics["frappe.mollie.overall_health"] = -1
         metrics["frappe.mollie.api.status"] = -1
+
+    return metrics
+
+
+def get_mollie_bank_transaction_metrics():
+    """Count/health metrics for Mollie balance-transaction Bank Transactions (#2088).
+
+    Count, unreconciled and rate all cover the SAME trailing 24 hours (by ``creation``), and
+    unreconciled is a subset of the count, so the rate stays within 0-100. "Unreconciled"
+    follows the split the reconciliation summary uses (#2082): a submitted row's state is
+    ERPNext's ``status``; a draft's is the reconcile pool's own marker, because ERPNext keeps
+    every draft at "Pending".
+    """
+    from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
+
+    metrics = {}
+    try:
+        window = {
+            "reference_number": ["like", "baltr_%"],
+            "creation": [">=", add_to_date(now_datetime(), hours=-24)],
+        }
+
+        def count(extra):
+            return frappe.db.count("Bank Transaction", {**window, **extra})
+
+        balance_transactions_24h = count({})
+        unreconciled = count({"docstatus": 1, "status": "Unreconciled"}) + count(
+            {"docstatus": 0, bts.FIELD: bts.FAILED}
+        )
+
+        metrics["frappe.mollie.bank_transactions.count_24h"] = balance_transactions_24h
+        metrics["frappe.mollie.bank_transactions.unreconciled"] = unreconciled
+
+        # Reconciliation health check
+        if balance_transactions_24h > 0:
+            reconciliation_rate = ((balance_transactions_24h - unreconciled) / balance_transactions_24h) * 100
+            metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = round(reconciliation_rate, 2)
+
+            if reconciliation_rate < 80:
+                metrics["frappe.mollie.bank_transactions.health"] = 0  # 0 = problem
+            elif reconciliation_rate < 95:
+                metrics["frappe.mollie.bank_transactions.health"] = 1  # 1 = attention
+            else:
+                metrics["frappe.mollie.bank_transactions.health"] = 2  # 2 = healthy
+        else:
+            # No transactions in 24h - cannot determine health
+            metrics["frappe.mollie.bank_transactions.reconciliation_rate"] = -1  # Unknown
+            metrics["frappe.mollie.bank_transactions.health"] = -1  # Unknown state
+
+    except Exception as e:
+        frappe.log_error(
+            title="Zabbix Mollie Bank Transaction Error",
+            message=f"Error getting Mollie bank transaction metrics: {str(e)}",
+        )
+        metrics["frappe.mollie.bank_transactions.count_24h"] = -1
+        metrics["frappe.mollie.bank_transactions.unreconciled"] = -1
+        metrics["frappe.mollie.bank_transactions.health"] = -1
 
     return metrics
 
