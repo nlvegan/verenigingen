@@ -136,7 +136,7 @@ class TestPontoSettings(EnhancedTestCase):
         settings.bank_account_mappings = original_mappings
 
     def test_cleanup_duplicate_mappings(self):
-        """Should remove duplicate IBAN mappings."""
+        """Should remove duplicate mappings of the same Ponto account ID (#2125: not by IBAN)."""
         settings = frappe.get_single("Ponto Settings")
         # Save original and test with temporary data
         original_mappings = list(settings.bank_account_mappings or [])
@@ -148,7 +148,7 @@ class TestPontoSettings(EnhancedTestCase):
         )
         settings.append(
             "bank_account_mappings",
-            {"ponto_iban": "NL91ABNA0417164300", "enabled": 1, "ponto_account_id": "a2"},
+            {"ponto_iban": "NL91ABNA0417164300", "enabled": 1, "ponto_account_id": "a1"},
         )
         settings.append(
             "bank_account_mappings",
@@ -160,6 +160,20 @@ class TestPontoSettings(EnhancedTestCase):
         self.assertEqual(len(settings.bank_account_mappings), 2)
 
         # Restore
+        settings.bank_account_mappings = original_mappings
+
+    def test_cleanup_keeps_distinct_ids_that_share_an_iban(self):
+        """Control (#2125): IBAN is not identity. A different Ponto account with the same IBAN survives."""
+        settings = frappe.get_single("Ponto Settings")
+        original_mappings = list(settings.bank_account_mappings or [])
+        settings.bank_account_mappings = []
+        for account_id in ("s1", "s2"):
+            settings.append(
+                "bank_account_mappings",
+                {"ponto_iban": "NL91ABNA0417164300", "enabled": 1, "ponto_account_id": account_id},
+            )
+        self.assertEqual(settings.cleanup_duplicate_mappings(), 0)
+        self.assertEqual(len(settings.bank_account_mappings), 2)
         settings.bank_account_mappings = original_mappings
 
     def test_test_credentials_blocked_outside_test_mode(self):

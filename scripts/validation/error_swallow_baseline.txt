@@ -178,8 +178,6 @@ verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetric
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_active_alerts::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_audit_summary::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_recent_errors::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.get_active_mandates::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.has_active_mandate::1
 verenigingen/services/termination/termination_execution_service.py::TerminationExecutionService.execute::1
 verenigingen/services/termination/termination_integration.py::cancel_dues_schedule_safe::2
 verenigingen/services/termination/termination_integration.py::cancel_membership_safe::1
@@ -288,9 +286,7 @@ verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer._is_valid_docty
 verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer.get_link_field_options_cached::1
 verenigingen/utils/secure_operations.py::can_request_system_escalation::1
 verenigingen/utils/secure_operations.py::can_use_bypass_validations::1
-verenigingen/utils/secure_operations.py::validate_permissions::1
 verenigingen/utils/security/__init__.py::setup_all_security::1
-verenigingen/utils/security/api_security_framework.py::APISecurityFramework.validate_critical_operation_business_rules::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_api_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_sepa_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_api_audit_logs::1
@@ -381,7 +377,6 @@ verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialD
 verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_settlements_data::1
 verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::MollieSettings.get_subscription::1
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
-verenigingen/verenigingen_payments/doctype/ponto_settings/ponto_settings.py::PontoSettings._fix_bank_account_currency::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1

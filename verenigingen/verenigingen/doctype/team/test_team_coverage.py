@@ -30,11 +30,17 @@ events), and (b) declare the subscriber-noise titles via expectErrorLog() in
 setUp so the automatic tearDown check ignores only that known-benign noise.
 """
 
+import json
+from unittest.mock import patch
+
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.team import team as team_module
 from verenigingen.verenigingen.doctype.team.team import get_team_permission_query_conditions
+
+EMITTER_2181 = "verenigingen.verenigingen.doctype.team.team.emit_team_membership_changed"
 
 
 class TestTeamCoverage(EnhancedTestCase):
@@ -448,6 +454,218 @@ class TestTeamCoverage(EnhancedTestCase):
         vols = {m.volunteer for m in team.team_members}
         self.assertIn(new_vol.name, vols, "added member present")
         self.assertNotIn(member_vol.name, vols, "removed member gone")
+
+    # ------------------------------ #2181 membership event keys (form-shaped saves)
+
+    def _insert_team_2181(self, *vols_roles):
+        team = self._new_team()
+        for vol, role in vols_roles:
+            self._append_member(team, vol, team_role=role, role="Original")
+        team.insert()
+        self.track_doc("Team", team.name)
+        return team.name
+
+    def _desk_doc_2181(self, team_name):
+        """The doc a desk save builds: stored values round-tripped through JSON."""
+        stored = frappe.get_doc("Team", team_name)
+        return frappe.get_doc(json.loads(frappe.as_json(stored)))
+
+    def _captured_save_2181(self, doc):
+        calls = []
+        real = team_module.emit_team_membership_changed
+
+        def record(team_name, data):
+            calls.append(data)
+            return real(team_name, data)
+
+        with patch(EMITTER_2181, side_effect=record):
+            doc.save()
+        return calls
+
+    def test_desk_shaped_role_change_emits_one_role_changed(self):
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = self._desk_doc_2181(name)
+        self.assertIsInstance(doc.team_members[0].from_date, str, "premise: desk dates are strings")
+        self.assertNotIsInstance(
+            frappe.get_doc("Team", name).team_members[0].from_date, str, "premise: stored is a date"
+        )
+        doc.team_members[0].team_role = "Team Leader"
+
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["role_changed"], events)
+        self.assertEqual(events[0]["old_role"], "Team Member")
+        self.assertEqual(events[0]["role"], "Team Leader")
+
+    def test_in_memory_date_role_change_still_emits_one_role_changed(self):
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = frappe.get_doc("Team", name)
+        doc.team_members[0].team_role = "Team Leader"
+
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["role_changed"], events)
+
+    def test_two_rows_of_one_volunteer_with_different_dates_stay_distinct(self):
+        """Control: normalising the key must not merge distinct rows. Removing the older
+        row while the newer stays is a ``removed``, not a role change of the other."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="A", from_date=add_days(today(), -5))
+        self._append_member(team, vol, team_role="Team Leader", role="B", from_date=today())
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        doc.team_members = [m for m in doc.team_members if m.team_role == "Team Leader"]
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["removed"], events)
+        self.assertEqual(events[0]["old_role"], "Team Member")
+
+    def test_new_row_for_same_volunteer_with_other_date_is_added(self):
+        """Control: an extra row (new from_date) for a volunteer already on the team is an
+        ``added``; the existing row is untouched."""
+        _, vol = self._make_volunteer()
+        name = self._insert_team_2181((vol, "Team Member"))
+        doc = self._desk_doc_2181(name)
+        doc.append(
+            "team_members",
+            {
+                "volunteer": vol.name,
+                "volunteer_name": vol.volunteer_name,
+                "team_role": "Team Leader",
+                "role_type": "Team Leader",
+                "role": "New",
+                "from_date": str(add_days(today(), 1)),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        events = self._captured_save_2181(doc)
+
+        self.assertEqual([e["action"] for e in events], ["added"], events)
+
+    def _savedocs_and_run_history_job_2181(self, doc):
+        """Real desk save of ``doc``; runs the queued history subscriber job(s) as a worker
+        would and returns every queued subscriber job."""
+        from frappe.desk.form.save import savedocs
+
+        payload = frappe.as_json(doc)
+        jobs = []
+        real_enqueue = frappe.enqueue
+
+        def record(*args, **kwargs):
+            if str(kwargs.get("method", "")).startswith("verenigingen.events.subscribers."):
+                jobs.append(kwargs)
+            # Mock justified: CI has no RQ workers; jobs are run below with the worker's kwargs.
+
+        frappe.enqueue = record
+        try:
+            savedocs(payload, "Save")
+        finally:
+            frappe.enqueue = real_enqueue
+        for job in jobs:
+            if job["method"].endswith("handle_assignment_history_updates"):
+                frappe.call(
+                    job["method"],
+                    **{k: v for k, v in job.items() if k in ("event_name", "event_data", "is_bulk_import")},
+                )
+        return jobs
+
+    def _savedocs_role_change_2181(self, from_date):
+        """Real desk save (frappe.desk.form.save.savedocs) of a role change on a row that
+        started ``from_date``; returns (volunteer, team name, queued subscriber jobs)."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Original", from_date=from_date)
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        doc.team_members[0].team_role = "Team Leader"
+        jobs = self._savedocs_and_run_history_job_2181(doc)
+        return vol, team.name, jobs
+
+    def test_desk_role_change_keeps_history_for_a_row_started_before_today(self):
+        """The new role's history row must exist (Active, starting on the change date) and
+        the old role's must be Completed, whatever the row's own from_date."""
+        started = add_days(today(), -30)
+        vol, team_name, jobs = self._savedocs_role_change_2181(started)
+
+        actions = [j["event_data"]["action"] for j in jobs if j["method"].endswith("history_updates")]
+        self.assertEqual(actions, ["role_changed"], actions)
+        completed = self._completed_history(vol.name, team_name)
+        active = self._active_history(vol.name, team_name)
+        self.assertEqual(len(completed), 1, completed)
+        self.assertEqual(len(active), 1, "the new role must have an Active history row")
+        self.assertIn("Team Leader", active[0].role)
+        self.assertEqual(str(active[0].start_date), str(today()), "new role starts on the change date")
+        self.assertEqual(str(completed[0].start_date), str(started))
+        self.assertEqual(str(completed[0].end_date), str(today()))
+
+    def test_desk_role_change_does_not_borrow_another_row_with_the_same_role(self):
+        """Two active rows of one volunteer; RowB changes Team Leader -> Team Member while RowA
+        already holds Team Member. The new history must describe RowB (not RowA, which would be
+        skipped as a duplicate of RowA's Active entry) and RowA's entry must stay."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="RowA", from_date=add_days(today(), -10))
+        self._append_member(team, vol, team_role="Team Leader", role="RowB", from_date=add_days(today(), -5))
+        team.insert()
+        self.track_doc("Team", team.name)
+
+        doc = self._desk_doc_2181(team.name)
+        row_b = [m for m in doc.team_members if m.role == "RowB"][0]
+        row_b.team_role = "Team Member"
+        jobs = self._savedocs_and_run_history_job_2181(doc)
+
+        actions = [j["event_data"]["action"] for j in jobs if j["method"].endswith("history_updates")]
+        self.assertEqual(actions, ["role_changed"], actions)
+        active = [h.role for h in self._active_history(vol.name, team.name)]
+        self.assertEqual(len([r for r in active if r.endswith("RowA")]), 1, active)
+        self.assertEqual(len([r for r in active if r.endswith("RowB")]), 1, active)
+        self.assertTrue(any(r.startswith("Team Member") and r.endswith("RowB") for r in active), active)
+        completed = [h.role for h in self._completed_history(vol.name, team.name)]
+        self.assertTrue(any(r.startswith("Team Leader") and r.endswith("RowB") for r in completed), completed)
+
+    def test_new_history_describes_the_row_that_started_that_day_among_same_role_rows(self):
+        """Control for the history lookup: two rows of one volunteer with the SAME role and
+        different dates. History starting on the newer row's date describes the newer row."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Older", from_date=add_days(today(), -5))
+        self._append_member(team, vol, team_role="Team Member", role="Newer", from_date=today())
+        team.insert()
+        self.track_doc("Team", team.name)
+        team.reload()
+        # insert already wrote one Active entry per row; clear them to observe a single call.
+        frappe.db.delete("Volunteer Assignment", {"parent": vol.name, "reference_name": team.name})
+
+        team.add_team_assignment_history(vol.name, "Team Member", str(today()))
+
+        active = self._active_history(vol.name, team.name)
+        self.assertEqual(len(active), 1, active)
+        self.assertIn("Newer", active[0].role)
+
+    def test_new_history_is_not_written_for_a_role_the_volunteer_does_not_hold(self):
+        """Control: with no active row holding the role and none starting that day, nothing is
+        written (the lookup must not pick an arbitrary row of the volunteer)."""
+        _, vol = self._make_volunteer()
+        team = self._new_team()
+        self._append_member(team, vol, team_role="Team Member", role="Old", from_date=add_days(today(), -5))
+        team.insert()
+        self.track_doc("Team", team.name)
+        name = team.name
+        team = frappe.get_doc("Team", name)
+        frappe.db.delete("Volunteer Assignment", {"parent": vol.name, "reference_name": name})
+
+        wrote = team.add_team_assignment_history(vol.name, "Team Leader", str(today()))
+
+        self.assertFalse(wrote)
+        self.assertEqual(self._active_history(vol.name, name), [])
 
     # --------------------------------- get_team_permission_query_conditions
 

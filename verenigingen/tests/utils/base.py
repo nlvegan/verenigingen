@@ -297,8 +297,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Clean up test request context
         self._cleanup_test_request_context()
 
-        # Restore original behaviors
-        self._cleanup_test_mocks()
+        # The mocks are NOT stopped here (#2221): tearDown runs before addCleanup, so a test's
+        # own nested patch of the same target would put the mock back permanently. The stop is
+        # registered with addCleanup in _setup_test_mocks and unwinds LIFO after the test's own.
+        # Exception: a hand-driven setUp()/tearDown() pair (no run(), `_outcome` is None) never
+        # reaches doCleanups, so stop here; the stop is idempotent and nothing is nested.
+        if self._outcome is None:
+            self._cleanup_test_mocks()
 
         super().tearDown()
 
