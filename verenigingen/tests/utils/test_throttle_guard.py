@@ -62,6 +62,33 @@ def _remove_user(name):
     frappe.delete_doc("User", name, force=True, ignore_permissions=True)
 
 
+class TestBaseRaisesLimitInSetUpClass(VereningingenTestCase):
+    """The class-level raise in VereningingenTestCase.setUpClass covers Users inserted there;
+    the per-test raise comes too late for them."""
+
+    @classmethod
+    def setUpClass(cls):
+        had, old = _KEY in frappe.local.conf, frappe.local.conf.get(_KEY)
+        frappe.local.conf.pop(_KEY, None)  # key absent before super, as in CI
+
+        def restore():
+            if had:
+                frappe.local.conf[_KEY] = old
+            else:
+                frappe.local.conf.pop(_KEY, None)
+
+        super().setUpClass()
+        cls.addClassCleanup(restore)
+        # Mock justified: drives the over-60 condition without leaving 61 committed Users;
+        # the subject is the limit raised by the base setUpClass, not row counting.
+        with patch.object(frappe.db, "get_creation_count", return_value=10_000):
+            cls.user = _insert_user("cls")  # Throttled unless setUpClass raised the limit
+        cls.addClassCleanup(_remove_user, cls.user.name)
+
+    def test_user_inserted_in_setUpClass_exists(self):
+        self.assertTrue(frappe.db.exists("User", self.user.name))
+
+
 class TestRaiseThrottleUserLimitRestores(unittest.TestCase):
     def _run_probe(self):
         class _Probe(unittest.TestCase):
