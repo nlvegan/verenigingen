@@ -9,7 +9,10 @@ from unittest.mock import patch  # Only for external API mocking (requests.post)
 import frappe
 from frappe.utils import add_days, flt, today
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestCase,
+    allocate_free_region_code,
+)
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
@@ -27,8 +30,8 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         # A unique name per class run: Region autonames to a slug of region_name, so a lookup by the
         # unslugged label never found a leaked row and the next run died on a duplicate key (#2270).
         # region_code is unique too (and validated as 2-5 uppercase letters/digits): a fixed "FTR" would
-        # die on a row an older run left behind.
-        suffix = frappe.generate_hash(length=5).upper()
+        # die on a row an older run left behind. allocate_free_region_code verifies the code is free.
+        suffix = allocate_free_region_code()
         region = frappe.get_doc({
             "doctype": "Region",
             "region_name": f"Financial Test Region {suffix}",
