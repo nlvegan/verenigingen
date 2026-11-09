@@ -369,6 +369,7 @@ class BulkInvoiceGenerationService(StatefulService):
                         filtered_members["business_logic"].append(member_info)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 filtered_members["business_logic"].append(
                     {
                         "member_id": schedule_data.member_id,
@@ -673,6 +674,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     members_to_update, successful_invoices
                 )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Error in bulk payment history update: {str(e)[:100]}"
                 frappe.log_error(error_msg, "Bulk Payment History Update Error")
                 result.errors.append(error_msg)
@@ -739,6 +741,7 @@ class BulkInvoiceGenerationService(StatefulService):
                             }
                         )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(f"Error checking coverage gap: {str(e)}", "Coverage Gap Detection")
 
         if coverage_gaps:
@@ -820,6 +823,7 @@ class BulkInvoiceGenerationService(StatefulService):
 
                             manager.add_or_update_entry(inv_data["invoice"], build_invoice_entry, "invoice")
                         except Exception as inv_error:
+                            reraise_if_job_timeout(inv_error)  # #2235: a job timeout must propagate
                             frappe.log_error(
                                 f"Failed to add invoice {inv_data['invoice']} to payment history: {str(inv_error)}",
                                 "Individual Invoice Payment History Update",
@@ -828,6 +832,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     wrote_for_member = True
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(
                     f"Error updating payment history for member {member_name}: {str(e)}",
                     "Bulk Payment History Member Update",
