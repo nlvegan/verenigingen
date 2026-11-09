@@ -143,7 +143,7 @@ class TestAssignCleanupRemoveFailure1945(EnhancedTestCase):
         self.assertIn("National Board", str(ctx.exception))
 
     def test_mijnrood_sync_reports_a_failed_move_as_a_message_and_keeps_the_old_chapter(self):
-        """Pins today's sync behaviour (#1945 review): no raise, no alert, a message only."""
+        """Pins the sync behaviour (#1945 review): no raise, a message, the old chapter kept (the alert is #2199's)."""
         from unittest.mock import MagicMock
 
         from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (

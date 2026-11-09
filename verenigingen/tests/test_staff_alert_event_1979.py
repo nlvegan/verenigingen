@@ -457,6 +457,7 @@ class TestStaffAlertEvent(FrappeTestCase):
                 INFO_KEY,
                 "dues_schedule_creation_failed",
                 "mijnrood_disabled_default_type",
+                "mijnrood_chapter_move_failed",
             },
             "control: every literal-key call site was found",
         )
