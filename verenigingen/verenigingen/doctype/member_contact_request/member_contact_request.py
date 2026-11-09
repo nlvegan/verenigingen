@@ -218,8 +218,8 @@ class MemberContactRequest(Document):
                     message = f"""
                     <h3>Contact Request Assigned to You</h3>
                     <p>You have been assigned a member contact request.</p>
-                    <p><strong>Member:</strong> {self.member_name}</p>
-                    <p><strong>Subject:</strong> {self.subject}</p>
+                    <p><strong>Member:</strong> {escape_html(self.member_name)}</p>
+                    <p><strong>Subject:</strong> {escape_html(self.subject)}</p>
                     <p><strong>Urgency:</strong> {self.urgency}</p>
                     <p><strong>Follow Up Date:</strong> {self.follow_up_date}</p>
                     <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>
