@@ -52,6 +52,7 @@ from verenigingen.utils.error_handling import (
     sanitize_audit_details,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 _impersonation_stack = threading.local()
 
@@ -1132,6 +1133,9 @@ def secure_document_operation(
         raise
 
     except Exception as e:
+        # #2235: an RQ job timeout is raised once; do not turn it into success=False
+        reraise_if_job_timeout(e)
+
         # Capture full traceback for debugging
         error_traceback = frappe.get_traceback()
 

@@ -33,6 +33,7 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.services.billing.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 if TYPE_CHECKING:
     pass
@@ -646,6 +647,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(error_msg)
 
                 except Exception as ge:
+                    reraise_if_job_timeout(ge)  # #2235: never turn an RQ job timeout into a result
                     recovery_result = schedule._handle_invoice_generation_failure(str(ge))
                     error_msg = (
                         f"Schedule {schedule_name} unexpected error "
@@ -655,6 +657,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(f"ERROR: {error_msg}")
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 clean_error = self._clean_error_message(str(e))
                 error_msg = f"Error processing {schedule_name}: {clean_error}"
                 frappe.log_error(error_msg, "Membership Dues Generation")
@@ -978,11 +981,13 @@ def process_invoice_chunk(
                 result.errors.append(error_msg)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Unexpected error for {schedule_name}: {str(e)[:MAX_LOG_ERROR_LENGTH]}"
                 _safe_log_error(f"Chunk {chunk_id} Error", schedule_name, e)
                 result.errors.append(error_msg)
 
         except Exception as outer_e:
+            reraise_if_job_timeout(outer_e)  # #2235: never turn an RQ job timeout into a result
             error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:MAX_LOG_ERROR_LENGTH]}"
             _safe_log_error(f"Chunk {chunk_id} Load Error", schedule_name, outer_e)
             result.errors.append(error_msg)
