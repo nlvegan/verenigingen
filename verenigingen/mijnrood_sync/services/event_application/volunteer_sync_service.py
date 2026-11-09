@@ -617,6 +617,10 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_names = list(vacated_chapters)
 
+        # #2307: the subject channel is deliberately NOT escaped here. Frappe renders the Notification Log
+        # subject as HTML (mail `<p>{{ body_content }}</p>` and the bell dropdown), so a raw member name is
+        # still live there, but escaping it would show literal entities in plain-text subjects. The
+        # clean fix lies outside this change and is tracked separately.
         subject = _("Board membership ended for {0}").format(member_name)
         message = _("MijnRood sync ended board membership for {0} in: {1}").format(
             member_name, ", ".join(chapter_names)

@@ -98,8 +98,10 @@ class MailBodyEscapingBase(VereningingenTestCase):
             self.assertIn(escaped, body, f"{tag} not escaped")
             self.assertNotIn(f"<i>{tag}", body, f"{tag} arrived as live markup")
 
+
+class TestControl(VereningingenTestCase):
     def test_control_hostile_value_is_live_markup_without_escaping(self):
-        """Control: the sanitiser keeps this markup, so a raw interpolation would be caught above."""
+        """Control: the sanitiser keeps this markup, so a raw interpolation would be caught by the tests below."""
         raw, escaped = hostile("ctl")
         body = frappe.utils.sanitize_html(f"<p>{raw}</p>")
         self.assertIn("<i>ctl</i>", body)
@@ -107,6 +109,29 @@ class MailBodyEscapingBase(VereningingenTestCase):
 
 
 class TestPaymentReminderFallback(MailBodyEscapingBase):
+    def test_ampersand_and_apostrophe_survive_exactly_once_escaped(self):
+        """A real-looking name: `&` becomes a single `&amp;` (never `&amp;amp;`) and the apostrophe stays readable."""
+        import html
+
+        from verenigingen.api.payment_processing import send_payment_reminder_email
+
+        name = "D'Arcy Van 't Hof & Zn <i>amp</i>"
+        email_addr = f"amp-2307-{self.token}@example.org"
+        member = self.create_test_member(
+            first_name="Amp", last_name=f"Amp{self.token}", email=email_addr, birth_date="1990-01-01"
+        )
+        self.key("payment_reminder_friendly", "Document-Field")
+        if frappe.db.exists("Email Template", "payment_reminder_friendly"):
+            frappe.delete_doc("Email Template", "payment_reminder_friendly", force=True)
+        info = {"overdue_count": 1, "total_overdue": 10, "days_overdue": 3, "membership_type": name}
+        self.assertTrue(send_payment_reminder_email(member.name, payment_info=info))
+        body = self.html_to(email_addr)
+        self.assertIn("D'Arcy Van 't Hof &amp; Zn &lt;i&gt;amp&lt;/i&gt;", body)  # apostrophes readable, & escaped once
+        self.assertNotIn("&amp;amp;", body)
+        self.assertNotIn("<i>amp", body)
+        self.assertIn(name, html.unescape(body), "the name must read back exactly after unescaping")
+
+
     def test_fallback_html_escapes_member_and_message_text(self):
         from verenigingen.api.payment_processing import send_payment_reminder_email
 
