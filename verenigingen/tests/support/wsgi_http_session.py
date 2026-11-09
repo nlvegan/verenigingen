@@ -77,7 +77,11 @@ def run_wsgi_cases(*cases):
     )
     if result.returncode != 0:
         raise AssertionError(result.stdout + "\n" + result.stderr)
-    line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT"))
+    line = next((x for x in result.stdout.splitlines() if x.startswith("RESULT")), None)
+    if line is None:
+        raise AssertionError(
+            f"child printed no RESULT line\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
     return json.loads(line[len("RESULT") :])
 
 
@@ -112,6 +116,9 @@ def _cleanup_committed_login_users(emails):
     for email in filter(None, emails):
         try:
             frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            # Creating the User also creates its Contact; remove it here rather than leaning on the drain.
+            for contact in frappe.get_all("Contact", filters={"user": email}, pluck="name"):
+                frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
             # The logins in the child process leave rows delete_doc does not remove.
             frappe.db.delete("Activity Log", {"user": email})
             frappe.db.delete("Sessions", {"user": email})  # doctype-ok: core table tabSessions, no DocType record

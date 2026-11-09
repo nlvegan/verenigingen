@@ -20,6 +20,8 @@ Two premises of the old tests were false, and nothing ever checked them because 
   is now exercised by a logged-in user whose profile tops out below CRITICAL.
 """
 
+import frappe
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.wsgi_http_session import (
     CommittedLoginUsersMixin,
@@ -31,6 +33,8 @@ from verenigingen.tests.support.wsgi_http_session import (
 SUSPEND_MEMBER = api_path("verenigingen.api.suspension_api.suspend_member")
 # Unknown on purpose: an admin who gets past every layer is answered DOES_NOT_EXIST and nothing
 # is suspended, so the control never changes data.
+# The endpoint logs this when an admin asks about an unknown member (the control cases below).
+ERROR_LOG_TITLE = "Suspension API Validation Error"
 PAYLOAD = {"member_name": "HTTP-SUSPENSION-NO-SUCH-MEMBER", "suspension_reason": "HTTP security test"}
 
 
@@ -54,6 +58,7 @@ class TestSuspensionAPISecurityHTTPIntegration(CommittedLoginUsersMixin, Enhance
 
     def test_csrf_protection_real_validation(self):
         """A logged-in POST with a missing or wrong CSRF token is refused; the same user with the token is not."""
+        self.expectErrorLog(ERROR_LOG_TITLE)
         out = run_wsgi_cases(
             self._suspend_case("missing", self.admin_user, csrf="missing"),
             self._suspend_case("wrong", self.admin_user, csrf="wrong"),
@@ -66,6 +71,12 @@ class TestSuspensionAPISecurityHTTPIntegration(CommittedLoginUsersMixin, Enhance
         # Control: with a valid token the endpoint body runs, so the refusals are about the token.
         self.assertEqual(out["valid"]["status"], 200, out["valid"]["body"][:300])
         self.assertEqual(operation_result(out["valid"])["error"]["code"], "DOES_NOT_EXIST")
+        # The endpoint's unknown-member answer logs a row (written by the child, committed; Error Log
+        # is MyISAM so this connection sees it). That row is what shows the body really ran.
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"method": ["like", f"%{self.admin_user}%"]}),
+            "the authorised request did not reach the endpoint body",
+        )
 
     def test_authentication_required_real_validation(self):
         """An unauthenticated suspension request is refused at dispatch (403 PermissionError)."""
@@ -77,6 +88,7 @@ class TestSuspensionAPISecurityHTTPIntegration(CommittedLoginUsersMixin, Enhance
 
     def test_api_security_decorators_real_validation(self):
         """@critical_api refuses a logged-in caller whose role profile is below CRITICAL."""
+        self.expectErrorLog(ERROR_LOG_TITLE)
         out = run_wsgi_cases(
             self._suspend_case("member", self.member_user),
             self._suspend_case("admin", self.admin_user),
