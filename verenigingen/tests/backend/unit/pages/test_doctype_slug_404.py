@@ -27,6 +27,9 @@ class TestDoctypeSlug404(VereningingenUnitTestCase):
 
     def _get(self, path, user="Guest"):
         frappe.local.request = Request(EnvironBuilder(path=f"/{path}").get_environ())
+        # NotFoundPage caches 404s per URL when the website cache is on (developer_mode=0);
+        # a stale entry would make a run of unfixed code read green.
+        frappe.cache.hdel("website_404", frappe.local.request.url)
         frappe.set_user(user)
         try:
             return get_response(path)
@@ -74,3 +77,38 @@ class TestDoctypeSlug404(VereningingenUnitTestCase):
                 frappe.local.request = Request(EnvironBuilder(path=f"/volunteer/{page}").get_environ())
                 self.assertFalse(DoctypeSlugNotFound(f"volunteer/{page}").can_render())
                 self.assertNotEqual(self._get(f"volunteer/{page}").status_code, 404)
+
+    def test_web_form_route_under_a_doctype_slug_is_not_claimed(self):
+        # Control: Web Form "addresses" has route "address" (DocType Address), so
+        # /address/new is a lowercase-slug path that WebFormPage serves.
+        from verenigingen.utils.doctype_slug_renderer import DoctypeSlugNotFound
+
+        self.assertTrue(frappe.db.exists("Web Form", {"route": "address", "published": 1}))
+        frappe.local.request = Request(EnvironBuilder(path="/address/new").get_environ())
+        self.assertFalse(DoctypeSlugNotFound("address/new").can_render())
+        self.assertEqual(self._get("address/new", user="Administrator").status_code, 200)
+
+    def create_test_data(self, route):
+        """Fixture: a published Web Page at `route`, made as Administrator (tearDown restores the user)."""
+        frappe.set_user("Administrator")
+        page = frappe.get_doc(
+            {
+                "doctype": "Web Page",
+                "title": route,
+                "route": route,
+                "published": 1,
+                "content_type": "Rich Text",
+                "main_section": "x",
+            }
+        ).insert()
+        self.addCleanup(frappe.delete_doc, "Web Page", page.name, force=True)
+
+    def test_document_webview_route_under_a_doctype_slug_is_not_claimed(self):
+        # Control: a published Web Page (has_web_view) at "member/<x>" is served by DocumentPage.
+        from verenigingen.utils.doctype_slug_renderer import DoctypeSlugNotFound
+
+        route = f"member/ctrl-{frappe.generate_hash(length=6)}"
+        self.create_test_data(route)
+        frappe.local.request = Request(EnvironBuilder(path=f"/{route}").get_environ())
+        self.assertFalse(DoctypeSlugNotFound(route).can_render())
+        self.assertEqual(self._get(route).status_code, 200)
