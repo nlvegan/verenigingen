@@ -127,6 +127,7 @@ class TestFailedChapterMoveAlert2199(EnhancedTestCase):
             }
         ).insert()
         self.addCleanup(self._purge_sync_event_2199, event.name)
+        self.last_event_name = event.name
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):
             return get_event_application_service().apply_event(event.name)
@@ -310,3 +311,41 @@ class TestFailedChapterMoveAlert2199(EnhancedTestCase):
         self._apply_division_change()
 
         self.assertGreater(self._sent(self.member.name), 0, "an undelivered alert must not hold the claim")
+
+    # ---- a failing alert flush never fails the committed event (review N1) --------------------------
+    def test_an_alert_flush_that_raises_does_not_fail_the_committed_event(self):
+        """notify_administrators raises AND the cleanup in its handler (Redis) raises: the event was already
+        committed as Applied, so apply_event must still report success and must not record a failure."""
+        self._break_source()
+        # Mock justified: fault injection; the mail/notification layer is down.
+        notify = patch(
+            "verenigingen.utils.notification_helpers.notify_administrators", side_effect=RuntimeError("n-2199")
+        )
+        # Mock justified: fault injection; Redis is down when the claim is released.
+        redis_down = patch.object(type(frappe.cache), "delete", side_effect=RuntimeError("redis-down"))
+        record = patch.object(EventApplicationService, "_record_event_failure")
+        self.expectErrorLog("MijnRood chapter-move alert failed", "chapter-move alert flush failed")
+
+        with notify, redis_down, record as record_failure:
+            result = self._apply_division_change()
+
+        self.assertTrue(result["success"], result)
+        record_failure.assert_not_called()
+        status, error = frappe.db.get_value(
+            "MijnRood Sync Event", self.last_event_name, ["status", "error_message"]
+        )
+        self.assertEqual(status, "Applied")
+        self.assertFalse(error)
+
+    # ---- the alert's writes need a committing caller (review N2) ------------------------------------
+    def test_the_desk_apply_methods_accept_post_only(self):
+        """The alert writes after apply_event's commit and relies on the request-end commit, which Frappe
+        only performs for POST. Asserts the dispatch table (the same one handler.is_valid_http_method
+        consults), not a WSGI request: a WSGI request runs on its own connection and needs a bare
+        frappe.db.commit() in the test to see its fixture, which the order-dependence ratchet refuses."""
+        from verenigingen.mijnrood_sync.doctype.mijnrood_sync_event.mijnrood_sync_event import MijnRoodSyncEvent
+
+        for name in ("apply_event", "approve_and_apply"):
+            fn = getattr(MijnRoodSyncEvent, name)
+            self.assertIn(fn, frappe.whitelisted, f"control: {name} stays whitelisted")
+            self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"], name)

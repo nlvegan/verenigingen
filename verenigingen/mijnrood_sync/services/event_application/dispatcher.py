@@ -48,6 +48,15 @@ class MijnRoodEventApplicationService(StatefulService):
     def __init__(self):
         super().__init__(service_name="MijnRoodEventApplicationService")
 
+    def _flush_alerts_after_commit(self) -> None:
+        """Send the queued staff alerts. Runs after the event's commit (a rollback cannot take them back,
+        #2199) and must never fail the event: it is already durably Applied, and an exception here would
+        reach apply_event's outer handler, roll back and record a failure on it (review N1)."""
+        try:
+            get_related_records_orchestrator().flush_pending_alerts()
+        except Exception:
+            frappe.log_error(title="MijnRood chapter-move alert flush failed", message=frappe.get_traceback())
+
     def apply_event(self, event_name: str) -> dict:
         """Apply a single approved sync event.
 
@@ -85,8 +94,7 @@ class MijnRoodEventApplicationService(StatefulService):
             # Security: System-internal sync event status update, not user-facing
             event.save(ignore_permissions=True)
             frappe.db.commit()
-            # After the commit, so a rollback cannot take the alert back (#2199).
-            get_related_records_orchestrator().flush_pending_alerts()
+            self._flush_alerts_after_commit()
             return result
 
         except NON_RESUMABLE_DB_ERRORS as e:
@@ -100,6 +108,8 @@ class MijnRoodEventApplicationService(StatefulService):
             # realtime payload and continues. Without recording, a deadlock during a
             # privilege revocation produces no Error Log, no error_message and a toast.
             frappe.db.rollback()
+            # Defence in depth, untested by design: reset_acr_dedup() at the top of apply_event already clears
+            # the queue, so this only matters if a later change drops that reset.
             get_related_records_orchestrator().discard_pending_alerts()
             error_msg = str(e)[:500]
             self.logger.error("Non-resumable DB error applying event %s: %s", event_name, error_msg)
@@ -127,6 +137,7 @@ class MijnRoodEventApplicationService(StatefulService):
             # are already durable before role processing starts. Both are out of this
             # frame's reach; noted as separate pre-existing issues.
             frappe.db.rollback()
+            # Defence in depth, untested by design (see the NON_RESUMABLE_DB_ERRORS handler above).
             get_related_records_orchestrator().discard_pending_alerts()
 
             error_msg = str(e)[:500]
