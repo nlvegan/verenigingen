@@ -44,6 +44,17 @@ def _critical_rule_names():
     return names
 
 
+def _decorator_name(decorator):
+    node = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", "")
+
+
+def _is_endpoint(node):
+    return any(
+        _decorator_name(d) == "whitelist" or _decorator_name(d).endswith("_api") for d in node.decorator_list
+    )
+
+
 def _function_sites():
     """{runtime name form: {(file, function name)}} for every decorated non-test def."""
     sites = defaultdict(set)
@@ -55,12 +66,14 @@ def _function_sites():
                 tree = ast.parse(path.read_text())
             except (SyntaxError, ValueError):
                 continue
+            # Known gap: for a package's __init__.py the runtime module name is the
+            # package name, not "__init__"; no critical rule is defined there today.
             module = path.stem
             for node in ast.walk(tree):
-                # Only a decorated def can be an endpoint the framework wraps (module-level
-                # or a whitelisted doc method); plain helpers and class methods that merely
-                # share a name are not candidates.
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.decorator_list:
+                # Only a def the framework can wrap is a candidate: @frappe.whitelist or one
+                # of the *_api security decorators. @staticmethod, @property, @wraps and
+                # plain helpers that merely share a name are not.
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_endpoint(node):
                     for form in (node.name, f"{module}_{node.name}", f"api_{node.name}"):
                         sites[form].add((str(path), node.name))
     return sites

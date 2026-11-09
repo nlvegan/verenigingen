@@ -14,11 +14,13 @@ DOCTYPE = "Critical Operation Rule"
 PATCH = "verenigingen.patches.v2_2.remove_dead_critical_rules_matching_no_function_2306"
 LIVE_TWIN = "nuclear_cleanup_all_members"
 DEAD_TWIN = "admin_tools_nuclear_cleanup_all_members"
+# An admin_tools_ row that is NOT in DEAD_RULES: the patch must not delete by prefix.
+BYSTANDER = "admin_tools_preview_member_cleanup"
 
 
-def _make_rule(name):
+def _seed_critical_rule_2306(name):
     if frappe.db.exists(DOCTYPE, name):
-        frappe.delete_doc(DOCTYPE, name, ignore_permissions=True, force=True)
+        frappe.delete_doc(DOCTYPE, name, force=True)
     frappe.get_doc(
         {
             "doctype": DOCTYPE,
@@ -26,21 +28,23 @@ def _make_rule(name):
             "operation_type": "admin",
             "security_level": "critical",
         }
-    ).insert(ignore_permissions=True)
+    ).insert()
 
 
 class TestRemoveDeadCriticalRules2306(FrappeTestCase):
     def test_removes_every_dead_rule_keeps_the_live_twin_and_is_idempotent(self):
         patch = importlib.import_module(PATCH)
         for name in patch.DEAD_RULES:
-            _make_rule(name)
-        _make_rule(LIVE_TWIN)
+            _seed_critical_rule_2306(name)
+        _seed_critical_rule_2306(LIVE_TWIN)
+        _seed_critical_rule_2306(BYSTANDER)
         self.assertIn(DEAD_TWIN, patch.DEAD_RULES)
 
         patch.execute()
         for name in patch.DEAD_RULES:
             self.assertFalse(frappe.db.exists(DOCTYPE, name), name)
         self.assertTrue(frappe.db.exists(DOCTYPE, LIVE_TWIN), "the live bare-named rule must survive")
+        self.assertTrue(frappe.db.exists(DOCTYPE, BYSTANDER), "a row outside DEAD_RULES must survive")
 
         patch.execute()
         self.assertTrue(frappe.db.exists(DOCTYPE, LIVE_TWIN))
