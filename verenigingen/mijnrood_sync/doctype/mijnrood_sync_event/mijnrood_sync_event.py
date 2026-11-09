@@ -43,7 +43,9 @@ class MijnRoodSyncEvent(Document):
         self.reviewed_at = now_datetime()
         self.save()
 
-    @frappe.whitelist()
+    # POST only: the failed-move staff alert is written after apply_event's own commit and relies on the
+    # request-end commit, which Frappe skips for GET (#2199).
+    @frappe.whitelist(methods=["POST"])
     @high_security_api(operation_type=OperationType.ADMIN)
     def approve_and_apply(self):
         """Approve and immediately apply this sync event."""
@@ -67,7 +69,9 @@ class MijnRoodSyncEvent(Document):
         service = get_event_application_service()
         return service.apply_event(self.name)
 
-    @frappe.whitelist()
+    # POST only: the failed-move staff alert is written after apply_event's own commit and relies on the
+    # request-end commit, which Frappe skips for GET (#2199).
+    @frappe.whitelist(methods=["POST"])
     @high_security_api(operation_type=OperationType.ADMIN)
     def apply_event(self):
         """Apply this approved sync event to Verenigingen data."""
