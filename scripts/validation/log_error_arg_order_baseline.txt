@@ -30,7 +30,7 @@ scripts/migration/member_import_cleanup.py::scan_and_clear_broken_links::1
 scripts/migration/migrate_to_native_expense_system.py::ensure_board_members_have_approver_roles::1
 scripts/migration/migrate_to_native_expense_system.py::migrate_to_native_expense_system::1
 scripts/migration/migrate_to_native_expense_system.py::update_employee_approvers::1
-scripts/monitoring/zabbix_integration.py::get_mollie_payment_metrics::4
+scripts/monitoring/zabbix_integration.py::get_mollie_payment_metrics::3
 scripts/setup/create_chapter_dashboard.py::create_chapter_dashboard::1
 scripts/setup/setup_department_hierarchy.py::setup_department_hierarchy::1
 verenigingen/api/anbi_operations.py::export_belastingdienst_report::1
