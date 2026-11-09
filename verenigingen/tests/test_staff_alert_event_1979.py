@@ -81,13 +81,6 @@ class TestStaffAlertEvent(FrappeTestCase):
         # below stick (a bare commit is gated). Without it each test leaks its Note and User.
         self._config_backup = singleton_backup(CONFIG)
         self._config_backup.__enter__()
-        # singleton_backup restores child tables since #2091, so this hand-kept copy is now redundant
-        # (#2159). It is kept and put back in tearDown.
-        fields = [f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Column Break"]
-        self._original_rows = [
-            {k: v for k, v in row.as_dict().items() if k in fields}
-            for row in frappe.get_single(CONFIG).notification_types
-        ]
 
     def tearDown(self):
         for note in self._notes:
@@ -101,7 +94,6 @@ class TestStaffAlertEvent(FrappeTestCase):
             frappe.db.delete("Notification Log", {"for_user": user})
             frappe.delete_doc("User", user, force=True)
         frappe.db.delete("Error Log", {"method": ["like", "Staff Alert Event could not be recorded%"]})
-        _set_config_rows(self._original_rows)
         self._config_backup.__exit__(None, None, None)
         super().tearDown()
 
@@ -455,12 +447,22 @@ class TestStaffAlertEvent(FrappeTestCase):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     flag = kwargs.get("staff_alert")
                     marked.setdefault(key.value, []).append(isinstance(flag, ast.Constant) and flag.value is True)
-        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) is the
-        # fourth literal-key call site, and the loop below still demands it is marked staff_alert=True.
+        # The control lists every key the census must find; dues_schedule_creation_failed (#2107) and
+        # mijnrood_disabled_default_type (#2094) are literal-key call sites, and the loop below still demands it is marked staff_alert=True.
         self.assertEqual(
             set(marked),
-            {SEEDED_KEY, "termination_overdue", INFO_KEY, "dues_schedule_creation_failed"},
-            "control: all four keys were found",
+            {
+                SEEDED_KEY,
+                "termination_overdue",
+                INFO_KEY,
+                "dues_schedule_creation_failed",
+                "mijnrood_disabled_default_type",
+                "mijnrood_chapter_move_failed",
+                # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
+                # is marked staff_alert=True like the rest; the loop below still checks every flag.
+                "ponto_executed_unbookable",
+            },
+            "control: every literal-key call site was found",
         )
         for key, flags in marked.items():
             self.assertTrue(all(flags), f"{key}: a call site is not marked staff_alert=True ({flags})")

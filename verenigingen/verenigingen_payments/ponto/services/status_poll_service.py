@@ -295,7 +295,13 @@ def _configured_for(doctype):
     else:
         has_credentials = bool(settings.get_active_client_id() and settings.get_active_client_secret())
     if doctype == "Ponto Payment Link":
-        enabled_mapping = any(m.enabled for m in settings.get("bank_account_mappings", []))
+        from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+            PontoConfigurationService,
+        )
+
+        enabled_mapping = any(
+            PontoConfigurationService.is_active(m) for m in settings.get("bank_account_mappings", [])
+        )
         return bool(settings.use_ibanity_mtls and has_credentials and enabled_mapping)
     return has_credentials
 

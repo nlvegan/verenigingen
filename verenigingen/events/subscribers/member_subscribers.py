@@ -159,8 +159,6 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
             _send_member_status_notification(member, "suspension")
         elif new_status == "Quit":
             _send_member_status_notification(member, "termination")
-        elif new_status == "Active" and old_status in ["Suspended", "Inactive"]:
-            _send_member_status_notification(member, "reactivation")
 
         frappe.logger("events").info(
             f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
@@ -170,65 +168,6 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
         frappe.log_error(
             f"Failed to send lifecycle notification: {str(e)}", "Member Lifecycle Notification Error"
         )
-
-
-def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **kwargs):
-    """
-    Handle user account updates when member lifecycle changes.
-
-    Manages user account status based on member status transitions.
-
-    Args:
-        event_name: Name of the event being handled
-        event_data: Event data dictionary
-        is_bulk_import: Flag passed from main process indicating bulk import mode
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
-
-        # Skip during bulk imports - user accounts are handled separately in batch
-        if should_skip_for_bulk(is_bulk_import):
-            return
-        member_name = event_data.get("member")
-        old_status = event_data.get("old_status")
-        new_status = event_data.get("new_status")
-
-        if not member_name:
-            return
-
-        # Skip if status hasn't actually changed
-        if old_status == new_status:
-            frappe.logger("events").info(
-                f"Skipping user account update for {member_name} - status unchanged ({old_status})"
-            )
-            return
-
-        member = get_doc_if_exists("Member", member_name, "user account update")
-        if not member:
-            return
-
-        if not _member_state_still_holds(member, event_name, event_data):
-            return
-
-        # Update user account based on member status
-        if hasattr(member, "user") and member.user:
-            user_doc = frappe.get_doc("User", member.user)
-
-            # Only update if there's an actual change
-            if new_status in ["Suspended", "Quit"] and user_doc.enabled == 1:
-                user_doc.enabled = 0
-                user_doc.save()
-            elif new_status == "Active" and user_doc.enabled == 0:
-                user_doc.enabled = 1
-                user_doc.save()
-
-        frappe.logger("events").info(f"Updated user account for {member_name}")
-
-    except Exception as e:
-        # Use shorter error message to avoid field length issues
-        error_msg = str(e)[:100]  # Truncate to avoid field length errors
-        frappe.log_error(f"User account update failed: {error_msg}", "User Account Update")
 
 
 def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kwargs):
@@ -285,7 +224,7 @@ def _member_state_still_holds(member, event_name, event_data):
 
     A rollback to a savepoint (member merge, CSV import, application payments) undoes the
     status write but not a job queued for it, so the job must check the row before it mails
-    the member, assigns a chapter or disables the user. ``after_commit`` only covers a FULL
+    the member or assigns a chapter. ``after_commit`` only covers a FULL
     rollback. ``member_status_changed`` is about ``application_status``, every other event
     about ``status`` (the payload's own ``status_type`` is not consistent: lifecycle events
     carry "membership" in production). A payload without a new status has nothing to compare.
@@ -301,7 +240,7 @@ def _member_state_still_holds(member, event_name, event_data):
 
 
 def _send_member_status_notification(member, notification_type):
-    """Send a member status notification (approval, suspension, termination, reactivation)."""
+    """Send a member status notification (approval, suspension, termination)."""
     if not member.email:
         return
 

@@ -111,14 +111,14 @@ class SelfServiceAccessController:
             user = frappe.session.user
 
         try:
-            # Use the canonical resolver (Member.user first, Member.email fallback)
-            # so the framework's ownership gate matches what the endpoint bodies
-            # resolve via get_current_user_member_name. Resolving email-only here
-            # wrongly locked out members linked via Member.user whose Member.email
-            # differs from their login.
-            from verenigingen.utils.member_utils import get_member_name_for_user
+            # Caller identity is the explicit Member.user link ONLY (#1936, rulings
+            # #1853/#1546): a User who merely shares an email with a Member is not
+            # that Member. A member linked via Member.user whose Member.email differs
+            # from their login is still admitted. Endpoint bodies resolve through
+            # get_current_user_member_name, which is strict too, so gate and body agree.
+            from verenigingen.utils.member_utils import get_member_name_for_board_access
 
-            return get_member_name_for_user(user)
+            return get_member_name_for_board_access(user)
         except Exception:
             return None
 

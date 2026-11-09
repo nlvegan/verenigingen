@@ -431,7 +431,7 @@ def process_member_post_creation(member_name: str):
                 from verenigingen.services.communication.email_service import get_email_service
 
                 email_service = get_email_service()
-                company = frappe.db.get_single_value("System Settings", "company") or "Our Organization"
+                company = frappe.defaults.get_global_default("company") or "Our Organization"
 
                 result = email_service.send_simple_email(
                     recipients=[member.email],
@@ -447,7 +447,12 @@ def process_member_post_creation(member_name: str):
                     notification_key="member_activated",
                 )
 
-                if result.success:
+                if result.success and isinstance(result.data, dict) and result.data.get("skipped"):
+                    # EmailService reports a disabled key / cooldown as a successful skip (#2096).
+                    frappe.logger().info(
+                        f"Welcome email NOT sent to {member.email}: {result.data.get('reason')}"
+                    )
+                elif result.success:
                     frappe.logger().info(f"Welcome email sent to {member.email}")
                 else:
                     frappe.log_error(

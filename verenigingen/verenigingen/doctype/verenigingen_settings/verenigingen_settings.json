@@ -772,6 +772,7 @@
    "fieldname": "chapter_dues_income_account",
    "fieldtype": "Link",
    "label": "Chapter Dues Income Account",
+   "link_filters": "[[\"Account\",\"root_type\",\"=\",\"Income\"],[\"Account\",\"is_group\",\"=\",0],[\"Account\",\"company\",\"=\",\"eval:doc.company\"]]",
    "options": "Account"
   },
   {
@@ -779,6 +780,7 @@
    "fieldname": "national_dues_income_account",
    "fieldtype": "Link",
    "label": "National Dues Income Account",
+   "link_filters": "[[\"Account\",\"root_type\",\"=\",\"Income\"],[\"Account\",\"is_group\",\"=\",0],[\"Account\",\"company\",\"=\",\"eval:doc.company\"]]",
    "options": "Account"
   }
  ],

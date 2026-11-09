@@ -97,9 +97,6 @@ bench workspace-health workspace_name --quick-fix
 # Comprehensive maintenance for all workspaces
 bench workspace-maintenance --all-workspaces
 
-# Clean up orphaned links (post-migration)
-bench workspace-maintenance --cleanup-orphans
-
 # Run post-migration checks
 bench workspace-maintenance --post-migration
 

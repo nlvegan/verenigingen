@@ -84,6 +84,10 @@ class CoreTestDataFactory:
         self.cleanup_on_exit = cleanup_on_exit
         self.seed = seed or int(datetime.now().timestamp())
         self.created_records = []
+        # Optional callback ``(doctype, name)`` fired for every record the factory tracks, so an
+        # owner with its own drain (VereningingenTestCase) also sees the rows the factory builds
+        # on its own, e.g. the auto Chapter/Member behind create_test_member/create_test_volunteer.
+        self.on_track = None
         # Use microsecond timestamp for run-unique ID (independent of seed)
         self.test_run_id = f"{int(datetime.now().timestamp() * 1000000) % 100000000}"
 
@@ -119,6 +123,8 @@ class CoreTestDataFactory:
     def track_doc(self, doctype: str, name: str):
         """Track a created record for cleanup"""
         self.created_records.append({"doctype": doctype, "name": name})
+        if self.on_track is not None:
+            self.on_track(doctype, name)
 
     # --- Deterministic Generation Helpers ---
 
