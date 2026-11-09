@@ -247,6 +247,9 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             print(f"Volunteer assignment cache reset failed: {e}")
 
         self._test_docs = []
+        # #1886: Employees that predate this test are not its to delete (see
+        # _track_employees_of_tracked_users).
+        self._employees_before_test = set(frappe.get_all("Employee", filters={"user_id": ["is", "set"]}, pluck="name"))
         self._original_session_user = frappe.session.user
         # Track test start time for error monitoring
         self._test_start_time = frappe.utils.now()
@@ -286,6 +289,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # Clean up customers linked to members BEFORE deleting members
         self._cleanup_member_customers()
+
+        self._track_employees_of_tracked_users()
 
         # Clean up test docs with retry logic for lock timeouts
         for doc_info in reversed(self._test_docs):
@@ -338,6 +343,26 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             f"{getattr(self, '_testMethodName', '?')}"
         )
         report_leaks(rows, test_id)
+
+    def _track_employees_of_tracked_users(self):
+        """Track Employees this test caused for the Users it tracks (#1886).
+
+        Role-profile assignment inserts a stub Employee for a User whose profile carries
+        the Employee role (`_ensure_employee_for_profile`). Once a commit follows, the
+        Employee survives the rollback and, with its User deleted, dangles on `user_id`
+        (HRMS later dies with "Could not find From User", #1689/#1694). Registered AFTER
+        its User, so the reverse-order drain deletes the Employee first. Runs after the
+        rollback, so only committed rows are seen; Employees that existed before setUp
+        are left alone.
+        """
+        before = getattr(self, "_employees_before_test", None)
+        users = [d["name"] for d in self._test_docs if d["doctype"] == "User"]
+        if before is None or not users:
+            return
+        rows = frappe.get_all("Employee", filters={"user_id": ["in", users]}, fields=["name", "user_id"])
+        for row in rows:
+            if row.name not in before:
+                self.track_doc("Employee", row.name, depends_on=("User", row.user_id))
 
     def _report_cleanup_summary(self):
         """Report summary of cleanup results, highlighting any failures."""
