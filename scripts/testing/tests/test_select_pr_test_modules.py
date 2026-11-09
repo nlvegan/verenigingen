@@ -24,6 +24,10 @@ REAL_ROOT = _MOD_PATH.parents[2]
 
 TEST_SRC = "import unittest\nclass TestX(unittest.TestCase):\n    def test_a(self):\n        pass\n"
 HELPER_SRC = "class TestDataContext:\n    pass\n\ndef make():\n    return 1\n"
+# A shared base class: derives from TestCase but defines no test method (#2352,
+# tests/utils/test_base_framework.py). `bench run-tests` on it prints no OK line.
+BASE_ONLY_SRC = ("import unittest\nclass VerenigingenTestCase(unittest.TestCase):\n"
+                 "    def setUp(self):\n        pass\n")
 CENSUS_MOD = "verenigingen.tests.test_census_one"
 
 
@@ -87,6 +91,39 @@ class SelectionRules(SelectorCase):
 
     def test_helper_only_module_without_a_test_class_is_skipped(self):
         self.write("verenigingen/tests/test_helperish.py", HELPER_SRC)
+        self.assertEqual(self.pick(), [CENSUS_MOD])
+
+    def test_derived_module_with_only_a_base_class_is_skipped_but_a_real_test_is_kept(self):
+        # #2352: editing a base.py derives every test_base_* module. The base-class-only one
+        # runs 0 tests and reds the job; its namesake with a real test must still run.
+        self.write("verenigingen/tests/utils/base.py", "x = 1\n")
+        self.write("verenigingen/tests/utils/test_base_framework.py", BASE_ONLY_SRC)
+        self.write("verenigingen/tests/utils/test_base_real.py", TEST_SRC)
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-q", "-m", "base2")
+        self.base = self.rev()
+        self.write("verenigingen/tests/utils/base.py", "x = 2\n")
+        log = []
+        got = self.pick(log=log.append)
+        self.assertNotIn("verenigingen.tests.utils.test_base_framework", got)
+        self.assertIn("verenigingen.tests.utils.test_base_real", got)
+        self.assertTrue([m for m in log if "test_base_framework" in m and "no test method" in m], log)
+
+    def test_own_module_that_only_defines_a_base_class_is_skipped_with_a_reason(self):
+        self.write("verenigingen/tests/test_only_base.py", BASE_ONLY_SRC)
+        log = []
+        self.assertEqual(self.pick(log=log.append), [CENSUS_MOD])
+        self.assertTrue([m for m in log if "test_only_base" in m and "no test method" in m], log)
+
+    def test_subclass_of_an_imported_base_may_inherit_tests_and_is_kept(self):
+        # The base lives in another module: its tests cannot be seen here, so do not exclude.
+        self.write("verenigingen/tests/test_inherits.py",
+                   "from verenigingen.tests.shared import SharedTestCase\nclass TestY(SharedTestCase):\n    pass\n")
+        self.assertIn("verenigingen.tests.test_inherits", self.pick())
+
+    def test_subclass_of_a_local_testless_base_is_skipped(self):
+        self.write("verenigingen/tests/test_chain.py", BASE_ONLY_SRC +
+                   "class PerfCase(VerenigingenTestCase):\n    pass\n")
         self.assertEqual(self.pick(), [CENSUS_MOD])
 
     def test_non_test_file_pulls_its_namesake_test(self):
