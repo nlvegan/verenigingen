@@ -34,7 +34,8 @@ class DoctypeSlugNotFound(NotFoundPage):
         parts = self.requested_path.split("/", 1)
         if len(parts) != 2:
             return False
-        # cache=True, as PrintPage does: no extra query per multi-segment request.
+        # cache=True, as PrintPage does: +1 query on two-segment paths, not repeated within a request
+        # (a per-request value_cache, not Redis).
         canonical = frappe.db.exists("DocType", parts[0], cache=True)
         if not canonical or canonical == parts[0]:
             return False

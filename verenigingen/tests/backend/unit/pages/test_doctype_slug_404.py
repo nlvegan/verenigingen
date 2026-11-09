@@ -28,7 +28,7 @@ class TestDoctypeSlug404(VereningingenUnitTestCase):
     def _get(self, path, user="Guest"):
         frappe.local.request = Request(EnvironBuilder(path=f"/{path}").get_environ())
         # NotFoundPage caches 404s per URL when the website cache is on (developer_mode=0);
-        # a stale entry would make a run of unfixed code read green.
+        # cheap insurance for running the module without a cache clear.
         frappe.cache.hdel("website_404", frappe.local.request.url)
         frappe.set_user(user)
         try:
