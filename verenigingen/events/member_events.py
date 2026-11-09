@@ -11,7 +11,6 @@ Events emitted:
 
 These events can trigger background operations like:
 - Chapter assignment updates
-- User account management
 - Email notifications
 - Cache invalidation
 """
@@ -106,7 +105,6 @@ def _get_member_event_subscribers(event_name):
         ],
         "member_lifecycle_changed": [
             "verenigingen.events.subscribers.member_subscribers.handle_lifecycle_notifications",
-            "verenigingen.events.subscribers.member_subscribers.handle_user_account_updates",
             "verenigingen.events.subscribers.member_subscribers.handle_cache_invalidation",
         ],
     }

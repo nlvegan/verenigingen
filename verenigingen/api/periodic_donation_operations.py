@@ -22,6 +22,8 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 # Periodic Donation Agreement.payment_method is a Select with exactly these
@@ -201,8 +203,11 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
                 _("Failed to link donation to agreement: {0}").format("; ".join(donation_result.errors))
             )
 
-        # Add to agreement's donation table
-        agreement_doc.link_donation(donation)
+        # Add to agreement's donation table. ``add_donation_link`` is the undecorated body:
+        # ``link_donation`` carries its own rate-limit bucket, so calling it from this
+        # already-rate-limited endpoint burned two buckets per action (#352). The save inside
+        # still runs under the caller's own permissions.
+        agreement_doc.add_donation_link(donation)
 
         frappe.db.commit()
 
@@ -211,6 +216,19 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
     except Exception as e:
         frappe.log_error(
             f"Failed to link donation: {str(e)}\n{traceback.format_exc()}", "Donation Linking Error"
+        )
+        # The failure is returned, not raised, so critical_api records this call as a success.
+        # Before #352 the inner link_donation decorator audited a refused link as api_call_failed;
+        # record it here, through the emitter the decorators use, so a refused financial write
+        # is not audited only as a success.
+        get_audit_emitter().log_api_call(
+            func=link_donation_to_agreement,
+            security_level=SecurityLevel.CRITICAL,
+            success=False,
+            error=str(e),
+            user=frappe.session.user,
+            args_count=0,
+            kwargs_keys=["donation", "agreement"],
         )
         return OperationResult.fail(_("Failed to link donation to agreement"), errors=[str(e)])
 

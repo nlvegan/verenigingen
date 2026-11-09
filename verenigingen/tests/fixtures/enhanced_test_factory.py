@@ -2884,28 +2884,22 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
         # _restore_throttle_user_limit().
 
-        # EMAIL MOCKING CLEANUP: Stop all email patches
-        try:
-            # Stop comprehensive email patches
-            if hasattr(self, "email_patches"):
-                for patch_obj in self.email_patches:
-                    try:
-                        patch_obj.stop()
-                    except Exception:
-                        pass  # Patch might already be stopped
-
-            # Legacy cleanup for backward compatibility
-            if hasattr(self, "sendmail_patch"):
-                self.sendmail_patch.stop()
-        except Exception:
-            pass  # Continue cleanup even if email patch cleanup fails
-
-        # RATE LIMIT MOCKING CLEANUP: Stop rate limit patch
-        try:
+        # EMAIL / RATE-LIMIT PATCHES are deliberately NOT stopped here (#2221).
+        # unittest runs tearDown BEFORE addCleanup callbacks, so stopping them here
+        # restored the real objects early; a test's own nested patch of the same target
+        # (started in setUp, stopped via addCleanup) then put the harness mock back for
+        # the rest of the process. Their stops are registered with addCleanup in
+        # _setup_email_mocking / _setup_rate_limit_mocking, which unwinds LIFO after the
+        # test's own nested patches.
+        #
+        # EXCEPT when nothing will run the cleanups: a test that drives setUp()/tearDown()
+        # by hand (no run(), so `_outcome` is None) never reaches doCleanups, and the
+        # patches would stay installed for the rest of the process. There is no nested
+        # patch to unwind in that case, so stopping here is safe, and the stops are
+        # idempotent.
+        if self._outcome is None:
+            self._stop_email_patches()
             self._teardown_rate_limit_mocking()
-        except Exception:
-            pass  # Continue cleanup even if rate limit patch cleanup fails
-
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
@@ -3465,7 +3459,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 patch_obj.stop()
             except RuntimeError:
-                pass  # never started, or already stopped by tearDown
+                pass  # never started, or already stopped
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""
@@ -3644,9 +3638,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         Scope and Lifecycle:
             - Scope: Per-test instance (each test gets its own isolated mock)
-            - Lifecycle: Created in setUp(), destroyed in tearDown()
+            - Lifecycle: Created in setUp(), stopped by an addCleanup callback (not tearDown, see #2221)
             - Thread-safety: Safe - no shared state across test instances
-            - Cleanup: Automatic via tearDown() with hasattr() guards for robustness
+            - Cleanup: Automatic via addCleanup (runs after tearDown, LIFO) with hasattr() guards
 
         Implementation Details:
             - Uses unittest.mock.patch to intercept validate_rate_limits() calls

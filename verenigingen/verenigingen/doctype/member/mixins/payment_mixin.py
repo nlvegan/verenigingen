@@ -215,33 +215,6 @@ class PaymentMixin:
         coverage = get_payment_coverage_service().get_coverage_from_invoice(invoice)
         return (coverage.start_date, coverage.end_date)
 
-    def validate_payment_method(self):
-        """Validate payment method and related fields"""
-        if not hasattr(self, "payment_method"):
-            memberships = frappe.get_all(
-                "Membership",
-                filters={"member": self.name, "status": ["!=", "Cancelled"]},
-                fields=["name", "membership_type", "status"],
-            )
-
-            for membership in memberships:
-                # Check if member has SEPA mandates (indicates SEPA payment method)
-                sepa_mandates = frappe.get_all(
-                    "SEPA Mandate", filters={"member": self.name, "status": "Active"}, limit=1
-                )
-                if sepa_mandates:
-                    default_mandate = self.get_default_sepa_mandate()
-                    if not default_mandate:
-                        frappe.msgprint(
-                            _(
-                                "Member {0} has a membership with SEPA Direct Debit payment method but no active SEPA mandate."
-                            ).format(self.name),
-                            indicator="yellow",
-                        )
-                    break
-
-            return
-
     def set_payment_reference(self):
         """Generate a unique payment reference for this membership"""
         if not self.payment_reference and self.name:
