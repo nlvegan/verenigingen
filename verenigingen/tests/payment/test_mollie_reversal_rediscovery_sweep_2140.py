@@ -70,7 +70,7 @@ class _FakeMollie:
         self.payments = _Payments()
 
 
-def _created_at(days_ago=0):
+def _iso_days_ago(days_ago=0):
     return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
 
 
@@ -81,7 +81,7 @@ class TestReversalRediscoverySweep(_DuesReversalFixture):
             "paymentId": payment_id or self.payment_id,
             "status": status,
             "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
-            "createdAt": _created_at(days_ago),
+            "createdAt": _iso_days_ago(days_ago),
         }
 
     def _chargeback(self, amount=20.0):
@@ -89,7 +89,7 @@ class TestReversalRediscoverySweep(_DuesReversalFixture):
             "id": f"chb_{frappe.generate_hash(length=8)}",
             "paymentId": self.payment_id,
             "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
-            "createdAt": _created_at(),
+            "createdAt": _iso_days_ago(),
             "reason": {"code": "AC01", "description": "test"},
         }
 
@@ -227,6 +227,21 @@ class TestReversalRediscoverySweep(_DuesReversalFixture):
         ):
             with self.assertRaises(JobTimeoutException):
                 self._sweep([refund])
+
+    def test_a_job_timeout_while_listing_at_mollie_ends_the_sweep(self):
+        """The listing is one of the long Mollie HTTP calls; its handler must re-raise a timeout."""
+        fake = _FakeMollie([self._refund()])
+
+        def timing_out_list(**_):
+            raise JobTimeoutException()
+
+        fake.refunds.list = timing_out_list
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient._get_mollie_client",
+            return_value=fake,
+        ):
+            with self.assertRaises(JobTimeoutException):
+                sweep_missed_reversals()
 
     def test_a_payment_that_fails_midway_leaves_nothing_and_the_next_one_books(self):
         """The stub writes an uncommitted row for the first payment and then raises."""

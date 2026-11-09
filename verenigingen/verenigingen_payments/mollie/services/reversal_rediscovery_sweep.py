@@ -88,6 +88,12 @@ def sweep_missed_reversals() -> Dict[str, Any]:
             raise
         except Exception as e:
             # A job timeout must end the job, not be recorded as one more failure (#1919).
+            # Limit: a JobTimeoutException or 1213 deadlock raised INSIDE a booking never
+            # gets here, because process_reversal_webhook's own blanket ``except Exception``
+            # (webhook_wrapper_service_unified.py ~2150) swallows it first. That is a
+            # pre-existing shared-path limit tracked on #2235. This re-raise covers the
+            # listing and the state check (the long Mollie HTTP calls); the
+            # NON_RESUMABLE_DB_ERRORS clause above is untested for the same reason.
             reraise_if_job_timeout(e)
             _undo_partial_writes(savepoint)
             summary["errors"].append({"payment_id": payment_id, "error": str(e)})
@@ -108,6 +114,12 @@ def _undo_partial_writes(savepoint: str) -> None:
     then everything since that commit is the failed payment's uncommitted tail, and a
     full rollback discards exactly that. Safe because a reversal that did not commit is
     not booked, and the next run rediscovers it through the same key.
+
+    The full ``frappe.db.rollback()`` fallback is DEFENSIVE. It is reachable only if the
+    sweep's own code raises after a booking commit, because ``process_reversal_webhook``
+    swallows its own errors. A commit by the failing payment also persists earlier
+    payments' writes, so the full rollback discards only the failed payment's
+    post-commit tail (measured by the round-2 reviewer).
     """
     if not rollback_to_savepoint(savepoint):
         frappe.db.rollback()
