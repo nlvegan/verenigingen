@@ -309,7 +309,81 @@ class TestServerTestsRunsTheSuiteOnlyInTheQueue(unittest.TestCase):
 
     def test_the_summary_reads_the_suite_result(self):
         # Without `needs: tests`, needs.tests.result is empty and the gate no longer reflects shards.
-        self.assertEqual(_job_field(self.text, "summary", "needs"), "tests")
+        # The pre-queue census jobs are read too: a PR is green only when pr-tests succeeded.
+        needs = _job_field(self.text, "summary", "needs")
+        self.assertEqual(needs, "[tests, select-pr-modules, pr-tests]")
+
+    def test_the_census_jobs_run_on_pull_request_only(self):
+        # The queue and dispatch run the whole suite; a census job there would only spend runners.
+        self.assertEqual(_job_if(self.text, "select-pr-modules"), "github.event_name == 'pull_request'")
+        self.assertTrue(
+            (_job_if(self.text, "pr-tests") or "").startswith("github.event_name == 'pull_request'")
+        )
+
+    def test_an_empty_selection_cannot_fall_back_to_the_whole_suite(self):
+        # Empty `test-modules` means "run everything" in the reusable workflow (60 minutes).
+        self.assertIn("needs.select-pr-modules.outputs.modules != ''", _job_if(self.text, "pr-tests"))
+
+    # --- the summary's pull_request branch, judged on the script itself (not on a substring
+    # of the file, which a trailing comment or a widened condition would still satisfy) ---
+
+    def _summary_script(self) -> str:
+        """The `run:` script of the summary job's Report Result step, ${{ }} still in place."""
+        lines = self.text.splitlines()
+        start = lines.index("  summary:")
+        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+        body = []
+        for line in lines[run_at + 1:]:
+            if line.strip() and not line.startswith("          "):
+                break
+            body.append(line[10:])
+        return "\n".join(body)
+
+    def _pull_request_block(self) -> list[str]:
+        """Executable (non-comment) lines inside `if [ ...event_name... == "pull_request" ]`."""
+        lines = self._summary_script().splitlines()
+        i = next(n for n, l in enumerate(lines) if "github.event_name" in l and '"pull_request"' in l)
+        block, depth = [], 0
+        for line in lines[i:]:
+            stripped = line.strip()
+            if re.match(r"^if\b", stripped):
+                depth += 1
+            elif stripped == "fi":
+                depth -= 1
+                if depth == 0:
+                    break
+            if stripped and not stripped.startswith("#"):
+                block.append(stripped)
+        return block[1:]  # drop the opening `if` line
+
+    def test_the_summary_pull_request_branch_accepts_only_exactly_success(self):
+        block = self._pull_request_block()
+        conditions = [l for l in block if re.match(r"^if\b", l)]
+        self.assertEqual(conditions, ['if [ "$pr_status" == "success" ]; then'])
+        for l in block:
+            self.assertNotRegex(l, r"\|\||!=|skipped|cancelled|failure", l)
+
+    def test_the_summary_pull_request_branch_succeeds_in_one_place_and_falls_through_to_exit_1(self):
+        block = self._pull_request_block()
+        exits = [l for l in block if l.startswith("exit")]
+        self.assertEqual(exits, ["exit 0", "exit 1"])
+        self.assertEqual(block[-1], "exit 1")
+        self.assertLess(block.index("exit 0"), block.index("fi"))
+
+    def test_the_summary_pull_request_branch_behaves(self):
+        # Run the real script for each result value. Only `success` may pass: `skipped`
+        # means select-pr-modules failed or the selection was empty, so no census ran.
+        import subprocess, tempfile, os
+        script = self._summary_script()
+        for result, want in (("success", 0), ("skipped", 1), ("failure", 1), ("cancelled", 1), ("", 1)):
+            text = (script.replace("${{ github.event_name }}", "pull_request")
+                    .replace("${{ needs.tests.result }}", "skipped")
+                    .replace("${{ needs.pr-tests.result }}", result)
+                    .replace("${{ needs.select-pr-modules.result }}", "success"))
+            with tempfile.TemporaryDirectory() as d:
+                env = {**os.environ, "GITHUB_STEP_SUMMARY": os.path.join(d, "s.md")}
+                rc = subprocess.run(["bash", "-e", "-c", text], env=env, capture_output=True).returncode
+            self.assertEqual(rc, want, f"pr-tests result {result!r}")
 
 if __name__ == "__main__":
     unittest.main()
