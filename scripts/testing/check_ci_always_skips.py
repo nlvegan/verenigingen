@@ -28,19 +28,22 @@ MARKER = "CI_ALWAYS_SKIPS"
 
 
 def marker_reason(source: str):
-    """The module-level marker's value: None when absent, otherwise a str (possibly empty), or a
-    non-str when the marker is not a string literal. Raises SyntaxError on unparseable source."""
+    """The module-level marker's FINAL value: None when absent (or deleted), otherwise a str
+    (possibly empty), or a non-str when the last binding is not a string literal. The last
+    binding wins, as at import time. Raises SyntaxError on unparseable source."""
+    result = None
     for node in ast.parse(source).body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == MARKER for t in node.targets):
-            value = node.value
+        if isinstance(node, ast.Delete) and any(
+            isinstance(t, ast.Name) and t.id == MARKER for t in node.targets
+        ):
+            result = None
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == MARKER for t in node.targets
+        ):
+            result = node.value.value if isinstance(node.value, ast.Constant) else ""
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == MARKER:
-            value = node.value
-        else:
-            continue
-        if isinstance(value, ast.Constant):
-            return value.value
-        return ""
-    return None
+            result = node.value.value if isinstance(node.value, ast.Constant) else ""
+    return result
 
 
 def decide(source, module: str, ran: int, skipped: int):

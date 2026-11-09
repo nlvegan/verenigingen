@@ -12,8 +12,6 @@ import requests
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-CI_ALWAYS_SKIPS = "sends real HTTP to a live web server; skips when none answers, and a CI runner never has one"
-
 
 class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
     """

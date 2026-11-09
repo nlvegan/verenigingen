@@ -22,7 +22,6 @@ cas = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cas)
 
 PINNED = {
-    "verenigingen/tests/integration/test_suspension_api_simple_http.py",
     "verenigingen/tests/payment/test_payment_gateways_live.py",
     "verenigingen/verenigingen_payments/ing_checkout/tests/test_client_live.py",
     "verenigingen/verenigingen_payments/mollie/tests/integration/test_real_api.py",

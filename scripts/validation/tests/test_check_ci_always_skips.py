@@ -25,6 +25,8 @@ BLANK = 'CI_ALWAYS_SKIPS = "   "\n'
 NOT_A_STRING = "CI_ALWAYS_SKIPS = True\n"
 NESTED = 'class T:\n    CI_ALWAYS_SKIPS = "inside a class does not count"\n'
 IN_FUNCTION = 'def f():\n    CI_ALWAYS_SKIPS = "inside a function does not count"\n'
+REBOUND_NONE = 'CI_ALWAYS_SKIPS = "r"\nCI_ALWAYS_SKIPS = None\n'
+DELETED = 'CI_ALWAYS_SKIPS = "r"\ndel CI_ALWAYS_SKIPS\n'
 MOD = "verenigingen.tests.test_fake"
 
 
@@ -59,6 +61,12 @@ class Decide(unittest.TestCase):
                 ok, lines = cas.decide(src, MOD, ran=2, skipped=2)
                 self.assertFalse(ok)
                 self.assertTrue(any(ln.startswith("::error::") for ln in lines), lines)
+
+    def test_a_later_rebind_to_a_non_string_or_a_del_voids_the_marker(self):
+        # the LAST module-level binding is what the module ends up with
+        for src in (REBOUND_NONE, DELETED):
+            with self.subTest(src=src):
+                self.assertFalse(cas.decide(src, MOD, ran=2, skipped=2)[0])
 
     def test_marker_must_be_module_level(self):
         for src in (NESTED, IN_FUNCTION):
