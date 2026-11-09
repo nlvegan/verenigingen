@@ -44,6 +44,7 @@ from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.tests.utils.throttle_guard import raise_throttle_user_limit
@@ -80,6 +81,9 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         guard_session_variables(cls)
         # #2256: also cover Users inserted in setUpClass (the per-test call comes too late).
         raise_throttle_user_limit(cls)
+
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
 
         cls._ensure_test_environment()
         cls._track_created_docs = []
