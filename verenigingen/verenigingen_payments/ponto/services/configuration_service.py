@@ -27,6 +27,10 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 
+# Prefix of a pause set by the import currency guard. A fetch never lifts such a pause by
+# itself (it needs a person); pauses from the account audit lift when the audit is clean.
+IMPORT_REFUSED = "Import refused: "
+
 
 class PontoConfigurationService:
     """
@@ -47,6 +51,32 @@ class PontoConfigurationService:
         "Verenigingen Webhook User",
     }
 
+    @staticmethod
+    def is_active(mapping) -> bool:
+        """THE rule for "may this mapping be used": enabled and not Paused (#2125).
+
+        Works on a cached dict and on a Ponto Bank Account Mapping row alike. A row
+        staff re-ticked to ``enabled=1`` while ``sync_status`` is still "Paused" is
+        NOT active: the pause has a reason that nobody has resolved.
+        """
+        return bool(mapping.get("enabled")) and mapping.get("sync_status") != "Paused"
+
+    @classmethod
+    def is_usable(cls, mapping) -> bool:
+        """Active AND linked to a Bank Account: what money paths require."""
+        return cls.is_active(mapping) and bool(mapping.get("bank_account"))
+
+    @classmethod
+    def unusable_reason(cls, mapping) -> Optional[str]:
+        """Why a mapping may not be used, for the error a money path shows. None if usable."""
+        if mapping.get("sync_status") == "Paused":
+            return f"paused: {mapping.get('last_sync_error') or 'no reason recorded'}"
+        if not mapping.get("enabled"):
+            return "disabled in Ponto Settings"
+        if not mapping.get("bank_account"):
+            return "no Bank Account linked"
+        return None
+
     @classmethod
     def _load_settings_from_db(cls) -> Dict[str, Any]:
         """
@@ -66,6 +96,9 @@ class PontoConfigurationService:
                     "ponto_account_id": row.ponto_account_id,
                     "ponto_account_name": row.ponto_account_name,
                     "ponto_iban": row.ponto_iban,
+                    "ponto_currency": row.ponto_currency,
+                    "sync_status": row.sync_status,
+                    "last_sync_error": row.last_sync_error,
                     "bank_account": row.bank_account,
                     "last_sync_time": row.last_sync_time,
                     "transactions_imported": row.transactions_imported,
@@ -224,7 +257,7 @@ class PontoConfigurationService:
         """
         settings = cls.get_settings()
         mappings = settings.get("bank_account_mappings", [])
-        return [m for m in mappings if m.get("enabled")]
+        return [m for m in mappings if cls.is_active(m)]
 
     @classmethod
     def get_all_account_mappings(cls) -> List[Dict[str, Any]]:
@@ -266,7 +299,7 @@ class PontoConfigurationService:
             Bank Account name or None if not mapped/enabled
         """
         mapping = cls.get_mapping_for_ponto_account(ponto_account_id)
-        if mapping and mapping.get("enabled") and mapping.get("bank_account"):
+        if mapping and cls.is_usable(mapping):
             return mapping.get("bank_account")
         return None
 
@@ -405,7 +438,7 @@ class PontoConfigurationService:
 
         # Check for bank account mappings
         mappings = settings.get("bank_account_mappings", [])
-        enabled_mappings = [m for m in mappings if m.get("enabled")]
+        enabled_mappings = [m for m in mappings if cls.is_active(m)]
 
         if not mappings:
             warnings.append("No Ponto accounts configured - use 'Fetch Accounts from Ponto' button")
@@ -424,6 +457,40 @@ class PontoConfigurationService:
             "missing_fields": missing_fields,
             "warnings": warnings,
         }
+
+    @classmethod
+    def pause_mapping(cls, ponto_account_id: str, reason: str) -> bool:
+        """
+        Pause one account's mapping: disabled, status "Paused", reason kept for staff (#2125).
+
+        A direct write, like the other mapping writers here. No commit of its own: the
+        caller's request/job commits it.
+
+        Returns:
+            True if a mapping row was paused, False if the account is not mapped
+        """
+        from frappe.utils import now_datetime
+
+        mapping_name = frappe.db.get_value(
+            "Ponto Bank Account Mapping",
+            {"parent": "Ponto Settings", "ponto_account_id": ponto_account_id},
+            "name",
+        )
+        if not mapping_name:
+            return False
+        frappe.db.set_value(
+            "Ponto Bank Account Mapping",
+            mapping_name,
+            {
+                "enabled": 0,
+                "sync_status": "Paused",
+                "last_sync_error": reason,
+                "last_sync_failure_time": now_datetime(),
+            },
+            update_modified=False,
+        )
+        cls.clear_cache()
+        return True
 
     @classmethod
     def update_last_sync_time(cls, ponto_account_id: str = None):

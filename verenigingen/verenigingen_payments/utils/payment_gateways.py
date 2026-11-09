@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -171,6 +171,25 @@ class MollieGateway(PaymentGateway):
                 except Exception as e:
                     frappe.logger().error(f"📋 Error accessing donation.{attr}: {e}")
 
+            # GATE (maintainer ruling 2026-11-08): refuse a Sales Invoice BEFORE any Mollie call.
+            # Charging one would create a live payment that cannot be linked back: a Sales
+            # Invoice has no payment_id, so a repeat call creates a second payment, and the
+            # webhook resolver cannot map the payment to the invoice, so the money is never
+            # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
+            # mollie_checkout so it covers every caller of process_payment.
+            if getattr(donation, "doctype", None) == "Sales Invoice":
+                return {
+                    "status": "error",
+                    "message": _("Paying an invoice through this page is not available yet."),
+                }
+
+            amount = self._amount_to_charge(donation)
+            if amount is None:
+                return {
+                    "status": "error",
+                    "message": _("There is nothing left to pay on this document."),
+                }
+
             # Validate currency support - ensure we have a valid currency
             currency = getattr(donation, "currency", "EUR") or "EUR"
             frappe.logger().info(f"💴 Using currency: {currency}")
@@ -188,7 +207,7 @@ class MollieGateway(PaymentGateway):
             description = form_data.get("description_override", f"Donation {donation.name}")
 
             payment_data = {
-                "amount": format_mollie_amount(donation.amount, currency),
+                "amount": format_mollie_amount(amount, currency),
                 "description": description,
                 "redirectUrl": redirect_url,
                 "webhookUrl": webhook_url,
@@ -231,7 +250,7 @@ class MollieGateway(PaymentGateway):
                     {
                         "subscription_setup": "true",
                         "subscription_interval": subscription_interval,
-                        "subscription_amount": format_mollie_amount_string(donation.amount),
+                        "subscription_amount": format_mollie_amount_string(amount),
                         "subscription_currency": currency,
                     }
                 )
@@ -277,8 +296,11 @@ class MollieGateway(PaymentGateway):
 
             # Update donation with payment details (only if it's a real document)
             if hasattr(donation, "db_set") and callable(donation.db_set):
-                donation.db_set("payment_id", payment.id)
-                if hasattr(donation, "payment_status"):
+                # A Sales Invoice has neither column; db_set on it raised AFTER the Mollie
+                # payment existed, so the payer got an error for a live payment (#2225).
+                if self._has_field(donation, "payment_id"):
+                    donation.db_set("payment_id", payment.id)
+                if hasattr(donation, "payment_status") and self._has_field(donation, "payment_status"):
                     donation.db_set("payment_status", "Open")
                 frappe.logger().info("📝 Updated donation with payment details")
 
@@ -511,6 +533,28 @@ class MollieGateway(PaymentGateway):
                 {"donation": donation.name if hasattr(donation, "name") else "Unknown"},
             )
             return create_error_response(_("Could not create new payment. Please try again."))
+
+    @staticmethod
+    def _amount_to_charge(doc):
+        """What Mollie is asked to collect for ``doc``; None means refuse (nothing to collect).
+
+        A Sales Invoice charges its ``outstanding_amount`` (maintainer ruling, #2225): never
+        ``grand_total`` of a partly paid invoice, never a client-sent figure. A draft is refused
+        because its outstanding mirrors grand_total (#209/#856); a settled or over-credited one
+        has nothing left. Anything else (Donation) keeps its own ``amount``.
+        """
+        if getattr(doc, "doctype", None) != "Sales Invoice":
+            return doc.amount
+        if doc.docstatus != 1:
+            return None
+        outstanding = flt(doc.outstanding_amount)
+        return outstanding if outstanding > 0 else None
+
+    @staticmethod
+    def _has_field(doc, fieldname):
+        """True unless ``doc`` is a real Document whose doctype lacks ``fieldname``."""
+        meta = getattr(doc, "meta", None)
+        return meta is None or meta.has_field(fieldname)
 
     def _get_mollie_settings(self):
         """Get Mollie settings configuration"""

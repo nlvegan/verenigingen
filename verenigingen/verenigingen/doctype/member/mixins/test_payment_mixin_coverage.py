@@ -11,7 +11,7 @@ controller branches WITH REAL ASSERTIONS:
   row when the IBAN changes on an existing member
 - can_view_member_payments(): own-record / system-manager / chapter-management
   -disabled access branches
-- validate_payment_method(): no-op safety when payment_method present
+- validate_payment_method(): removed (#607), asserted gone
 
 All Member / Customer documents are real and persisted; we assert real child
 table state and access decisions.
@@ -73,8 +73,10 @@ class TestPaymentMixinCoverage(EnhancedTestCase):
         self.assertTrue(viewer.can_view_member_payments(other.name))
 
     # -------------------------------------------------- validate_payment_method
-    def test_validate_payment_method_noop_with_payment_method_attr(self):
+    def test_the_dead_validate_payment_method_is_gone(self):
         member = self._make_member()
-        # Member schema has payment_method, so the hasattr branch returns early
-        # without raising.
-        member.validate_payment_method()  # must not raise
+        # #607: its body sat behind `if not hasattr(self, "payment_method")`, which
+        # is always False on a Member, so it never ran and was deleted rather than
+        # left reading as active validation.
+        self.assertTrue(hasattr(member, "payment_method"))
+        self.assertFalse(hasattr(member, "validate_payment_method"))
