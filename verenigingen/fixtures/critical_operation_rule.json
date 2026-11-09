@@ -13669,22 +13669,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "process_member_post_creation",
-  "operation_name": "process_member_post_creation",
-  "operation_type": "reporting",
-  "description": "Process member post creation operation",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "Member lifecycle utility for post-creation processing workflows",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 120,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "check_scheduler_and_dues_schedules",
   "operation_name": "check_scheduler_and_dues_schedules",
   "operation_type": "reporting",
