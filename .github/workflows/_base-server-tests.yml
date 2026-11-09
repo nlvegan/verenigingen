@@ -265,6 +265,16 @@ jobs:
             if [ "$rc" -ne 0 ] || ! grep -qE '^OK( \(.*\))?$' <<<"$out" || grep -qE '^FAILED \(' <<<"$out"; then
               echo "::error::$m is RED (exit $rc)"
               fail=1
+              continue
+            fi
+            # A module whose tests ALL skip (or that ran none) exits 0 with an OK line yet
+            # checked nothing. Sum every summary in the output (one module can print several).
+            # `|| true`: grep exits 1 on no match and this shell runs with -e.
+            ran=$(grep -oE '^Ran [0-9]+' <<<"$out" | awk '{s += $2} END {print s + 0}' || true)
+            skipped=$(grep -E '^(OK|FAILED) \(' <<<"$out" | grep -oE 'skipped=[0-9]+' | cut -d= -f2 | awk '{s += $1} END {print s + 0}' || true)
+            if [ "$ran" -eq 0 ] || [ "$skipped" -ge "$ran" ]; then
+              echo "::error::$m checked nothing: ran $ran test(s), $skipped skipped"
+              fail=1
             fi
           done
           if [ "$count" -eq 0 ]; then

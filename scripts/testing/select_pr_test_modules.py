@@ -32,6 +32,7 @@ Stdlib only. Usage:
 
 import argparse
 import ast
+import json
 import re
 import subprocess
 import sys
@@ -40,6 +41,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CENSUS_FILE = Path(__file__).with_name("pr_census_modules.txt")
 APP_DIR = "verenigingen"
+# The committed per-module CI runtimes (seconds) that the shard balancer reads; reused here.
+TIMINGS_FILE = REPO_ROOT / APP_DIR / "tests" / "test_timings.json"
+
+# Time budget for the modules a PR adds on top of the census. pr-tests has a 45 minute
+# timeout and the census alone is ~10 minutes locally (budget ~15 on a slower runner); the
+# rest of the budget is 20 minutes of estimated runtime, so worst case is ~35 of 45 with
+# slack for setup drift. Each module also pays ~10s of `bench run-tests` start-up, and a
+# module with no recorded timing is assumed to take 60s (the table's p90 is 24s, its
+# maximum 612s): conservative, so an unknown module is not mistaken for a free one.
+DEFAULT_BUDGET_SECONDS = 1200
+MODULE_OVERHEAD_SECONDS = 10
+UNKNOWN_MODULE_SECONDS = 60
 
 # The census is never trimmed. A PR editing more than OWN_CAP test modules is a sweep: the
 # job's time budget cannot hold it, and the merge queue runs the rest.
@@ -179,8 +192,37 @@ def derived_modules(root: Path, changed: dict, own: set, cap: int, log) -> list:
             continue
         out.append(m)
     if len(out) > cap:
-        log(f"  derived modules capped at {cap} of {len(out)}; the merge queue runs the rest")
+        for m in out[cap:]:
+            log(f"::warning::{m} NOT run on the PR (derived-module cap {cap}); the merge queue runs it")
     return out[:cap]
+
+
+def load_timings(path: Path = TIMINGS_FILE) -> dict:
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(v, (int, float))}
+
+
+def estimate(module: str, timings: dict) -> float:
+    return timings.get(module, UNKNOWN_MODULE_SECONDS) + MODULE_OVERHEAD_SECONDS
+
+
+def within_budget(candidates: list, timings: dict, budget: float, warn) -> list:
+    """Keep candidates in priority order while their summed estimate fits `budget`.
+    A module that does not fit is dropped and the next, smaller one is still tried. Every
+    drop is a ::warning:: so it shows on the PR's checks page, not only in the log."""
+    kept, spent = [], 0.0
+    for m in candidates:
+        cost = estimate(m, timings)
+        if spent + cost <= budget:
+            kept.append(m)
+            spent += cost
+        else:
+            warn(f"::warning::{m} NOT run on the PR (estimated {cost:.0f}s, time budget "
+                 f"{budget:.0f}s used {spent:.0f}s); the merge queue runs it")
+    return kept
 
 
 def census_modules(root: Path, census_file: Path = CENSUS_FILE) -> list:
@@ -203,14 +245,18 @@ def census_modules(root: Path, census_file: Path = CENSUS_FILE) -> list:
 
 
 def select(root: Path, changed: dict, derived_cap=DEFAULT_DERIVED_CAP, own_cap=DEFAULT_OWN_CAP,
-           census_file: Path = CENSUS_FILE, log=lambda _m: None) -> list:
+           census_file: Path = CENSUS_FILE, log=lambda _m: None, timings=None,
+           budget=DEFAULT_BUDGET_SECONDS) -> list:
+    timings = load_timings() if timings is None else timings
     census = census_modules(root, census_file)
     own = own_modules(root, changed, log)
     if len(own) > own_cap:
-        log(f"  own modules capped at {own_cap} of {len(own)}; the merge queue runs the rest")
+        for m in own[own_cap:]:
+            log(f"::warning::{m} NOT run on the PR (own-module cap {own_cap}); the merge queue runs it")
         own = own[:own_cap]
     derived = derived_modules(root, changed, set(own) | set(census), derived_cap, log)
-    ordered = list(dict.fromkeys(census + own + derived))
+    extras = within_budget(own + derived, timings, budget, log)
+    ordered = list(dict.fromkeys(census + extras))
     if not ordered:
         raise SelectionError("empty selection")
     return sorted(ordered)
@@ -222,6 +268,8 @@ def main(argv=None) -> int:
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--github-output", help="append `modules=<space separated>` to this file")
     ap.add_argument("--derived-cap", type=int, default=DEFAULT_DERIVED_CAP)
+    ap.add_argument("--budget", type=float, default=DEFAULT_BUDGET_SECONDS,
+                    help="estimated seconds allowed for own+derived modules (census is never dropped)")
     ap.add_argument("--own-cap", type=int, default=DEFAULT_OWN_CAP)
     args = ap.parse_args(argv)
 
@@ -231,7 +279,7 @@ def main(argv=None) -> int:
     try:
         changed = changed_paths(args.base, args.head)
         log(f"{len(changed)} changed paths in {args.base[:9]}..{args.head[:9]}")
-        mods = select(REPO_ROOT, changed, args.derived_cap, args.own_cap, log=log)
+        mods = select(REPO_ROOT, changed, args.derived_cap, args.own_cap, log=log, budget=args.budget)
     except SelectionError as exc:
         log(f"select_pr_test_modules: {exc}")
         return 2

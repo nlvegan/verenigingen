@@ -5,7 +5,7 @@
 #
 # Admission rule: the module reads the tree/registries (not just one module's behaviour)
 # and runs in well under a minute. Seconds are local, test_site_2, 2026-11-09, ONE
-# `bench run-tests --module` each including ~7s of process start-up. Total ~9.5 min.
+# `bench run-tests --module` each including ~7s of process start-up. Total ~10 min.
 # A line that no longer resolves to a module with a test class FAILS the selector: delete
 # a census module's line in the same PR that deletes the module, never leave it dangling.
 #
@@ -42,3 +42,4 @@ verenigingen.tests.test_hooks_modules                         # 3s   hooks.py pa
 verenigingen.tests.test_doctype_permission_rows               # 2s
 verenigingen.tests.test_check_new_test_failures               # 2s   committed failure baseline stays empty
 verenigingen.tests.services.test_fee_change_history_single_writer  # 2s
+verenigingen.tests.safety.test_payment_mixin_dead_code_verification  # 9s  deleted payment_mixin methods stay uncalled (tree scan)

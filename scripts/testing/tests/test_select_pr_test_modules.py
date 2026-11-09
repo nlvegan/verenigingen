@@ -121,6 +121,38 @@ class SelectionRules(SelectorCase):
         self.assertEqual(len(got), 3)
         self.assertIn(CENSUS_MOD, got)
 
+    def test_budget_drops_lowest_priority_extras_and_keeps_the_census(self):
+        for i in range(3):
+            self.write(f"verenigingen/tests/test_big_{i}.py", TEST_SRC)
+        # own modules come before derived ones, in order; each costs timing + overhead.
+        t = {"verenigingen.tests.test_big_0": 100, "verenigingen.tests.test_big_1": 100,
+             "verenigingen.tests.test_big_2": 100}
+        budget = 2 * (100 + sel.MODULE_OVERHEAD_SECONDS)
+        warnings = []
+        got = self.pick(timings=t, budget=budget, log=warnings.append)
+        self.assertEqual(sorted(got), sorted([CENSUS_MOD, "verenigingen.tests.test_big_0", "verenigingen.tests.test_big_1"]))
+        dropped = [w for w in warnings if w.startswith("::warning::") and "test_big_2" in w]
+        self.assertEqual(len(dropped), 1, warnings)
+
+    def test_budget_never_drops_the_census_even_when_it_alone_exceeds_it(self):
+        self.assertEqual(self.pick(timings={CENSUS_MOD: 10_000}, budget=1), [CENSUS_MOD])
+
+    def test_a_module_without_a_recorded_timing_costs_the_conservative_default(self):
+        self.write("verenigingen/tests/test_unknown.py", TEST_SRC)
+        cost = sel.UNKNOWN_MODULE_SECONDS + sel.MODULE_OVERHEAD_SECONDS
+        self.assertEqual(sel.estimate("verenigingen.tests.test_unknown", {}), cost)
+        self.assertIn("verenigingen.tests.test_unknown", self.pick(timings={}, budget=cost))
+        self.assertNotIn("verenigingen.tests.test_unknown", self.pick(timings={}, budget=cost - 1))
+
+    def test_a_dropped_smaller_module_after_a_too_big_one_is_still_tried(self):
+        got = sel.within_budget(["a.b", "c.d"], {"a.b": 500, "c.d": 5}, 100, lambda _m: None)
+        self.assertEqual(got, ["c.d"])
+
+    def test_the_committed_timings_table_loads(self):
+        t = sel.load_timings()
+        self.assertGreater(len(t), 100)
+        self.assertTrue(all(isinstance(v, (int, float)) for v in t.values()))
+
     def test_hostile_file_names_never_reach_the_output(self):
         for name in ("test_$(touch pwned).py", "test_a b.py", "test_a;b.py", "test_`x`.py",
                      "test_quo'te.py", "test_dash-ed.py", "test_new\nline.py", "test_trail.py\n"):
