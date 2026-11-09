@@ -519,7 +519,14 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
 
 
 def _approve_membership_application_locked(
-    member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer, applied_chapter=None
+    member_name,
+    membership_type,
+    chapter,
+    notes,
+    create_invoice,
+    activate_as_volunteer,
+    application_name=None,
+    applied_chapter=None,
 ):
     """Core approval logic, run by approve_application while it holds the per-application advisory lock.
 
@@ -616,6 +623,7 @@ def _approve_membership_application_locked(
         invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
     membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
+    _mark_invoice_failed(application_name, create_invoice, invoice)
     billing_amount = _calculate_billing_amount(member, invoice, membership_type_doc)
     should_activate_volunteer = _activate_volunteer_if_requested(member, activate_as_volunteer)
     user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
@@ -724,11 +732,9 @@ def _approve_application_locked(
             notes,
             create_invoice,
             activate_as_volunteer,
+            application_name=application.name,
             applied_chapter=application.chapter,
         )
-        if response.get("invoice_failed"):
-            # Staff can retry only a marked application (#1900); create_invoice=False is never marked.
-            application.db_set("invoice_failed_on", now_datetime(), update_modified=False)
     except NON_RESUMABLE_DB_ERRORS:
         raise  # the server already discarded the transaction, and the savepoint with it
     except Exception:  # swallow-ok: re-raised below
@@ -738,6 +744,26 @@ def _approve_application_locked(
     response["member"] = member.name
     response["application"] = application.name
     return response
+
+
+def _mark_invoice_failed(application_name, create_invoice, invoice):
+    """Persist the retry marker (#1900) for an application whose REQUESTED invoice could not be created.
+
+    Called inside the core right after the invoice step and BEFORE the account step, whose own commit
+    (member_user_account_service, Pattern 1) persists it together with the Approval. Written after the core
+    returned (#2055) it came after that commit, so a crash in between left an Approved application with a
+    failed invoice and no marker: never in the retry list, its held approval mail never sent. Staff can retry
+    only a marked application; create_invoice=False is never marked. The core is also called without an
+    application (tests only; one production caller), which has nothing to mark.
+    """
+    if application_name and create_invoice and not invoice:
+        frappe.db.set_value(
+            "Membership Application Submission",
+            application_name,
+            "invoice_failed_on",
+            now_datetime(),
+            update_modified=False,
+        )
 
 
 def _lock_pending_review_application(application_name, refusal):
