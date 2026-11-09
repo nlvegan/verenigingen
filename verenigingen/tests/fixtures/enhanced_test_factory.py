@@ -4069,6 +4069,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             ensure_root_customer_group()
             ensure_root_supplier_group()
 
+            # Mode of Payment masters ("Manual", "Mollie", ...): Member.payment_method
+            # links to them. before_tests seeds them, but the runner only runs
+            # before_tests for the "integration" category; a module it files under
+            # "unspecified" (the case for every EnhancedTestCase subclass run with
+            # `run-tests --module` on a fresh site) never sees it, and the first
+            # create_test_member(payment_method="Manual") dies on
+            # "Could not find Payment Method: Manual". Idempotent, and Mode of
+            # Payment is in DRAIN_EXEMPT_DOCTYPES so the drain leaves the seed alone.
+            from verenigingen.services.member.approval.application_helpers import (
+                ensure_payment_modes_exist,
+            )
+
+            ensure_payment_modes_exist()
+
             # Ensure master data exists
             self._ensure_master_data()
 
