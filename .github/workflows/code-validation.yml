@@ -63,11 +63,15 @@ jobs:
         # template_escaping_validator (#1890) and its unit test parse Jinja
         pip install jinja2
 
+    # #2190: no `|| echo`. continue-on-error keeps this job green (the other validators here
+    # are advisory too) but, unlike the `|| echo`, leaves the step's `outcome` real, so the
+    # Validation Summary below no longer prints PASSED over a finding. The blocking run is
+    # the required `fast-validation` job.
     - name: Run Database Field Validation
       id: field-validation
       run: |
         cd scripts/validation
-        python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
+        python enhanced_field_reference_validator.py --pre-commit
       continue-on-error: true
 
     - name: Run Template Variable Validation
@@ -1543,8 +1547,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # merge_group: skipped ON PURPOSE (a job skipped by `if:` reports success). Its validator
-    # ends in `|| echo`, so this job cannot fail; its only effect is a PR comment, and a queue
-    # run has no PR to comment on. Revisit if #2190 makes the validator able to fail.
+    # used to end in `|| echo` (#2190); it now fails the job on a finding. A queue
+    # run has no PR to comment on. #2190 made the validator able to fail, so a queue run
+    # now relies on the PR-time run of this job (a PR run compares one PR at a time).
+    # NB #2323: the validator is currently blind (swallowed AttributeError), so this still finds nothing.
     if: github.event_name == 'pull_request'
 
     steps:
@@ -1565,7 +1571,7 @@ jobs:
       id: validation
       run: |
         cd scripts/validation
-        python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
+        python enhanced_field_reference_validator.py --pre-commit
 
     - name: Comment PR Results
       # merge_group: never reached - the fast-validation job above is pull_request only.
