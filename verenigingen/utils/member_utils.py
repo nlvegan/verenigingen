@@ -93,8 +93,8 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
         rolls back frappe.log_error()'s Error Log row, leaving no trace.
 
         Callers that genuinely want to degrade to None must catch it themselves -
-        auth_hooks.get_default_home_page() and
-        SelfServiceAccessController.get_user_member() already do.
+        auth_hooks.get_default_home_page() does. SelfServiceAccessController.
+        get_user_member() used to and no longer does: it refuses (#2297).
     """
     if not user_email:
         frappe.logger().warning("get_member_name_for_user called with empty user_email")
