@@ -396,3 +396,13 @@ class TestStaleSettingsSaveKeepsCounter(TestMemberIDStartMovesCounter):
         stale.save()
         self.assertEqual(self._counter(), last)
         self.assertEqual(MemberIDManager.get_next_member_id(), last + 1)
+
+    def test_stale_save_with_an_empty_stored_counter_keeps_the_doc_value(self):
+        # Probe shortcut: no real flow writes '' to tabSingles; it is set directly to
+        # prove an empty value is treated like a missing one, not as counter 0.
+        counter = self.max_id + 400
+        self._preset(self.max_id + 10, counter)
+        doc = frappe.get_doc(DOCTYPE)
+        frappe.db.sql("UPDATE `tabSingles` SET value='' WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
+        doc.save()
+        self.assertEqual(self._counter(), counter)

@@ -27,15 +27,17 @@ class VerenigingenSettings(Document):
         The field is read-only and owned by ``MemberIDManager.get_next_member_id``,
         but a Single save rewrites every field from the in-memory doc, so a form
         loaded before IDs were issued would roll the counter back and let them be
-        issued again. Re-read the real value under the same FOR UPDATE lock the
-        issuer takes; the lock is held until the commit in ``on_update``, so no ID
-        can be issued between this read and the write.
+        issued again. Re-read the issued value here so a stale doc cannot write it
+        back. The FOR UPDATE mirrors the issuer's lock; it is NOT claimed to make
+        read-and-write atomic against a concurrent issuer (a concurrent issuer can
+        still hit a deadlock here, see #2339).
         """
         row = frappe.db.sql(
             "SELECT value FROM `tabSingles` WHERE doctype = %s AND field = 'last_member_id' FOR UPDATE",
             (self.doctype,),
         )
-        if row and row[0][0] is not None:
+        # NULL or '' (an empty Singles value) carries no counter: keep the doc's value.
+        if row and row[0][0] not in (None, ""):
             self.last_member_id = cint(row[0][0])
 
     def on_update(self):
