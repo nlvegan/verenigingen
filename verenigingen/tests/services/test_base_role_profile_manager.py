@@ -388,15 +388,25 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         user = self._make_system_user()
         self.team_manager.assign_role_profile(user, team)
 
+        fired = []
+
         def _raising_after_commit_callback():
+            fired.append(True)
             raise frappe.OutgoingEmailError("no outgoing mail account")
 
         frappe.db.after_commit.add(_raising_after_commit_callback)
         try:
             result = self.team_manager.remove_role_profile(user, team)
         finally:
-            frappe.db.after_commit.reset()
+            # Remove only our own callback (it may already have been popped by a commit).
+            try:
+                frappe.db.after_commit._functions.remove(_raising_after_commit_callback)
+            except ValueError:
+                pass
 
+        # Pins "no mid-request commit": frappe commits BEFORE running after_commit, so
+        # a commit wrapped in try/except would still leave the outcome below intact.
+        self.assertEqual(fired, [], "remove_role_profile committed mid-request")
         self.assertTrue(result["success"], result)
         self.assertNotIn(profile, self._assigned_profiles(user))
 
