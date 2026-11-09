@@ -143,6 +143,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mijnrood_chapter_move_failed": {
+        "label": "MijnRood Chapter Move Failed (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood division change could not move a member to the new chapter "
+        "(the member stays in the old one and MijnRood will not resend the change). At most once a day per "
+        "member, chapter and reason. The mail names the member, the chapters and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -878,6 +887,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "payment_plan_request",
         "zabbix_system_alert",
         "mijnrood_disabled_default_type",
+        "mijnrood_chapter_move_failed",
     }
 )
 

@@ -457,6 +457,7 @@ class TestStaffAlertEvent(FrappeTestCase):
                 INFO_KEY,
                 "dues_schedule_creation_failed",
                 "mijnrood_disabled_default_type",
+                "mijnrood_chapter_move_failed",
                 # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
                 # is marked staff_alert=True like the rest; the loop below still checks every flag.
                 "ponto_executed_unbookable",
