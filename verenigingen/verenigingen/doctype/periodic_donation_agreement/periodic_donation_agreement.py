@@ -483,8 +483,8 @@ class PeriodicDonationAgreement(Document):
                 notification_key="periodic_donation_cancellation",
             )
 
-            # Only a mail that was really queued counts: a skip (cooldown, disabled key, opt-out)
-            # or a failure must stay retryable (#2178)
+            # Only a mail that was really queued counts: a skipped (cooldown, disabled key,
+            # opt-out) or failed mail must not be recorded as sent (#2178)
             if result.success and not result.skip_reason:
                 self.db_set("cancellation_confirmation_sent", 1)
 

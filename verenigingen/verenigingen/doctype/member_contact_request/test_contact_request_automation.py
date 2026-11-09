@@ -30,6 +30,8 @@ from verenigingen.tests.utils.reminder_mail_state import (
     ensure_outgoing_email_account,
 )
 
+NO_ACCOUNT = "verenigingen.services.communication.email_service.EmailService._has_active_email_account"
+
 
 class TestContactRequestAutomation(VereningingenTestCase):
     """Integration tests for the contact request automation module."""
@@ -211,6 +213,47 @@ class TestContactRequestAutomation(VereningingenTestCase):
         request.reload()
         self.assertNotIn("Managers notified", request.notes or "")
         self.assertEqual(_sendmail.call_count, 0)
+
+    @patch("frappe.sendmail")
+    def test_follow_up_with_unqueued_mail_does_not_advance_follow_up_date(self, _sendmail):
+        from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (
+            send_follow_up_reminders,
+        )
+
+        own_notification_keys(self, "contact_request_assigned")
+        ensure_outgoing_email_account(self)
+        request = self._make_contact_request(
+            subject="Unqueued follow-up", status="Open", follow_up_date=today(), assigned_to="Administrator"
+        )
+
+        # Mock justified: infrastructure absence (no usable outgoing Email Account).
+        with patch(NO_ACCOUNT, return_value=False):
+            send_follow_up_reminders()
+
+        request.reload()
+        self.assertEqual(str(request.follow_up_date), today())
+
+    @patch("frappe.sendmail")
+    def test_escalation_with_unqueued_mail_does_not_claim_managers_notified(self, _sendmail):
+        from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (
+            escalate_overdue_requests,
+        )
+
+        own_notification_keys(self, "contact_request_escalated")
+        ensure_outgoing_email_account(self)
+        request = self._make_contact_request(
+            subject="Unqueued escalation",
+            status="Open",
+            urgency="Urgent",
+            request_date=add_days(today(), -5),
+        )
+
+        # Mock justified: infrastructure absence (no usable outgoing Email Account).
+        with patch(NO_ACCOUNT, return_value=False):
+            escalate_overdue_requests()
+
+        request.reload()
+        self.assertNotIn("Managers notified", request.notes or "")
 
     @patch("frappe.sendmail")
     def test_escalate_overdue_requests_skips_recent_low_urgency(self, _sendmail):

@@ -198,7 +198,7 @@ class TestUnreadEmailResultClaimsSent(VereningingenTestCase):
 
     # ---- RETURN VALUE: SEPA test_notification_system endpoint ------------------
 
-    def _test_notification_endpoint(self, enabled):
+    def _test_notification_endpoint(self, enabled, no_account=False):
         from verenigingen.tests.payment.test_sepa_literal_recipients import (
             _put_key_row,
             _restore_rows,
@@ -212,7 +212,12 @@ class TestUnreadEmailResultClaimsSent(VereningingenTestCase):
         own_notification_keys(self, "email_template_test")
         _put_key_row("email_template_test", "Fixed", fixed_recipients="probe-2178@example.org", enabled=enabled)
         before = queued_mail_count("probe-2178@example.org")
-        result = test_notification_system()
+        if no_account:
+            # Mock justified: infrastructure absence (no usable outgoing Email Account).
+            with patch(NO_ACCOUNT, return_value=False):
+                result = test_notification_system()
+        else:
+            result = test_notification_system()
         return result, queued_mail_count("probe-2178@example.org") - before
 
     def test_notification_endpoint_reports_success_when_queued(self):
@@ -224,3 +229,8 @@ class TestUnreadEmailResultClaimsSent(VereningingenTestCase):
         result, queued = self._test_notification_endpoint(enabled=0)
         self.assertEqual(queued, 0)
         self.assertFalse(result["success"], "nothing was sent, so the endpoint must not say so")
+
+    def test_notification_endpoint_not_queued_is_not_reported_sent(self):
+        result, queued = self._test_notification_endpoint(enabled=1, no_account=True)
+        self.assertEqual(queued, 0)
+        self.assertFalse(result["success"], "a failed mail must not be reported as sent")

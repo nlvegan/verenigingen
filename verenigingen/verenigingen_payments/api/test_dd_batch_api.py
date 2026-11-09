@@ -635,18 +635,33 @@ class TestDDBatchAPI(EnhancedTestCase):
 
     # --------------------------------- escalate_conflicts reports a skipped mail as sent (#2178)
 
-    def _escalate_through_real_email_service(self, enabled):
+    def _escalate_through_real_email_service(self, enabled, no_account=False):
         """Real EmailService, one fixed recipient; ``enabled`` toggles the sepa_batch_error key."""
         from verenigingen.tests.utils.notification_state import own_notification_keys
-        from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
+        from verenigingen.tests.utils.reminder_mail_state import (
+            clear_email_cooldowns,
+            ensure_outgoing_email_account,
+        )
 
         rows = _snapshot_rows()
         self.addCleanup(_restore_rows, rows)
         ensure_outgoing_email_account(self)
+        # Redis cooldown keys survive rollback: an earlier test's send would turn this one into a skip
+        clear_email_cooldowns()
+        self.addCleanup(clear_email_cooldowns)
         own_notification_keys(self, "sepa_batch_error")
         _put_key_row("sepa_batch_error", "Fixed", fixed_recipients="board-2178@example.org", enabled=enabled)
         batch, *_ = self._make_batch()
-        result = escalate_conflicts(batch.name, [{"member_name": "J", "error": "x", "type": "t"}])
+        conflicts = [{"member_name": "J", "error": "x", "type": "t"}]
+        if no_account:
+            # Mock justified: infrastructure absence (no usable outgoing Email Account).
+            with patch(
+                "verenigingen.services.communication.email_service.EmailService._has_active_email_account",
+                return_value=False,
+            ):
+                result = escalate_conflicts(batch.name, conflicts)
+        else:
+            result = escalate_conflicts(batch.name, conflicts)
         # EnhancedTestCase captures frappe.sendmail, so "queued" is read from the capture.
         return result, len(self.get_sent_emails(to="board-2178@example.org"))
 
@@ -659,6 +674,11 @@ class TestDDBatchAPI(EnhancedTestCase):
         result, queued = self._escalate_through_real_email_service(enabled=0)
         self.assertEqual(queued, 0)
         self.assertEqual(result["notifications_sent"], 0, "a skipped mail notified nobody")
+
+    def test_escalation_not_queued_mail_is_not_counted_as_sent(self):
+        result, queued = self._escalate_through_real_email_service(enabled=1, no_account=True)
+        self.assertEqual(queued, 0)
+        self.assertEqual(result["notifications_sent"], 0, "a failed mail notified nobody")
 
     # ----------------------------------------------------- calculate_eligibility_score
 
