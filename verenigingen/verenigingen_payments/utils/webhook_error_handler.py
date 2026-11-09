@@ -12,7 +12,9 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.verenigingen_payments.utils.shared.responses import ResponseBuilder
+from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once
 
 
 class WebhookErrorHandler:
@@ -49,9 +51,17 @@ class WebhookErrorHandler:
 
         # Log full traceback for exceptions
         if exception:
-            frappe.log_error(
+            # One row per (webhook type, failure label, exception class, caller IP) per hour: the
+            # handlers run for anonymous callers, and the correlation id is minted per request, so a
+            # title or key carrying it (as this used to) gave every failing request its own row (#2251).
+            # The label is the static text before the first colon; what follows is the exception text.
+            log_error_once(
+                f"{self.webhook_type.title()} Error",
                 f"{message}: {str(exception)}\n\nCorrelation ID: {self.correlation_id}\n\n{traceback.format_exc()}",
-                f"{self.webhook_type.title()} Error [{self.correlation_id}]",
+                self.webhook_type,
+                message.split(":", 1)[0][:80],
+                type(exception).__name__,
+                get_client_ip(),
             )
 
     def handle_validation_error(self, error_message: str, details: Optional[Dict] = None) -> Dict[str, Any]:
