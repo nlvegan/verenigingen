@@ -85,6 +85,8 @@ class MijnRoodEventApplicationService(StatefulService):
             # Security: System-internal sync event status update, not user-facing
             event.save(ignore_permissions=True)
             frappe.db.commit()
+            # After the commit, so a rollback cannot take the alert back (#2199).
+            get_related_records_orchestrator().flush_pending_alerts()
             return result
 
         except NON_RESUMABLE_DB_ERRORS as e:
@@ -98,6 +100,7 @@ class MijnRoodEventApplicationService(StatefulService):
             # realtime payload and continues. Without recording, a deadlock during a
             # privilege revocation produces no Error Log, no error_message and a toast.
             frappe.db.rollback()
+            get_related_records_orchestrator().discard_pending_alerts()
             error_msg = str(e)[:500]
             self.logger.error("Non-resumable DB error applying event %s: %s", event_name, error_msg)
             frappe.log_error(
@@ -124,6 +127,7 @@ class MijnRoodEventApplicationService(StatefulService):
             # are already durable before role processing starts. Both are out of this
             # frame's reach; noted as separate pre-existing issues.
             frappe.db.rollback()
+            get_related_records_orchestrator().discard_pending_alerts()
 
             error_msg = str(e)[:500]
             self.logger.error("Failed to apply event %s: %s", event_name, error_msg)

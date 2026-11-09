@@ -20,6 +20,9 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
+    MijnRoodEventApplicationService as EventApplicationService,
+)
 from verenigingen.mijnrood_sync.services.event_application.dispatcher import get_event_application_service
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -204,3 +207,106 @@ class TestFailedChapterMoveAlert2199(EnhancedTestCase):
         self.assertEqual(self._chapter_rows_2199(), {self.source.name: 1})
         self.assertEqual(len(self._staff_alert_events()), 1)
         self.assertGreater(self._sent(self.member.name), 0)
+
+    # ---- the alert must survive the event's own rollbacks (review F1) --------------------------------
+    def _member_update_fails(self):
+        """Mock justified: fault injection at the member-import boundary: the update after the move is
+        refused, which makes apply_changed_member undo the transfer (savepoint)."""
+        return patch(
+            "verenigingen.services.csv_import.member_import_service.MemberImportService.create_or_update_member",
+            return_value=("failed", None),
+        )
+
+    def test_a_failed_move_still_alerts_when_the_member_update_then_fails_and_the_transfer_is_undone(self):
+        self._break_source()
+        with self._member_update_fails():
+            result = self._apply_division_change()
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_rows_2199(), {self.source.name: 1})
+        self.assertGreater(self._sent(self.member.name), 0, "the alert was rolled back with the transfer")
+
+    def _first_apply_rolled_back_in_full(self, fault):
+        """Apply the failing-move event once under ``fault`` with a full rollback emulated.
+
+        Mock justified: the harness holds its fixtures in one uncommitted transaction (a real rollback()
+        would delete the member), so the full rollback is emulated as a rollback to a savepoint taken
+        before the apply: the same loss of every uncommitted write.
+        """
+        self.expectErrorLog("MijnRood Event Application Failed")
+        frappe.db.savepoint("full_rollback_2199")
+        real_rollback = frappe.db.rollback
+        # Mock justified: recording the failure on the event commits (it would commit the harness's
+        # fixtures and destroy the savepoint); it has no bearing on the alert.
+        with fault, patch.object(
+            EventApplicationService, "_record_event_failure"
+        ), patch.object(
+            frappe.db, "rollback", side_effect=lambda **kw: real_rollback(save_point="full_rollback_2199")
+        ):
+            return self._apply_division_change()
+
+    def _assert_the_re_apply_alerts(self, first):
+        self.assertFalse(first["success"], first)
+        self.assertEqual(self._sent(self.member.name), 0, "control: the rollback took the first attempt")
+
+        second = self._apply_division_change()
+
+        self.assertTrue(second["success"], second)
+        self.assertGreater(self._sent(self.member.name), 0, "the re-apply must alert")
+
+    def test_a_lost_alert_is_sent_when_the_event_is_re_applied_after_a_full_rollback(self):
+        """The event raises after the move failed: apply_event rolls everything back, alert included. The
+        re-apply must alert; a 24h claim taken before the rollback would swallow it."""
+        self._break_source()
+        # Mock justified: fault injection; an unexpected exception after the chapter step.
+        fault = patch(
+            "verenigingen.services.csv_import.member_import_service.MemberImportService.create_or_update_member",
+            side_effect=RuntimeError("boom-2199"),
+        )
+
+        self._assert_the_re_apply_alerts(self._first_apply_rolled_back_in_full(fault))
+
+    def test_a_lost_alert_is_sent_when_saving_the_event_fails_after_the_move_failed(self):
+        """The alert is sent only once the event is committed: a save that raises rolls the event back."""
+        from verenigingen.mijnrood_sync.doctype.mijnrood_sync_event.mijnrood_sync_event import MijnRoodSyncEvent
+
+        self._break_source()
+        # Mock justified: fault injection; the event row cannot be saved.
+        fault = patch.object(MijnRoodSyncEvent, "save", side_effect=[RuntimeError("save-2199")] + [None] * 5)
+        # Mock justified: the real member update commits on its own, which would destroy the emulated
+        # rollback's savepoint; the failing step under test is the event save, not the member update.
+        member_update = patch(
+            "verenigingen.services.csv_import.member_import_service.MemberImportService.create_or_update_member",
+            return_value=("updated", self.member.name),
+        )
+
+        with member_update:
+            first = self._first_apply_rolled_back_in_full(fault)
+            self._assert_the_re_apply_alerts(first)
+
+    # ---- the claim is released when nothing was delivered (review F2) -------------------------------
+    def test_a_claim_is_released_when_the_alert_raises(self):
+        self._break_source()
+        with patch(
+            "verenigingen.utils.notification_helpers.notify_administrators", side_effect=RuntimeError("x-2199")
+        ):
+            self.expectErrorLog("MijnRood chapter-move alert failed")
+            self._apply_division_change()
+        self.assertEqual(self._sent(self.member.name), 0, "control: the first alert raised")
+
+        self._apply_division_change()
+
+        self.assertGreater(self._sent(self.member.name), 0, "a raised alert must not hold the claim")
+
+    def test_a_claim_is_released_when_the_alert_reaches_nobody(self):
+        self._break_source()
+        with patch(
+            "verenigingen.utils.notification_helpers.notify_administrators",
+            return_value={"success": True, "notifications_created": 0},
+        ):
+            self._apply_division_change()
+        self.assertEqual(self._sent(self.member.name), 0, "control: nobody was reached")
+
+        self._apply_division_change()
+
+        self.assertGreater(self._sent(self.member.name), 0, "an undelivered alert must not hold the claim")

@@ -61,6 +61,10 @@ class MijnRoodRelatedRecordsOrchestrator:
         # member and volunteer entry points log one Error Log row between them. Not "queued":
         # nothing was queued, and is_acr_queued() must stay False.
         self._acr_blocked_reported: set[tuple[str, str]] = set()
+        # Failed chapter moves seen during the current event, alerted by flush_pending_alerts() once the
+        # event is committed (#2199): the alert's rows and its once-a-day claim must not be taken inside a
+        # transaction the event may still roll back.
+        self._pending_move_alerts: list[tuple[str, str, str, str]] = []
 
     def reset_acr_dedup(self) -> None:
         """Clear the per-event ACR dedup set.
@@ -70,6 +74,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         """
         self._acr_queued_members.clear()
         self._acr_blocked_reported.clear()
+        self.discard_pending_alerts()
 
     def is_acr_queued(self, member_name: str) -> bool:
         """True if an ACR has already been queued for this member in the
@@ -246,18 +251,42 @@ class MijnRoodRelatedRecordsOrchestrator:
         self._alert_chapter_move_failed(member_name, chapter_name, reason, event)
         return _("Chapter assignment failed: {0}").format(reason)
 
+    def discard_pending_alerts(self) -> None:
+        """Forget the failed moves of an event that was rolled back: its re-apply will see them again."""
+        self._pending_move_alerts.clear()
+
+    def flush_pending_alerts(self) -> None:
+        """Send the alerts queued during the event. Call only AFTER the event's commit (#2199).
+
+        Sent inside the event, the Notification Log rows were undone by the savepoint that backs out a
+        failed member update and by the full rollback, while the once-a-day claim in Redis survived and
+        suppressed every retry. Here a rollback can no longer take them back, and a rolled-back event
+        never reaches this method, so its re-apply alerts instead of finding a stale claim.
+        """
+        pending, self._pending_move_alerts = self._pending_move_alerts, []
+        for member_name, chapter_name, reason, event_name in pending:
+            self._alert_chapter_move_failed_now(member_name, chapter_name, reason, event_name)
+
     def _alert_chapter_move_failed(self, member_name: str, chapter_name: str, reason: str, event) -> None:
-        """Tell staff once a day that a MijnRood chapter move did not happen (#2199).
+        """Queue the staff alert for a chapter move that did not happen (#2199), sent after the commit.
 
         The event is consumed either way and MijnRood does not resend, so without this the only trace is
-        the applied message. The alert must never undo the sync, so a failure here is logged and swallowed.
+        the applied message.
         """
+        self._pending_move_alerts.append(
+            (member_name, chapter_name, reason, getattr(event, "name", "") or "")
+        )
+
+    def _alert_chapter_move_failed_now(
+        self, member_name: str, chapter_name: str, reason: str, event_name: str
+    ) -> None:
+        """Tell staff once a day. The alert must never undo the sync, so a failure here is logged and swallowed."""
         claim = move_failed_alert_claim_key(member_name, chapter_name, reason)
         try:
             # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
             if not frappe.cache.set(claim, "1", ex=MOVE_FAILED_REALERT_SECONDS, nx=True):
                 return
-            delivered = self._send_chapter_move_failed_alert(member_name, chapter_name, reason, event)
+            delivered = self._send_chapter_move_failed_alert(member_name, chapter_name, reason, event_name)
         except Exception:
             frappe.cache.delete(claim)  # so the next failure tries again
             frappe.log_error(title="MijnRood chapter-move alert failed", message=frappe.get_traceback())
@@ -266,7 +295,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
 
     def _send_chapter_move_failed_alert(
-        self, member_name: str, chapter_name: str, reason: str, event
+        self, member_name: str, chapter_name: str, reason: str, event_name: str
     ) -> bool:
         """Raise the staff alert; True when at least one notification was actually created."""
         from frappe.utils import escape_html
@@ -286,7 +315,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 f"is still in: <b>{escape_html(', '.join(sources) or 'no chapter')}</b>.</p>"
                 f"<p>Reason: {escape_html(reason)}</p>"
                 f"<p>Action required: fix the cause and move the member by hand. MijnRood will not send "
-                f"this change again (event {escape_html(getattr(event, 'name', '') or '')}). This alert "
+                f"this change again (event {escape_html(event_name)}). This alert "
                 "repeats at most once a day for the same member, chapter and reason.</p>"
             ),
             notification_key="mijnrood_chapter_move_failed",  # literal: key discovery greps for it
