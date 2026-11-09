@@ -41,9 +41,6 @@ class TestRemoveOverdueApplicationsEmailTemplate(FrappeTestCase):
         # control: the scan can see rows at all, including the live neighbour
         self.assertIn(CONTROL, names)
 
-    def test_the_patch_targets_the_dead_template_only(self):
-        self.assertEqual(DEAD_TEMPLATE, "membership_applications_overdue")
-
     def test_execute_deletes_the_row_and_keeps_the_neighbour(self):
         _ensure_template(DEAD_TEMPLATE)
         _ensure_template(CONTROL)

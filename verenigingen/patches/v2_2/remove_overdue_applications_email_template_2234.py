@@ -12,7 +12,9 @@ Fixture sync inserts and updates but never deletes, so dropping the row from
 It deletes unconditionally, without comparing against the stock content (ruling #1984,
 "never update an existing template", is about setup overwriting edits, not about
 removing a template nobody can send): fixture sync re-imported the row on every migrate,
-so any hand edit was already being overwritten, and nothing references it by name.
+so any hand edit was already being overwritten (measured on test_site_8: a custom
+response came back as the stock one, `modified` reset, after `sync_fixtures`), and
+nothing references it by name.
 
 No explicit commit: the patch runner commits, and a commit here would escape the
 test transaction that exercises this module.
