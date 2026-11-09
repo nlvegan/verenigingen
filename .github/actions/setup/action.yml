@@ -34,6 +34,28 @@ inputs:
     description: 'Enable coverage collection'
     required: false
     default: 'false'
+  mode:
+    description: >-
+      full: build the whole bench here (checkouts, pip/JS installs, assets, site + apps).
+      restore: unpack the snapshot a `full` job with `snapshot: true` uploaded, import its
+      database and start bench - the shards' path (#2184: setup was ~7 min x 12 shards).
+    required: false
+    default: 'full'
+  snapshot:
+    description: "full mode only: 'true' packages the built bench + DB dump as an artifact"
+    required: false
+    default: 'false'
+  snapshot-name:
+    description: 'Artifact name the snapshot is uploaded under / downloaded from'
+    required: false
+    default: 'bench-snapshot'
+
+outputs:
+  python-version:
+    description: >-
+      The exact Python the bench was built with. A restore must use the same one: the venv's
+      interpreter symlink points into the runner's tool cache by full version.
+    value: ${{ steps.setup-python.outputs.python-version }}
 
 runs:
   using: "composite"
@@ -46,16 +68,19 @@ runs:
         git config --global advice.detachedHead false
 
     - name: Checkout Verenigingen
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/checkout@v4
       with:
         path: apps/${{ github.event.repository.name }}
 
     - name: Setup Python
+      id: setup-python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Validate Python Files
+      if: ${{ inputs.mode == 'full' }}
       shell: bash
       run: |
         python -m compileall -q -f "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}"
@@ -65,6 +90,7 @@ runs:
         fi
 
     - name: Checkout Frappe
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.frappe-user }}/frappe
@@ -84,6 +110,7 @@ runs:
     # imbalance only surfaces as a shard tipping over the 60-minute timeout weeks
     # later. Regenerate the patch against the current frappe; do not skip the step.
     - name: Apply parallel-shard weighting patch to Frappe
+      if: ${{ inputs.mode == 'full' }}
       shell: bash
       run: |
         PATCH="${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/frappe-parallel-test-weights.patch"
@@ -105,6 +132,7 @@ runs:
         check-latest: true
 
     - name: Cache pip
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
@@ -114,12 +142,23 @@ runs:
           ${{ runner.os }}-
 
     - name: Cache yarn
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/cache@v4
       with:
         path: ~/.cache/yarn
         key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
         restore-keys: |
           ${{ runner.os }}-yarn-
+
+    # This app is npm-managed (no yarn.lock), so its downloads never hit the yarn cache.
+    - name: Cache npm
+      if: ${{ inputs.mode == 'full' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-npm-${{ hashFiles('**/package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-npm-
 
     # wkhtmltopdf is taken from the upstream release asset rather than Ubuntu's
     # package because only the upstream build carries the patched Qt needed for
@@ -140,6 +179,38 @@ runs:
       with:
         path: /tmp/wkhtmltox.deb
         key: wkhtmltox-0.12.6.1-2-jammy-amd64
+
+    # The apt mirror is not down when a shard fails here, it is SLOW. Measured
+    # over 37 shards that failed `apt-get install` on 2026-11-06: the mirror was
+    # reachable and serving at ~25-45 kB/s, so the 13.6 MB install was still
+    # downloading when the 300 s backstop below killed it (7.6-13.3 MB fetched).
+    # Healthy shards of the same runs fetched the same 13.6 MB in 1-2 s. The
+    # wkhtmltopdf install pulls a further ~10 MB of fonts from the same mirror
+    # under its own 300 s budget, so trimming the package list alone would only
+    # move the failure one command later.
+    #
+    # So the .debs are cached and a warm shard fetches nothing from the mirror.
+    # Keyed per runner image and ISO week: within a week every shard restores
+    # the same set; a new week starts from the previous week's set (restore-keys)
+    # and only downloads what changed. Safe to reuse: apt checks every cached
+    # .deb against the hashes in the signed index it has just fetched, and
+    # re-downloads any that do not match, so a stale or bad file is never
+    # installed. Only `*.deb` is cached - apt's `partial/` subdirectory belongs to
+    # its sandbox user and would make the save step fail on an unreadable path.
+    - name: Compute apt archive cache key
+      id: apt-cache-key
+      shell: bash
+      run: |
+        echo "prefix=apt-archives-${ImageOS:-unknown}-" >> "$GITHUB_OUTPUT"
+        echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache apt archives
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/apt-archives/*.deb
+        key: ${{ steps.apt-cache-key.outputs.prefix }}${{ steps.apt-cache-key.outputs.week }}
+        restore-keys: |
+          ${{ steps.apt-cache-key.outputs.prefix }}
 
     - name: Install System Dependencies
       shell: bash
@@ -163,6 +234,13 @@ runs:
         Acquire::http::Timeout "30";
         Acquire::https::Timeout "30";
         APTCONF
+
+        # Every apt invocation below downloads into, and reuses, the cached
+        # archive directory (see the "Cache apt archives" step).
+        APT_ARCHIVES="$HOME/.cache/apt-archives"
+        mkdir -p "$APT_ARCHIVES/partial"
+        echo "cached .debs restored: $(find "$APT_ARCHIVES" -maxdepth 1 -name '*.deb' | wc -l)"
+        echo "Dir::Cache::Archives \"$APT_ARCHIVES/\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archive-cache >/dev/null
 
         # Wall-clock backstop, after erpnext's run_ci_step()
         # (.github/helper/install.sh). Composite-action steps cannot take
@@ -192,12 +270,20 @@ runs:
 
         apt_get remove -y mysql-server mysql-client || true
 
+        # mariadb-client: this action calls `mariadb` to prepare the database.
+        # libmariadb-dev: frappe pins mysqlclient, which builds against it.
+        # redis-server: never RUN here (Redis is the job's service containers),
+        # but `bench.config.redis.generate_config()` in Initialize Bench
+        # Environment shells out to `redis-server --version` with no fallback,
+        # so the binary must exist. It is not on the runner image.
+        # Not installed, although frappe's CI template does: libcups2-dev (only
+        # pycups needs it, and no app in the bench depends on pycups). It pulled
+        # 25 of the 37 packages, 7.1 of the 13.3 MB.
         if ! apt_get install -y \
-          libcups2-dev \
           redis-server \
           mariadb-client \
           libmariadb-dev; then
-          echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          echo "::error::apt-get install failed or timed out. The Ubuntu mirror is unreachable or too slow from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
           exit 1
         fi
 
@@ -231,9 +317,20 @@ runs:
           exit 1
         fi
 
-        apt_get install -y "$WKHTMLTOX_DEB"
+        # Its font dependencies (~10 MB) come from the same mirror, so this
+        # install fails the same way as the one above and says so the same way.
+        if ! apt_get install -y "$WKHTMLTOX_DEB"; then
+          echo "::error::apt-get install of wkhtmltopdf's dependencies failed or timed out. The Ubuntu mirror is unreachable or too slow from this runner. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          exit 1
+        fi
+
+        # Drop superseded versions so the weekly cache does not keep growing.
+        # Local only: autoclean reads the index fetched above, no download.
+        apt_get autoclean -y || true
+        echo "cached .debs to save: $(find "$APT_ARCHIVES" -maxdepth 1 -name '*.deb' | wc -l)"
 
     - name: Initialize Bench Environment
+      if: ${{ inputs.mode == 'full' }}
       shell: bash
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/{sites,config,logs,config/pids,sites/test_site}
@@ -313,6 +410,7 @@ runs:
         mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e "FLUSH PRIVILEGES"
 
     - name: Checkout ERPNext
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.erpnext-user }}/erpnext
@@ -320,6 +418,7 @@ runs:
         path: apps/erpnext
 
     - name: Checkout Payments
+      if: ${{ inputs.mode == 'full' }}
       uses: actions/checkout@v4
       with:
         repository: frappe/payments
@@ -327,6 +426,7 @@ runs:
         path: apps/payments
 
     - name: Checkout HRMS
+      if: ${{ inputs.mode == 'full' }}
       # verenigingen declares `hrms = ">=15.0.0"` and uses Expense Claim in core
       # (permissions, termination, account creation, volunteer expenses); without
       # it tabExpense Claim is absent and those suites error in CI.
@@ -337,6 +437,7 @@ runs:
         path: apps/hrms
 
     - name: Install Python Dependencies
+      if: ${{ inputs.mode == 'full' }}
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
@@ -358,7 +459,7 @@ runs:
         fi
 
     - name: Install JS Dependencies
-      if: ${{ inputs.build-assets == 'true' }}
+      if: ${{ inputs.mode == 'full' && inputs.build-assets == 'true' }}
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
@@ -382,6 +483,42 @@ runs:
             popd
           fi
         done
+
+    # restore mode (#2184): the shard gets the bench a `full` job built - venv, apps (without
+    # node_modules), built assets, site config - and that job's database, instead of
+    # rebuilding them (~7 min of every shard). System packages above are still installed
+    # here (cached), since the tarball carries only the workspace.
+    - name: Download bench snapshot
+      if: ${{ inputs.mode == 'restore' }}
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.snapshot-name }}
+        path: ${{ runner.temp }}/bench-snapshot
+
+    - name: Restore bench snapshot
+      if: ${{ inputs.mode == 'restore' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SNAP="${RUNNER_TEMP}/bench-snapshot"
+        date -u
+        tar --zstd -xf "$SNAP/bench.tar.zst" -C "${GITHUB_WORKSPACE}"
+        # frappe's file logger opens ../logs/<module>.log and <site>/logs/<module>.log without
+        # creating either directory (frappe/utils/logger.py); full mode makes them in
+        # Initialize Bench Environment, which restore skips.
+        mkdir -p "${GITHUB_WORKSPACE}/logs" "${GITHUB_WORKSPACE}/sites/test_site/logs"
+        date -u
+        CFG="${GITHUB_WORKSPACE}/sites/test_site/site_config.json"
+        DB_NAME=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c['db_name'])" "$CFG")
+        DB_USER=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('db_user') or c['db_name'])" "$CFG")
+        DB_PASS=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c['db_password'])" "$CFG")
+        zstd -dc "$SNAP/db.sql.zst" | mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root
+        # A dump carries no MariaDB users. frappe created the site user scoped to whatever host
+        # the server saw (the Docker gateway here), so recreate it for any host.
+        mariadb --host 127.0.0.1 --port 3306 -u root -pdb_root -e \
+          "CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASS}'; GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%'; FLUSH PRIVILEGES;"
+        date -u
+        echo "Restored bench and database ${DB_NAME} from snapshot."
 
     - name: Start Bench
       shell: bash
@@ -414,7 +551,7 @@ runs:
         done
 
     - name: Build Assets and Setup Site
-      if: ${{ inputs.build-assets == 'true' }}
+      if: ${{ inputs.mode == 'full' && inputs.build-assets == 'true' }}
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
@@ -424,13 +561,14 @@ runs:
         wait $build_pid
 
     - name: Setup Site (No Assets)
-      if: ${{ inputs.build-assets != 'true' }}
+      if: ${{ inputs.mode == 'full' && inputs.build-assets != 'true' }}
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
         bench --site test_site reinstall --yes
 
     - name: Install Apps on Site
+      if: ${{ inputs.mode == 'full' }}
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
@@ -438,3 +576,38 @@ runs:
         bench --site test_site install-app hrms
         bench --site test_site install-app payments
         bench --site test_site install-app ${{ github.event.repository.name }}
+
+    # full mode with snapshot (#2184): package what restore mode needs. node_modules is
+    # excluded - the assets are already built and server tests do not run JS.
+    - name: Package bench snapshot
+      if: ${{ inputs.mode == 'full' && inputs.snapshot == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SNAP="${RUNNER_TEMP}/bench-snapshot"
+        mkdir -p "$SNAP"
+        DB_NAME=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['db_name'])" "${GITHUB_WORKSPACE}/sites/test_site/site_config.json")
+        mariadb-dump --host 127.0.0.1 --port 3306 -u root -pdb_root \
+          --single-transaction --quick --routines --triggers --events --databases "$DB_NAME" \
+          | zstd -T0 -q -o "$SNAP/db.sql.zst"
+        cd "${GITHUB_WORKSPACE}"
+        # bench is still running, so a log can change mid-read: tar then exits 1 ("file changed as
+        # we read it"). Site log CONTENTS are excluded (the directory itself is kept) and exit 1
+        # alone is tolerated; 2 is a real failure.
+        tar --zstd -cf "$SNAP/bench.tar.zst" --exclude='apps/*/node_modules' --exclude='sites/*/logs/*' \
+          --warning=no-file-changed apps env sites config Procfile || [ $? -eq 1 ]
+        ls -la "$SNAP"
+
+    - name: Upload bench snapshot
+      if: ${{ inputs.mode == 'full' && inputs.snapshot == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.snapshot-name }}
+        path: ${{ runner.temp }}/bench-snapshot
+        compression-level: 0  # already zstd
+        # A "re-run all jobs" re-runs prepare in the same run; without this the second upload
+        # of the same name conflicts. Re-running only failed shards reuses the existing one
+        # (until it expires after a day).
+        overwrite: true
+        retention-days: 1
+        if-no-files-found: error

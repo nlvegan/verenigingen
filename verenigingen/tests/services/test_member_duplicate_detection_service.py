@@ -6,8 +6,9 @@ Integration tests for member_duplicate_detection_service.
 
 Exercises the matching strategies (email exact, IBAN exact incl. normalization,
 fuzzy name+birthdate, address exact), confidence scoring, dedup/merge of match
-types, and the check_duplicate_for_approval API (validation + categorization)
-against real Member documents.
+types against real Member documents. (The member-keyed check_duplicate_for_approval
+endpoint was removed in #1765; check_duplicate_for_application is covered in
+test_application_review_surfaces.)
 """
 
 import unittest
@@ -20,7 +21,6 @@ from verenigingen.services.member.validation.member_duplicate_detection_service 
     _deduplicate_matches,
     DuplicateMatch,
     check_address_duplicate,
-    check_duplicate_for_approval,
     check_email_duplicate,
     check_iban_duplicate,
     find_potential_duplicates,
@@ -256,63 +256,6 @@ class TestFindPotentialDuplicates(EnhancedTestCase):
             threshold=0.9,
         )
         self.assertEqual(results, [])
-
-
-class TestCheckDuplicateForApproval(EnhancedTestCase):
-    """The whitelisted API endpoint: validation + categorization.
-
-    The @standard_api() decorator serializes the OperationResult to a nested
-    dict {"success": bool, "data": {...}, "error": {...}, "meta": {...}}.
-    """
-
-    def _persist_email(self, member, email):
-        frappe.db.set_value("Member", member.name, "email", email)
-
-    def test_nonexistent_member_returns_fail(self):
-        result = check_duplicate_for_approval("NONEXISTENT-MEMBER-XYZ")
-        self.assertFalse(result["success"])
-        # Failure path carries an error object, no data
-        self.assertIn("error", result)
-
-    def test_categorizes_by_confidence(self):
-        """A real email duplicate is reported as high confidence."""
-        shared = "approval.dup.shared@example.com"
-        m1 = self.create_test_member(
-            first_name="Approve",
-            last_name="One",
-            email="approve.one@example.com",
-            birth_date="1980-01-01",
-        )
-        m2 = self.create_test_member(
-            first_name="Approve",
-            last_name="Two",
-            email="approve.two@example.com",
-            birth_date="1980-01-01",
-        )
-        # Give both the same email so m2 is a genuine duplicate of m1.
-        self._persist_email(m1, shared)
-        self._persist_email(m2, shared)
-
-        result = check_duplicate_for_approval(m1.name)
-        self.assertTrue(result["success"])
-        data = result["data"]
-        self.assertTrue(data["has_duplicates"])
-        # m2 shares the email -> high confidence (1.0 >= 0.9)
-        high_names = [d["member_name"] for d in data["high_confidence"]]
-        self.assertIn(m2.name, high_names)
-        self.assertEqual(data["summary"]["high"], len(data["high_confidence"]))
-
-    def test_no_duplicates_reported_clean(self):
-        member = self.create_test_member(
-            first_name="Unique",
-            last_name="Solo",
-            email="unique.solo.member@example.com",
-        )
-        result = check_duplicate_for_approval(member.name)
-        self.assertTrue(result["success"])
-        data = result["data"]
-        self.assertFalse(data["has_duplicates"])
-        self.assertEqual(data["duplicate_count"], 0)
 
 
 if __name__ == "__main__":

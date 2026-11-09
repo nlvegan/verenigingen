@@ -1,16 +1,16 @@
 <h3>🚨 Stuck Dues Schedules Detected</h3>
-<p>The daily check has found <strong>{{ truly_stuck_count }}</strong> stuck dues schedule(s) that need immediate attention.</p>
+<p>The daily check has found <strong>{{ truly_stuck_count|e }}</strong> stuck dues schedule(s) that need immediate attention.</p>
 
 <h4>Affected Members:</h4>
 <ul>
 {% for schedule in truly_stuck %}
     <li>
-        <strong>{{ schedule.member_name }}</strong> (ID: {{ schedule.member }})
+        <strong>{{ schedule.member_name|e }}</strong> (ID: {{ schedule.member|e }})
         <ul>
-            <li>Schedule: {{ schedule.name }}</li>
-            <li>Stuck Date: {{ schedule.next_invoice_date }}</li>
-            <li>Dues Rate: €{{ schedule.dues_rate }}</li>
-            <li>Customer: {{ schedule.customer or 'Not linked' }}</li>
+            <li>Schedule: {{ schedule.name|e }}</li>
+            <li>Stuck Date: {{ schedule.next_invoice_date|e }}</li>
+            <li>Dues Rate: €{{ schedule.dues_rate|e }}</li>
+            <li>Customer: {{ (schedule.customer or 'Not linked')|e }}</li>
         </ul>
     </li>
 {% endfor %}

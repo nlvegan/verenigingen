@@ -14,6 +14,11 @@ the real factory and run as Administrator.
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
+from verenigingen.tests.utils.reminder_mail_state import (
+    configure_notification_key,
+    ensure_outgoing_email_account,
+)
 
 
 class TestCommunicationManagerCoverage(VereningingenTestCase):
@@ -39,7 +44,6 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
         frappe.db.set_single_value(
             "Verenigingen Settings", "send_chapter_assignment_notifications", self._orig_setting
         )
-        frappe.flags.pop("chapter_transfer", None)
         frappe.flags.is_bulk_import = False
         frappe.flags.suppress_chapter_notifications = False
         super().tearDown()
@@ -63,6 +67,7 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
                     "name": name,
                     "subject": f"{name} subject",
                     "response": "<p>{{ member_name }}</p>",
+                    "response_html": "<p>{{ member_name }}</p>",
                     "use_html": 1,
                 }
             ).insert()
@@ -119,42 +124,43 @@ class TestCommunicationManagerCoverage(VereningingenTestCase):
     def test_notify_board_of_member_joined_with_board_returns_true(self):
         self._enable_notifications()
         self._make_template("chapter_board_member_joined")
-        self._seat_board_member(first="JoinBoard")
+        # A skipped send is also reported as success (#2010): own the key, then read the Email Queue.
+        own_notification_keys(self, "chapter_member_joined")
+        _member, _volunteer = self._seat_board_member(first="JoinBoard")
+        board_email = self.chapter.board_members[0].email  # the address the dispatch mails
+        queued_before = queued_mail_count(board_email)
         result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
         self.assertTrue(result, "an active board member + enabled setting must queue a notification")
+        self.assertEqual(queued_mail_count(board_email), queued_before + 1)
 
-    def test_notify_board_of_member_joined_transfer_in_uses_transfer_template(self):
+    def test_notify_board_of_member_joined_with_disabled_key_returns_false(self):
+        """A skip (key disabled) queues nothing, so the 'was it queued' return must be False (#2096)."""
+        ensure_outgoing_email_account(self)
         self._enable_notifications()
-        self._make_template("chapter_board_member_transferred_in")
-        self._seat_board_member(first="TransferInBoard")
-        frappe.flags.chapter_transfer = {
-            "member": self.member.name,
-            "to": self.chapter.name,
-            "from": "Some Other Chapter",
-        }
+        self._make_template("chapter_board_member_joined")
+        own_notification_keys(self, "chapter_member_joined")
+        self._seat_board_member(first="JoinSkip")
+        board_email = self.chapter.board_members[0].email
+        queued_before = queued_mail_count(board_email)
+        configure_notification_key("chapter_member_joined", 0, 0)
+
         result = self.chapter.communication_manager.notify_board_of_member_joined(self.member.name)
-        self.assertTrue(result)
+
+        self.assertIs(result, False)
+        self.assertEqual(queued_mail_count(board_email), queued_before)
 
     def test_notify_board_of_member_left_with_board_returns_true(self):
         self._enable_notifications()
         self._make_template("chapter_board_member_left")
-        self._seat_board_member(first="LeftBoard")
+        own_notification_keys(self, "chapter_member_left")
+        _member, _volunteer = self._seat_board_member(first="LeftBoard")
+        board_email = self.chapter.board_members[0].email  # the address the dispatch mails
+        queued_before = queued_mail_count(board_email)
         result = self.chapter.communication_manager.notify_board_of_member_left(
             self.member.name, leave_reason="moved"
         )
         self.assertTrue(result)
-
-    def test_notify_board_of_member_left_transfer_out_uses_transfer_template(self):
-        self._enable_notifications()
-        self._make_template("chapter_board_member_transferred_out")
-        self._seat_board_member(first="TransferOutBoard")
-        frappe.flags.chapter_transfer = {
-            "member": self.member.name,
-            "from": self.chapter.name,
-            "to": "Destination Chapter",
-        }
-        result = self.chapter.communication_manager.notify_board_of_member_left(self.member.name)
-        self.assertTrue(result)
+        self.assertEqual(queued_mail_count(board_email), queued_before + 1)
 
     def test_notify_board_of_member_left_disabled_returns_false(self):
         frappe.db.set_single_value("Verenigingen Settings", "send_chapter_assignment_notifications", 0)

@@ -13,6 +13,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.setup.notification_registry_setup import default_role_based_roles
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -154,7 +155,8 @@ class VerenigingenEmailConfiguration(Document):
         # Get emails for enabled users
         return frappe.get_all(
             "User",
-            filters={"enabled": 1, "name": ["in", users_with_role]},
+            # Never the Administrator user (#1960), by name so a shared email does not hide a staff user.
+            filters={"enabled": 1, "name": ["in", [u for u in users_with_role if u != "Administrator"]]},
             pluck="email",
         )
 
@@ -213,13 +215,18 @@ def send_test_email(recipient: str) -> dict:
             notification_key=None,  # Bypass notification checks for test
         )
 
-        if result.get("success"):
+        # An OperationResult, not a dict. A skip (e.g. the master switch is off) queued nothing,
+        # so the button must not say it did (#2044).
+        if result.skip_reason:
+            return {"success": False, "error": f"Test email not sent: {result.skip_reason}"}
+        if result.success:
             return {"success": True, "message": f"Test email queued for {recipient}"}
-        else:
-            return {"success": False, "error": result.get("error", "Unknown error")}
+        return {"success": False, "error": result.error_message or "Unknown error"}
 
     except Exception as e:
-        frappe.log_error(f"Test email failed: {str(e)}", "Verenigingen Email Configuration Test")
+        frappe.log_error(
+            title="Verenigingen Email Configuration Test", message=f"Test email failed: {str(e)}"
+        )
         return {"success": False, "error": str(e)}
 
 
@@ -462,7 +469,7 @@ def add_notification_types(notification_types: str) -> dict:
     """
     import json
 
-    from verenigingen.notification_registry import get_notification_meta
+    from verenigingen.notification_registry import DEFAULT_COOLDOWN_MINUTES, get_notification_meta
 
     # Require write permission on Verenigingen Email Configuration
     if not frappe.has_permission("Verenigingen Email Configuration", "write"):
@@ -497,6 +504,8 @@ def add_notification_types(notification_types: str) -> dict:
         # Get metadata from registry (if available) and merge with provided data
         registry_meta = get_notification_meta(key)
 
+        policy = nt_data.get("recipient_policy") or registry_meta.get("recipient_policy") or "Document-Field"
+
         # Add new row to child table - prefer provided data, fall back to registry, then defaults
         config.append(
             "notification_types",
@@ -506,11 +515,15 @@ def add_notification_types(notification_types: str) -> dict:
                 "category": nt_data.get("category") or registry_meta.get("category") or "Admin",
                 "description": nt_data.get("description") or registry_meta.get("description") or "",
                 "priority": nt_data.get("priority") or registry_meta.get("priority") or "Medium",
-                "cooldown_minutes": nt_data.get("cooldown_minutes", 60),
+                "cooldown_minutes": nt_data.get(
+                    "cooldown_minutes", registry_meta.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
+                ),
                 "enabled": 1,
-                "recipient_policy": nt_data.get("recipient_policy")
-                or registry_meta.get("recipient_policy")
-                or "Document-Field",
+                "recipient_policy": policy,
+                # An empty-roles Role-Based row reaches nobody (#1997); name the admin roles.
+                "recipient_roles": default_role_based_roles(registry_meta)
+                if policy == "Role-Based"
+                else None,
             },
         )
         existing_keys.add(key)

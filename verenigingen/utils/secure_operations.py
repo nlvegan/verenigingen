@@ -36,6 +36,7 @@ Usage:
 # Impersonation Stack - Prevents nested impersonation attacks
 # =============================================================================
 # Thread-local storage for tracking active impersonations
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -230,6 +231,26 @@ def validate_justification(justification: str, operation: str) -> str:
     return justification
 
 
+class PermissionCheckError(frappe.PermissionError):
+    """The permission check itself broke; this is NOT a denial (#857).
+
+    Raised by validate_permissions() so secure_document_operation() records
+    "could not determine" (Error Log, success=False, no escalation attempt)
+    instead of treating the failure as an ordinary "user lacks permission",
+    which would route into the system-user escalation branch.
+    """
+
+
+def _permission_check_error_message(check: str, user: str, error: Exception) -> str:
+    """Body of the Error Log row for a permission CHECK that errored (#857).
+
+    frappe.logger() output is not read anywhere (file handler only), so a
+    transient DB error looked identical to a legitimate "no". The handlers call
+    frappe.log_error themselves (keyword form) and still fail closed.
+    """
+    return f"Check: {check}\nUser: {user}\nError: {error!r}\n\n{frappe.get_traceback()}"
+
+
 def can_request_system_escalation(user: str = None) -> bool:
     """
     Check if the specified user is allowed to request system user escalation.
@@ -253,8 +274,14 @@ def can_request_system_escalation(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & ESCALATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check escalation permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        frappe.log_error(
+            title="Permission check errored: can_request_system_escalation",
+            message=_permission_check_error_message("can_request_system_escalation", user, e),
+        )
         return False
 
 
@@ -270,7 +297,11 @@ def can_use_bypass_validations(user: str = None) -> bool:
         user: Username to check (defaults to current session user)
 
     Returns:
-        True if user can use bypass_validations, False otherwise
+        True if user can use bypass_validations, False otherwise. A check that
+        itself errors also returns False (fail closed) and is recorded in the
+        Error Log (#857); secure_document_operation() calls this outside its
+        try block, so there an errored check surfaces as the ordinary "no
+        permission to bypass" refusal.
     """
     if user is None:
         user = frappe.session.user
@@ -282,8 +313,14 @@ def can_use_bypass_validations(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & BYPASS_VALIDATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check bypass_validations permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        frappe.log_error(
+            title="Permission check errored: can_use_bypass_validations",
+            message=_permission_check_error_message("can_use_bypass_validations", user, e),
+        )
         return False
 
 
@@ -397,6 +434,28 @@ class SecureOperationResult:
         )
 
 
+def _snapshot_link_values(doc) -> list:
+    """(row, fieldname, value) for every non-empty Link/Dynamic Link value on doc and its child rows.
+
+    Frappe's get_invalid_links() does setattr(row, fieldname, None) for a link it cannot find
+    BEFORE reporting it, so after a failed save the in-memory dead reference is already gone (#1789).
+    """
+    snapshot = []
+    for row in [doc, *doc.get_all_children()]:
+        for df in row.meta.get_link_fields() + row.meta.get("fields", {"fieldtype": ("=", "Dynamic Link")}):
+            if row.get(df.fieldname):
+                snapshot.append((row, df.fieldname, row.get(df.fieldname)))
+    return snapshot
+
+
+def _restore_blanked_links(snapshot: list) -> None:
+    """Put back the link values Frappe blanked while reporting them, so an ignore_links retry saves
+    the legacy reference as it was instead of an empty (Mandatory-failing, or silently NULLed) field."""
+    for row, fieldname, value in snapshot:
+        if not row.get(fieldname):
+            row.set(fieldname, value)
+
+
 def _execute_document_operation(
     doc,
     operation: str,
@@ -502,6 +561,7 @@ def _execute_document_operation(
 
         # SECURITY: Instead of blanket ignore_links, we'll catch and handle
         # specific link validation errors for known problematic fields
+        link_values = _snapshot_link_values(doc)
         try:
             doc.save()
         except (frappe.LinkValidationError, frappe.ValidationError) as e:
@@ -517,6 +577,7 @@ def _execute_document_operation(
                     # Temporarily bypass links for this specific case with monitoring
                     try:
                         doc.flags.ignore_links = True
+                        _restore_blanked_links(link_values)
 
                         # CRITICAL: Reload the current modified timestamp from DB
                         # The first save attempt updated the DB timestamp, so we need to reload it
@@ -567,7 +628,10 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
         required_permissions: List of specific permissions to check
 
     Returns:
-        bool: True if permissions are sufficient
+        bool: True if permissions are sufficient, False if denied
+
+    Raises:
+        PermissionCheckError: the check itself errored (not a denial)
     """
     try:
         # Standard Frappe permission check for the operation
@@ -618,9 +682,14 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
 
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().error(f"Permission validation error: {str(e)}")
-        return False
+        # NOT a denial: raise so the caller cannot mistake "unknown" for "no"
+        # and fall into the escalation branch. Still fail closed (#857).
+        raise PermissionCheckError(
+            _("Permission check for {0} on {1} could not be completed").format(operation, doc.doctype)
+        ) from e
 
 
 def get_system_user_for_operation(operation_context: str) -> str:
@@ -1150,32 +1219,35 @@ class CriticalOperationsRegistry:
         self._load_configs()
 
     def _load_configs(self):
-        """Load operation configurations from DocType (cached)"""
-        try:
-            # Import here to avoid circular dependencies
+        """Load operation configurations from DocType (cached)
+
+        A load error propagates (#2295). It used to become an empty rule set, which the
+        gate reads as "nothing is critical", and the singleton then kept that answer for
+        the life of the process. Letting it raise leaves the singleton unset, so the next
+        request retries the load.
+        """
+        # Import here to avoid circular dependencies
+        from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+            CriticalOperationRule,
+        )
+
+        self.operation_configs = CriticalOperationRule.get_all_rules()
+
+    def get_operation_config(self, operation_name: str) -> dict:
+        """Get configuration for a specific operation
+
+        Returns None only when the operation has no rule. A failed lookup raises (#2295):
+        None means "no rule", and the caller must not be able to confuse the two.
+        """
+        if operation_name not in self.operation_configs:
+            # Try to load fresh config for this operation
             from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
                 CriticalOperationRule,
             )
 
-            self.operation_configs = CriticalOperationRule.get_all_rules()
-        except Exception as e:
-            frappe.logger().warning(f"Failed to load critical operation rules: {str(e)}")
-            self.operation_configs = {}
-
-    def get_operation_config(self, operation_name: str) -> dict:
-        """Get configuration for a specific operation"""
-        if operation_name not in self.operation_configs:
-            # Try to load fresh config for this operation
-            try:
-                from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
-                    CriticalOperationRule,
-                )
-
-                config = CriticalOperationRule.get_rule_config(operation_name)
-                if config:
-                    self.operation_configs[operation_name] = config
-            except Exception as e:
-                frappe.logger().warning(f"Failed to load config for operation {operation_name}: {str(e)}")
+            config = CriticalOperationRule.get_rule_config(operation_name)
+            if config:
+                self.operation_configs[operation_name] = config
 
         return self.operation_configs.get(operation_name)
 
@@ -1201,7 +1273,12 @@ class CriticalOperationsRegistry:
         if amount_threshold:
             # Check for amount in various possible kwargs
             amount = kwargs.get("amount") or kwargs.get("total_amount") or kwargs.get("grand_total")
-            if amount and float(amount) > amount_threshold:
+            amount_value = float(amount) if amount else 0.0
+            if not math.isfinite(amount_value):
+                # nan/inf compare False against any threshold and would slip past it (#2282).
+                # An evaluation error, so a critical rule refuses it.
+                raise ValueError("non-finite amount")
+            if amount and amount_value > amount_threshold:
                 violations.append(
                     f"Amount {amount} exceeds threshold {amount_threshold} for operation {operation_name}"
                 )

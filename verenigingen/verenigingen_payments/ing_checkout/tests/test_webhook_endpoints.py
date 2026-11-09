@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.utils.transaction_errors import safe_savepoint_name
 from verenigingen.verenigingen_payments.ing_checkout.api import webhook as wh
 
 MODULE = "verenigingen.verenigingen_payments.ing_checkout.api.webhook"
@@ -76,16 +77,16 @@ class TestSafeSavepointName(FrappeTestCase):
     def test_hyphens_replaced_with_underscore(self):
         # Without sanitization, "ing_payment_EX-1234-5678" is invalid SQL and the
         # webhook crashes at frappe.db.savepoint() before processing anything.
-        name = wh._safe_savepoint_name("ing_payment", "EX-1234-5678")
+        name = safe_savepoint_name("ing_payment", "EX-1234-5678")
         self.assertEqual(name, "ing_payment_EX_1234_5678")
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
     def test_none_identifier_safe(self):
-        self.assertEqual(wh._safe_savepoint_name("ing_mandate", None), "ing_mandate_unknown")
+        self.assertEqual(safe_savepoint_name("ing_mandate", None), "ing_mandate_unknown")
 
     def test_dotted_now_timestamp_sanitized(self):
         # Fallback IDs use frappe.utils.now() ("2026-06-18 18:05:48.123456").
-        name = wh._safe_savepoint_name("ing_debit", "2026-06-18 18:05:48.123456")
+        name = safe_savepoint_name("ing_debit", "2026-06-18 18:05:48.123456")
         self.assertRegex(name, r"^[0-9A-Za-z_]+$")
 
 
@@ -128,7 +129,8 @@ class TestHandlePayment(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_payment()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_missing_object_returns_400(self):
         self._install_request(body=b'{"id": "EX-NOOBJ"}')
@@ -146,8 +148,8 @@ class TestHandlePayment(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_payment()
         mock_proc.assert_called_once()
-        # Success response carries the order id + processing result.
-        self.assertIn("EX-OK", str(result))
+        # #1804: the ack carries neither the order id nor the processing result.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_rolls_back_and_500(self):
         self._install_request(body=b'{"id": "EX-ERR", "object": {"reference": "X", "status": {}}}')
@@ -193,7 +195,8 @@ class TestHandleMandate(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_mandate()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_success(self):
         self._install_request(body=b'{"id": "MAND-OK", "object": {"status": "active"}}')
@@ -203,7 +206,7 @@ class TestHandleMandate(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_mandate()
         mock_proc.assert_called_once()
-        self.assertIn("MAND-OK", str(result))
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_500(self):
         self._install_request(body=b'{"id": "MAND-ERR", "object": {"status": "x"}}')
@@ -245,7 +248,8 @@ class TestHandleDirectDebit(WebhookEndpointTestBase):
             f"{MODULE}.is_duplicate_webhook", return_value=True
         ):
             result = wh.handle_direct_debit()
-        self.assertEqual(result["status"], "duplicate")
+        # #1804: a duplicate is acked like any delivery; the body no longer says so.
+        self.assertEqual(result, {"status": "ok"})
 
     def test_success(self):
         self._install_request(body=b'{"id": "DEBIT-OK", "object": {"status": "completed"}}')
@@ -255,7 +259,7 @@ class TestHandleDirectDebit(WebhookEndpointTestBase):
         ) as mock_proc:
             result = wh.handle_direct_debit()
         mock_proc.assert_called_once()
-        self.assertIn("DEBIT-OK", str(result))
+        self.assertEqual(result, {"status": "ok"})
 
     def test_processing_exception_500(self):
         self._install_request(body=b'{"id": "DEBIT-ERR", "object": {"status": "x"}}')

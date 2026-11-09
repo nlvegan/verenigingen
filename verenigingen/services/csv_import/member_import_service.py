@@ -33,6 +33,7 @@ from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.member_lookup_service import get_member_lookup_service
 from verenigingen.utils.csv.data_transformers import clean_phone_number
 from verenigingen.utils.csv_import_processor import ensure_bulk_import_members_set
+from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
@@ -208,6 +209,14 @@ class MemberImportService(StatelessService):
         if row_data.get("iban"):
             member_doc.iban = row_data["iban"]
             member_doc.payment_method = "Bank Transfer"
+            # MijnRood/CSV rows carry an IBAN but no holder, and the holder is mandatory on
+            # the IBAN history row an IBAN change writes. Same default as approval (#1988),
+            # maintainer ruling 2026-11-04 for #2022; a holder already on the Member is kept.
+            from verenigingen.services.member.approval.application_helpers import (
+                default_blank_account_holder,
+            )
+
+            default_blank_account_holder(member_doc)
 
         # Handle dues rate
         self._set_dues_rate_fields(member_doc, row_data)
@@ -251,6 +260,8 @@ class MemberImportService(StatelessService):
             member_doc.review_notes = f"{member_doc.review_notes}\n{import_note}"
         else:
             member_doc.review_notes = import_note
+
+        mark_member_imported(member_doc, "Mijnrood CSV Import", import_doc_name)
 
         # Volunteering flag
         if create_volunteer_records:
@@ -410,13 +421,15 @@ class MemberImportService(StatelessService):
             # fields being imported (e.g. a pre-existing broken link elsewhere on
             # the Member), so the reason has to travel back to the caller — and
             # into the Error Log, which this branch used to skip.
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Update Validation Error Row {row_num}")
+            frappe.log_error(
+                title=f"CSV Import Update Validation Error Row {row_num}", message=frappe.get_traceback()
+            )
             return _failure_status(e), member_name
 
         except Exception as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Update failed for {member_name} - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Update Error Row {row_num}")
+            frappe.log_error(title=f"CSV Import Update Error Row {row_num}", message=frappe.get_traceback())
             return _failure_status(e), member_name
 
     def _acquire_advisory_lock(self, lock_name: str, row_num: Any) -> bool:
@@ -626,13 +639,15 @@ class MemberImportService(StatelessService):
         except frappe.ValidationError as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Validation error - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Validation Error Row {row_num}")
+            frappe.log_error(
+                title=f"CSV Import Validation Error Row {row_num}", message=frappe.get_traceback()
+            )
             return _failure_status(e), None
 
         except Exception as e:
             rollback_to_savepoint(savepoint_name)
             self.logger.error(f"Row {row_num}: Creation failed - {str(e)[:200]}")
-            frappe.log_error(frappe.get_traceback(), f"CSV Import Error Row {row_num}")
+            frappe.log_error(title=f"CSV Import Error Row {row_num}", message=frappe.get_traceback())
             return _failure_status(e), None
 
         finally:

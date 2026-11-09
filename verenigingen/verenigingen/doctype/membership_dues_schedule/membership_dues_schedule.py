@@ -1,6 +1,8 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
+import json
+
 import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, today
@@ -66,14 +68,16 @@ class MembershipDuesSchedule(Document):
         # Note: Old values tracking moved to before_save() to capture actual previous values
 
     def validate_template_frequency_not_in_use(self):
-        """A template's period is what an applicant's chosen amount is billed on. Once a door slot
+        """A template's period is what an applicant's chosen amount is billed on. Once a door plan
         offers it, or an application waiting for approval chose it, changing the period would bill
         that amount on another one (the short application's yearly choice billed monthly)."""
         if not self.is_template or self.is_new() or not self.has_value_changed("billing_frequency"):
             return
-        door = frappe.db.get_value(
-            "Membership Application Door", {"monthly_dues_template": self.name}
-        ) or frappe.db.get_value("Membership Application Door", {"annual_dues_template": self.name})
+        door = frappe.db.get_value(  # doctype-ok: new in #2127
+            "Membership Application Door Plan",
+            {"dues_template": self.name, "parenttype": "Membership Application Door"},
+            "parent",
+        )
         if door:
             frappe.throw(
                 frappe._(
@@ -87,12 +91,27 @@ class MembershipDuesSchedule(Document):
                 "application_status": ["in", ["Pending", "Under Review", "Payment Pending"]],
             },
         )
+        applicant = applicant or self._confirmed_application_using_template()
         if applicant:
             frappe.throw(
                 frappe._(
                     "Billing frequency cannot change while a pending application ({0}) uses this template."
                 ).format(applicant)
             )
+
+    def _confirmed_application_using_template(self):
+        """An application is a submission until approval (#1765), so it names its template in its
+        payload. Only a confirmed one counts: an Unconfirmed row is anonymous and would let anyone block
+        an administrator's edit."""
+        rows = frappe.get_all(
+            "Membership Application Submission",
+            {"status": "Pending Review", "payload": ["like", f"%{self.name}%"]},
+            ["name", "payload"],
+        )
+        for row in rows:
+            if (json.loads(row.payload or "{}").get("selected_dues_schedule")) == self.name:
+                return row.name
+        return None
 
     def validate_template_or_instance(self):
         """Validate template vs instance fields"""
@@ -1354,7 +1373,7 @@ def update_member_contribution(schedule_name: str, updates: str):
     return {"success": True, "schedule": schedule.as_dict()}
 
 
-def has_permission(doc, user=None, permission_type="read"):
+def has_permission(doc, user=None, ptype="read"):
     """
     DELEGATES TO: DuesSchedulePermissionService.check_document_permission()
 
@@ -1364,7 +1383,7 @@ def has_permission(doc, user=None, permission_type="read"):
         has_permission as _has_permission,
     )
 
-    return _has_permission(doc, user, permission_type)
+    return _has_permission(doc, user, ptype)
 
 
 def get_permission_query_conditions(user=None):

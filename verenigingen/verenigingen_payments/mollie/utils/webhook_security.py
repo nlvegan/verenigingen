@@ -11,11 +11,16 @@ This module provides:
 import frappe
 from frappe.utils import now_datetime
 
-from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.security.client_ip import get_client_ip, get_client_ip_or_none
+from verenigingen.utils.service_user import require_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
+)
+from verenigingen.verenigingen_payments.utils.webhook_ack import (
+    first_in_window,
+    log_error_once,
+    short_id,
 )
 
 
@@ -34,7 +39,7 @@ def authenticate_mollie_webhook() -> str:
     Raises:
         WebhookRateLimitExceeded: If rate limit is exceeded
         WebhookAuthenticationError: If signature validation fails
-        frappe.ValidationError: If webhook user is not configured or payload is empty
+        ServiceUserUnavailable: If no enabled webhook user is configured (#1876)
     """
     # STEP 0: Rate limiting (before any expensive operations)
     from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -47,9 +52,12 @@ def authenticate_mollie_webhook() -> str:
     is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
 
     if not is_allowed:
-        frappe.log_error(
-            f"Mollie webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+        # Once per IP per hour, not per rejection: a flood is exactly what gets here, and the
+        # webhook id is the caller's own (#2136). Keywords: (title, message) is easy to swap.
+        log_error_once(
             "Mollie Webhook Rate Limit",
+            f"Mollie webhook rate limited: IP={ip_address}, webhook_id={short_id(webhook_id)}, reason={reason}",
+            ip_address,
         )
         raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
 
@@ -65,10 +73,7 @@ def authenticate_mollie_webhook() -> str:
     signature_header = frappe.request.headers.get("X-Mollie-Signature") if frappe.request else None
 
     if not payload:
-        frappe.log_error(
-            "Empty webhook payload received",
-            "Mollie Webhook Security Error",
-        )
+        log_error_once("Mollie Webhook Security Error", "Empty webhook payload received", ip_address)
         raise WebhookAuthenticationError("Empty webhook payload")
 
     try:
@@ -77,27 +82,26 @@ def authenticate_mollie_webhook() -> str:
         frappe.logger().info("Mollie webhook signature validated successfully")
 
     except WebhookAuthenticationError as e:
-        log_signature_validation_failed(
-            webhook_id="mollie",
-            expected_vs_actual={"error": str(e)},
-        )
+        # One security-event row per (IP, reason) per hour: this is reachable by anyone who
+        # adds an X-Mollie-Signature header (#2136).
+        if first_in_window(f"mollie_signature_failed:{ip_address}:{str(e)[:100]}"):
+            log_signature_validation_failed(
+                webhook_id="mollie",
+                expected_vs_actual={"error": str(e)},
+            )
         raise
 
     # STEP 2: Set webhook user context using shared service user resolution
     # This provides consistent behavior with Ponto and ING Checkout webhooks
-    try:
-        webhook_user = get_service_user(
-            settings_doctype="Verenigingen Payments Settings",
-            user_field="webhook_user",
-            service_name="Mollie Webhook",
-        )
-        frappe.set_user(webhook_user)
-    except ValueError as e:
-        frappe.log_error(
-            f"Mollie webhook user configuration error: {e}",
-            "Mollie Webhook Authentication Error",
-        )
-        frappe.throw(str(e))
+    # No Administrator fallback (#1876): without a usable webhook user this logs an Error
+    # Log row and raises ServiceUserUnavailable (a plain Exception, so nothing reaches the
+    # caller's _server_messages). The endpoints answer it with a 5xx, so Mollie redelivers.
+    webhook_user = require_service_user(
+        settings_doctype="Verenigingen Payments Settings",
+        user_field="webhook_user",
+        service_name="Mollie Webhook",
+    )
+    frappe.set_user(webhook_user)
 
     # Validate permissions (log but don't block - webhook user may have different role structure)
     if not validate_webhook_user_permissions():
@@ -239,7 +243,7 @@ def log_webhook_security_event(event_type: str, details: dict):
                 "severity": "info",
                 "timestamp": now_datetime(),
                 "user": frappe.session.user,
-                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                "ip_address": get_client_ip_or_none(),
             }
         ).insert(ignore_permissions=True)
     except Exception as e:

@@ -42,7 +42,10 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
+from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
+from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 
 
@@ -189,6 +192,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         """Set up test-specific environment"""
         super().setUp()
 
+        # #1991: tests assign `frappe.form_dict = ...`, replacing the LocalProxy
+        # process-wide; restore it now and after this test.
+        guard_form_dict(self)
+        # #1983: frappe.local.response too (a bare `_dict()` has no `docs`).
+        guard_local_response(self)
+
         # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
         # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
         # drains them INLINE. An entry left by a prior (rolled-back) test names a Member
@@ -250,6 +259,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         self.factory = CoreTestDataFactory()
+        # #2039: rows the factory builds internally (auto Chapter, auto Member + Customer behind
+        # create_test_volunteer, Region) were recorded only on factory.created_records, which
+        # nothing drained, so a test body that commits left them on the site for good.
+        self.factory.on_track = self.track_doc
 
         # Set up test request context for API security framework
         self._setup_test_request_context()
@@ -288,8 +301,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Clean up test request context
         self._cleanup_test_request_context()
 
-        # Restore original behaviors
-        self._cleanup_test_mocks()
+        # The mocks are NOT stopped here (#2221): tearDown runs before addCleanup, so a test's
+        # own nested patch of the same target would put the mock back permanently. The stop is
+        # registered with addCleanup in _setup_test_mocks and unwinds LIFO after the test's own.
+        # Exception: a hand-driven setUp()/tearDown() pair (no run(), `_outcome` is None) never
+        # reaches doCleanups, so stop here; the stop is idempotent and nothing is nested.
+        if self._outcome is None:
+            self._cleanup_test_mocks()
 
         super().tearDown()
 
@@ -483,7 +501,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
                     self._cancel_if_submitted(doc_info["doctype"], doc_info["name"])
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                    if doc_info["doctype"] == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(doc_info["name"])
+                    else:
+                        frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()
                     doc_info["cleanup_status"] = "success"
@@ -974,7 +996,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             doc.cancel()
                         except Exception as cancel_error:
                             print(f"Could not cancel {doctype} {name} before delete: {cancel_error}")
-                    frappe.delete_doc(doctype, name, force=True)
+                    if doctype == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(name)
+                    else:
+                        frappe.delete_doc(doctype, name, force=True)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
@@ -2762,6 +2788,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     def create_test_volunteer(self, **kwargs):
         """Create test volunteer with automatic tracking"""
+        # The core factory takes ``member=``; EnhancedTestCase spells it ``member_name=``.
+        # Without this mapping ``member_name`` fell into the field overrides and the factory
+        # built a second Member (#2208).
+        if "member_name" in kwargs and kwargs.get("member") is None:
+            kwargs["member"] = kwargs.pop("member_name")
         volunteer = self.factory.create_test_volunteer(**kwargs)
         self.track_doc("Volunteer", volunteer.name)
         return volunteer

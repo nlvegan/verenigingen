@@ -57,8 +57,6 @@ verenigingen/api/member_management.py::_sanitize_member_filters::1
 verenigingen/api/member_management.py::can_assign_member_to_chapter::1
 verenigingen/api/member_management.py::extract_transaction_data_improved::1
 verenigingen/api/mollie_payment.py::_check_mandate_validity::1
-verenigingen/api/payment_processing.py::send_chapter_notification::1
-verenigingen/api/payment_processing.py::send_payment_reminder_email::1
 verenigingen/api/security_monitoring_dashboard.py::_get_active_security_alerts::1
 verenigingen/api/security_monitoring_dashboard.py::_get_recent_security_events::1
 verenigingen/api/sepa_duplicate_prevention.py::_release_idempotency_lock::1
@@ -119,8 +117,6 @@ verenigingen/permissions.py::assign_chapter_board_role::1
 verenigingen/permissions.py::can_terminate_member::2
 verenigingen/permissions.py::can_view_financial_info::1
 verenigingen/permissions.py::get_user_chapter_board_positions::1
-verenigingen/permissions.py::get_user_chapter_memberships_cached::1
-verenigingen/permissions.py::get_user_treasurer_chapters_cached::1
 verenigingen/permissions.py::has_donation_permission::1
 verenigingen/permissions.py::has_membership_termination_request_permission::1
 verenigingen/permissions.py::update_all_chapter_board_roles::1
@@ -163,7 +159,6 @@ verenigingen/services/member/approval/application_helpers.py::create_active_chap
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_volunteer_record::1
 verenigingen/services/member/approval/application_helpers.py::get_form_data::1
-verenigingen/services/member/approval/application_helpers.py::remove_pending_chapter_membership::1
 verenigingen/services/member/approval/application_payments.py::create_contact_for_customer::1
 verenigingen/services/member/approval/membership_creation_service.py::MembershipCreationService._create_membership_invoice::1
 verenigingen/services/member/core/member_address_service.py::MemberAddressService._enrich_member_data::1
@@ -183,8 +178,6 @@ verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetric
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_active_alerts::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_audit_summary::1
 verenigingen/services/monitoring/monitoring_metrics_service.py::MonitoringMetricsService.get_recent_errors::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.get_active_mandates::1
-verenigingen/services/payment/sepa_mandate_manager.py::SEPAMandateManager.has_active_mandate::1
 verenigingen/services/termination/termination_execution_service.py::TerminationExecutionService.execute::1
 verenigingen/services/termination/termination_integration.py::cancel_dues_schedule_safe::2
 verenigingen/services/termination/termination_integration.py::cancel_membership_safe::1
@@ -211,7 +204,7 @@ verenigingen/setup/security_setup.py::setup_password_policy::1
 verenigingen/setup/workflow_setup.py::create_appeals_workflow_corrected::1
 verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
 verenigingen/templates/pages/chapter_dashboard.py::get_context::1
-verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::2
+verenigingen/templates/pages/chapter_dashboard.py::get_member_overview::1
 verenigingen/templates/pages/chapter_dashboard.py::get_members_without_payment_info_count::1
 verenigingen/templates/pages/chapter_dashboard.py::get_pending_expense_approvals::1
 verenigingen/templates/pages/chapter_dashboard.py::get_recent_activity::1
@@ -293,9 +286,7 @@ verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer._is_valid_docty
 verenigingen/utils/safe_member_optimizer.py::SafeMemberOptimizer.get_link_field_options_cached::1
 verenigingen/utils/secure_operations.py::can_request_system_escalation::1
 verenigingen/utils/secure_operations.py::can_use_bypass_validations::1
-verenigingen/utils/secure_operations.py::validate_permissions::1
 verenigingen/utils/security/__init__.py::setup_all_security::1
-verenigingen/utils/security/api_security_framework.py::APISecurityFramework.validate_critical_operation_business_rules::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_api_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_sepa_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_api_audit_logs::1
@@ -322,7 +313,6 @@ verenigingen/utils/settings_utils.py::is_mollie_enabled::1
 verenigingen/utils/workspace_content_fixer.py::fix_workspace_content::1
 verenigingen/utils/workspace_content_fixer.py::restore_content_backup::1
 verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest._get_queue_depth::1
-verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.get_application_invoice::1
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::APIAuditLog.create_audit_entry::1
 verenigingen/verenigingen/doctype/brand_settings/brand_settings.py::get_organization_logo::1
 verenigingen/verenigingen/doctype/chapter/chapter.py::Chapter.get_board_members_optimized::1
@@ -387,7 +377,6 @@ verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialD
 verenigingen/verenigingen_payments/dashboards/financial_dashboard.py::FinancialDashboard._get_settlements_data::1
 verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::MollieSettings.get_subscription::1
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
-verenigingen/verenigingen_payments/doctype/ponto_settings/ponto_settings.py::PontoSettings._fix_bank_account_currency::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1

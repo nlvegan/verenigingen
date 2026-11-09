@@ -73,11 +73,11 @@ class MemberManager(BaseManager):
                     # placeholder (real submission always writes it enabled=1 --
                     # see create_pending_chapter_membership -- so reaching HERE
                     # with enabled=0 means an application in progress is being
-                    # re-touched, e.g. via assign_member_to_chapter during
-                    # approve_membership_application, which runs BEFORE the
-                    # applicant's Member.status is flipped to Active, or via
-                    # remove_member(permanent=False) disabling a Pending row that
-                    # is then re-added). Deriving from member_doc.status there
+                    # re-touched, e.g. via remove_member(permanent=False) disabling
+                    # a Pending row that is then re-added. (Approval no longer
+                    # reaches this with a Pending member: since #1797 it assigns the
+                    # chapter after the status flip. The guard is still live; do not
+                    # delete it as dead.) Deriving from member_doc.status there
                     # reads the PRE-approval status and stamps 'Inactive' over
                     # 'Pending', stranding the row before
                     # _activate_pending_chapter_memberships ever runs to flip it to
@@ -330,6 +330,17 @@ class MemberManager(BaseManager):
             if not frappe.db.exists("Member", member_id):
                 frappe.throw(_("Member {0} does not exist").format(member_id))
 
+            # #2021: only Active members may request a chapter (as Chapter Join Request.validate
+            # already requires), so no Pending row is ever written for anyone else. Placed before
+            # the rejoin branch, which is a second writer of a Pending row. The message omits the
+            # status on purpose (#1590).
+            if frappe.db.get_value("Member", member_id, "status") != "Active":
+                return {
+                    "success": False,
+                    "message": _("Only active members can request to join a chapter"),
+                    "action": "not_active",
+                }
+
             # Check if member already exists in chapter
             existing_member = self._find_chapter_member(member_id)
             if existing_member:
@@ -463,28 +474,36 @@ class MemberManager(BaseManager):
                     board_members.append(board_member.email)
 
             if board_members:
-                # MIGRATED: Use unified EmailService for chapter join requests
                 from verenigingen.services.communication.email_service import get_email_service
 
-                email_service = get_email_service()
-
-                # Prepare context for chapter join request template
                 context = {
                     "member": member_doc,
                     "member_name": member_doc.full_name,
                     "chapter": self.chapter_doc,
                     "chapter_name": self.chapter_name,
-                    "request_type": "join_request",
+                    "request_type": _("Join Request"),
+                    "base_url": frappe.utils.get_url(),
                 }
 
-                # Send using chapter assignment notification
-                email_service.send_notification(
-                    notification_type="chapter_assignment",
+                # WHY send_templated_email, not send_notification("chapter_assignment"): that
+                # type is not in send_notification's map, so it returned fail() and the board
+                # was never mailed (#2007). The result is checked: a failure must be logged.
+                result = get_email_service().send_templated_email(
+                    template_name="Chapter Assignment Notification",
                     recipients=board_members,
-                    data=context,
+                    context=context,
                     reference_doctype="Chapter",
                     reference_name=self.chapter_name,
+                    notification_key="chapter_join_request_submitted",
+                    # Per applicant: the key's 60 minute per-recipient cooldown would otherwise
+                    # swallow the board mail for every applicant after the first.
+                    cooldown_scope=member_id,
                 )
+                if not result.success:
+                    frappe.log_error(
+                        title="Chapter join request board mail failed",
+                        message=f"{self.chapter_name}: member {member_id}: {result.error_message}",
+                    )
         except Exception as e:
             frappe.log_error(f"Error sending join request notification: {str(e)}")
 
@@ -502,9 +521,16 @@ class MemberManager(BaseManager):
         self.validate_chapter_doc()
 
         try:
+            # A Member that is not Active has no join request to approve (#1964): its Pending row is an
+            # application (approved from the application, which materialises and activates it) or a request
+            # that Chapter.join_chapter wrote without looking at the status. Answer exactly as for no
+            # request at all, so the caller learns nothing about the Member's status or existence, and read
+            # the status before the row so both cost the same queries.
+            member_is_active = frappe.db.get_value("Member", member_id, "status") == "Active"
+
             # Find pending member request
             existing_member = self._find_chapter_member(member_id)
-            if not existing_member:
+            if not existing_member or not member_is_active:
                 return {"success": False, "message": _("No membership request found")}
 
             if existing_member.status != "Pending":
@@ -675,7 +701,12 @@ class MemberManager(BaseManager):
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
 
     def remove_member(
-        self, member_id: str, leave_reason: str = None, permanent: bool = False, notify: bool = True
+        self,
+        member_id: str,
+        leave_reason: str = None,
+        permanent: bool = False,
+        notify: bool = True,
+        acting_as_member: bool = False,
     ) -> Dict:
         """
         Remove or disable a member from this chapter
@@ -685,6 +716,9 @@ class MemberManager(BaseManager):
             leave_reason: Reason for leaving
             permanent: Whether to remove completely or just disable
             notify: Whether to send notification
+            acting_as_member: The caller was already proved to BE `member_id` (Member.user), so
+                the Chapter save skips the permission check: a member's own leave needs no
+                Chapter:write (#2166). Only this member's own row is touched.
 
         Returns:
             Dict with operation result
@@ -722,7 +756,7 @@ class MemberManager(BaseManager):
             # No need to clear a specific primary_chapter field
 
             # Save chapter
-            self.chapter_doc.save()
+            self.chapter_doc.save(ignore_permissions=acting_as_member)
 
             # Update membership history tracking
             if permanent:

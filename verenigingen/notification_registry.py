@@ -60,6 +60,11 @@ POLICY_ROLE_BASED = "Role-Based"
 POLICY_FIXED = "Fixed"
 POLICY_CUSTOM = "Custom"
 
+# Minimum minutes between two sends of a key to the same recipient. An entry may set
+# "cooldown_minutes" (0 = no cooldown); both row creators (the install seeder and Sync Registry)
+# read it and fall back to this value.
+DEFAULT_COOLDOWN_MINUTES = 60
+
 
 NOTIFICATION_KEYS = {
     # =========================================================================
@@ -120,6 +125,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to applicants when their membership application is approved.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "member_application_overdue": {
         "label": "Application Overdue Alert",
@@ -128,12 +134,31 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mijnrood_disabled_default_type": {
+        "label": "MijnRood Application Type Disabled (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood application is staged with the site's default membership type "
+        "while that type is disabled or gone. The reviewer must pick another type at approval. At most once "
+        "a day per type while the setting stays wrong. The mail names the type.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_chapter_move_failed": {
+        "label": "MijnRood Chapter Move Failed (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood division change could not move a member to the new chapter "
+        "(the member stays in the old one and MijnRood will not resend the change). At most once a day per "
+        "member, chapter and reason. The mail names the member, the chapters and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
         "description": "Sent when a membership application is rejected, including the reason.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "membership_renewal_reminder": {
         "label": "Renewal Reminder",
@@ -141,6 +166,7 @@ NOTIFICATION_KEYS = {
         "description": "Periodic reminder sent to members whose membership is approaching expiration.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
     },
     "termination_overdue": {
         "label": "Termination Overdue",
@@ -148,6 +174,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a termination request has not been processed within the expected timeframe.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 1440,
     },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
@@ -236,19 +263,12 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
-    "chapter_member_transferred_in": {
-        "label": "Chapter Member Transferred In",
+    "chapter_membership_approved": {
+        "label": "Chapter Membership Approved",
         "category": CATEGORY_CHAPTER,
-        "description": "Sent to board when a member transfers into the chapter from another chapter.",
-        "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_ROLE_BASED,
-    },
-    "chapter_member_transferred_out": {
-        "label": "Chapter Member Transferred Out",
-        "category": CATEGORY_CHAPTER,
-        "description": "Sent to board when a member transfers out of the chapter to another chapter.",
-        "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_ROLE_BASED,
+        "description": "Sent to the member when their request to join a chapter is approved.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
@@ -260,12 +280,60 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "payment_failure_first": {
+        "label": "Payment Failed (First)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after the first failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
+    },
+    "payment_failure_second": {
+        "label": "Payment Failed (Second)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member after a second failed payment attempt.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
+    },
+    "payment_failure": {
+        "label": "Payment Failure (Chapter Board)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to a chapter's board when a member of the chapter has overdue payments. Not part of the member dunning series (payment_failure_first, _second, _final).",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_reminder_friendly": {
+        "label": "Payment Reminder (Friendly)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Friendly reminder sent to a member about an upcoming or overdue payment.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 10080,
+    },
+    "subscription_cancelled": {
+        "label": "Subscription Cancelled",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is cancelled.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
+    },
+    "subscription_suspended": {
+        "label": "Subscription Suspended",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent to the member when their payment subscription is suspended.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
+    },
     "payment_failure_final": {
         "label": "Payment Failed (Final)",
         "category": CATEGORY_PAYMENT,
         "description": "Sent after all retry attempts have failed for a payment.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "payment_reminder_urgent": {
         "label": "Payment Reminder (Urgent)",
@@ -273,6 +341,7 @@ NOTIFICATION_KEYS = {
         "description": "Urgent reminder for overdue payments requiring immediate attention.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 4320,
     },
     "payment_plan_request": {
         "label": "Payment Plan Requested",
@@ -280,6 +349,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin notification when a member requests a payment plan arrangement.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     "payment_plan_approved": {
         "label": "Payment Plan Approved",
@@ -287,6 +357,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to member when their payment plan request is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "payment_history_failure_alert": {
         "label": "Payment History Sync Failed",
@@ -301,6 +372,7 @@ NOTIFICATION_KEYS = {
         "description": "Critical system alert for severe payment history processing failures.",
         "priority": PRIORITY_CRITICAL,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # DONATION NOTIFICATIONS
@@ -325,6 +397,7 @@ NOTIFICATION_KEYS = {
         "description": "Confirmation sent when a recurring donation agreement is set up.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "periodic_donation_expiry": {
         "label": "Recurring Donation Expiring",
@@ -332,6 +405,7 @@ NOTIFICATION_KEYS = {
         "description": "Reminder sent before a recurring donation agreement expires.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 1440,
     },
     "periodic_donation_cancellation": {
         "label": "Recurring Donation Cancelled",
@@ -339,6 +413,7 @@ NOTIFICATION_KEYS = {
         "description": "Confirmation sent when a recurring donation agreement is cancelled.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # DUES & BILLING NOTIFICATIONS
@@ -350,12 +425,21 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "dues_schedule_creation_failed": {
+        "label": "Dues Schedule Creation Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Staff alert when creating a member's dues schedule failed after all retries and "
+        "needs a manual fix.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
         "description": "Notification when a dues schedule is manually created for a member.",
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "dues_amendment_approved": {
         "label": "Contribution Amendment Approved",
@@ -363,6 +447,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent when a request to change contribution amount is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "dues_amendment_rejected": {
         "label": "Contribution Amendment Rejected",
@@ -370,6 +455,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent when a request to change contribution amount is rejected.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # SEPA NOTIFICATIONS
@@ -387,6 +473,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a SEPA batch completes with warnings or partial failures.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 30,
     },
     "sepa_batch_error": {
         "label": "SEPA Batch Error",
@@ -394,6 +481,7 @@ NOTIFICATION_KEYS = {
         "description": "Admin alert when a SEPA direct debit batch fails processing.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     "sepa_member_pre_notification": {
         "label": "SEPA Pre-Notification",
@@ -406,6 +494,15 @@ NOTIFICATION_KEYS = {
         "label": "SEPA Scheduler Alert",
         "category": CATEGORY_PAYMENT,
         "description": "Alert from SEPA batch scheduler about processing issues or delays.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles for this Role-Based row (default: the admin pair); finance staff get the scheduler alert (#2093).
+        "recipient_roles": "Verenigingen Financial Manager",
+    },
+    "sepa_monitoring_alert": {
+        "label": "SEPA Monitoring Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alerts from the SEPA monitoring system: threshold alerts, escalations and security incidents.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
@@ -432,6 +529,36 @@ NOTIFICATION_KEYS = {
         "description": "Sent to member with a Ponto payment link for manual payment.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
+    },
+    "ponto_executed_on_cancelled_row": {
+        "label": "Ponto Payment Executed On Cancelled Row (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request or Link that was "
+        "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "ponto_executed_unbookable": {
+        "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request whose Ponto "
+        "account mapping is paused or disabled, so no Payment Entry may be booked against it. Also carries "
+        "the Payment Entry conflict alerts: a Payment Entry that already carries the request as its "
+        "Reference No differs (party, paying bank account, amount, ...) or is ambiguous (a draft, or "
+        "more than one). The money has moved: check the bank and book the payment by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "door_unavailable": {
+        "label": "Application Door Unavailable (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a /word-lid application door offers no payment plan because of how it or its "
+        "dues templates are configured, so applicants see 'cannot be used right now'. At most once a day per "
+        "door and reason while the problem lasts. The mail names the door, the membership type and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS
@@ -477,6 +604,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to approvers when a volunteer submits an expense claim.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the fallback approvers are Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "expense_approved": {
         "label": "Expense Approved",
@@ -484,6 +613,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to volunteer when their expense claim is approved.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     "expense_rejected": {
         "label": "Expense Rejected",
@@ -491,6 +621,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to volunteer when their expense claim is rejected.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 0,
     },
     # =========================================================================
     # SYSTEM NOTIFICATIONS
@@ -501,6 +632,9 @@ NOTIFICATION_KEYS = {
         "description": "System alert when dues schedules are stuck in processing state.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 240,
+        # Seeded roles: Verenigingen Staff, as the orphaned-records report always went (#2095).
+        "recipient_roles": "Verenigingen Staff",
     },
     "analytics_alert": {
         "label": "Analytics Alert",
@@ -515,6 +649,8 @@ NOTIFICATION_KEYS = {
         "description": "Periodic summary of security policy violations and critical operations.",
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: System Managers only (#2095).
+        "recipient_roles": "System Manager",
     },
     "security_alert": {
         "label": "Security Alert",
@@ -535,7 +671,10 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_SYSTEM,
         "description": "Alert for authentication anomalies like failed logins or suspicious access patterns.",
         "priority": PRIORITY_HIGH,
-        "recipient_policy": POLICY_ROLE_BASED,
+        # Custom, not Role-Based: the default audience is the holders of the Verenigingen System
+        # Administrator PROFILE, which a role list cannot name (#2254). A row an admin sets to Fixed or
+        # Role-Based still wins.
+        "recipient_policy": POLICY_CUSTOM,
     },
     "business_logic_alert": {
         "label": "Business Logic Alert",
@@ -543,11 +682,23 @@ NOTIFICATION_KEYS = {
         "description": "Alert triggered by business logic monitoring rules detecting anomalies.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: System Managers only (#2095).
+        "recipient_roles": "System Manager",
     },
     "system_alert": {
         "label": "System Alert",
         "category": CATEGORY_SYSTEM,
         "description": "Generic system alert for operational issues and warnings.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "business_monitoring_alert": {
+        "label": "Business Monitoring Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": (
+            "Business and finance alerts from the monitoring job (SEPA compliance, member churn, "
+            "dues schedules, data quality, orphaned payments) and the daily monitoring report."
+        ),
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
     },
@@ -560,6 +711,7 @@ NOTIFICATION_KEYS = {
         "description": "Sent to donors requesting consent for ANBI tax deduction reporting.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "cooldown_minutes": 43200,
     },
     "anbi_tax_receipt": {
         "label": "ANBI Tax Receipt",
@@ -581,6 +733,27 @@ NOTIFICATION_KEYS = {
         "description": "Sent to managers when a contact request is escalated due to SLA breach or priority.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: escalations go to Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
+    },
+    "contact_request_new": {
+        "label": "Contact Request Received",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to Verenigingen Administrators when a member files a new contact request.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "recipient_roles": "Verenigingen Administrator",
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
+    },
+    "contact_request_urgent": {
+        "label": "Urgent Contact Request Received",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to Verenigingen Administrators and System Managers when a member files an urgent contact request.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_response_sent": {
         "label": "Contact Request Response",
@@ -595,6 +768,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to governance committee when a new expulsion report is submitted.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the governance team is Verenigingen Administrators only (#2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "member_activation_reminder": {
         "label": "Member Activation Reminder",
@@ -623,6 +798,16 @@ NOTIFICATION_KEYS = {
         "description": "Alert when Mollie contribution synchronization fails.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "contribution_amendment_sync_failed": {
+        "label": "Contribution Amendment Sync Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert when a Mollie subscription sync for a contribution amendment fails (also reaches finance).",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # The Mollie amendment handler always included finance; the amendment request's own failure alert
+        # (contribution_sync_failed) did not (#2095).
+        "recipient_roles": "System Manager, Verenigingen Administrator, Verenigingen Financial Manager",
     },
     "email_template_test": {
         "label": "Email Template Test",
@@ -665,6 +850,48 @@ NOTIFICATION_KEYS = {
 }
 
 
+# Staff alerts that ask a person to DO something (#1979 ruling 3): if nobody sees one, money stays
+# wrong, a deadline passes or a failure goes uninvestigated. This is only the DEFAULT; a call site may
+# override it with ``requires_action=``, because the same key can carry an informational send too
+# (``system_alert``). Kept as a set rather than a per-key field so the registry sync and the seeded
+# Email Notification Type rows are untouched. The four action-required keys no sender uses
+# (security_alert, member_application_overdue, payment_history_*) are deliberately absent.
+REQUIRES_ACTION_KEYS = frozenset(
+    {
+        "ponto_executed_on_cancelled_row",
+        "ponto_executed_unbookable",
+        "door_unavailable",
+        "sepa_batch_error",
+        "sepa_batch_scheduler_alert",
+        "sepa_monitoring_alert",
+        "payment_failure_final",
+        "payment_alert_overpayment",
+        "payment_alert_failure",
+        "payment_alert_reconciliation",
+        "balance_monitor_alert",
+        "mollie_security_alert",
+        "audit_alert",
+        "auth_monitoring_alert",
+        "business_logic_alert",
+        "termination_overdue",
+        "termination_pending_approval",
+        "expense_approval_request",
+        "system_stuck_schedules",
+        "dues_schedule_creation_failed",
+        "contribution_sync_failed",
+        "contact_request_escalated",
+        "contact_request_new",
+        "contact_request_urgent",
+        "contribution_amendment_sync_failed",
+        "expulsion_report_submitted",
+        "payment_plan_request",
+        "zabbix_system_alert",
+        "mijnrood_disabled_default_type",
+        "mijnrood_chapter_move_failed",
+    }
+)
+
+
 def get_notification_meta(notification_key: str) -> dict:
     """Get metadata for a notification key.
 
@@ -672,7 +899,8 @@ def get_notification_meta(notification_key: str) -> dict:
         notification_key: The notification key to look up.
 
     Returns:
-        Dict with label, category, description, priority, recipient_policy.
+        Dict with label, category, description, priority, recipient_policy and,
+        optionally, cooldown_minutes (default DEFAULT_COOLDOWN_MINUTES).
         Returns empty dict if key not found.
     """
     return NOTIFICATION_KEYS.get(notification_key, {})

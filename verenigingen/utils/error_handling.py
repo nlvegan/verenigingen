@@ -564,6 +564,14 @@ def handle_api_error(func: Callable) -> Callable:
                 trace_id=trace_id,
             )
         except Exception as e:
+            # #2112: an RQ job timeout is raised once; turning it into a failed
+            # OperationResult lets the job carry on past its timeout. Imported here because
+            # this module is imported very early.
+            from verenigingen.verenigingen_payments.core.resilience.job_timeout import (
+                reraise_if_job_timeout,
+            )
+
+            reraise_if_job_timeout(e)
             # Unexpected errors - log with full traceback
             trace_id = log_error(
                 e,
@@ -960,10 +968,10 @@ def validate_member_for_user(user: str = None, custom_message: str = None) -> st
     if not user:
         user = validate_user_logged_in()
 
-    # Try multiple lookup methods
-    member = frappe.db.get_value("Member", {"email": user}, "name") or frappe.db.get_value(
-        "Member", {"user": user}, "name"
-    )
+    # Caller identity is the Member.user link only (#1936); no Member.email fallback.
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
+
+    member = get_member_name_for_board_access(user)
 
     if not member:
         message = custom_message or "No member record found for your account"

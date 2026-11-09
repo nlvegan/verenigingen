@@ -259,7 +259,6 @@ class EmailService(StatelessService):
                 "chapter_membership_approval": "chapter_membership_approved",
                 "member_suspension": "Member Suspension Notification",
                 "member_termination": "Member Termination Notification",
-                "member_reactivation": "Member Reactivation Notification",
                 "member_rejection": "membership_application_rejected",
                 "payment_failure": "Payment Failure Notification",
                 "sepa_mandate_created": "SEPA Mandate Created",
@@ -272,7 +271,6 @@ class EmailService(StatelessService):
                 "chapter_membership_approval": "chapter_membership_approved",
                 "member_suspension": "member_suspended",
                 "member_termination": "member_terminated",
-                "member_reactivation": "member_activated",
                 "member_rejection": "member_application_rejected",
                 "payment_failure": "payment_failure",
                 "sepa_mandate_created": "sepa_mandate_created",
@@ -452,6 +450,8 @@ class EmailService(StatelessService):
         reference_name: str = None,
         create_communication: bool = True,  # Deprecated - kept for backward compatibility
         notification_key: str = None,
+        cooldown_scope: str = None,
+        bypass_cooldown: bool = False,
         **options,
     ) -> OperationResult:
         """
@@ -467,6 +467,11 @@ class EmailService(StatelessService):
         Args:
             notification_key: Optional key for Verenigingen Email Configuration lookup. If provided,
                              checks per-notification-type settings and cooldown.
+            cooldown_scope: Optional. Narrows the per-recipient cooldown to this scope (e.g. a
+                            chapter), so one recipient can get the same notification once per scope.
+            bypass_cooldown: Optional. Skips ONLY the cooldown check, for an urgent send. The enable
+                             switch and user opt-outs still apply. It does not record the cooldown
+                             either, so it never uses up a rate-limited sender's slot.
         """
         try:
             # Check Verenigingen Email Configuration if available
@@ -506,7 +511,9 @@ class EmailService(StatelessService):
                     # Check cooldown for each recipient
                     recipients_to_send = []
                     for recipient in recipients:
-                        if config_service.check_cooldown(notification_key, recipient):
+                        if bypass_cooldown or config_service.check_cooldown(
+                            notification_key, self._cooldown_id(recipient, cooldown_scope)
+                        ):
                             recipients_to_send.append(recipient)
                         else:
                             self.logger.debug(f"Skipping {recipient} for '{notification_key}' - in cooldown")
@@ -588,8 +595,9 @@ class EmailService(StatelessService):
             # For audit trails, use Email Queue reports instead of Communication records.
 
             # Record cooldown for sent emails
-            if notification_key:
-                self._record_cooldown(notification_key, recipients)
+            # A bypassing send does not take the rate-limited sends' slot (#2003).
+            if notification_key and not bypass_cooldown:
+                self._record_cooldown(notification_key, recipients, cooldown_scope)
 
             return OperationResult.ok(
                 {
@@ -723,7 +731,14 @@ class EmailService(StatelessService):
             self.logger.error(f"Frappe Notification delegation failed ({notification_name}): {str(e)}")
             return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
 
-    def _record_cooldown(self, notification_key: str, recipients: List[str]) -> None:
+    @staticmethod
+    def _cooldown_id(recipient: str, scope: str = None) -> str:
+        """The per-recipient cooldown identity: the address alone, or address + scope."""
+        return f"{recipient}|{scope}" if scope else recipient
+
+    def _record_cooldown(
+        self, notification_key: str, recipients: List[str], cooldown_scope: str = None
+    ) -> None:
         """Record send timestamp for cooldown tracking.
 
         Args:
@@ -734,7 +749,7 @@ class EmailService(StatelessService):
             config_service = self._get_config_service()
             if config_service and notification_key:
                 for recipient in recipients:
-                    config_service.record_send(notification_key, recipient)
+                    config_service.record_send(notification_key, self._cooldown_id(recipient, cooldown_scope))
         except Exception as e:
             self.logger.debug(f"Cooldown recording failed: {e}")
 
@@ -742,8 +757,8 @@ class EmailService(StatelessService):
         """Validate that a notification_key exists in the registry.
 
         Logs a warning if the key is not found but does not raise an exception.
-        This allows emails to still be sent while alerting developers to add
-        missing keys to the registry.
+        The caller then drops the mail, because a key with no registry entry has no
+        Verenigingen Email Configuration row and so counts as disabled (#1999).
 
         Args:
             notification_key: The notification type key to validate.
@@ -757,8 +772,8 @@ class EmailService(StatelessService):
             if notification_key not in NOTIFICATION_KEYS:
                 self.logger.warning(
                     f"notification_key '{notification_key}' not found in NOTIFICATION_KEYS registry. "
-                    f"Add it to verenigingen/notification_registry.py for proper configuration control. "
-                    f"Email will still be sent."
+                    f"Add it to verenigingen/notification_registry.py. "
+                    f"The email is skipped as disabled unless a configuration row for this key was added by hand."
                 )
                 return False
             return True
@@ -817,6 +832,8 @@ class EmailService(StatelessService):
                 "organization_name": getattr(settings, "company_name", ""),
                 "contact_email": getattr(settings, "contact_email", ""),
                 "website_url": getattr(settings, "website_url", ""),
+                # Absolute site URL for links; templates read {{ base_url }} (#2020)
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
                 # Brand assets for templates
@@ -827,6 +844,7 @@ class EmailService(StatelessService):
         except Exception:
             return {
                 "organization_name": "",
+                "base_url": frappe.utils.get_url(),
                 "current_date": get_datetime(),
                 "current_year": get_datetime().year,
             }

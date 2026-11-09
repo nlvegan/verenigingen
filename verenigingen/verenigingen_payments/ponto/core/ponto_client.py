@@ -64,7 +64,6 @@ class PontoClient:
     Handles:
     - OAuth2 authentication via PontoTokenManager
     - JSON:API content type headers
-    - Circuit breaker protection for API failures
     - Retry logic for transient errors
     - Cursor-based pagination
 
@@ -84,7 +83,10 @@ class PontoClient:
         max_delay=30.0,
     )
 
-    # Circuit breaker protects against cascading failures when Ponto API is down
+    # NOTE: there is NO working circuit breaker. with_circuit_breaker() is a deprecated
+    # pass-through (core/resilience/__init__.py), so a Ponto outage is retried per call
+    # and callers (e.g. the scheduled status poll) must bound their own failure cost.
+    # The values below are therefore inert.
     # - failure_threshold: 5 failures before opening circuit (prevents hammering)
     # - recovery_timeout: 60 seconds before allowing test request
     # - success_threshold: 3 successes needed to close circuit

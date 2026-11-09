@@ -378,37 +378,8 @@ class TestCreateMemberFromApplication(EnhancedTestCase):
             self.assertIn("collision", r.error.lower())
 
 
-class TestReapplicationUpdate(EnhancedTestCase):
-    """update_member_from_reapplication."""
-
-    def setUp(self):
-        super().setUp()
-        self.mt = _make_membership_type(self.factory, amount=15.0)
-        helpers.ensure_payment_modes_exist()
-        self.member = self.create_test_member(first_name="Old", last_name="Name", email="reapply@example.com")
-
-    def test_updates_existing_member_to_pending(self):
-        new_app_id = helpers.generate_application_id()
-        data = {
-            "first_name": "New",
-            "last_name": "Surname",
-            "email": self.member.email,
-            "selected_membership_type": self.mt.name,
-            "payment_method": "bank_transfer",
-            "birth_date": "1985-05-05",
-        }
-        updated = helpers.update_member_from_reapplication(self.member.name, data, new_app_id)
-
-        self.assertEqual(updated.first_name, "New")
-        self.assertEqual(updated.last_name, "Surname")
-        self.assertEqual(updated.application_status, "Pending")
-        self.assertEqual(updated.status, "Pending")
-        self.assertEqual(updated.application_id, new_app_id)
-        self.assertIn("Reapplication submitted", updated.notes or "")
-
-
 class TestChapterMembershipLifecycle(EnhancedTestCase):
-    """create_pending / activate / remove chapter membership helpers."""
+    """create_pending / activate chapter membership helpers."""
 
     def setUp(self):
         super().setUp()
@@ -436,22 +407,6 @@ class TestChapterMembershipLifecycle(EnhancedTestCase):
         """Activating with no pending record falls back to creating an active one."""
         helpers.activate_pending_chapter_membership(self.member, self.chapter.name)
         self.assertEqual(self._pending_status(), "Active")
-
-    def test_remove_pending_membership(self):
-        """Rejection path removes the pending chapter membership."""
-        helpers.create_pending_chapter_membership(self.member, self.chapter.name)
-        self.assertEqual(self._pending_status(), "Pending")
-
-        result = helpers.remove_pending_chapter_membership(self.member, self.chapter.name)
-        self.assertTrue(result)
-        self.assertIsNone(self._pending_status())
-
-    def test_remove_all_pending(self):
-        """remove_all_pending_chapter_memberships returns removed chapter names."""
-        helpers.create_pending_chapter_membership(self.member, self.chapter.name)
-        removed = helpers.remove_all_pending_chapter_memberships(self.member)
-        self.assertIn(self.chapter.name, removed)
-        self.assertIsNone(self._pending_status())
 
     def test_create_pending_nonexistent_chapter_returns_none(self):
         result = helpers.create_pending_chapter_membership(self.member, "No-Such-Chapter-XYZ")

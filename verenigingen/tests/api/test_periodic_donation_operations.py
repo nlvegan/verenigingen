@@ -36,6 +36,7 @@ from verenigingen.api.periodic_donation_operations import (
 )
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends, ensure_outgoing_email_account
 
 
 class TestPeriodicDonationOperations(VereningingenTestCase):
@@ -406,6 +407,132 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         self.assertFalse(self._ok(second))
         self.assertTrue(self._errors(second))
 
+    def _interactive_buckets_for(self, name_fragment):
+        """Live rate-limit counters (key -> count) whose operation key contains name_fragment."""
+        import redis
+
+        r = redis.from_url(frappe.conf.redis_cache)
+        keys = r.keys(f"cor_rate_limit:{frappe.local.site}:*:*{name_fragment}*")
+        return {k.decode(): int(r.get(k)) for k in keys}
+
+    def _clear_buckets_for(self, name_fragment):
+        import redis
+
+        r = redis.from_url(frappe.conf.redis_cache)
+        for k in r.keys(f"cor_rate_limit:{frappe.local.site}:*:*{name_fragment}*"):
+            r.delete(k)
+
+    def test_link_donation_to_agreement_consumes_one_rate_limit_bucket(self):
+        """#352: one user action must tick ONE counter (link_donation_to_agreement's), not also
+        the interactive ``link_donation`` counter of the controller method it calls.
+
+        Drives the REAL limiter: the in_test bypass is lifted for the call,
+        and the live redis counters of the WHOLE site are read back (any second counter fails it, whichever decorated method ticked it).
+        """
+        from unittest.mock import MagicMock
+
+        donor = self._make_donor(anbi_consent=1)
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        donation = self._make_paid_donation(donor.name, amount=150.0)
+
+        self._cleanup_test_mocks()  # drops the harness's validate_rate_limits stub (idempotent)
+        saved = (frappe.flags.in_test, getattr(frappe.local, "request", None))
+        self.addCleanup(self._restore_request_and_flags, saved)
+        self.addCleanup(self._clear_buckets_for, "")
+        self._clear_buckets_for("")
+        # Mock justified: Infrastructure - the limiter skips itself under in_test and needs a request
+        frappe.flags.in_test = False
+        frappe.local.request = MagicMock(method="POST", environ={"REMOTE_ADDR": "203.0.113.9"})
+
+        result = link_donation_to_agreement(donation=donation.name, agreement=agreement.name)
+        buckets = self._interactive_buckets_for("")
+        operations = sorted(k.split(":")[3] for k in buckets)
+        frappe.flags.in_test, frappe.local.request = saved  # Mock justified: Infrastructure
+
+        self.assertTrue(self._ok(result), f"link failed: {self._errors(result)}")
+        self.assertEqual(
+            operations,
+            ["verenigingen.api.periodic_donation_operations.link_donation_to_agreement"],
+            f"one action ticked more than the endpoint's own bucket: {buckets}",
+        )
+        self.assertEqual(list(buckets.values()), [1])
+
+    @staticmethod
+    def _restore_request_and_flags(saved):
+        frappe.flags.in_test, frappe.local.request = saved  # Mock justified: Infrastructure
+
+    def test_link_donation_refuses_a_caller_without_donation_write(self):
+        """The swap from ``link_donation`` to ``add_donation_link`` must not open a way in: a
+        caller who cannot write a Donation is refused and nothing is linked on either side."""
+        donor = self._make_donor(anbi_consent=1)
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        donation = self._make_paid_donation(donor.name, amount=150.0)
+        self.expectErrorLog("Donation Linking Error")  # the refusal is logged by the endpoint
+        # National Board Member: its profile clears the endpoint's CRITICAL security gate (and the
+        # callee's HIGH one), so the refusal under test is the doctype permission, not the decorator.
+        # Its roles carry no write on Donation or on Periodic Donation Agreement.
+        attacker = self.create_test_user(f"nolink-{frappe.generate_hash(length=6)}@example.com")
+        attacker.append("role_profiles", {"role_profile": "Verenigingen National Board Member"})
+        attacker.save(ignore_permissions=True)
+        frappe.set_user(attacker.name)
+        self.addCleanup(frappe.set_user, "Administrator")
+        # Precondition: the attacker really lacks the permission the API relies on
+        self.assertFalse(frappe.has_permission("Donation", "write", doc=donation.name))
+        self.assertFalse(frappe.has_permission("Periodic Donation Agreement", "write", doc=agreement.name))
+
+        result = link_donation_to_agreement(donation=donation.name, agreement=agreement.name)
+
+        frappe.set_user("Administrator")
+        self.assertFalse(self._ok(result), "an unauthorised caller was allowed to link")
+        # Agreement side only. The Donation side is NOT asserted: an unauthorised refusal today still
+        # leaves the donation's own link written (a separate, pre-existing partial write, issue 2281; see the
+        # tracker). Do not read this test as covering it.
+        agreement.reload()
+        self.assertEqual([d for d in agreement.donations if d.donation == donation.name], [])
+
+    def _failed_link_audit_rows(self, since):
+        """Real API Audit Log rows: api_call_failed events for the link endpoint after ``since``."""
+        rows = frappe.get_all(
+            "API Audit Log",
+            filters={"event_type": "api_call_failed", "creation": [">=", since]},
+            fields=["name", "details"],
+        )
+        return [r for r in rows if "link_donation_to_agreement" in (r.details or "")]
+
+    def test_refused_link_is_audited_as_failed_and_a_successful_link_is_not(self):
+        """#352 review N1: with the inner ``link_donation`` decorator gone, a refused link
+        reached the audit trail only as the OUTER ``api_call_success`` (the endpoint catches
+        the error and returns a failure result). The endpoint now records the failure itself.
+        Asserted on real API Audit Log rows."""
+        from frappe.utils import now_datetime
+
+        donor = self._make_donor(anbi_consent=1)
+        agreement = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+        ok_donation = self._make_paid_donation(donor.name, amount=150.0)
+        refused_donation = self._make_paid_donation(donor.name, amount=75.0)
+        self.expectErrorLog("Donation Linking Error")
+
+        since = now_datetime()
+        self.assertTrue(self._ok(link_donation_to_agreement(donation=ok_donation.name, agreement=agreement.name)))
+        self.assertEqual(self._failed_link_audit_rows(since), [], "a successful link must record no failure")
+
+        attacker = self.create_test_user(f"nolink-{frappe.generate_hash(length=6)}@example.com")
+        attacker.append("role_profiles", {"role_profile": "Verenigingen National Board Member"})
+        attacker.save(ignore_permissions=True)
+        frappe.set_user(attacker.name)
+        self.addCleanup(frappe.set_user, "Administrator")
+        result = link_donation_to_agreement(donation=refused_donation.name, agreement=agreement.name)
+        frappe.set_user("Administrator")
+
+        self.assertFalse(self._ok(result))
+        rows = self._failed_link_audit_rows(since)
+        self.assertEqual(len(rows), 1, f"a refused link must record exactly one api_call_failed: {rows}")
+        details = json.loads(rows[0].details)
+        self.assertEqual(details["function"], "link_donation_to_agreement")
+        self.assertEqual(details["security_level"], "critical")
+        self.assertEqual(details["user"], attacker.name)
+        self.assertEqual(frappe.db.get_value("API Audit Log", rows[0].name, "user"), attacker.name)
+
     # ================================================================== #
     # send_renewal_reminders
     #
@@ -417,6 +544,10 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
     # agreements (outside the window) are never touched.
     # ================================================================== #
     def test_send_renewal_reminders_query_selects_only_expiring_active_agreements(self):
+        # The reminder counts only a mail really queued (#2044): with the key disabled or in
+        # cooldown this test used to pass on a skipped send, so put the key in a sending state.
+        ensure_outgoing_email_account(self)
+        allow_reminder_sends(keys=("periodic_donation_expiry",))
         # Expiring soon (end_date within the window) and Active.
         donor_soon = self._make_donor(anbi_consent=1)
         expiring = self.create_anbi_compliant_agreement(donor=donor_soon.name, status="Active")

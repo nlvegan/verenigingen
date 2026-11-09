@@ -403,7 +403,10 @@ class EmailConfigurationService:
             return self._parse_email_list(notification_config.get("fixed_recipients", ""))
 
         elif policy == "Role-Based":
-            roles = notification_config.get("recipient_roles", "")
+            # A present-but-empty Text field comes back as None, not "" (#1997). No roles resolves
+            # to [] like Fixed/Custom with nothing configured; notify_administrators then falls
+            # back to the admin roles, so the alert is not dropped.
+            roles = notification_config.get("recipient_roles") or ""
             role_list = [r.strip() for r in roles.split(",") if r.strip()]
             return self._get_users_with_roles(role_list)
 
@@ -450,7 +453,12 @@ class EmailConfigurationService:
         return [e.strip() for e in email_string.split(",") if e.strip()]
 
     def _get_users_with_roles(self, roles: List[str]) -> List[str]:
-        """Get email addresses of users with specified roles."""
+        """Get email addresses of enabled users with specified roles.
+
+        The Administrator user is never included: staff alerts never go to it (maintainer ruling
+        2026-11-01, #1960). It is dropped by User NAME, not by email, so a staff user who shares
+        Administrator's address is kept.
+        """
         if not roles:
             return []
 
@@ -467,7 +475,10 @@ class EmailConfigurationService:
         # Get emails for enabled users (deduplicated via set)
         return frappe.get_all(
             "User",
-            filters={"enabled": 1, "name": ["in", list(set(users_with_roles))]},
+            filters={
+                "enabled": 1,
+                "name": ["in", [u for u in set(users_with_roles) if u != "Administrator"]],
+            },
             pluck="email",
         )
 

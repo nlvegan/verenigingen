@@ -8,7 +8,8 @@ def get_recipients_by_roles(role_names: list[str]) -> list[str]:
 
     Queries ``Has Role`` joined to ``tabUser`` for all enabled users whose
     role column matches any of the supplied role names and whose email is
-    non-empty.  Returns a sorted list of unique email addresses.
+    non-empty.  Returns a sorted list of unique email addresses.  The Administrator
+    user is never returned: it is not in active use and staff alerts never go to it (#2036).
 
     Args:
         role_names: One or more Frappe role names to match against.
@@ -27,6 +28,7 @@ def get_recipients_by_roles(role_names: list[str]) -> list[str]:
         INNER JOIN `tabUser` u ON u.name = hr.parent
         WHERE hr.role IN %(roles)s
           AND u.enabled = 1
+          AND u.name != 'Administrator'
           AND u.email != ''
         """,
         {"roles": role_names},

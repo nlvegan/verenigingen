@@ -22,6 +22,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.service_error_handler import ServiceError, create_service_result, handle_service_error
 from verenigingen.utils.service_logger import get_service_logger
 
@@ -497,7 +498,7 @@ class APIService(BaseService):
                 "roles": user_roles,
                 "service": self.service_name,
                 "session_id": getattr(frappe.session, "sid", None),
-                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+                "ip_address": get_client_ip_or_none(),
                 "user_agent": frappe.get_request_header("User-Agent", "Unknown"),
                 "timestamp": frappe.utils.now(),
             }

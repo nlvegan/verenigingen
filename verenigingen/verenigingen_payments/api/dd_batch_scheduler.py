@@ -9,7 +9,6 @@ from frappe.utils import add_days, add_to_date, get_weekday, getdate, now_dateti
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -27,6 +26,7 @@ from verenigingen.verenigingen_payments.api.dd_batch_optimizer import (
     _describe_what_was_lost,
     create_optimal_batches,
 )
+from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_financial_admin_emails
 
 
 def daily_batch_optimization():
@@ -392,19 +392,15 @@ def send_batch_creation_notification(result):
     """Send email notification about created batches"""
     try:
         # Get finance team members
-        finance_managers = frappe.get_all(
-            "User",
-            filters={
-                "enabled": 1,
-                "name": [
-                    "in",
-                    frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent"),
-                ],
-            },
-            fields=["email", "full_name"],
+        # The key's own recipients first (seeded: Financial Manager), then enabled Financial
+        # Manager holders; never the Administrator user (#2093).
+        finance_emails = get_financial_admin_emails(
+            "sepa_batch_scheduler_alert",
+            default_roles=[Roles.FINANCIAL_MANAGER],
+            include_payments_settings=False,  # #2093 audience: key row, then Financial Managers
         )
 
-        if not finance_managers:
+        if not finance_emails:
             return
 
         # Prepare email content
@@ -463,9 +459,9 @@ def send_batch_creation_notification(result):
 
         # Send email to finance team
         email_service = get_email_service()
-        for manager in finance_managers:
+        for email in finance_emails:
             email_service.send_simple_email(
-                recipients=[manager.email],
+                recipients=[email],
                 subject=subject,
                 message=message,
                 delayed=False,
@@ -474,46 +470,6 @@ def send_batch_creation_notification(result):
 
     except Exception as e:
         frappe.log_error(f"Error sending batch notification: {str(e)}", "Batch Notification Error")
-
-
-def create_system_notification(result):
-    """Create in-system notification for batch creation"""
-    try:
-        # Create notification for Verenigingen Financial Manager role
-        notification = frappe.get_doc(
-            {
-                "doctype": "Notification Log",
-                "subject": f"Auto-created {result['batches_created']} DD batches",
-                "type": "Alert",
-                "document_type": "Direct Debit Batch",
-                "document_name": result.get("batch_names", [None])[0] if result.get("batch_names") else None,
-                "from_user": "Administrator",
-                "for_user": "",  # Will be set per user below
-                "read": 0,
-            }
-        )
-
-        # Get users with Verenigingen Financial Manager role
-        finance_users = frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent")
-
-        for user in finance_users:
-            notification_copy = notification.copy()
-            notification_copy.for_user = user
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            notification_result = secure_document_operation(
-                operation="insert",
-                doc=notification_copy,
-                justification=f"Create system notification for batch creation - user {user} - {result['batches_created']} batches created",
-                required_permissions=["Notification Log:create"],
-            )
-            if not notification_result.success:
-                frappe.log_error(
-                    f"Failed to create notification for user {user}: {'; '.join(notification_result.errors)}",
-                    "Batch Notification Error",
-                )
-
-    except Exception as e:
-        frappe.log_error(f"Error creating system notification: {str(e)}", "System Notification Error")
 
 
 @standard_api(operation_type=OperationType.REPORTING)

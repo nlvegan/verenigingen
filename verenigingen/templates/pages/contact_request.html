@@ -234,7 +234,7 @@
                 <select id="request_type" name="request_type" class="form-control" required>
                     <option value="">{{ _("Select request type...") }}</option>
                     {% for request_type in request_types %}
-                    <option value="{{ request_type }}">{{ _(request_type) }}</option>
+                    <option value="{{ request_type|e }}">{{ _(request_type)|e }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -256,8 +256,8 @@
                     <label for="urgency">{{ _("Urgency") }}</label>
                     <select id="urgency" name="urgency" class="form-control">
                         {% for urgency in urgency_levels %}
-                        <option value="{{ urgency }}" {% if urgency == "Normal" %}selected{% endif %}>
-                            {{ _(urgency) }}
+                        <option value="{{ urgency|e }}" {% if urgency == "Normal" %}selected{% endif %}>
+                            {{ _(urgency)|e }}
                         </option>
                         {% endfor %}
                     </select>
@@ -267,8 +267,8 @@
                     <label for="preferred_contact_method">{{ _("Preferred Contact Method") }}</label>
                     <select id="preferred_contact_method" name="preferred_contact_method" class="form-control">
                         {% for method in contact_methods %}
-                        <option value="{{ method }}" {% if method == "Email" %}selected{% endif %}>
-                            {{ _(method) }}
+                        <option value="{{ method|e }}" {% if method == "Email" %}selected{% endif %}>
+                            {{ _(method)|e }}
                         </option>
                         {% endfor %}
                     </select>
@@ -295,17 +295,17 @@
         {% for request in recent_requests %}
         <div class="request-item">
             <div class="request-info">
-                <h4>{{ request.subject }}</h4>
+                <h4>{{ request.subject|e }}</h4>
                 <div class="request-meta">
-                    {{ _(request.request_type) }} •
-                    {{ _("Submitted") }}: {{ frappe.utils.formatdate(request.request_date) }}
+                    {{ _(request.request_type)|e }} •
+                    {{ _("Submitted") }}: {{ frappe.utils.formatdate(request.request_date)|e }}
                     {% if request.response_date %}
-                    • {{ _("Responded") }}: {{ frappe.utils.formatdate(request.response_date) }}
+                    • {{ _("Responded") }}: {{ frappe.utils.formatdate(request.response_date)|e }}
                     {% endif %}
                 </div>
             </div>
-            <div class="status-badge status-{{ request.status.lower().replace(' ', '-') }}">
-                {{ _(request.status) }}
+            <div class="status-badge status-{{ request.status.lower().replace(' ', '-')|e }}">
+                {{ _(request.status)|e }}
             </div>
         </div>
         {% endfor %}

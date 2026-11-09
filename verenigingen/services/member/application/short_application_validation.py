@@ -9,13 +9,13 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime, nowdate, validate_email_address
 
+from verenigingen.services.member.application.door_plans import check_amount, find_plan
 from verenigingen.utils.validation.iban_validator import validate_iban
 
 CONSENT_TEXT_VERSION = "2026-10-30"
 
 MAX_JOIN_REASONS = 5
 MAX_BIRTH_AGE = 120
-FREQUENCIES = ("Monthly", "Annual")
 DELIVERY_CHOICES = ("Digitaal", "Papier", "Beide", "Geen")
 POSTAL_CHOICES = ("Papier", "Beide")
 REQUIRED_FIELDS = {
@@ -60,7 +60,7 @@ def validate_short_application(door, data: dict) -> dict:
     cleaned["membership_type"] = door.membership_type
     _check_email_field(cleaned)
     cleaned.update(_clean_optional_questions(data, hidden, cleaned))
-    postal = _clean_delivery(data, hidden, cleaned)
+    postal = _clean_delivery(door, data, hidden, cleaned)
     if door.form_shape == "Housemate":
         _clean_housemate(data, cleaned)
     else:
@@ -135,13 +135,23 @@ def _clean_join_reasons(raw) -> list:
     return reasons
 
 
-def _clean_delivery(data, hidden, cleaned) -> bool:
-    """Validate delivery choices; return whether either one is postal (hidden counts as not postal)."""
+def _clean_delivery(door, data, hidden, cleaned) -> bool:
+    """Validate delivery choices; return whether either one is postal.
+
+    Only a question the form renders has an answer. The form renders them on a Regular door only, and not
+    when hidden; anything else records nothing and counts as not postal. A rendered question must be
+    answered: a guessed value overwrote a reapplying Member's delivery at approval and set the fee
+    minimum for a choice nobody made (#1968).
+    """
+    if door.form_shape != "Regular":
+        return False
     postal = False
     for question in ("magazine_delivery", "starter_guide_delivery"):
         if question in hidden:
             continue
-        choice = _text(data, question) or "Geen"
+        choice = _text(data, question)
+        if not choice:
+            frappe.throw(_("Choose a delivery option for the magazine and the starter guide."))
         if choice not in DELIVERY_CHOICES:
             frappe.throw(_("Choose a valid delivery option."))
         if choice in POSTAL_CHOICES:
@@ -163,26 +173,24 @@ def _clean_housemate(data, cleaned):
 
 
 def _clean_regular(door, data, cleaned, postal):
-    frequency = _text(data, "frequency")
-    template = frequency in FREQUENCIES and door.get_template_for(frequency)
-    # The door checks its slots only when saved; the template itself can be edited later, and a
-    # template of another frequency would bill the chosen amount on the wrong period.
-    if (
-        not template
-        or frappe.db.get_value("Membership Dues Schedule", template, "billing_frequency") != frequency
-    ):
-        frappe.throw(_("This payment frequency is not available."))
+    # The plan is looked up among this door's offered plans only: another door's plan, a removed one
+    # and one that never existed are refused alike, and the plan (not the form) names the template and
+    # the billing period the chosen amount is billed on.
+    plan = find_plan(door, _text(data, "plan"), _text(data, "frequency"))
+    if not plan:
+        frappe.throw(_("This payment plan is not available."))
     amount = _parse_amount(data.get("amount"))
-    if amount < door.minimum_for(frequency, postal):
-        frappe.throw(_("The amount is below the minimum for this choice."))
+    check_amount(plan, amount, postal)
+    frequency = plan["frequency"]
     cleaned["iban"] = _clean_iban(data, frequency)
     cleaned["bank_account_name"] = _text(data, "bank_account_name")
     if not cint(data.get("consent")):
         frappe.throw(_("You must accept the terms to apply."))
     cleaned.update(
+        plan=plan["id"],
         frequency=frequency,
         amount=amount,
-        selected_dues_schedule=template,
+        selected_dues_schedule=plan["template"],
         consent_given_at=str(now_datetime()),
         consent_text_version=CONSENT_TEXT_VERSION,
     )

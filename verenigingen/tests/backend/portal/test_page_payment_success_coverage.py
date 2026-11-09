@@ -35,6 +35,7 @@ import frappe
 from verenigingen.templates.pages import payment_success
 from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.ing_return import ing_return_token, stub_paynl_order_status
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 
@@ -274,12 +275,15 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
     # ==================================================================
 
     def _ing(self, order_id, status_code):
+        """A real transaction row + its token; only the Pay.nl HTTP client is stubbed."""
+        order_id = f"{order_id}-{frappe.generate_hash(length=6)}"  # a subTest loop reuses the name
+        donation = self._make_donation()
+        self._make_ing_transaction(order_id, reference_doctype="Donation", reference_name=donation.name)
         context = frappe._dict()
-        with patch(
-            "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-            return_value={"success": True, "status_code": status_code},
-        ):
-            payment_success.handle_ing_checkout_return(context, order_id)
+        with stub_paynl_order_status(status_code):
+            payment_success.handle_ing_checkout_return(
+                context, order_id, ing_return_token("Donation", donation.name)
+            )
         return context
 
     def test_ing_pending_status_codes(self):
@@ -309,14 +313,18 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
             context = self._ing("EX-weird", 999)
         self.assertEqual(context.payment_status, "pending")
 
-    def test_ing_no_linked_transaction_uses_generic_info(self):
-        """No matching ING Checkout Transaction -> generic 'Payment' document_info."""
+    def test_ing_no_linked_transaction_is_refused(self):
+        """No ING Checkout Transaction -> nothing to prove the return against: refused (#2038)."""
         with self.assertNoErrorLog():
-            context = self._ing("EX-no-record", 100)
-        self.assertEqual(context.payment_status, "completed")
-        self.assertEqual(context.document_info["doctype"], "Payment")
-        self.assertTrue(context.document_info["paid"])
-        self.assertTrue(len(context.next_steps) > 0)
+            context = self._ing_untracked("EX-no-record", 100)
+        self.assertEqual(context.payment_status, "error")
+        self.assertEqual(context.document_info, {})
+
+    def _ing_untracked(self, order_id, status_code):
+        context = frappe._dict()
+        with stub_paynl_order_status(status_code):
+            payment_success.handle_ing_checkout_return(context, order_id, ing_return_token("Donation", "X"))
+        return context
 
     def test_ing_linked_transaction_exposes_reference(self):
         """A real ING Checkout Transaction surfaces its linked reference + next steps."""
@@ -330,14 +338,10 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
             reference_name=donation.name,
         )
         context = frappe._dict()
-        with (
-            patch(
-                "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-                return_value={"success": True, "status_code": 100},
-            ),
-            self.assertNoErrorLog(),
-        ):
-            payment_success.handle_ing_checkout_return(context, order_id)
+        with stub_paynl_order_status(100), self.assertNoErrorLog():
+            payment_success.handle_ing_checkout_return(
+                context, order_id, ing_return_token("Donation", donation.name)
+            )
 
         self.assertEqual(context.payment_status, "completed")
         self.assertEqual(context.document_info["doctype"], "Donation")
@@ -349,13 +353,15 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
 
     def test_ing_api_exception_is_error(self):
         """An exception inside the Pay.nl fetch is caught and surfaced as 'error'."""
+        donation = self._make_donation()
+        self._make_ing_transaction("EX-boom", reference_doctype="Donation", reference_name=donation.name)
         context = frappe._dict()
-        self.expectErrorLog("Payment", "network down")
-        with patch(
-            "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-            side_effect=RuntimeError("network down"),
-        ):
-            payment_success.handle_ing_checkout_return(context, "EX-boom")
+        self.expectErrorLog("ING Checkout Status Error", "network down")
+        with stub_paynl_order_status(100) as client:
+            client.get_order.side_effect = RuntimeError("network down")
+            payment_success.handle_ing_checkout_return(
+                context, "EX-boom", ing_return_token("Donation", donation.name)
+            )
         self.assertEqual(context.payment_status, "error")
 
     # ==================================================================
@@ -364,15 +370,13 @@ class TestPagePaymentSuccessCoverage(EnhancedTestCase):
 
     def test_get_context_routes_to_ing_branch(self):
         """An ?orderId param routes get_context into the ING handler."""
-        frappe.local.form_dict = frappe._dict({"orderId": "EX-route-ing"})
+        donation = self._make_donation()
+        self._make_ing_transaction("EX-route-ing", reference_doctype="Donation", reference_name=donation.name)
+        frappe.local.form_dict = frappe._dict(
+            {"orderId": "EX-route-ing", "token": ing_return_token("Donation", donation.name)}
+        )
         context = frappe._dict()
-        with (
-            patch(
-                "verenigingen.verenigingen_payments.ing_checkout.api.payment.get_payment_status",
-                return_value={"success": True, "status_code": 100},
-            ),
-            self.assertNoErrorLog(),
-        ):
+        with stub_paynl_order_status(100), self.assertNoErrorLog():
             payment_success.get_context(context)
         self.assertEqual(context.payment_status, "completed")
 

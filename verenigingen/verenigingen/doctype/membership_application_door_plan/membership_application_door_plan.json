@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "creation": "2026-11-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "dues_template",
+  "billing_frequency",
+  "label",
+  "postal_minimum",
+  "is_default"
+ ],
+ "fields": [
+  {
+   "description": "A dues schedule template of the door's membership type, of any billing frequency. Its contribution mode decides how the applicant chooses the amount.",
+   "fieldname": "dues_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Dues Template",
+   "options": "Membership Dues Schedule",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "dues_template.billing_frequency",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Billing Frequency",
+   "read_only": 1
+  },
+  {
+   "description": "Shown to the applicant. Leave empty to show the template's name.",
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label"
+  },
+  {
+   "default": "0",
+   "description": "Minimum applied when the member wants magazine/starter guide on paper",
+   "fieldname": "postal_minimum",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Postal Minimum",
+   "options": "EUR"
+  },
+  {
+   "default": "0",
+   "description": "Exactly one plan per door is preselected on the form.",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Default"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Application Door Plan",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

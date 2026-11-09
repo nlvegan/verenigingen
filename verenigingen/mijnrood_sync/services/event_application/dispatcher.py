@@ -48,6 +48,15 @@ class MijnRoodEventApplicationService(StatefulService):
     def __init__(self):
         super().__init__(service_name="MijnRoodEventApplicationService")
 
+    def _flush_alerts_after_commit(self) -> None:
+        """Send the queued staff alerts. Runs after the event's commit (a rollback cannot take them back,
+        #2199) and must never fail the event: it is already durably Applied, and an exception here would
+        reach apply_event's outer handler, roll back and record a failure on it (review N1)."""
+        try:
+            get_related_records_orchestrator().flush_pending_alerts()
+        except Exception:
+            frappe.log_error(title="MijnRood chapter-move alert flush failed", message=frappe.get_traceback())
+
     def apply_event(self, event_name: str) -> dict:
         """Apply a single approved sync event.
 
@@ -85,6 +94,7 @@ class MijnRoodEventApplicationService(StatefulService):
             # Security: System-internal sync event status update, not user-facing
             event.save(ignore_permissions=True)
             frappe.db.commit()
+            self._flush_alerts_after_commit()
             return result
 
         except NON_RESUMABLE_DB_ERRORS as e:
@@ -98,9 +108,14 @@ class MijnRoodEventApplicationService(StatefulService):
             # realtime payload and continues. Without recording, a deadlock during a
             # privilege revocation produces no Error Log, no error_message and a toast.
             frappe.db.rollback()
+            # Defence in depth, untested by design: reset_acr_dedup() at the top of apply_event already clears
+            # the queue, so this only matters if a later change drops that reset.
+            get_related_records_orchestrator().discard_pending_alerts()
             error_msg = str(e)[:500]
             self.logger.error("Non-resumable DB error applying event %s: %s", event_name, error_msg)
-            frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
+            frappe.log_error(
+                title=f"MijnRood Event Application Failed: {event_name}", message=frappe.get_traceback()
+            )
             self._record_event_failure(event, error_msg)
             raise
 
@@ -122,10 +137,14 @@ class MijnRoodEventApplicationService(StatefulService):
             # are already durable before role processing starts. Both are out of this
             # frame's reach; noted as separate pre-existing issues.
             frappe.db.rollback()
+            # Defence in depth, untested by design (see the NON_RESUMABLE_DB_ERRORS handler above).
+            get_related_records_orchestrator().discard_pending_alerts()
 
             error_msg = str(e)[:500]
             self.logger.error("Failed to apply event %s: %s", event_name, error_msg)
-            frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
+            frappe.log_error(
+                title=f"MijnRood Event Application Failed: {event_name}", message=frappe.get_traceback()
+            )
 
             self._record_event_failure(event, error_msg)
             return {"success": False, "message": error_msg}
@@ -186,10 +205,9 @@ class MijnRoodEventApplicationService(StatefulService):
         return self._sync_division_to_chapter(new_data, event)
 
     def _apply_new_membership_application(self, event) -> dict:
-        """Create a pending membership application from MijnRood data.
+        """Stage a MijnRood application as a Membership Application Submission (Pending Review).
 
-        Creates a Member document with application_status=Pending so it
-        enters the normal membership application review workflow.
+        The same record both web forms create (#1855); no Member exists until it is approved.
         """
         return get_application_sync_service().apply_new_membership_application(event)
 
@@ -218,10 +236,10 @@ class MijnRoodEventApplicationService(StatefulService):
         return self._sync_division_to_chapter(new_data, event)
 
     def _apply_changed_membership_application(self, event) -> dict:
-        """Update a pending membership application from changed MijnRood data.
+        """Update a Pending Review application from changed MijnRood data.
 
-        Finds the linked Member (application) and updates fields that changed.
-        Handles preferred_division_id changes as chapter reassignment.
+        Finds the application (Membership Application Submission) and replaces its payload,
+        including a changed preferred_division_id as the application's chapter.
         """
         return get_application_sync_service().apply_changed_membership_application(event)
 
@@ -244,9 +262,9 @@ class MijnRoodEventApplicationService(StatefulService):
         """Apply an Approved event synthesized by the approval correlator.
 
         The event's old_data is the deleted application row; new_data is the
-        newly-created admin_member row. We locate the local Pending Member
-        that was created when the application first synced, then delegate to
-        _promote_application_member for the actual promotion.
+        newly-created admin_member row. We locate the local application (a Membership
+        Application Submission) staged when the application first synced and approve it
+        through approve_application, then apply MijnRood's member data (#1855).
         """
         return get_application_sync_service().apply_approved(event)
 

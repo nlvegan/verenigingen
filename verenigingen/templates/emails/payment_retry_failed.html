@@ -19,11 +19,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|e }}</h2>
         </div>
 
         <div class="content">
-            <h3>Dear {{ member_name }},</h3>
+            <h3>Dear {{ member_name|e }},</h3>
 
             <div class="alert-box">
                 <strong>Action Required:</strong> We have been unable to process your payment after multiple attempts.
@@ -36,19 +36,19 @@
                 <table style="width: 100%;">
                     <tr>
                         <td><strong>Invoice Number:</strong></td>
-                        <td>{{ invoice_number }}</td>
+                        <td>{{ invoice_number|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Amount Due:</strong></td>
-                        <td style="color: #dc3545; font-weight: bold;">{{ amount }}</td>
+                        <td style="color: #dc3545; font-weight: bold;">{{ amount|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Failed Attempts:</strong></td>
-                        <td>{{ retry_count }}</td>
+                        <td>{{ retry_count|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Last Failure Reason:</strong></td>
-                        <td>{{ failure_reason }}</td>
+                        <td>{{ failure_reason|e }}</td>
                     </tr>
                 </table>
             </div>
@@ -68,22 +68,22 @@
             </ol>
 
             <center>
-                <a href="{{ payment_link }}" class="button">Pay Now</a>
+                <a href="{{ payment_link|e }}" class="button">Pay Now</a>
                 <br>
-                <a href="{{ website_url }}/payment_dashboard" class="button button-secondary">Update Bank Details</a>
+                <a href="{{ website_url|e }}/payment_dashboard" class="button button-secondary">Update Bank Details</a>
             </center>
 
             <p>Please resolve this matter as soon as possible to avoid any disruption to your membership. If you're experiencing financial difficulties, please contact us to discuss payment options.</p>
 
             <p>Best regards,<br>
-            {{ company_name }} Membership Team</p>
+            {{ company_name|e }} Membership Team</p>
         </div>
 
         <div class="footer">
-            <p>This is an automated message from {{ company_name }}.<br>
+            <p>This is an automated message from {{ company_name|e }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
-            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
-            <a href="{{ unsubscribe_link|default('#') }}" style="color: #6c757d;">Manage email preferences</a></p>
+            © {{ current_year|e }} {{ company_name|e }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link|default('#')|e }}" style="color: #6c757d;">Manage email preferences</a></p>
         </div>
     </div>
 </body>

@@ -16,9 +16,9 @@ after fixing it the second would have raised "table doesn't exist".
 The tests below split into two layers:
   - Live-DB regression tests for the actual SQL filter shapes the controller
     runs (catches both bugs directly without any mocks).
-  - Behavioral tests using mocks for the assign/remove decision logic, since
+  - Behavioral tests using mocks for the remove decision logic, since
     the downstream role-profile sync system rewrites Has Role rows independently
-    of what assign_board_member_role does, making end-to-end assertions flaky.
+    of what the removal does, making end-to-end assertions flaky.
 """
 
 from unittest.mock import MagicMock, patch
@@ -253,55 +253,3 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
         # Second query: future-ending active positions
         self.assertEqual(second_call.args[0], "Chapter Board Member")
         self.assertEqual(second_call.args[1]["to_date"][0], ">=")
-
-
-class TestAssignBoardMemberRoleLogic(EnhancedTestCase):
-    """Behavioral tests for assign_board_member_role decision logic."""
-
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
-    def test_role_assigned_when_user_lacks_it(self, mock_frappe, mock_secure):
-        """When the user doesn't already have the role, save the User with the role appended."""
-        volunteer_doc = MagicMock()
-        volunteer_doc.member = "MEM-1"
-        user_doc = MagicMock()
-        mock_frappe.get_doc.side_effect = [volunteer_doc, user_doc]
-        mock_frappe.db.get_value.return_value = "user@example.test"
-        mock_frappe.db.exists.return_value = None  # no existing role row
-        mock_secure.return_value = MagicMock(success=True)
-
-        _make_board_member_stub().assign_board_member_role()
-
-        user_doc.append.assert_called_once_with(
-            "roles",
-            {"role": BOARD_MEMBER_ROLE},
-        )
-        self.assertEqual(mock_secure.call_count, 1)
-        self.assertEqual(mock_secure.call_args.kwargs["operation"], "save")
-
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
-    def test_assign_idempotent_when_role_exists(self, mock_frappe, mock_secure):
-        """If the user already has the role, no User save is performed."""
-        volunteer_doc = MagicMock()
-        volunteer_doc.member = "MEM-1"
-        mock_frappe.get_doc.return_value = volunteer_doc
-        mock_frappe.db.get_value.return_value = "user@example.test"
-        mock_frappe.db.exists.return_value = "HasRole-1"  # already there
-
-        _make_board_member_stub().assign_board_member_role()
-
-        mock_secure.assert_not_called()
-
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
-    @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
-    def test_assign_skips_when_volunteer_has_no_member(self, mock_frappe, mock_secure):
-        """No member on the volunteer → bail out before touching the DB further."""
-        volunteer_doc = MagicMock()
-        volunteer_doc.member = None
-        mock_frappe.get_doc.return_value = volunteer_doc
-
-        _make_board_member_stub().assign_board_member_role()
-
-        mock_frappe.db.get_value.assert_not_called()
-        mock_secure.assert_not_called()

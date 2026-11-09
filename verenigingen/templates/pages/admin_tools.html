@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block head_include %}
 {% from "templates/macros/brand_css.html" import brand_css %}
@@ -44,16 +44,16 @@
         <div class="health-grid">
             <div class="health-status">
                 <div class="status-indicator {% if system_health.status == 'healthy' %}status--ok{% elif system_health.status == 'degraded' %}status--warn{% else %}status--error{% endif %}">
-                    {{ system_health.status|upper }}
+                    {{ system_health.status|upper|e }}
                 </div>
             </div>
             <div class="health-checks">
                 {% for check, result in system_health.checks.items() %}
                 <div class="check-item">
                     <span class="check-status {% if result.status == 'ok' %}check--ok{% elif result.status == 'slow' %}check--warn{% else %}check--error{% endif %}"></span>
-                    <span class="check-name">{{ check.replace('_', ' ').upper() }}</span>
+                    <span class="check-name">{{ check.replace('_', ' ').upper()|e }}</span>
                     {% if result.response_time_ms %}
-                    <span class="check-time">{{ "%.0f"|format(result.response_time_ms) }}ms</span>
+                    <span class="check-time">{{ "%.0f"|format(result.response_time_ms)|e }}ms</span>
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -72,15 +72,15 @@
         </div>
         <div class="stats-grid">
             <div class="stat-block">
-                <span class="stat-value">{{ db_stats.total_tables }}</span>
+                <span class="stat-value">{{ db_stats.total_tables|e }}</span>
                 <span class="stat-label">TABLES</span>
             </div>
             <div class="stat-block">
-                <span class="stat-value">{{ "{:,}".format(db_stats.total_rows) }}</span>
+                <span class="stat-value">{{ "{:,}".format(db_stats.total_rows)|e }}</span>
                 <span class="stat-label">ROWS</span>
             </div>
             <div class="stat-block">
-                <span class="stat-value">{{ "%.1f"|format(db_stats.total_size_mb) }}</span>
+                <span class="stat-value">{{ "%.1f"|format(db_stats.total_size_mb)|e }}</span>
                 <span class="stat-label">MB</span>
             </div>
         </div>
@@ -94,19 +94,19 @@
             {% for tool in invoice_tools %}
             <div class="tool-card">
                 <div class="tool-header">
-                    <span class="tool-icon"><i class="fa {{ tool.icon }}"></i></span>
-                    <h3>{{ tool.title }}</h3>
+                    <span class="tool-icon"><i class="fa {{ tool.icon|e }}"></i></span>
+                    <h3>{{ tool.title|e }}</h3>
                 </div>
-                <p class="tool-desc">{{ tool.description }}</p>
+                <p class="tool-desc">{{ tool.description|e }}</p>
                 {% if tool.warning %}
-                <div class="tool-warning">{{ tool.warning }}</div>
+                <div class="tool-warning">{{ tool.warning|e }}</div>
                 {% endif %}
-                <button class="btn-brutal btn-brutal--{{ tool.color }} execute-tool"
-                        data-method="{{ tool.method }}"
-                        data-title="{{ tool.title }}"
+                <button class="btn-brutal btn-brutal--{{ tool.color|e }} execute-tool"
+                        data-method="{{ tool.method|e }}"
+                        data-title="{{ tool.title|e }}"
                         {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
-                        {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
-                        data-formatter="{{ tool.formatter or 'generic' }}">
+                        {% if tool.warning %}data-warning="{{ tool.warning|e }}"{% endif %}
+                        data-formatter="{{ (tool.formatter or 'generic')|e }}">
                     EXECUTE
                 </button>
             </div>
@@ -125,19 +125,19 @@
             {% for tool in data_integrity_tools %}
             <div class="tool-card">
                 <div class="tool-header">
-                    <span class="tool-icon"><i class="fa {{ tool.icon }}"></i></span>
-                    <h3>{{ tool.title }}</h3>
+                    <span class="tool-icon"><i class="fa {{ tool.icon|e }}"></i></span>
+                    <h3>{{ tool.title|e }}</h3>
                 </div>
-                <p class="tool-desc">{{ tool.description }}</p>
+                <p class="tool-desc">{{ tool.description|e }}</p>
                 {% if tool.warning %}
-                <div class="tool-warning">{{ tool.warning }}</div>
+                <div class="tool-warning">{{ tool.warning|e }}</div>
                 {% endif %}
-                <button class="btn-brutal btn-brutal--{{ tool.color }} execute-tool"
-                        data-method="{{ tool.method }}"
-                        data-title="{{ tool.title }}"
+                <button class="btn-brutal btn-brutal--{{ tool.color|e }} execute-tool"
+                        data-method="{{ tool.method|e }}"
+                        data-title="{{ tool.title|e }}"
                         {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
-                        {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
-                        data-formatter="{{ tool.formatter or 'generic' }}">
+                        {% if tool.warning %}data-warning="{{ tool.warning|e }}"{% endif %}
+                        data-formatter="{{ (tool.formatter or 'generic')|e }}">
                     EXECUTE
                 </button>
             </div>
@@ -156,19 +156,19 @@
             {% for tool in member_cleanup_tools %}
             <div class="tool-card">
                 <div class="tool-header">
-                    <span class="tool-icon"><i class="fa {{ tool.icon }}"></i></span>
-                    <h3>{{ tool.title }}</h3>
+                    <span class="tool-icon"><i class="fa {{ tool.icon|e }}"></i></span>
+                    <h3>{{ tool.title|e }}</h3>
                 </div>
-                <p class="tool-desc">{{ tool.description }}</p>
+                <p class="tool-desc">{{ tool.description|e }}</p>
                 {% if tool.warning %}
-                <div class="tool-warning tool-warning--danger">{{ tool.warning }}</div>
+                <div class="tool-warning tool-warning--danger">{{ tool.warning|e }}</div>
                 {% endif %}
-                <button class="btn-brutal btn-brutal--{{ tool.color }} execute-tool"
-                        data-method="{{ tool.method }}"
-                        data-title="{{ tool.title }}"
+                <button class="btn-brutal btn-brutal--{{ tool.color|e }} execute-tool"
+                        data-method="{{ tool.method|e }}"
+                        data-title="{{ tool.title|e }}"
                         {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
-                        {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
-                        data-formatter="{{ tool.formatter or 'generic' }}">
+                        {% if tool.warning %}data-warning="{{ tool.warning|e }}"{% endif %}
+                        data-formatter="{{ (tool.formatter or 'generic')|e }}">
                     EXECUTE
                 </button>
             </div>
@@ -184,19 +184,19 @@
             {% for tool in system_tools %}
             <div class="tool-card">
                 <div class="tool-header">
-                    <span class="tool-icon"><i class="fa {{ tool.icon }}"></i></span>
-                    <h3>{{ tool.title }}</h3>
+                    <span class="tool-icon"><i class="fa {{ tool.icon|e }}"></i></span>
+                    <h3>{{ tool.title|e }}</h3>
                 </div>
-                <p class="tool-desc">{{ tool.description }}</p>
+                <p class="tool-desc">{{ tool.description|e }}</p>
                 {% if tool.warning %}
-                <div class="tool-warning">{{ tool.warning }}</div>
+                <div class="tool-warning">{{ tool.warning|e }}</div>
                 {% endif %}
-                <button class="btn-brutal btn-brutal--{{ tool.color }} execute-tool"
-                        data-method="{{ tool.method }}"
-                        data-title="{{ tool.title }}"
+                <button class="btn-brutal btn-brutal--{{ tool.color|e }} execute-tool"
+                        data-method="{{ tool.method|e }}"
+                        data-title="{{ tool.title|e }}"
                         {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
-                        {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
-                        data-formatter="{{ tool.formatter or 'generic' }}">
+                        {% if tool.warning %}data-warning="{{ tool.warning|e }}"{% endif %}
+                        data-formatter="{{ (tool.formatter or 'generic')|e }}">
                     EXECUTE
                 </button>
             </div>
@@ -210,8 +210,8 @@
         <div class="commands-list">
             {% for example in command_examples %}
             <div class="command-item">
-                <span class="command-label">{{ example.description }}</span>
-                <code class="command-code">{{ example.command }}</code>
+                <span class="command-label">{{ example.description|e }}</span>
+                <code class="command-code">{{ example.command|e }}</code>
             </div>
             {% endfor %}
         </div>

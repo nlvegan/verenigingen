@@ -23,7 +23,6 @@ from frappe.utils import add_days, get_datetime, now, today
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import handle_api_error, log_error
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
@@ -555,40 +554,17 @@ Generated at: {timestamp}
     ) -> Dict[str, Any]:
         """Create system notification"""
         try:
-            for recipient in recipients:
-                try:
-                    # Create notification document
-                    notification = frappe.get_doc(
-                        {
-                            "doctype": "Notification Log",
-                            "subject": content["subject"],
-                            "email_content": content["message"],
-                            "for_user": recipient,
-                            "type": "Alert",
-                            "document_type": context.get("reference_doctype"),
-                            "document_name": context.get("reference_name"),
-                        }
-                    )
+            # Recipients may be emails or User names; the helper addresses by name, drops Administrator (#2107).
+            from verenigingen.utils.notification_helpers import create_system_notification
 
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    result = secure_document_operation(
-                        operation="insert",
-                        doc=notification,
-                        justification=f"Create SEPA system notification for user {recipient} - critical financial system alerting for SEPA batch operations",
-                        required_permissions=["Notification Log:create"],
-                    )
-
-                    if not result.success:
-                        frappe.log_error(
-                            f"Failed to create SEPA system notification: {'; '.join(result.errors)}",
-                            "SEPA Notification Security",
-                        )
-                        continue
-
-                except Exception as e:
-                    frappe.logger().warning(f"Failed to create system notification for {recipient}: {str(e)}")
-
-            return {"success": True, "recipients_count": len(recipients)}
+            result = create_system_notification(
+                recipients,
+                content["subject"],
+                content["message"],
+                document_type=context.get("reference_doctype"),
+                document_name=context.get("reference_name"),
+            )
+            return {"success": result["success"], "recipients_count": result["notifications_created"]}
 
         except Exception as e:
             return {"success": False, "error": str(e)}

@@ -353,6 +353,30 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         links = [pe for pe in bt.payment_entries if pe.payment_entry == je_name]
         self.assertEqual(len(links), 1, "Reconciliation must be idempotent")
 
+    def test_reconcile_closes_a_draft_bank_transaction(self):
+        # #2080: the fixture above SUBMITS its line, where ERPNext derives the status itself. A
+        # draft line (created without submit permission) is reset to "Pending" by every save
+        # under erpnext 7526af9b2, so the helper must persist "Reconciled" after the save.
+        amount = 14.00
+        ref = f"rec-draft-{frappe.generate_hash(length=10)}"
+        bt = frappe.new_doc("Bank Transaction")
+        bt.update(
+            {"date": today(), "bank_account": self.bank_account, "company": COMPANY, "deposit": amount}
+        )
+        bt.update({"withdrawal": 0, "currency": "EUR", "reference_number": ref})
+        bt.insert()
+        self.track_test_record("Bank Transaction", bt.name)
+        je_name = self.creator.create_from_dict(
+            {"amount": amount, "date": today(), "reference_number": ref},
+            self._make_donation(self._make_donor(), amount),
+        )
+
+        reconcile_bank_transaction_with_journal_entry(bt.name, je_name, amount)
+
+        bt.reload()
+        self.assertEqual(bt.docstatus, 0)
+        self.assertEqual(bt.custom_processing_status, "Fully Reconciled")
+
     # -------------------------------------------------------- idempotency
     def test_create_from_mollie_payment_idempotent(self):
         amount = 21.00

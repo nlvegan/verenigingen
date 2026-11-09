@@ -52,8 +52,8 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
         # Clean up test members and related records
         frappe.db.sql("DELETE FROM `tabMembership` WHERE member LIKE 'TEST%'")
         frappe.db.sql("DELETE FROM `tabSEPA Mandate` WHERE member LIKE 'TEST%'")
-        frappe.db.sql("DELETE FROM `tabVolunteer` WHERE email LIKE 'TEST_%@test.invalid'")
-        frappe.db.sql("DELETE FROM `tabMember` WHERE email LIKE 'TEST_%@test.invalid'")
+        frappe.db.sql("DELETE FROM `tabVolunteer` WHERE email LIKE 'TEST\\_%@test.invalid'")
+        frappe.db.sql("DELETE FROM `tabMember` WHERE email LIKE 'TEST\\_%@test.invalid'")
         frappe.db.commit()
 
     def create_chapter_membership(self, member_name: str, chapter_name: str):
@@ -70,6 +70,20 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             "members", {"member": member_name, "enabled": 1, "chapter_join_date": today(), "status": "Active"}
         )
         chapter.save()
+
+    def test_cleanup_does_not_delete_members_outside_the_factory_prefix(self):
+        """#2120: `LIKE 'TEST_%@test.invalid'` let `_` match any char, so a member whose
+        email merely starts with `test` (`test-member-...`) was deleted too."""
+        email = f"test-member-{frappe.generate_hash(length=8)}@test.invalid"
+        member = self.create_test_member(email=email)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "email"), email)
+
+        self.cleanup_test_data()
+
+        self.assertTrue(
+            frappe.db.exists("Member", member.name),
+            f"cleanup deleted {email}, which is not a factory `TEST_` email",
+        )
 
     # ===== BASIC STATUS TRANSITIONS =====
 

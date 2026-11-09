@@ -39,6 +39,16 @@ from verenigingen.verenigingen_payments.utils.shared.severity import Severity
 # type identity for isinstance checks and ``AlertSeverity(value)`` round-trips.
 AlertSeverity = Severity
 
+# Registered key for these alerts' recipients, enable switch and cooldown. Its own key, seeded with the
+# admin pair: it must not share the batch scheduler's key, which is for Financial Managers (#2093).
+SEPA_ALERT_NOTIFICATION_KEY = "sepa_monitoring_alert"
+
+
+def _cooldown_scope(alert_id, escalation_level):
+    """The key's per-recipient cooldown (60 min) is shared with the batch scheduler: scope it so each
+    alert, and each escalation level of it, has its own window and is not swallowed by another send."""
+    return f"{alert_id}:{escalation_level}"
+
 
 class AlertStatus(Enum):
     """Alert status types"""
@@ -273,8 +283,6 @@ class SEPAAlertingSystem:
             "email_enabled": True,
             "sms_enabled": False,
             "webhook_enabled": True,
-            "default_recipients": ["admin@vereniging.nl", "finance@vereniging.nl"],
-            "escalation_recipients": ["manager@vereniging.nl", "director@vereniging.nl"],
             "escalation_delay_minutes": 30,
             "max_escalation_level": 3,
             "webhook_urls": [
@@ -536,14 +544,18 @@ Please investigate and acknowledge this alert when resolved.
         return message
 
     def _get_notification_recipients(self, alert: SEPAAlert) -> List[str]:
-        """Get notification recipients based on alert severity"""
-        recipients = self.notification_config.get("default_recipients", [])
+        """Get notification recipients: the financial admins, whatever the severity.
 
-        if alert.severity in [AlertSeverity.CRITICAL, AlertSeverity.EMERGENCY]:
-            escalation_recipients = self.notification_config.get("escalation_recipients", [])
-            recipients.extend(escalation_recipients)
+        No literal addresses (#2002): recipients come from the same resolver as the SEPA batch
+        notifications, under a registered key (enable switch, cooldown); with nobody resolved
+        it logs an Error Log row (once a day) and returns an empty list. The old escalation
+        tier (manager@/director@) had no configured source, so escalation now re-mails this list.
+        """
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import (
+            get_financial_admin_emails,
+        )
 
-        return list(set(recipients))  # Remove duplicates
+        return get_financial_admin_emails(SEPA_ALERT_NOTIFICATION_KEY)
 
     def check_security_incidents(self) -> List[SEPAAlert]:
         """
@@ -695,6 +707,11 @@ Please investigate and acknowledge this alert when resolved.
                 message=notification_data["message"],
                 reference_doctype="SEPA Alert",
                 reference_name=notification_data["alert_data"]["alert_id"],
+                notification_key=SEPA_ALERT_NOTIFICATION_KEY,
+                cooldown_scope=_cooldown_scope(
+                    notification_data["alert_data"]["alert_id"],
+                    notification_data["alert_data"]["escalation_level"],
+                ),
             )
 
         except Exception as e:
@@ -765,8 +782,7 @@ Please take immediate action to resolve this issue.
 
         # Send escalation notification via the unified EmailService (same path as
         # _send_email_notification, for cluster consistency).
-        escalation_recipients = self.notification_config.get("escalation_recipients", [])
-        for recipient in escalation_recipients:
+        for recipient in self._get_notification_recipients(alert):
             try:
                 get_email_service().send_simple_email(
                     recipients=[recipient],
@@ -774,6 +790,8 @@ Please take immediate action to resolve this issue.
                     message=escalation_message,
                     reference_doctype="SEPA Alert",
                     reference_name=alert.alert_id,
+                    notification_key=SEPA_ALERT_NOTIFICATION_KEY,
+                    cooldown_scope=_cooldown_scope(alert.alert_id, alert.escalation_level),
                 )
             except Exception as e:
                 frappe.logger().error(f"Failed to send escalation email: {str(e)}")

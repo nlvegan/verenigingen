@@ -93,6 +93,60 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
+class ReminderOutcome:
+    """What happened to one reminder: ``sent``, ``skipped`` or ``failed`` (#2015).
+
+    EmailService reports a skip (cooldown, disabled key, opt-out) as a *successful*
+    OperationResult carrying ``data["skipped"]``, so success alone cannot tell a send
+    from a skip. Truthiness stays "was it really sent", so callers written against the
+    old bool keep their meaning.
+    """
+
+    SENT = "sent"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+    def __init__(self, status, reason=None):
+        self.status = status
+        self.reason = reason
+
+    def __bool__(self):
+        return self.status == self.SENT
+
+    def __repr__(self):
+        return f"ReminderOutcome({self.status!r}, {self.reason!r})"
+
+    @classmethod
+    def from_result(cls, result):
+        if not result.success:
+            return cls(cls.FAILED, "; ".join(result.errors or []) or result.error_message)
+        if isinstance(result.data, dict) and result.data.get("skipped"):
+            return cls(cls.SKIPPED, result.data.get("reason") or "skipped")
+        return cls(cls.SENT)
+
+
+class _OutcomeTally:
+    """Counts outcomes of a bulk loop; only a real send counts as sent."""
+
+    def __init__(self):
+        self.sent = 0
+        self.skipped = 0
+        self.failed = 0
+        self.skipped_reasons = {}
+
+    def add(self, outcome):
+        if outcome.status == ReminderOutcome.SENT:
+            self.sent += 1
+        elif outcome.status == ReminderOutcome.SKIPPED:
+            self.skipped += 1
+            self.skipped_reasons[outcome.reason] = self.skipped_reasons.get(outcome.reason, 0) + 1
+        else:
+            self.failed += 1
+
+    def summary(self):
+        return {"sent": self.sent, "skipped": self.skipped, "failed": self.failed}
+
+
 def _flatten_api_response(result: Any) -> Any:
     """Flatten the nested OperationResult envelope into the flat shape callers read.
 
@@ -291,7 +345,9 @@ def send_overdue_payment_reminders(
         if not overdue_data:
             return OperationResult.ok(data={"count": 0}, message=_("No overdue payments found"))
 
-        sent_count = 0
+        tally = _OutcomeTally()
+        chapter_tally = _OutcomeTally()
+        chapter_overdue = {}  # chapter -> this run's overdue rows, mailed once per chapter
         batch_size = ConfigManager.get("email_batch_size", 50)
 
         # Process in batches to avoid overwhelming the email system
@@ -301,23 +357,19 @@ def send_overdue_payment_reminders(
             for payment_info in batch:
                 try:
                     # Send reminder to member
-                    send_payment_reminder_email(
-                        member_name=payment_info.get("member_name"),
-                        reminder_type=reminder_type,
-                        include_payment_link=include_payment_link,
-                        custom_message=custom_message,
-                        payment_info=payment_info,
-                    )
-
-                    # Optionally send to chapter board
-                    if send_to_chapters and payment_info.get("chapter"):
-                        send_chapter_notification(
-                            chapter=payment_info.get("chapter"),
+                    tally.add(
+                        send_payment_reminder_email(
                             member_name=payment_info.get("member_name"),
+                            reminder_type=reminder_type,
+                            include_payment_link=include_payment_link,
+                            custom_message=custom_message,
                             payment_info=payment_info,
                         )
+                    )
 
-                    sent_count += 1
+                    # Optionally collect for the chapter board: one mail per chapter (#2006)
+                    if send_to_chapters and payment_info.get("chapter"):
+                        chapter_overdue.setdefault(payment_info.get("chapter"), []).append(payment_info)
 
                 # #505: without this, a 1205/1213 sending one member's reminder is
                 # logged and the loop keeps sending further reminders on a
@@ -326,6 +378,7 @@ def send_overdue_payment_reminders(
                 except NON_RESUMABLE_DB_ERRORS:
                     raise
                 except Exception as e:
+                    tally.failed += 1
                     # log_error's second parameter is `context: dict`, not a title
                     # string: it does `(context or {}).get("trace_id")`, so a string
                     # here raises AttributeError *inside this handler* and the
@@ -342,9 +395,16 @@ def send_overdue_payment_reminders(
                     )
                     continue
 
-        return OperationResult.ok(
-            data={"count": sent_count}, message=_("Payment reminders sent successfully")
-        )
+        data = {"count": tally.sent, **tally.summary(), "skipped_reasons": tally.skipped_reasons}
+        if send_to_chapters:
+            chapters = {}
+            for chapter, rows in chapter_overdue.items():
+                outcome = send_chapter_notification(chapter=chapter, overdue_members=rows)
+                chapter_tally.add(outcome)
+                chapters[chapter] = {"status": outcome.status, "reason": outcome.reason}
+            data["chapter_notifications"] = chapter_tally.summary()
+            data["chapters"] = chapters
+        return OperationResult.ok(data=data, message=_reminder_run_message(tally))
 
     # #505: the guard above stops the loop; this frame's job is to let the class
     # keep going past this catch-all too, rather than being converted into an
@@ -512,15 +572,20 @@ def execute_bulk_payment_action(
             return OperationResult.ok(data={"count": 0}, message=_("No records found"))
 
         processed_count = 0
+        tally = _OutcomeTally()
 
         for payment_info in data:
             try:
                 if action == "Send Payment Reminders":
-                    send_payment_reminder_email(
+                    outcome = send_payment_reminder_email(
                         member_name=payment_info.get("member_name"),
                         reminder_type="Bulk Reminder",
                         payment_info=payment_info,
                     )
+                    tally.add(outcome)
+                    if not outcome:
+                        # skipped or failed: not processed (#2015)
+                        continue
 
                 elif action == "Suspend Memberships":
                     suspend_member_for_nonpayment(payment_info.get("member_name"))
@@ -543,6 +608,8 @@ def execute_bulk_payment_action(
             except NON_RESUMABLE_DB_ERRORS:
                 raise
             except Exception as e:
+                if action == "Send Payment Reminders":
+                    tally.failed += 1
                 # See the note in send_overdue_payment_reminders: a string second
                 # argument makes this handler raise, so the `continue` never runs
                 # and a bulk action stops partway with its progress unreported.
@@ -557,6 +624,11 @@ def execute_bulk_payment_action(
                 )
                 continue
 
+        if action == "Send Payment Reminders":
+            return OperationResult.ok(
+                data={"count": processed_count, **tally.summary(), "skipped_reasons": tally.skipped_reasons},
+                message=_reminder_run_message(tally),
+            )
         return OperationResult.ok(data={"count": processed_count}, message=_("Bulk action completed"))
 
     except NON_RESUMABLE_DB_ERRORS:
@@ -578,13 +650,17 @@ def send_payment_reminder_email(
     custom_message=None,
     payment_info=None,
 ):
-    """Send individual payment reminder email"""
+    """Send individual payment reminder email.
+
+    Returns a ReminderOutcome: sent, skipped (cooldown / disabled key / opt-out) or
+    failed. It is falsy unless the reminder was really sent.
+    """
 
     member = frappe.get_doc("Member", member_name)
 
     if not member.email:
         frappe.logger().warning(f"No email address for member {member_name}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, _("Member has no email address"))
 
     # Determine email template based on reminder type
     template_map = {
@@ -633,8 +709,9 @@ def send_payment_reminder_email(
 
         # If the template is missing, send with fallback HTML content. Detect this
         # via the structured error_code (NOT a substring of the message) so an
-        # unrelated failure can't wrongly trigger the fallback — the fallback path
-        # passes no notification_key and so bypasses cooldown/opt-out enforcement.
+        # unrelated failure can't wrongly trigger the fallback. The fallback must
+        # carry the notification_key too, or it bypasses the enable switch and the
+        # cooldown (#2008). Opt-out is enforced in _send_email_internal regardless.
         if not result.success and result.error_code == "TEMPLATE_NOT_FOUND":
             fallback_content = generate_payment_reminder_html(
                 member, payment_info, reminder_type, custom_message
@@ -646,49 +723,64 @@ def send_payment_reminder_email(
                 content=fallback_content,
                 reference_doctype="Member",
                 reference_name=member_name,
+                notification_key=notification_key,
             )
 
-        # Check if email was sent successfully
-        if result.success:
-            # Log the reminder
+        outcome = ReminderOutcome.from_result(result)
+        # Only a real send is logged as sent (#2015).
+        if outcome.status == ReminderOutcome.SENT:
             create_payment_reminder_log(member_name, reminder_type, payment_info)
-            return True
-        else:
-            frappe.logger().error(f"Payment reminder email failed: {'; '.join(result.errors)}")
-            return False
+        elif outcome.status == ReminderOutcome.FAILED:
+            frappe.logger().error(f"Payment reminder email failed: {outcome.reason}")
+        return outcome
 
     except Exception as e:
         frappe.logger().error(f"Failed to send payment reminder to {member.email}: {str(e)}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, str(e))
 
 
-def send_chapter_notification(chapter, member_name, payment_info):
-    """Send notification to chapter board about overdue payment"""
+def _reminder_run_message(tally):
+    return _("{0} sent, {1} skipped, {2} failed").format(tally.sent, tally.skipped, tally.failed)
+
+
+def send_chapter_notification(chapter, overdue_members):
+    """Send the chapter board ONE mail listing the chapter's overdue members (#2006).
+
+    ``overdue_members`` is the list of report rows (member_name, member_full_name,
+    total_overdue, days_overdue, overdue_count) for this chapter in the current run.
+    One mail per chapter: sent per member, the payment_failure cooldown would let only
+    the first member through.
+    """
 
     try:
         chapter_doc = frappe.get_doc("Chapter", chapter)
         board_emails = chapter_doc.get_board_member_emails()
 
         if not board_emails:
-            return False
-
-        member = frappe.get_doc("Member", member_name)
+            return ReminderOutcome(ReminderOutcome.SKIPPED, _("Chapter has no board member emails"))
 
         # MIGRATED: Use unified EmailService for chapter notifications
         from verenigingen.services.communication.email_service import get_email_service
 
         email_service = get_email_service()
 
-        # Prepare context for notification
+        members = [
+            {
+                "member_name": row.get("member_name"),
+                "full_name": row.get("member_full_name") or row.get("member_name"),
+                "total_overdue": frappe.format_value(row.get("total_overdue"), {"fieldtype": "Currency"}),
+                "days_overdue": row.get("days_overdue"),
+                "overdue_count": row.get("overdue_count"),
+            }
+            for row in overdue_members
+        ]
         context = {
-            "member": member,
             "chapter": chapter_doc,
-            "payment_info": payment_info,
+            "members": members,
+            "member_count": len(members),
             "total_overdue": frappe.format_value(
-                payment_info.get("total_overdue"), {"fieldtype": "Currency"}
+                sum(flt(row.get("total_overdue")) for row in overdue_members), {"fieldtype": "Currency"}
             ),
-            "days_overdue": payment_info.get("days_overdue"),
-            "overdue_count": payment_info.get("overdue_count"),
         }
 
         # Send notification using the payment_failure notification type
@@ -696,16 +788,19 @@ def send_chapter_notification(chapter, member_name, payment_info):
             notification_type="payment_failure",
             recipients=board_emails,
             data=context,
-            reference_doctype="Member",
-            reference_name=member_name,
+            reference_doctype="Chapter",
+            reference_name=chapter,
+            # One mail per chapter: a person on two boards gets each chapter's mail, and a
+            # re-run inside the cooldown window is throttled per chapter, not per person.
+            cooldown_scope=chapter,
         )
 
-        # Return success status based on EmailService result
-        return result.success
+        # A skip (key disabled, cooldown, opt-out) is not a send (#2015)
+        return ReminderOutcome.from_result(result)
 
     except Exception as e:
         frappe.logger().error(f"Failed to send chapter notification: {str(e)}")
-        return False
+        return ReminderOutcome(ReminderOutcome.FAILED, str(e))
 
 
 def generate_payment_link(member_name):
@@ -841,211 +936,3 @@ def create_application_invoice(member, membership):
     # Custom amounts are handled via Membership Dues Schedule
 
     return create_membership_invoice_with_amount(member, membership, amount)
-
-
-def process_application_refund(member_name, reason):
-    """Process refund for application payment"""
-    try:
-        member = frappe.get_doc("Member", member_name)
-
-        # Find the application invoice
-        invoice_name = getattr(member, "application_invoice", None)
-        if not invoice_name:
-            frappe.logger().warning(f"No application invoice found for member {member_name}")
-            return {"success": False, "message": "No application invoice found"}
-
-        # Check if invoice exists and is paid
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        if invoice.outstanding_amount > 0:
-            frappe.logger().warning(f"Invoice {invoice_name} is not fully paid, no refund needed")
-            return {"success": False, "message": "Invoice is not fully paid"}
-
-        # Create refund payment entry
-        refund_entry = frappe.get_doc(
-            {
-                "doctype": "Payment Entry",
-                "payment_type": "Pay",
-                "party_type": "Customer",
-                "party": member.customer,
-                "paid_amount": invoice.grand_total,
-                "received_amount": invoice.grand_total,
-                "reference_no": f"REFUND-{invoice.name}",
-                "reference_date": today(),
-                "mode_of_payment": "Bank Transfer",  # Default refund method
-                "remarks": f"Refund for application rejection: {reason}",
-                "references": [
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": invoice.name,
-                        "allocated_amount": -invoice.grand_total,  # Negative for refund
-                    }
-                ],
-            }
-        )
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Secure refund entry creation with explicit permission validation
-        refund_result = secure_document_operation(
-            operation="insert",
-            doc=refund_entry,
-            justification=f"Automated refund processing for member {member_name} - Reason: {reason}",
-            required_permissions=["Payment Entry:create"],
-        )
-
-        if not refund_result.success:
-            frappe.logger().error(f"Failed to create refund entry: {'; '.join(refund_result.errors)}")
-            return {
-                "success": False,
-                "message": f"Failed to create refund entry: {'; '.join(refund_result.errors)}",
-            }
-
-        # Secure refund entry submission with explicit permission validation
-        submit_result = secure_document_operation(
-            operation="submit",
-            doc=refund_entry,
-            justification=f"Automated refund submission for member {member_name}",
-            required_permissions=["Payment Entry:submit"],
-        )
-
-        if not submit_result.success:
-            return _compensate_failed_refund_submit(refund_entry, submit_result, member_name)
-
-        # Log the refund
-        member.add_comment("Info", f"Refund processed: {invoice.grand_total} - Reason: {reason}")
-
-        return {
-            "success": True,
-            "message": "Refund processed successfully",
-            "refund_amount": invoice.grand_total,
-            "payment_entry": refund_entry.name,
-        }
-
-    except Exception as e:
-        frappe.logger().error(f"Failed to process refund for {member_name}: {str(e)}")
-        return {"success": False, "message": f"Refund processing failed: {str(e)}"}
-
-
-def _compensate_failed_refund_submit(refund_entry, submit_result, member_name):
-    """Build the API response for a refund Payment Entry whose submit failed (#863).
-
-    Per #385/#864, `success=False` alone cannot tell a caller whether nothing was
-    persisted (safe to retry) from a submit that already flipped docstatus to 1
-    before its `on_submit` GL posting raised -- `submit_result.partial_write`
-    (read from the DB in the still-open transaction) makes that distinction.
-
-    A clean failure (`partial_write=False`) is reported exactly as before: safe
-    to retry. A partial write is not a "this document did not save" outcome, so
-    it is not returned that way -- the stranded entry is handed to
-    `discard_unposted_refund_payment_entry` to compensate, and the response
-    reflects what actually happened: cancelled (safe to retry) or, if the
-    compensating cancel itself failed, still docstatus=1 and in need of a human.
-    """
-    joined_errors = "; ".join(submit_result.errors)
-    frappe.logger().error(f"Failed to submit refund entry: {joined_errors}")
-
-    if not submit_result.partial_write:
-        return {
-            "success": False,
-            "message": f"Failed to submit refund entry: {joined_errors}",
-        }
-
-    discard_unposted_refund_payment_entry(refund_entry.name, member_name, joined_errors)
-    final_docstatus = frappe.db.get_value("Payment Entry", refund_entry.name, "docstatus")
-
-    if final_docstatus == 2:
-        return {
-            "success": False,
-            "message": (
-                f"Refund entry {refund_entry.name} could not be posted to the ledger and was "
-                f"automatically cancelled; safe to retry the refund. Error: {joined_errors}"
-            ),
-        }
-
-    return {
-        "success": False,
-        "requires_manual_reconciliation": True,
-        "message": (
-            f"Refund entry {refund_entry.name} could not be posted to the ledger and could NOT be "
-            f"automatically cancelled (still docstatus={final_docstatus}) -- do not retry this "
-            f"refund until a human reconciles it. Error: {joined_errors}"
-        ),
-    }
-
-
-def discard_unposted_refund_payment_entry(
-    payment_entry_name: str, member_name: str, error_message: str
-) -> None:
-    """Undo a refund Payment Entry whose submit failed. Always returns None.
-
-    Mirrors `journal_entry_booking_support.discard_unposted_journal_entry` for
-    the Payment Entry case #863 was filed for -- there was no equivalent helper
-    for Payment Entry before this. `Document.save()` writes `db_update()`
-    (flipping docstatus to 1 for a submit) BEFORE `run_post_save_methods()`
-    invokes `on_submit`, so a refund Payment Entry whose `on_submit` (GL
-    posting, `PaymentEntry.make_gl_entries`) throws has already persisted
-    docstatus=1, with no ledger entry to show for it -- and `secure_document_operation`
-    catches that error without rolling back (see #385).
-
-    Cancelled, not deleted, for the same reasons as the Journal Entry case: it
-    stops the entry claiming to be "the" refund for this member (so a caller
-    knows a retry is safe), and it leaves an auditable record of a posting that
-    was attempted and failed. Deleting is worse in both directions: `cancel()`
-    can itself raise -- e.g. against the same bad account the failed submit
-    already hit, since `on_cancel` re-posts the same GL rows through the same
-    validation -- and when it does the delete never runs anyway; and when
-    cancel succeeds, `Accounts Settings.delete_linked_ledger_entries` defaults
-    to 0, so deleting the voucher would orphan its GL rows.
-
-    IMPORTANT: `cancel()` raising is NOT proof that nothing changed. `Document.
-    _cancel()` sets docstatus=2 and calls `save()`, which -- exactly like
-    submit -- writes that via `db_update()` BEFORE `run_post_save_methods()`
-    invokes `on_cancel`. Measured: cancelling a Payment Entry stuck on the same
-    bad account raises the identical group-account error AND still leaves
-    docstatus=2 in the DB. So this function never infers success/failure from
-    whether `cancel()` raised -- only the re-read at the end decides what
-    actually happened, exactly like the Journal Entry helper it mirrors.
-
-    This does not retry the cancel, escalate, or attempt anything beyond a
-    single compensating write: compensating for a failed compensation is the
-    Runaway Refactor CLAUDE.md warns against, and a transaction that already
-    threw once is exactly where an unbounded retry loop is least safe.
-
-    Args:
-        payment_entry_name: the entry to undo.
-        member_name: whose refund this was, for the operator reading the log.
-        error_message: why the submit failed.
-    """
-    message = (
-        f"Refund Payment Entry {payment_entry_name} for member {member_name} could not be "
-        f"submitted and did not post to the ledger: {error_message}"
-    )
-    frappe.logger().error(message)
-    frappe.log_error(title="Refund Payment Entry Not Posted", message=message)
-
-    try:
-        pe = frappe.get_doc("Payment Entry", payment_entry_name)
-        if pe.docstatus == 1:
-            pe.cancel()
-    except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
-        frappe.logger().error(
-            f"Could not cancel unposted refund Payment Entry {payment_entry_name}: {cleanup_error}"
-        )
-
-    # Report what is actually true, which is not always what was attempted:
-    # cancel() can raise and STILL leave docstatus=2 behind, by the same
-    # write-before-hooks ordering described above. Only a re-read can tell the
-    # operator whether the entry is really cancelled.
-    docstatus = frappe.db.get_value("Payment Entry", payment_entry_name, "docstatus")
-    if docstatus != 2:
-        frappe.log_error(
-            title="Refund Payment Entry Still Docstatus=1",
-            message=(
-                f"Unposted refund Payment Entry {payment_entry_name} for member {member_name} is "
-                f"still at docstatus={docstatus} after a compensating cancel was attempted. "
-                "Manual reconciliation required -- verify no partial GL Entry rows were left "
-                "behind, then cancel it by hand."
-            ),
-        )
-    return None

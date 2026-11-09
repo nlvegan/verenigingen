@@ -30,16 +30,18 @@ _terminate_member_from_chapter() below), not a hand-set status, per the
 review's explicit requirement.
 
 A second follow-up (#1533) found that the #1530/#1531 fix's "status !=
-Pending" filter double-counts a chapter TRANSFER: transfer_member_between_
-chapters() disables the source row (enabled=0) WITHOUT flipping status to
+Pending" filter double-counts a member moved between chapters by staff
+(remove from A + add to B, assign_member_to_chapter_with_cleanup): the removal
+disables the source row (enabled=0) WITHOUT flipping status to
 "Inactive" the way termination does -- so the source row stays
 status="Active", enabled=0, and "status != Pending" still matched it,
 counting the member as a new member of BOTH chapters and never as a loss
 for the source. Maintainer ruling on #1533: a chapter attributes each
-member to ONE chapter -- a transfer counts only for the destination; the
+member to ONE chapter -- a move counts only for the destination; the
 source drops the member (neither new nor lost there). These tests use the
-REAL transfer flow (ChapterMembershipManager.transfer_member_between_
-chapters / .leave_chapter), not a hand-set enabled/status combination.
+REAL staff move (chapter.assign_member_to_chapter_with_cleanup) and
+ChapterMembershipManager.leave_chapter, not a hand-set enabled/status
+combination.
 """
 
 from unittest.mock import patch
@@ -50,6 +52,7 @@ from frappe.utils import add_days, now, today
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.services.termination import TerminationExecutionService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter_with_cleanup
 
 
 class TestMembershipGoalChapterScope(EnhancedTestCase):
@@ -319,20 +322,15 @@ class TestMembershipGoalChapterScope(EnhancedTestCase):
         """#1533 (maintainer ruling): a chapter attributes each member to
         ONE chapter. A transfer counts only for the destination; the
         source drops the member (neither new nor lost there). Uses the REAL
-        transfer flow (ChapterMembershipManager.transfer_member_between_
-        chapters), which disables the source row (enabled=0) WITHOUT
+        staff move (the "Assign Chapter" action, chapter.assign_member_to_
+        chapter_with_cleanup), which disables the source row (enabled=0) WITHOUT
         touching its status (stays "Active") -- the exact same row shape a
         standalone leave_chapter() produces (see
         test_voluntary_leave_without_transfer_counts_nowhere)."""
         member = self._make_mg_member(member_since=today())
         self._seat_chapter_member(self.chapter_a.name, member.name, status="Active")
 
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            member_id=member.name,
-            from_chapter=self.chapter_a.name,
-            to_chapter=self.chapter_b.name,
-            reason="Test transfer",
-        )
+        result = assign_member_to_chapter_with_cleanup(member.name, self.chapter_b.name)
         self.assertTrue(result.get("success"), msg=result)
 
         # Confirm the real flow produces the documented row shape -- the
@@ -368,12 +366,7 @@ class TestMembershipGoalChapterScope(EnhancedTestCase):
 
         transferred_member = self._make_mg_member(member_since=old_since)
         self._seat_chapter_member(self.chapter_a.name, transferred_member.name, status="Active")
-        result = ChapterMembershipManager.transfer_member_between_chapters(
-            member_id=transferred_member.name,
-            from_chapter=self.chapter_a.name,
-            to_chapter=self.chapter_b.name,
-            reason="Test transfer",
-        )
+        result = assign_member_to_chapter_with_cleanup(transferred_member.name, self.chapter_b.name)
         self.assertTrue(result.get("success"), msg=result)
 
         terminated_member = self._make_mg_member(member_since=old_since)
@@ -392,7 +385,7 @@ class TestMembershipGoalChapterScope(EnhancedTestCase):
         chapter (stays a general Member) hits the exact same
         remove_member(permanent=False) code as a transfer's source side --
         ChapterMembershipManager.leave_chapter() called standalone, not
-        through transfer_member_between_chapters -- producing the
+        through the staff move (assign_member_to_chapter_with_cleanup) -- producing the
         identical row shape (status unchanged, enabled disabled). Per the
         #1533 ruling this member ends up attributed NOWHERE: not lost for A
         (no termination was ever created) and not new anywhere else (no

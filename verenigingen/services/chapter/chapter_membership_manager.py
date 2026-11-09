@@ -9,7 +9,6 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
-from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class ChapterMembershipManager:
@@ -46,10 +45,8 @@ class ChapterMembershipManager:
         """
         try:
             # Validate user permissions
-            if user_email and user_email != "Administrator":
-                member_doc = frappe.get_doc("Member", member_id)
-                if user_email != member_doc.email:
-                    return {"success": False, "error": _("You don't have permission to perform this action")}
+            if not ChapterMembershipManager._caller_is_member(user_email, member_id):
+                return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
             if not member_id or not member_id.strip():
@@ -106,10 +103,8 @@ class ChapterMembershipManager:
         """
         try:
             # Validate user permissions
-            if user_email and user_email != "Administrator":
-                member_doc = frappe.get_doc("Member", member_id)
-                if user_email != member_doc.email:
-                    return {"success": False, "error": _("You don't have permission to perform this action")}
+            if not ChapterMembershipManager._caller_is_member(user_email, member_id):
+                return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
             if not member_id or not member_id.strip():
@@ -125,7 +120,11 @@ class ChapterMembershipManager:
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
             result = chapter_doc.member_manager.remove_member(  # ast-skip: @property not field
-                member_id=member_id, leave_reason=leave_reason, permanent=permanent, notify=True
+                member_id=member_id,
+                leave_reason=leave_reason,
+                permanent=permanent,
+                notify=True,
+                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
             )
 
             # Update member tracking fields if successful
@@ -141,6 +140,27 @@ class ChapterMembershipManager:
         except Exception as e:
             frappe.log_error(f"Error in leave_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _caller_is_member(user_email: str, member_id: str) -> bool:
+        """Whether `user_email` (a User id, despite the name) may act as `member_id`.
+
+        Identified by Member.user ONLY, never Member.email (#2069, #1853 ruling): a User who
+        merely shares an email with a Member must not act as that Member. No caller or
+        Administrator means an internal/trusted call, as before.
+        """
+        if not user_email or user_email == "Administrator":
+            return True
+        return frappe.db.get_value("Member", member_id, "user") == user_email
+
+    @staticmethod
+    def _proved_member_caller(user_email: str) -> bool:
+        """Whether the caller is a real user that `_caller_is_member` just matched by Member.user.
+
+        Only then may the member's own row be left without Chapter:write (#2166).
+        No caller or Administrator is an internal call: it keeps its own permissions.
+        """
+        return bool(user_email) and user_email != "Administrator"
 
     @staticmethod
     def _with_error_reason(result: Dict[str, Any], member_id: str) -> Dict[str, Any]:
@@ -261,101 +281,6 @@ class ChapterMembershipManager:
             else:
                 frappe.log_error(f"Error in assign_member_to_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
-
-    @staticmethod
-    def transfer_member_between_chapters(
-        member_id: str, from_chapter: str, to_chapter: str, reason: str = None, assigned_by: str = None
-    ) -> Dict[str, Any]:
-        """
-        Transfer a member from one chapter to another
-
-        Args:
-            member_id: Member ID
-            from_chapter: Source chapter name
-            to_chapter: Destination chapter name
-            reason: Reason for transfer
-            assigned_by: User making the transfer
-
-        Returns:
-            Dict with operation result
-        """
-        frappe.flags.chapter_transfer = {
-            "member": member_id,
-            "from": from_chapter,
-            "to": to_chapter,
-        }
-        try:
-            try:
-                # First, leave the old chapter
-                leave_result = ChapterMembershipManager.leave_chapter(
-                    member_id=member_id,
-                    chapter_name=from_chapter,
-                    leave_reason=reason or f"Transferred to {to_chapter}",
-                    permanent=False,
-                )
-
-                if not leave_result.get("success"):
-                    return {
-                        "success": False,
-                        "error": f"Failed to leave {from_chapter}: {leave_result.get('error')}",
-                    }
-
-                # Then, join the new chapter
-                join_result = ChapterMembershipManager.assign_member_to_chapter(
-                    member_id=member_id,
-                    chapter_name=to_chapter,
-                    reason=reason or f"Transferred from {from_chapter}",
-                    assigned_by=assigned_by,
-                )
-
-                if not join_result.get("success"):
-                    return {
-                        "success": False,
-                        "error": f"Failed to join {to_chapter}: {join_result.get('error')}",
-                    }
-
-                # Log the transfer
-                transfer_comment = frappe.get_doc(
-                    {
-                        "doctype": "Comment",
-                        "comment_type": "Info",
-                        "reference_doctype": "Member",
-                        "reference_name": member_id,
-                        "content": _("Transferred from {0} to {1}. Reason: {2}").format(
-                            from_chapter, to_chapter, reason or "Administrative transfer"
-                        ),
-                    }
-                )
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=transfer_comment,
-                    justification=f"Log chapter transfer for member {member_id} from {from_chapter} to {to_chapter} - administrative audit trail for member organization",
-                    required_permissions=["Comment:create"],
-                )
-
-                if not result.success:
-                    frappe.log_error(
-                        f"Failed to log chapter transfer comment: {'; '.join(result.errors)}",
-                        "Chapter Transfer Security",
-                    )
-
-                return {
-                    "success": True,
-                    "message": _("Successfully transferred member from {0} to {1}").format(
-                        from_chapter, to_chapter
-                    ),
-                    "action": "transferred",
-                }
-
-            except Exception as e:
-                frappe.log_error(
-                    f"Error in transfer_member_between_chapters: {str(e)}", "ChapterMembershipManager"
-                )
-                return {"success": False, "error": str(e)}
-        finally:
-            frappe.flags.chapter_transfer = None
 
     @staticmethod
     def get_member_chapter_status(member_id: str) -> Dict[str, Any]:

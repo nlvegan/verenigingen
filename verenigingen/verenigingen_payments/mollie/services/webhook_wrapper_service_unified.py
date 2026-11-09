@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
+from frappe.utils import flt
 
 from verenigingen.verenigingen_payments.core.resilience import CircuitBreakerConfig, RetryConfig
 
@@ -162,19 +163,12 @@ class UnifiedWebhookWrapperService:
             try:
                 refund_id = pending_refund["refund_id"]
                 refund_amount = pending_refund["amount"]
-                refund_date = pending_refund.get("refund_date")
+                refund_date = self._reversal_date_or_today(
+                    pending_refund.get("refund_date"), "refund", refund_id
+                )
 
-                # Parse refund_date to proper date format
-                parsed_date = refund_date
-                if isinstance(refund_date, str):
-                    try:
-                        from dateutil import parser
-
-                        parsed_date = parser.parse(refund_date).date()
-                    except (ValueError, TypeError, ImportError):
-                        parsed_date = frappe.utils.getdate()
-                elif not parsed_date:
-                    parsed_date = frappe.utils.getdate()
+                # Parse refund_date to proper date format (site-local day, #2162)
+                parsed_date = self._parse_reversal_date(refund_date)
 
                 # Build unique reference number for this refund -- the one key every
                 # reversal route agrees on.
@@ -515,6 +509,7 @@ class UnifiedWebhookWrapperService:
                 elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
                     result = router.route_payment(payment_id, payment)
+                    result = self._book_dues_reversals(payment_id, payment, result)
 
                     # Add timing information
                     duration = time.time() - start_time
@@ -672,6 +667,95 @@ class UnifiedWebhookWrapperService:
                 "payment_id": payment_id,
                 "duration_seconds": duration,
             }
+
+    @staticmethod
+    def _payment_reports_reversal(payment) -> bool:
+        """Does Mollie say this payment has been refunded or charged back?
+
+        Mollie re-posts the SAME ``tr_`` id for a retry and for a reversal of it, so the
+        id cannot tell them apart; the payment object can -- ``amountRefunded`` /
+        ``amountChargedBack`` are only non-zero once a reversal exists. Reading them
+        costs nothing (the payment is already fetched) and keeps the Mollie list calls
+        off every ordinary delivery.
+        """
+        from ..utils.common_helpers import read_payment_field
+
+        for snake, camel in (
+            ("amount_refunded", "amountRefunded"),
+            ("amount_charged_back", "amountChargedBack"),
+        ):
+            value = read_payment_field(payment, snake, camel)
+            if isinstance(value, dict):
+                value = value.get("value")
+            if flt(value) > 0:
+                return True
+        return False
+
+    def _book_dues_reversals(
+        self, payment_id: str, payment, forward_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """After the dues booking, book any refund/chargeback this delivery announces.
+
+        The DUES branch used to return before refund discovery (STEP 1 below), so a
+        refunded dues payment never reached ``process_reversal_webhook`` (#370). Each
+        reversal goes there -- it already books dues reversals as a Journal Entry
+        against the invoice and is idempotent per reversal id -- so a pure retry
+        (nothing announced) and a re-delivery of an already-booked reversal both end
+        with state unchanged.
+
+        Forward first: a failed forward booking is returned as is (Mollie retries) and no
+        reversal work is attempted on top of it. That guard is not separately tested: once
+        the forward Payment Entry exists no real input fails the forward step, and
+        ``process_reversal_webhook`` already refuses a payment that was never booked.
+        A reversal that cannot be booked
+        turns the response into an error for the same reason, instead of a 200 that
+        would stop Mollie delivering it again.
+        """
+        if forward_result.get("status") == "error" or not self._payment_reports_reversal(payment):
+            return forward_result
+
+        state = self.idempotency_manager.check_payment_processing_state(payment_id, include_mollie_api=True)
+        if state.refund_check_failed or state.chargeback_check_failed:
+            # Same designed degradation as STEP 1: say so and let Mollie retry. The
+            # forward booking is idempotent, so the retry costs nothing.
+            frappe.local.response.http_status_code = 503
+            frappe.local.response["Retry-After"] = "60"
+            return {
+                "status": "service_unavailable",
+                "message": "Mollie API unavailable - cannot verify refund/chargeback state",
+                "payment_id": payment_id,
+            }
+
+        outcomes = [
+            self.process_reversal_webhook(
+                payment_id=payment_id,
+                reversal_id=refund["refund_id"],
+                amount=refund["amount"],
+                reversal_type="refund",
+                reversal_date=refund.get("refund_date"),
+            )
+            for refund in state.pending_refunds
+        ] + [
+            self.process_reversal_webhook(
+                payment_id=payment_id,
+                reversal_id=chargeback["chargeback_id"],
+                amount=chargeback["amount"],
+                reversal_type="chargeback",
+                reversal_date=chargeback.get("chargeback_date"),
+                reason=chargeback.get("reason") or None,
+            )
+            for chargeback in state.pending_chargebacks
+        ]
+
+        failed = [o for o in outcomes if o.get("status") == "error"]
+        forward_result["reversals"] = [o.get("status") for o in outcomes]
+        if failed:
+            forward_result["status"] = "error"
+            forward_result["message"] = (
+                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
+                f"{failed[0].get('message')}"
+            )
+        return forward_result
 
     def _handle_fully_processed_payment(
         self, payment_id: str, processing_state, start_time: float
@@ -1665,16 +1749,44 @@ class UnifiedWebhookWrapperService:
             currency = frappe.db.get_value("Account", gl_account, "account_currency")
         return currency or frappe.db.get_value("Company", config["company"], "default_currency")
 
+    def _reversal_date_or_today(self, reversal_date, reversal_type, reversal_id):
+        """The reversal's own date, or today when no active Fiscal Year covers it (#1806).
+
+        Booking on Mollie's own date (rather than today) means a reversal of an old
+        payment can land outside every Fiscal Year, and the Journal/Payment Entry is
+        then refused for good while Mollie retries and gives up. Booking on today
+        is what happened before the date was carried, so it is the no-worse fallback.
+        The Fiscal Year is looked up without a company: the company is not known
+        this early, and a company-specific year is the rarer setup.
+        """
+        if not reversal_date:
+            return reversal_date
+        from erpnext.accounts.utils import get_fiscal_year
+
+        parsed = self._parse_reversal_date(reversal_date)
+        if get_fiscal_year(parsed, verbose=0, raise_on_missing=False):
+            return parsed
+        today = frappe.utils.getdate()
+        frappe.log_error(
+            title="Mollie Reversal Date Outside Fiscal Year",
+            message=(
+                f"{reversal_type} {reversal_id} is dated {parsed}, which is in no active Fiscal Year; "
+                f"booking it on {today} instead."
+            ),
+        )
+        return today
+
     @staticmethod
     def _parse_reversal_date(reversal_date):
-        """Mollie sends ISO strings; downstream wants a date."""
-        if isinstance(reversal_date, str):
-            try:
-                from dateutil import parser
+        """Mollie sends ISO strings; downstream wants a date.
 
-                return parser.parse(reversal_date).date()
-            except (ValueError, TypeError, ImportError):
-                return frappe.utils.getdate()
+        A timestamp becomes the SITE-local day (#2162): dateutil's ``.date()`` kept the UTC
+        wall-clock day, so a 23:30 UTC reversal booked a day early east of UTC.
+        """
+        if isinstance(reversal_date, str):
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
+
+            return mollie_timestamp_to_local_date(reversal_date) or frappe.utils.getdate()
         return reversal_date or frappe.utils.getdate()
 
     def _repair_reversal_history(
@@ -1790,6 +1902,7 @@ class UnifiedWebhookWrapperService:
             self.logger.info(
                 f"🔄 Processing {reversal_type} webhook for {reversal_id} (payment: {payment_id})"
             )
+            reversal_date = self._reversal_date_or_today(reversal_date, reversal_type, reversal_id)
 
             # What did the forward payment actually book? Do NOT re-classify the
             # Mollie payment: the forward path mutates the classifier's own inputs
@@ -1962,17 +2075,8 @@ class UnifiedWebhookWrapperService:
             history_failure = None
             if reversal_ref_name and donation_doc:
                 try:
-                    # Parse reversal date to proper format
-                    parsed_date = reversal_date
-                    if isinstance(reversal_date, str):
-                        try:
-                            from dateutil import parser
-
-                            parsed_date = parser.parse(reversal_date).date()
-                        except (ValueError, TypeError, ImportError):
-                            parsed_date = frappe.utils.getdate()
-                    elif not parsed_date:
-                        parsed_date = frappe.utils.getdate()
+                    # Parse reversal date to proper format (site-local day, #2162)
+                    parsed_date = self._parse_reversal_date(reversal_date)
 
                     # Append payment history entry for reversal
                     donation_doc.reload()

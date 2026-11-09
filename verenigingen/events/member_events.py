@@ -11,7 +11,6 @@ Events emitted:
 
 These events can trigger background operations like:
 - Chapter assignment updates
-- User account management
 - Email notifications
 - Cache invalidation
 """
@@ -90,6 +89,9 @@ def _emit_member_event(event_name, event_data):
         entity_key="member",
         job_prefix="member",
         bulk_flag="bulk_member_operations",
+        # Subscribers mail, disable accounts and write history for the change, so they must
+        # not run ahead of (or without) the commit that made it (#2144, sibling of #2137).
+        after_commit=True,
     )
 
 
@@ -103,7 +105,6 @@ def _get_member_event_subscribers(event_name):
         ],
         "member_lifecycle_changed": [
             "verenigingen.events.subscribers.member_subscribers.handle_lifecycle_notifications",
-            "verenigingen.events.subscribers.member_subscribers.handle_user_account_updates",
             "verenigingen.events.subscribers.member_subscribers.handle_cache_invalidation",
         ],
     }

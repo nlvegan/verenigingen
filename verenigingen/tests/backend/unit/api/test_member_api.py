@@ -248,7 +248,7 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
     # test_reject_application_whitelist deleted in T4.1 - it exercised the
     # deprecated Member.reject_application whitelisted doctype method,
     # which has been retired in favour of
-    # api.membership_application_review.reject_membership_application.
+    # api.membership_application_review.reject_application.
 
     def test_update_membership_duration_whitelist(self):
         """Test update_membership_duration method"""

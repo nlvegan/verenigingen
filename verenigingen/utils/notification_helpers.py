@@ -44,6 +44,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.staff_alert_events import begin_event, finish_event
 
 
 def _get_email_config_service():
@@ -209,7 +210,12 @@ def get_notification_recipients(setting_field, default_roles=None):
         # Fall back to default roles
         admin_users = frappe.get_all(
             "User",
-            filters=[["enabled", "=", 1], ["Has Role", "role", "in", default_roles]],
+            # Never the Administrator user (#1960); by name, so a shared email is not dropped.
+            filters=[
+                ["enabled", "=", 1],
+                ["name", "!=", "Administrator"],
+                ["Has Role", "role", "in", default_roles],
+            ],
             fields=["email", "full_name"],
         )
 
@@ -220,7 +226,9 @@ def get_notification_recipients(setting_field, default_roles=None):
         # Emergency fallback - get System Managers
         try:
             admin_emails = frappe.get_all(
-                "User", filters=[["Has Role", "role", "=", Roles.SYSTEM_MANAGER]], pluck="email"
+                "User",
+                filters=[["name", "!=", "Administrator"], ["Has Role", "role", "=", Roles.SYSTEM_MANAGER]],
+                pluck="email",
             )
             return [email for email in admin_emails if email]
         except:
@@ -280,6 +288,7 @@ def create_system_notification(
     document_name=None,
     from_user=None,
     notification_key=None,
+    source_event=None,
 ):
     """
     Create in-app notifications for specified recipients.
@@ -288,6 +297,10 @@ def create_system_notification(
     notification bell in the Frappe desk. Email delivery depends on each user's
     notification preferences - users can disable email delivery for specific
     notification types in their User settings.
+
+    The Administrator user is dropped silently (no log, no error, not counted): staff alerts never go
+    to Administrator (maintainer ruling, 2026-11-01). A call whose only recipient is Administrator
+    returns ``no_valid_recipients``.
 
     Note: For critical alerts requiring guaranteed email delivery, use
     EmailService directly instead of this function.
@@ -308,9 +321,12 @@ def create_system_notification(
         notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, checks if this notification type is enabled and
             respects cooldown settings.
+        source_event (str, optional): Name of the Staff Alert Event this delivery belongs to. Stored in
+            the Notification Log ``source_name`` so delivery can be joined back to the event exactly.
 
     Returns:
-        dict: Result with 'success' status and 'notifications_created' count
+        dict: Result with 'success' status and 'notifications_created' count. A skip or failure also
+        carries 'reason_code' (email_disabled, key_disabled, no_recipients, no_valid_recipients).
 
     Example:
         # Notify admins about a membership request
@@ -334,6 +350,8 @@ def create_system_notification(
                 "success": True,
                 "skipped": True,
                 "reason": "Notifications disabled",
+                "reason_code": "email_disabled",
+                "notification_key": notification_key,
                 "notifications_created": 0,
             }
 
@@ -346,6 +364,8 @@ def create_system_notification(
                 "success": True,
                 "skipped": True,
                 "reason": f"Notification '{notification_key}' disabled",
+                "reason_code": "key_disabled",
+                "notification_key": notification_key,
                 "notifications_created": 0,
             }
 
@@ -358,7 +378,12 @@ def create_system_notification(
     # Input validation
     if not recipients:
         frappe.logger().warning("create_system_notification called with no recipients")
-        return {"success": False, "error": "No recipients provided", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No recipients provided",
+            "reason_code": "no_recipients",
+            "notifications_created": 0,
+        }
 
     if isinstance(recipients, str):
         recipients = [recipients]
@@ -380,19 +405,34 @@ def create_system_notification(
     recipients = [r for r in recipients if r]
     if not recipients:
         frappe.logger().warning(f"No valid recipients provided for notification: {subject}")
-        return {"success": False, "error": "No recipients provided", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No recipients provided",
+            "reason_code": "no_recipients",
+            "notifications_created": 0,
+        }
 
     # Batch validate recipients with single query (optimized from N+1 queries)
     valid_users = frappe.get_all(
         "User",
         filters={"enabled": 1},
         or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
-        pluck="email",
+        # Notification Log.for_user is a Link to User, so it needs the user's NAME. Administrator's
+        # name is not its email, and an email there fails the Link check (#1958).
+        pluck="name",
     )
+    # Staff alerts never go to the Administrator user (maintainer ruling, 2026-11-01). Dropped by NAME
+    # here, after the name/email match, so admin@example.com is dropped too. Silent: no log, no error.
+    valid_users = [user for user in valid_users if user != "Administrator"]
 
     if not valid_users:
         frappe.logger().warning(f"No valid/enabled users found for notification: {subject}")
-        return {"success": False, "error": "No valid recipients found", "notifications_created": 0}
+        return {
+            "success": False,
+            "error": "No valid recipients found",
+            "reason_code": "no_valid_recipients",
+            "notifications_created": 0,
+        }
 
     # Limit recipient count to prevent DoS
     if len(valid_users) > MAX_RECIPIENTS:
@@ -417,6 +457,10 @@ def create_system_notification(
                 notification.document_name = document_name
 
             notification.from_user = sender
+
+            if source_event:
+                notification.source_doctype = "Staff Alert Event"
+                notification.source_name = source_event
 
             # Notification Log is a Frappe system DocType — Frappe itself always
             # creates these with ignore_permissions. No user-data security concern here.
@@ -454,6 +498,10 @@ def notify_administrators(
     document_name=None,
     notification_key=None,
     category=None,
+    exclude_users=None,
+    staff_alert=False,
+    requires_action=None,
+    event_reference=None,
 ):
     """
     Convenience function to notify system administrators.
@@ -473,7 +521,20 @@ def notify_administrators(
         notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, uses Verenigingen Email Configuration for enable/disable checks.
         category (str, optional): Notification category (Admin, System, etc.)
-            Used for recipient lookup in Verenigingen Email Configuration.
+            Used for recipient lookup in Verenigingen Email Configuration. With a
+            ``notification_key`` too, the category is only the FALLBACK: it applies when the
+            key has no Email Notification Type row or its row resolves to nobody (#2043).
+        exclude_users (list, optional): User names that must never be a recipient, applied to the
+            FINAL recipient list (after the configured, category and role fallbacks). Matches the
+            user's name or email.
+        staff_alert (bool): True at a call site whose alert is for staff. Only then is a Staff Alert
+            Event recorded (#1979): inserted as Pending BEFORE delivery, finished afterwards, so an
+            alert that raises or is dropped still leaves a row. Never changes the return value.
+        requires_action (bool, optional): Override the registry default (REQUIRES_ACTION_KEYS) for
+            this call, when the same key carries both action-required and informational sends.
+        event_reference (str, optional): Stable name of the PROBLEM, for an alert about a class of
+            problem rather than one document (``document_name`` must be a real document, this need not
+            be). Used as the event's reference so a daily recurrence is one event, not a new row a day.
 
     Returns:
         dict: Result with success status and notification count
@@ -488,25 +549,150 @@ def notify_administrators(
             document_type="Membership Termination Request"
         )
     """
-    # Try Verenigingen Email Configuration first for recipients
+    event = None
+    if staff_alert:
+        event = begin_event(
+            notification_key,
+            subject,
+            "notify_administrators",
+            reference_doctype=document_type,
+            reference_name=document_name or event_reference,
+            requires_action=requires_action,
+        )
+    try:
+        result = _notify_administrators(
+            subject,
+            message,
+            setting_field,
+            default_roles,
+            notification_type,
+            document_type,
+            document_name,
+            notification_key,
+            category,
+            exclude_users,
+            event,
+        )
+    except Exception as error:
+        finish_event(event, error=error)
+        raise
+    finish_event(event, result)
+    return result
+
+
+def resolve_admin_recipients(
+    notification_key=None,
+    category=None,
+    setting_field=None,
+    default_roles=None,
+    exclude_users=None,
+    extra_emails=(),
+    key_first=False,
+):
+    """Resolve staff recipients: the ONE place that decides who an admin alert goes to.
+
+    ``key_first=False`` is notify_administrators. When a call passes BOTH a category and a key, the
+    key's own recipients come first and the category is the fallback (maintainer ruling on #2043):
+    the key's own recipients (none when the key has no row), else the category's recipients (for
+    Admin, ``admin_notification_emails`` or, when unset, the fallback role's holders), else the
+    legacy ``setting_field`` / ``admin_notification_emails`` setting, else enabled holders of
+    ``default_roles``. A call passing only a key still gets the key's recipients (the email
+    configuration service's System Manager fallback for an unknown key included), and a call passing
+    only a category gets the category's: those are unchanged. With both, ``exclude_users`` is applied
+    to every tier, so a key row holding only excluded users (Administrator) resolves to nobody and falls
+    through to the category; with only one of the two it is applied to the FINAL list only. On that path
+    the key's tier also counts only its deliverable recipients (enabled Users other than Administrator, as
+    create_system_notification matches them): a row naming only disabled users or non-User addresses falls
+    through to the category instead of winning and reaching nobody.
+
+    ``key_first=True`` is for senders that deliver their own mail (the SEPA notifications, #2002):
+    the key's own recipients (none when the key has no row), then the admin emails ONLY when actually configured (never the
+    category's role fallback), then ``extra_emails`` (the caller's explicit list), then enabled
+    holders of ``default_roles`` (default Roles.ADMIN_PAIR). ``exclude_users`` is applied to every
+    tier, so a tier holding only an excluded user falls through, and the result is deduplicated.
+    """
     config_service = _get_email_config_service()
-    recipients = None
 
-    if config_service:
-        # Use category-based recipients if category provided
-        if category:
-            recipients = config_service.get_category_recipients(category)
+    def category_tier():
+        return config_service.get_category_recipients(category) if config_service and category else None
 
-        # Use notification-specific recipients if notification_key provided
-        if notification_key and not recipients:
-            recipients = config_service.get_recipients_for_notification(notification_key)
+    def key_tier():
+        return (
+            config_service.get_recipients_for_notification(notification_key)
+            if config_service and notification_key
+            else None
+        )
 
-    # Fall back to legacy recipient lookup
-    if not recipients:
-        recipients = get_notification_recipients(
+    def own_key_tier():
+        # A key with no row has NO recipients of its own; get_recipients_for_notification would answer
+        # with the fallback role's holders, which is the category fallback again under another name.
+        if not (
+            config_service and notification_key and config_service.get_notification_config(notification_key)
+        ):
+            return None
+        return key_tier()
+
+    def configured_admin_tier():
+        config = config_service._get_config() if config_service else None
+        emails = getattr(config, "admin_notification_emails", None) if config else None
+        return config_service._parse_email_list(emails) if emails else None
+
+    def extra_tier():
+        return list(extra_emails)
+
+    def legacy_tier():
+        return get_notification_recipients(
             setting_field or "admin_notification_emails",
             default_roles or list(Roles.ADMIN_PAIR),
         )
+
+    if key_first:
+        tiers = (own_key_tier, configured_admin_tier, extra_tier, legacy_tier)
+    else:
+        # The service's fallback for an unknown key is the category fallback under another name, so
+        # with a category to fall back to, a key counts only when it has its own row (#2043).
+        tiers = (own_key_tier if category else key_tier, category_tier, legacy_tier)
+        if category and notification_key:
+            # create_system_notification drops a recipient that is not an enabled User, so a row naming
+            # only such addresses would win here and reach nobody: only deliverable ones count (#2043).
+            tiers = (lambda: _deliverable_users(own_key_tier()), category_tier, legacy_tier)
+
+    # A tier holding only excluded users resolves to nobody, so it falls through (#2043 ruling); the
+    # key-only and category-only calls keep excluding from the final list alone.
+    per_tier_exclusion = key_first or bool(category and notification_key)
+    recipients = []
+    for tier in tiers:
+        recipients = list(tier() or [])
+        if per_tier_exclusion:
+            recipients = _without_users([r for r in recipients if r], exclude_users or ())
+        if recipients:
+            break
+
+    if exclude_users and not key_first:
+        recipients = _without_users(recipients, exclude_users)
+    return list(dict.fromkeys(recipients)) if key_first else recipients
+
+
+def _notify_administrators(
+    subject,
+    message,
+    setting_field,
+    default_roles,
+    notification_type,
+    document_type,
+    document_name,
+    notification_key,
+    category,
+    exclude_users,
+    source_event,
+):
+    recipients = resolve_admin_recipients(
+        notification_key=notification_key,
+        category=category,
+        setting_field=setting_field,
+        default_roles=default_roles,
+        exclude_users=exclude_users,
+    )
 
     return create_system_notification(
         recipients=recipients,
@@ -516,4 +702,49 @@ def notify_administrators(
         document_type=document_type,
         document_name=document_name,
         notification_key=notification_key,
+        source_event=source_event,
     )
+
+
+def _deliverable_users(recipients):
+    """Keep the recipients that are an enabled User other than Administrator, matched by name or email."""
+    recipients = [r for r in (recipients or []) if r]
+    if not recipients:
+        return []
+    users = frappe.get_all(
+        "User",
+        filters={"enabled": 1, "name": ["!=", "Administrator"]},
+        or_filters=[{"email": ["in", recipients]}, {"name": ["in", recipients]}],
+        fields=["name", "email"],
+    )
+    deliverable = {value.lower() for user in users for value in (user.name, user.email) if value}
+    return [r for r in recipients if r.lower() in deliverable]
+
+
+def _without_users(recipients, exclude_users):
+    """Drop each recipient that resolves ONLY to ``exclude_users``.
+
+    A recipient is a User name or an email. An email shared with a User who is not excluded (a staff
+    user whose address Administrator also carries) is kept: exclusion is by user name, not by address.
+    A recipient that is no User at all (a plain address in a Fixed list) is kept unless it names an
+    excluded user.
+    """
+    excluded = {u.lower() for u in exclude_users}
+    holders = {}
+    for user in frappe.get_all("User", fields=["name", "email"], or_filters=_user_match(recipients)):
+        for key in (user.name, user.email):
+            if key:
+                holders.setdefault(key.lower(), set()).add(user.name.lower())
+    return [r for r in recipients if r and not _is_excluded(r.lower(), holders, excluded)]
+
+
+def _user_match(recipients):
+    recipients = [r for r in recipients if r]
+    return [{"name": ["in", recipients]}, {"email": ["in", recipients]}] if recipients else [{"name": ""}]
+
+
+def _is_excluded(recipient, holders, excluded):
+    if recipient in excluded:
+        return True
+    users = holders.get(recipient)
+    return bool(users) and users <= excluded

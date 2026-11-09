@@ -161,6 +161,125 @@ class TestChapterAssignmentService(EnhancedTestCase):
         self.assertFalse(result["success"], result)
         self.assertNotIn("successfully assigned", result.get("message", ""))
 
+    # --- assign_with_cleanup: a refused add must not strand the member (#1793) ---
+    def _chapter_state(self, member_name, volunteer_name):
+        """Everything the cleanup touches: every Chapter Member row and every board seat."""
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name},
+            fields=["parent", "enabled", "leave_reason"],
+            order_by="parent asc, name asc",
+        )
+        seats = frappe.get_all(
+            "Chapter Board Member",
+            filters={"volunteer": volunteer_name},
+            fields=["parent", "is_active", "to_date", "notes"],
+            order_by="parent asc, name asc",
+        )
+        return [dict(r) for r in rows], [dict(r) for r in seats]
+
+    def _board_member_in_chapter(self):
+        """A member with an enabled row AND an active board seat in self.chapter (real writers)."""
+        board = self.create_test_board_member(self.chapter.name)
+        rows, seats = self._chapter_state(board.member, board.volunteer)
+        # Control: the starting state really has what the cleanup would destroy.
+        self.assertTrue(any(r["enabled"] and r["parent"] == self.chapter.name for r in rows), rows)
+        self.assertTrue(any(s["is_active"] and s["parent"] == self.chapter.name for s in seats), seats)
+        return board
+
+    def _suspend_for_assign_cleanup(self, member_name):
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
+        suspend_member_safe(member_name, "assign_with_cleanup test", suspend_user=False)
+        self.assertEqual(frappe.db.get_value("Member", member_name, "status"), "Suspended")
+
+    def test_assign_with_cleanup_refused_add_leaves_rows_and_board_seat_untouched(self):
+        """#1793: a Suspended member's add into the target is refused; the old chapter and seat must survive."""
+        target = self.ensure_test_chapter("Test Assign Cleanup Target")
+        board = self._board_member_in_chapter()
+        self._suspend_for_assign_cleanup(board.member)
+        before = self._chapter_state(board.member, board.volunteer)
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name, note="strand-1793")
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_add_that_raises_leaves_rows_and_board_seat_untouched(self):
+        """#1793: the fail-closed path: add_member raising must not leave the cleanup committed."""
+        from unittest.mock import patch
+
+        target = self.ensure_test_chapter("Test Assign Cleanup Raises")
+        board = self._board_member_in_chapter()
+        before = self._chapter_state(board.member, board.volunteer)
+
+        # Mock justified: forces the add to raise, which no real input reliably does.
+        with patch.object(
+            type(self._get_service()), "assign_member", side_effect=frappe.ValidationError("boom-1793")
+        ):
+            result = self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_lock_timeout_rolls_back_then_propagates(self):
+        """#1793: a 1205 keeps the transaction alive, so the cleanup must be undone before it propagates."""
+        from unittest.mock import patch
+
+        target = self.ensure_test_chapter("Test Assign Cleanup Timeout")
+        board = self._board_member_in_chapter()
+        before = self._chapter_state(board.member, board.volunteer)
+
+        # Mock justified: infrastructure fault injection at the add, below the layers that swallow.
+        with patch.object(
+            type(self._get_service()), "assign_member", side_effect=frappe.QueryTimeoutError("lock-1793")
+        ):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_not_reenabled_refusal_rolls_back(self):
+        """#1793/#1564: a disabled row in the target that add_member will not re-enable."""
+        target = self.ensure_test_chapter("Test Assign Cleanup NotReenabled")
+        board = self._board_member_in_chapter()
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+
+        ChapterMembershipManager.assign_member_to_chapter(
+            member_id=board.member, chapter_name=target.name, notify=False
+        )
+        target_doc = frappe.get_doc("Chapter", target.name)
+        target_doc.member_manager.remove_member(board.member, permanent=False)
+        self._suspend_for_assign_cleanup(board.member)
+        # Control: the target holds a DISABLED row (so this is the not_reenabled shape) and the
+        # original chapter is still enabled.
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": target.name, "member": board.member}, "enabled"
+        )
+        self.assertEqual(row, 0)
+        before = self._chapter_state(board.member, board.volunteer)
+        self.assertTrue(any(r["enabled"] and r["parent"] == self.chapter.name for r in before[0]))
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name)
+
+        self.assertFalse(result["success"], result)
+        # Pins the not_reenabled refusal, so the added_disabled path cannot satisfy this test.
+        self.assertIn("not re-enabled", result["message"])
+        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
+
+    def test_assign_with_cleanup_successful_move_still_cleans_up(self):
+        """Control: an Active member's move still leaves the old chapter and ends the seat."""
+        target = self.ensure_test_chapter("Test Assign Cleanup Move")
+        board = self._board_member_in_chapter()
+
+        result = self._get_service().assign_with_cleanup(board.member, target.name, note="move-1793")
+
+        self.assertTrue(result["success"], result)
+        rows, seats = self._chapter_state(board.member, board.volunteer)
+        enabled = {r["parent"] for r in rows if r["enabled"]}
+        self.assertEqual(enabled, {target.name})
+        self.assertFalse(any(s["is_active"] for s in seats), seats)
+
     # --- assign_with_cleanup ---
     def test_assign_with_cleanup_fresh_member(self):
         """assign_with_cleanup works for a member not in any chapter."""
@@ -521,29 +640,8 @@ class TestChapterSecurity(EnhancedTestCase):
         result = get_user_manageable_chapters(user="Administrator")
         self.assertEqual(result, "all")
 
-    def test_can_user_manage_application_admin(self):
-        """Admin user can manage any application."""
-        from verenigingen.services.chapter.chapter_security import can_user_manage_application
 
-        member = self.create_test_member(first_name="SecTest", last_name="Member")
-        result = can_user_manage_application(member.name, user="Administrator")
-        self.assertTrue(result)
 
-    def test_filter_applications_by_permission_admin(self):
-        """Admin user sees all applications."""
-        from verenigingen.services.chapter.chapter_security import filter_applications_by_permission
-
-        apps = [{"name": "MEM-001"}, {"name": "MEM-002"}]
-        result = filter_applications_by_permission(apps, user="Administrator")
-        self.assertEqual(len(result), 2)
-
-    def test_validate_chapter_permission_or_throw_admin(self):
-        """Admin user does not get PermissionError."""
-        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-        member = self.create_test_member(first_name="SecVal", last_name="Test")
-        # Should not raise for Administrator
-        validate_chapter_permission_or_throw(member.name, user="Administrator")
 
     def test_get_user_manageable_chapters_no_member(self):
         """User without member record gets empty list."""
@@ -554,25 +652,7 @@ class TestChapterSecurity(EnhancedTestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 0)
 
-    def test_validate_chapter_permission_or_throw_denies_non_manager(self):
-        """A non-privileged user (no manageable chapters) gets a PermissionError.
 
-        Complements the admin happy-path test: an authenticated user with only
-        a basic member role, no board seat and no linked Member record has
-        get_user_manageable_chapters() == [], so can_user_manage_application()
-        returns False and validate_chapter_permission_or_throw must raise
-        frappe.PermissionError (not merely return).
-        """
-        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-        member = self.create_test_member(first_name="SecDeny", last_name="Target")
-        plain_user = self.create_test_user(
-            self.factory.generate_test_email("plainuser"),
-            roles=["Verenigingen Member"],
-        )
-        with self.assertRaises(frappe.PermissionError) as ctx:
-            validate_chapter_permission_or_throw(member.name, action="approve", user=plain_user.name)
-        self.assertIn("permission", str(ctx.exception).lower())
 
 
 # ---------------------------------------------------------------------------
@@ -901,9 +981,6 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
 
         self._seat_on_board(self.chapter_own, self.board_volunteer)
 
-        self.applicant_own = self._pending_applicant_in(self.chapter_own, "Own")
-        self.applicant_other = self._pending_applicant_in(self.chapter_other, "Other")
-
     def _seat_on_board(self, chapter, volunteer):
         chapter.append(
             "board_members",
@@ -915,18 +992,6 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
             },
         )
         chapter.save()
-
-    def _pending_applicant_in(self, chapter, tag):
-        """A member whose application is pending, holding an ACTIVE seat in chapter.
-
-        can_user_manage_application matches the applicant through Chapter Member
-        rows with enabled=1 and status='Active'.
-        """
-        applicant = self.create_test_member(first_name="Applicant", last_name=tag)
-        chapter.reload()
-        chapter.append("members", {"member": applicant.name, "enabled": 1, "status": "Active"})
-        chapter.save()
-        return applicant
 
     def test_board_member_manages_only_their_own_chapter(self):
         from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
@@ -940,25 +1005,8 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
             "the board seat is held by the VOLUNTEER; resolving only as far as the Member finds nothing",
         )
 
-    def test_board_member_can_manage_application_in_own_chapter(self):
-        from verenigingen.services.chapter.chapter_security import can_user_manage_application
 
-        self.assertTrue(can_user_manage_application(self.applicant_own.name, user=self.board_user.name))
 
-    def test_board_member_cannot_manage_application_in_another_chapter(self):
-        """The scope must be per-chapter, not "is a board member somewhere"."""
-        from verenigingen.services.chapter.chapter_security import can_user_manage_application
-
-        self.assertFalse(can_user_manage_application(self.applicant_other.name, user=self.board_user.name))
-
-    def test_validate_throws_for_another_chapters_application(self):
-        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
-
-        # Own chapter: must not raise.
-        validate_chapter_permission_or_throw(self.applicant_own.name, user=self.board_user.name)
-
-        with self.assertRaises(frappe.PermissionError):
-            validate_chapter_permission_or_throw(self.applicant_other.name, user=self.board_user.name)
 
     def test_inactive_board_seat_confers_nothing(self):
         """Leaving the board removes the permission."""
@@ -983,57 +1031,13 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
         branch and proves the queries still resolve without admin rights -- a
         board member is a plain Verenigingen Member.
         """
-        from verenigingen.services.chapter.chapter_security import (
-            can_user_manage_application,
-            get_user_manageable_chapters,
-            validate_chapter_permission_or_throw,
-        )
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
 
         with self.as_user(self.board_user.name):
             # No user= argument anywhere: everything resolves from the session.
             self.assertEqual(get_user_manageable_chapters(), [self.chapter_own.name])
-            self.assertTrue(can_user_manage_application(self.applicant_own.name))
-            self.assertFalse(can_user_manage_application(self.applicant_other.name))
 
-            validate_chapter_permission_or_throw(self.applicant_own.name)
-            with self.assertRaises(frappe.PermissionError):
-                validate_chapter_permission_or_throw(self.applicant_other.name)
 
-    def test_can_review_application_endpoint_in_board_member_session(self):
-        """The endpoint the Member form calls, exercised as the board member.
-
-        member.js gates its Review Actions buttons on this, so it has to give the
-        board member the same answer the server enforces on approve/reject.
-        """
-        from verenigingen.api.membership_application_review import can_review_application
-
-        with self.as_user(self.board_user.name):
-            self.assertTrue(can_review_application(self.applicant_own.name))
-            self.assertFalse(can_review_application(self.applicant_other.name))
-
-    def test_can_review_application_does_not_leak_member_existence(self):
-        """#1394: an unknown member_name must be indistinguishable from a foreign one.
-
-        Before the fix, can_review_application delegated existence checking to
-        _validate_member_for_review, which does an unscoped frappe.db.exists() and
-        frappe.throw()s "Invalid member reference" for an unknown id -- while an
-        existing-but-foreign id (test above) just returns False. That let any
-        MEDIUM-tier caller (this board_user included) enumerate real Member ids by
-        watching which ones raise. Both branches must now return the identical
-        False, through the same call, with no exception raised for either.
-        """
-        from verenigingen.api.membership_application_review import can_review_application
-
-        with self.as_user(self.board_user.name):
-            unknown_result = can_review_application(f"NONEXISTENT-MEMBER-{frappe.generate_hash(length=8)}")
-            foreign_result = can_review_application(self.applicant_other.name)
-
-            self.assertFalse(unknown_result)
-            self.assertEqual(
-                unknown_result,
-                foreign_result,
-                "an unknown member_name must answer identically to an existing-but-foreign one",
-            )
 
     def test_staff_session_gets_all_chapters(self):
         """Staff short-circuit to "all" without consulting any board roster."""
@@ -1043,10 +1047,6 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
 
         with self.as_user(staff_user.name):
             self.assertEqual(get_user_manageable_chapters(), "all")
-            # ... including chapters they hold no seat on.
-            from verenigingen.services.chapter.chapter_security import can_user_manage_application
-
-            self.assertTrue(can_user_manage_application(self.applicant_other.name))
 
     # ------------------------------------------------ the predicate, and identity
 
@@ -1058,10 +1058,7 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
         the predicate is load-bearing: President is Basic, Penningmeester is
         Financial, and neither may approve.
         """
-        from verenigingen.services.chapter.chapter_security import (
-            can_user_manage_application,
-            get_user_manageable_chapters,
-        )
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
 
         basic_role = frappe.get_doc(
             {
@@ -1091,7 +1088,6 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
         chapter.save()
 
         self.assertEqual(get_user_manageable_chapters(user=user.name), [])
-        self.assertFalse(can_user_manage_application(self.applicant_own.name, user=user.name))
 
     def test_identity_is_the_user_link_not_a_matching_email(self):
         """Sharing an address with a board member's Member record grants nothing.

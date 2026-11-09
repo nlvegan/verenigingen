@@ -21,6 +21,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.utils.sepa_alerting_system import (
     AlertSeverity,
+    SEPA_ALERT_NOTIFICATION_KEY,
     SEPAAlertingSystem,
 )
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
@@ -122,6 +123,34 @@ class TestR5RecipientParity(EnhancedTestCase):
             self.assertIn("@", r)
 
 
+class TestSepaManagersNeverReachAdministrator(EnhancedTestCase):
+    """#2036: both managers resolve System Manager holders, and Administrator is one of them."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(
+            frappe.db.set_value, "User", "Administrator", "email", frappe.db.get_value("User", "Administrator", "email"), update_modified=False
+        )
+        self.admin_email = "administrator-2036@example.org"
+        frappe.db.set_value("User", "Administrator", "email", self.admin_email, update_modified=False)
+        self.holder = "sm-live-2036@example.org"
+        self.create_test_user(self.holder, roles=["System Manager"])
+
+    def test_rule_recipients_exclude_administrator(self):
+        rule = NotificationRule(
+            rule_id="2036_rule", name="2036", conditions={}, template_id="batch_success",
+            recipients=["system_managers", "sepa_administrators"],
+        )
+        recipients = SEPANotificationManager()._get_rule_recipients(rule)
+        self.assertIn(self.holder, recipients)  # control: a real holder is reached
+        self.assertNotIn(self.admin_email, recipients)
+
+    def test_rollback_recipients_exclude_administrator(self):
+        recipients = SEPARollbackManager()._get_notification_recipients(RollbackReason.BANK_REJECTION)
+        self.assertIn(self.holder, recipients)
+        self.assertNotIn(self.admin_email, recipients)
+
+
 class TestR5DbHelperParity(EnhancedTestCase):
     """Tracking tables exist by the time a manager is used; audit rows via insert_audit_row.
 
@@ -196,7 +225,7 @@ class TestR5EmailDispatchParity(EnhancedTestCase):
         notification_data = {
             "subject": "R5 parity alert",
             "message": "body",
-            "alert_data": {"alert_id": "R5_ALERT_PARITY"},
+            "alert_data": {"alert_id": "R5_ALERT_PARITY", "escalation_level": 0},
             "severity": "warning",
         }
 
@@ -213,4 +242,6 @@ class TestR5EmailDispatchParity(EnhancedTestCase):
             message="body",
             reference_doctype="SEPA Alert",
             reference_name="R5_ALERT_PARITY",
+            notification_key=SEPA_ALERT_NOTIFICATION_KEY,  # #2002: enable switch + cooldown apply
+            cooldown_scope="R5_ALERT_PARITY:0",  # one window per alert and escalation level
         )

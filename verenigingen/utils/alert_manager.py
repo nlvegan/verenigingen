@@ -31,6 +31,42 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.security_decorators import development_only
 
+# Who gets which monitoring email (#2000). Each group has its own Role Profile (defined in
+# fixtures/role_profile.json), notification key (so its own enable switch and cooldown) and
+# once-a-day Error Log rows.
+TECHNICAL_GROUP = "technical"
+BUSINESS_GROUP = "business"
+ALERT_GROUPS = {
+    TECHNICAL_GROUP: {
+        "role_profile": "Verenigingen System Administrator",
+        "notification_key": "system_alert",
+    },
+    BUSINESS_GROUP: {
+        "role_profile": "Verenigingen Administrator",
+        "notification_key": "business_monitoring_alert",
+    },
+}
+# The single place alert_type maps to a group. Anything not listed (a new alert type) is technical.
+BUSINESS_ALERT_TYPES = frozenset(
+    {
+        "SEPA_COMPLIANCE",
+        "HIGH_MEMBER_CHURN",
+        "STUCK_DUES_SCHEDULES",
+        "DATA_QUALITY_ISSUE",
+        "ORPHANED_PAYMENTS",
+    }
+)
+# These severities skip the per-key cooldown so a LOW alert cannot hide them (#2003 ruling);
+# LOW and MEDIUM stay rate-limited. The set is SystemAlert.severity's Select options.
+COOLDOWN_BYPASS_SEVERITIES = frozenset({"HIGH", "CRITICAL"})
+NO_RECIPIENTS_LOG_TITLE = "Monitoring alert not sent: no recipients"
+UNSENT_LOG_TITLE = "Monitoring alert not sent: email not queued"
+UNSENT_LOG_CACHE_PREFIX = "alert_manager_unsent_logged"
+
+
+def alert_group_for(alert_type):
+    return BUSINESS_GROUP if alert_type in BUSINESS_ALERT_TYPES else TECHNICAL_GROUP
+
 
 class AlertManager:
     """Central alert management system"""
@@ -93,17 +129,11 @@ class AlertManager:
                 frappe.log_error(f"Alert: {alert_type} - {message}", json.dumps(details or {}, indent=2))
 
             # Send email notification
-            recipients = frappe.get_system_settings("alert_recipients") or frappe.conf.get(
-                "alert_recipients", ["admin@dev.veganisme.net"]
-            )
-
-            email_service = get_email_service()
-            email_service.send_simple_email(
-                recipients=recipients,
+            self._email_alert_recipients(
+                alert_group_for(alert_type),
                 subject=f"[{severity}] {alert_type}: {message}",
-                message=self.format_alert_email(alert_type, severity, message, details),
-                delayed=False,
-                notification_key="system_alert",
+                body=self.format_alert_email(alert_type, severity, message, details),
+                bypass_cooldown=str(severity).upper() in COOLDOWN_BYPASS_SEVERITIES,
             )
 
             return alert_doc
@@ -111,6 +141,76 @@ class AlertManager:
         except Exception as e:
             frappe.log_error(f"Failed to send alert: {str(e)}")
             return None
+
+    def _email_alert_recipients(self, group, subject, body, bypass_cooldown=False):
+        """Queue the email for the group's profile holders, making every "nothing was sent" visible."""
+        recipients = self.get_alert_recipients(ALERT_GROUPS[group]["role_profile"])
+        if not recipients:
+            return
+
+        result = get_email_service().send_simple_email(
+            recipients=recipients,
+            subject=subject,
+            message=body,
+            delayed=False,
+            notification_key=ALERT_GROUPS[group]["notification_key"],
+            bypass_cooldown=bypass_cooldown,
+        )
+        skipped = result.success and (result.data or {}).get("skipped")
+        reason = (result.data or {}).get("reason") if skipped else None
+        # A cooldown skip is the normal rate limit, not a gap.
+        if (not result.success) or (skipped and "cooldown" not in (reason or "")):
+            self._log_unsent_once(
+                UNSENT_LOG_TITLE,
+                group,
+                f"The monitoring email '{subject}' ({group} group) was not queued: {reason or result.error_message}",
+            )
+
+    def get_alert_recipients(self, profile):
+        """Emails of the enabled users holding the given role profile.
+
+        Maintainer ruling on #2000: technical alerts go to the Verenigingen System Administrator
+        profile, business alerts and the daily report to Verenigingen Administrator. Frappe v16 keeps
+        profiles in the ``role_profiles`` child table; the legacy ``role_profile_name``
+        Link only mirrors the FIRST one, so it must not be used.
+        When nobody matches there is deliberately NO literal fallback: the gap is
+        recorded in the Error Log (once a day) and the caller skips the send.
+        """
+        users = frappe.get_all(
+            "User Role Profile",
+            filters={"role_profile": profile, "parenttype": "User"},
+            pluck="parent",
+        )
+        emails = []
+        if users:
+            emails = frappe.get_all(
+                "User",
+                filters={"name": ["in", list(set(users))], "enabled": 1, "email": ["is", "set"]},
+                pluck="email",
+                order_by="email asc",
+            )
+
+        if not emails:
+            self._log_unsent_once(
+                NO_RECIPIENTS_LOG_TITLE,
+                profile,
+                f"No enabled user with an email address holds the role profile '{profile}', "
+                "so monitoring alerts and the daily report have nobody to go to.",
+            )
+        return emails
+
+    def _log_unsent_once(self, title, scope, message):
+        """Error Log row at most once per day per title and scope (a group or a profile).
+
+        check_error_rate_alert and the daily report COUNT Error Log rows, so a row per
+        send would inflate the very alerts that are failing to go out.
+        """
+        cache = frappe.cache()
+        cache_key = f"{UNSENT_LOG_CACHE_PREFIX}:{title}:{scope}"
+        if cache.get_value(cache_key):
+            return
+        cache.set_value(cache_key, 1, expires_in_sec=86400)
+        frappe.log_error(title=title, message=message)
 
     def format_alert_email(self, alert_type, severity, message, details):
         """Format alert email"""
@@ -138,14 +238,8 @@ class AlertManager:
             }
 
             # Send daily report
-            recipients = frappe.conf.get("alert_recipients", ["admin@dev.veganisme.net"])
-            email_service = get_email_service()
-            email_service.send_simple_email(
-                recipients=recipients,
-                subject="Daily Monitoring Report",
-                message=self.format_daily_report(daily_stats),
-                delayed=False,
-                notification_key="system_alert",
+            self._email_alert_recipients(
+                BUSINESS_GROUP, subject="Daily Monitoring Report", body=self.format_daily_report(daily_stats)
             )
 
         except Exception as e:

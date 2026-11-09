@@ -197,8 +197,11 @@ from frappe.utils import getdate
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
+from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
+from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
 
@@ -2311,7 +2314,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 raise
 
         try:
-            frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            if doctype == "Role":
+                # #1856: a bare delete strands `Has Role` rows on surviving users.
+                delete_role_and_grants(name)
+            else:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
             # going: `after_delete`, attachment removal, `delete_dynamic_links` (which
@@ -2442,7 +2449,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # page get_context() reads an empty dict (e.g. ponto_pay / payment_* portal
         # tests failed only inside the full CI shard, never in isolation). Re-binding
         # the proxy at the start of each test makes form_dict reads order-independent.
-        frappe.form_dict = frappe.local("form_dict")
+        guard_form_dict(self)
+        # #1983: frappe.local.response too (a bare `_dict()` has no `docs`).
+        guard_local_response(self)
 
         # BATCH-QUEUE ISOLATION: reset the FinancialHistoryBatchProcessor's
         # PROCESS-GLOBAL, class-level payment/expense queues. They are drained
@@ -2879,28 +2888,22 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
         # _restore_throttle_user_limit().
 
-        # EMAIL MOCKING CLEANUP: Stop all email patches
-        try:
-            # Stop comprehensive email patches
-            if hasattr(self, "email_patches"):
-                for patch_obj in self.email_patches:
-                    try:
-                        patch_obj.stop()
-                    except Exception:
-                        pass  # Patch might already be stopped
-
-            # Legacy cleanup for backward compatibility
-            if hasattr(self, "sendmail_patch"):
-                self.sendmail_patch.stop()
-        except Exception:
-            pass  # Continue cleanup even if email patch cleanup fails
-
-        # RATE LIMIT MOCKING CLEANUP: Stop rate limit patch
-        try:
+        # EMAIL / RATE-LIMIT PATCHES are deliberately NOT stopped here (#2221).
+        # unittest runs tearDown BEFORE addCleanup callbacks, so stopping them here
+        # restored the real objects early; a test's own nested patch of the same target
+        # (started in setUp, stopped via addCleanup) then put the harness mock back for
+        # the rest of the process. Their stops are registered with addCleanup in
+        # _setup_email_mocking / _setup_rate_limit_mocking, which unwinds LIFO after the
+        # test's own nested patches.
+        #
+        # EXCEPT when nothing will run the cleanups: a test that drives setUp()/tearDown()
+        # by hand (no run(), so `_outcome` is None) never reaches doCleanups, and the
+        # patches would stay installed for the rest of the process. There is no nested
+        # patch to unwind in that case, so stopping here is safe, and the stops are
+        # idempotent.
+        if self._outcome is None:
+            self._stop_email_patches()
             self._teardown_rate_limit_mocking()
-        except Exception:
-            pass  # Continue cleanup even if rate limit patch cleanup fails
-
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
@@ -3310,7 +3313,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             )
 
                     # Delete the document
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                    if doc_info["doctype"] == "Role":
+                        # #1856: a bare delete strands `Has Role` rows on surviving users.
+                        delete_role_and_grants(doc_info["name"])
+                    else:
+                        frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # NO COMMIT - Let Frappe's test framework handle transaction rollback
                     # Committing here made test deletions permanent and corrupted test databases
                 break  # Success, exit retry loop
@@ -3456,7 +3463,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 patch_obj.stop()
             except RuntimeError:
-                pass  # never started, or already stopped by tearDown
+                pass  # never started, or already stopped
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""
@@ -3635,9 +3642,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         Scope and Lifecycle:
             - Scope: Per-test instance (each test gets its own isolated mock)
-            - Lifecycle: Created in setUp(), destroyed in tearDown()
+            - Lifecycle: Created in setUp(), stopped by an addCleanup callback (not tearDown, see #2221)
             - Thread-safety: Safe - no shared state across test instances
-            - Cleanup: Automatic via tearDown() with hasattr() guards for robustness
+            - Cleanup: Automatic via addCleanup (runs after tearDown, LIFO) with hasattr() guards
 
         Implementation Details:
             - Uses unittest.mock.patch to intercept validate_rate_limits() calls
@@ -4824,7 +4831,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # The roles alone are not enough. APISecurityFramework authorizes on Frappe ROLE
         # PROFILES, not roles (authorization_policy.ROLE_PROFILE_SECURITY_MAPPING), and
-        # approve_membership_application is @high_security_api. Without the profile the
+        # approve_application is @high_security_api. Without the profile the
         # user is capped below HIGH and denied at the tier gate -- so a chapter-scope
         # test would be denied before the chapter check ever ran, and a denial test
         # would pass for entirely the wrong reason.
@@ -4843,10 +4850,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     def add_member_to_test_chapter(self, member_name, chapter_name):
         """Give `member_name` an ACTIVE Chapter Member row on `chapter_name`.
 
-        can_user_manage_application() matches manageable chapters against
-        `tabChapter Member` rows with enabled=1 AND status='Active'. A member
-        without one belongs to no chapter as far as the approval gate is
-        concerned, so a board-member permission test would be unreachable.
+        A member without an enabled Active row belongs to no chapter as far as a
+        chapter-board permission check is concerned, so a board-member permission
+        test would be unreachable.
         """
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         for row in chapter_doc.get("members", []):
@@ -6724,13 +6730,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 )
             payment_entry_data["paid_from"] = bank_account
 
+            # The party account's type must match the Party Type's (erpnext 8f783ee243,
+            # #2080): a Customer is Receivable, so a refund (Pay) to a Customer debits the
+            # debtors account -- what production books. Only other parties use Payable.
+            party_account_type = "Receivable" if payment_entry_data["party_type"] == "Customer" else "Payable"
             creditors_account = frappe.db.get_value(
-                "Account", {"company": company, "account_type": "Payable", "is_group": 0}, "name"
+                "Account", {"company": company, "account_type": party_account_type, "is_group": 0}, "name"
             )
             if not creditors_account:
                 raise ValueError(
-                    f"No Payable account found for company {company}.\n"
-                    f"Ensure Chart of Accounts includes a Payable account type."
+                    f"No {party_account_type} account found for company {company}.\n"
+                    f"Ensure Chart of Accounts includes a {party_account_type} account type."
                 )
             payment_entry_data["paid_to"] = creditors_account
 
@@ -7061,157 +7071,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "security_results": security_results,
             "test_signature": signature,
             "payload_hash": hashlib.sha256(payload_json.encode()).hexdigest(),
-        }
-
-    def create_member_with_background_approval(self, **kwargs):
-        """
-        Create member using the new background approval system.
-
-        This method creates a member in 'Pending' status and then uses the background
-        approval API to approve it, testing the new event-driven architecture.
-
-        Args:
-            wait_for_background_jobs: If True, waits for background jobs to complete
-            **kwargs: Member creation parameters
-
-        Returns:
-            Dict with member, approval_result, and background job status
-        """
-        wait_for_background_jobs = kwargs.pop("wait_for_background_jobs", True)
-
-        # Create member in pending status (simulating application flow)
-        defaults = {
-            "application_status": "Pending",
-            "status": "Pending",
-            # Don't set member_id yet - that's done during approval
-        }
-
-        # Remove member_id from kwargs if present - approval will set it
-        kwargs.pop("member_id", None)
-
-        data = {**defaults, **kwargs}
-        member = self.factory.create_member(**data)
-
-        # Use the background approval API
-        try:
-            from verenigingen.api.background_approval_api import approve_membership_application_background
-
-            approval_result = approve_membership_application_background(
-                member_name=member.name,
-                membership_type=kwargs.get("selected_membership_type", "Monthly Membership"),
-                chapter=kwargs.get("chapter"),
-                notes="Test approval via background system",
-                create_invoice=True,
-            )
-
-            # Reload member to get updated status
-            member.reload()
-
-            background_status = None
-            if wait_for_background_jobs:
-                background_status = self._wait_for_background_jobs(member.name)
-
-            return {
-                "member": member,
-                "approval_result": approval_result,
-                "background_status": background_status,
-                "success": approval_result.get("success", False),
-            }
-
-        except Exception as e:
-            frappe.log_error(f"Background approval test failed: {str(e)}", "Test Factory Error")
-            return {
-                "member": member,
-                "approval_result": {"success": False, "error": str(e)},
-                "background_status": None,
-                "success": False,
-            }
-
-    def _wait_for_background_jobs(self, member_name, timeout_seconds=30):
-        """
-        Wait for background approval jobs to complete.
-
-        Args:
-            member_name: Name of member to check jobs for
-            timeout_seconds: Maximum time to wait
-
-        Returns:
-            Dict with final job status
-        """
-        import time
-
-        start_time = time.time()
-
-        while time.time() - start_time < timeout_seconds:
-            try:
-                from verenigingen.api.background_approval_api import get_approval_progress
-
-                progress = get_approval_progress(member_name)
-
-                # Check if all jobs are complete
-                active_jobs = progress.get("active_jobs", 0)
-                failed_jobs = progress.get("failed_jobs", 0)
-
-                if active_jobs == 0:
-                    # All jobs finished (successfully or failed)
-                    return {
-                        "completed": True,
-                        "failed_jobs": failed_jobs,
-                        "progress": progress,
-                        "wait_time": time.time() - start_time,
-                    }
-
-                # Wait a bit before checking again
-                time.sleep(1)
-
-            except Exception as e:
-                frappe.log_error(f"Error checking background job progress: {str(e)}", "Test Factory")
-                break
-
-        # Timeout reached
-        return {"completed": False, "timeout": True, "wait_time": timeout_seconds}
-
-    def validate_background_approval_system(self):
-        """
-        Validate the background approval system end-to-end.
-
-        This helper method validates that the background processing
-        system works correctly in test scenarios. NOT a test itself -
-        call this from actual test methods when needed.
-
-        Returns:
-            Dict with test results and performance metrics
-        """
-        import time
-
-        test_start = time.time()
-
-        # Test 1: Basic background approval
-        result1 = self.create_member_with_background_approval(
-            first_name="Background", last_name="Test1", email="bgtest1@test.invalid", birth_date="1990-01-01"
-        )
-
-        # Test 2: Background approval with chapter
-        result2 = self.create_member_with_background_approval(
-            first_name="Background",
-            last_name="Test2",
-            email="bgtest2@test.invalid",
-            birth_date="1985-06-15",
-            chapter="Test Chapter",  # If chapter exists
-            wait_for_background_jobs=False,  # Don't wait for this one
-        )
-
-        test_end = time.time()
-
-        return {
-            "test_duration": test_end - test_start,
-            "basic_approval": result1,
-            "chapter_approval": result2,
-            "overall_success": result1["success"] and result2["success"],
-            "background_processing_working": (
-                result1.get("approval_result", {}).get("background_processing", {}).get("status")
-                == "initiated"
-            ),
         }
 
     def _ensure_test_customer(self):

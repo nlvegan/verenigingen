@@ -1,10 +1,19 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import escape_html
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.notification_helpers import resolve_admin_recipients
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
+
+def contact_request_key(urgency):
+    """Urgent requests have their own key: their audience adds System Managers (#2095)."""
+    # Both keys stay literal values of the dict so the key-discovery walker sees them (#2095 review).
+    notification_key_by_urgency = {"Urgent": "contact_request_urgent", "Normal": "contact_request_new"}
+    return notification_key_by_urgency.get(urgency, notification_key_by_urgency["Normal"])
 
 
 class MemberContactRequest(Document):
@@ -67,63 +76,14 @@ class MemberContactRequest(Document):
         if self.preferred_contact_method == "Email" and not self.email:
             frappe.throw(_("Email address is required when email is the preferred contact method"))
 
-    def on_insert(self):
-        """Handle post-creation tasks"""
-        self.create_crm_lead()
+    def after_insert(self):
+        """Mail staff about the new request (#2174).
+
+        `on_insert` is not a Frappe event, so this used to be dead code. The mail is an Email Queue row
+        written in this transaction, so a rolled-back insert takes the mail with it. No CRM Lead is created
+        any more (maintainer ruling on #2174): the `crm_lead` field stays for leads linked by hand.
+        """
         self.notify_staff()
-
-    def create_crm_lead(self):
-        """Create a corresponding CRM Lead for this contact request"""
-        try:
-            # Check if CRM module is available
-            if not frappe.db.exists("DocType", "Lead"):
-                frappe.log_error("CRM Lead doctype not available", "Member Contact Request")
-                return
-
-            # Create CRM Lead
-            lead_data = {
-                "doctype": "Lead",
-                "lead_name": self.member_name,
-                "email_id": self.email,
-                "phone": self.phone,
-                "source": self.lead_source or "Member Portal",
-                "status": "Open",
-                "title": f"Member Contact Request: {self.subject}",
-                "notes": f"Contact Request: {self.message}\n\nRequest Type: {self.request_type}\nUrgency: {self.urgency}\nPreferred Contact: {self.preferred_contact_method}",
-                "company": frappe.defaults.get_defaults().get("company"),
-                "custom_member_contact_request": self.name,
-                "custom_member_id": self.member,
-            }
-
-            # Add preferred contact time if specified
-            if self.preferred_time:
-                lead_data["notes"] += f"\nPreferred Contact Time: {self.preferred_time}"
-
-            lead_doc = frappe.get_doc(lead_data)
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            lead_result = secure_document_operation(
-                operation="insert",
-                doc=lead_doc,
-                justification=f"Create CRM lead from contact request {self.name}",
-                required_permissions=["Lead:create"],
-            )
-
-            if not lead_result.success:
-                frappe.logger().error(f"Failed to create CRM lead: {'; '.join(lead_result.errors)}")
-                frappe.throw(_("Failed to create CRM lead: {0}").format("; ".join(lead_result.errors)))
-
-            # Link back to the contact request
-            self.db_set("crm_lead", lead_doc.name, update_modified=False)
-
-            frappe.logger().info(f"Created CRM Lead {lead_doc.name} for Member Contact Request {self.name}")
-
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to create CRM Lead for Member Contact Request {self.name}: {str(e)}",
-                "CRM Integration Error",
-            )
 
     def notify_staff(self):
         """Send notification to staff about new contact request"""
@@ -140,33 +100,33 @@ class MemberContactRequest(Document):
             # Create message content
             message = f"""
             <h3>New Member Contact Request</h3>
-            <p><strong>Member:</strong> {self.member_name} ({self.member})</p>
+            <p><strong>Member:</strong> {escape_html(self.member_name)} ({escape_html(self.member)})</p>
             <p><strong>Request Type:</strong> {self.request_type}</p>
             <p><strong>Urgency:</strong> {self.urgency}</p>
-            <p><strong>Subject:</strong> {self.subject}</p>
+            <p><strong>Subject:</strong> {escape_html(self.subject)}</p>
             <p><strong>Message:</strong></p>
             <div style="background: #f8f9fa; padding: 10px; border-left: 3px solid #007bff;">
-                {self.message}
+                {escape_html(self.message)}
             </div>
             <p><strong>Preferred Contact Method:</strong> {self.preferred_contact_method}</p>
             """
 
             if self.preferred_time:
-                message += f"<p><strong>Preferred Time:</strong> {self.preferred_time}</p>"
+                message += f"<p><strong>Preferred Time:</strong> {escape_html(self.preferred_time)}</p>"
 
             if self.email:
-                message += f"<p><strong>Email:</strong> {self.email}</p>"
+                message += f"<p><strong>Email:</strong> {escape_html(self.email)}</p>"
 
             if self.phone:
-                message += f"<p><strong>Phone:</strong> {self.phone}</p>"
+                message += f"<p><strong>Phone:</strong> {escape_html(self.phone)}</p>"
 
             message += f"""
-            <p><strong>CRM Lead:</strong> {self.crm_lead or "Not created"}</p>
             <hr>
             <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>
             """
 
             # Send notification
+            notification_key = contact_request_key(self.urgency)
             email_service = get_email_service()
             email_service.send_simple_email(
                 recipients=recipients,
@@ -174,44 +134,29 @@ class MemberContactRequest(Document):
                 message=message,
                 reference_doctype=self.doctype,
                 reference_name=self.name,
-                notification_key="contact_request_escalated",
+                notification_key=notification_key,
             )
 
         except Exception as e:
             frappe.log_error(
-                f"Failed to send notification for Member Contact Request {self.name}: {str(e)}",
-                "Notification Error",
+                title="Notification Error",
+                message=f"Failed to send notification for Member Contact Request {self.name}: {str(e)}",
             )
 
     def get_notification_recipients(self):
         """Determine who should be notified based on request type and urgency"""
-        recipients = []
-
-        # Get users with Verenigingen Administrator role
-        managers = frappe.get_all(
-            "Has Role",
-            filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"},
-            fields=["parent"],
-        )
-        recipients.extend([m.parent for m in managers])
-
-        # For urgent requests, also notify System Managers
+        # Verenigingen Administrators; urgent requests also reach System Managers. The key's own
+        # recipients win; enabled holders' emails otherwise; never Administrator (#2095).
+        roles = [Roles.VERENIGINGEN_ADMIN]
         if self.urgency == "Urgent":
-            system_managers = frappe.get_all(
-                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
-            )
-            recipients.extend([sm.parent for sm in system_managers])
-
-        # Remove duplicates and filter out disabled users
-        recipients = list(set(recipients))
-        active_recipients = []
-
-        for recipient in recipients:
-            user = frappe.get_doc("User", recipient)
-            if user.enabled and user.email:
-                active_recipients.append(user.email)
-
-        return active_recipients
+            roles.append(Roles.SYSTEM_MANAGER)
+        notification_key = contact_request_key(self.urgency)
+        return resolve_admin_recipients(
+            notification_key=notification_key,
+            default_roles=roles,
+            exclude_users=("Administrator",),
+            key_first=True,
+        )
 
     def on_update(self):
         """Handle status changes and updates"""
@@ -273,8 +218,8 @@ class MemberContactRequest(Document):
                     message = f"""
                     <h3>Contact Request Assigned to You</h3>
                     <p>You have been assigned a member contact request.</p>
-                    <p><strong>Member:</strong> {self.member_name}</p>
-                    <p><strong>Subject:</strong> {self.subject}</p>
+                    <p><strong>Member:</strong> {escape_html(self.member_name)}</p>
+                    <p><strong>Subject:</strong> {escape_html(self.subject)}</p>
                     <p><strong>Urgency:</strong> {self.urgency}</p>
                     <p><strong>Follow Up Date:</strong> {self.follow_up_date}</p>
                     <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>

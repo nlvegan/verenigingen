@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Union
 from collections import defaultdict, Counter
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 
 class DatabaseFieldInventory:
@@ -22,7 +22,7 @@ class DatabaseFieldInventory:
         
         # Initialize comprehensive DocType loader
         bench_path = self.app_path.parent.parent
-        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_compatibility()
         print(f"📊 Database field inventory loaded {len(self.doctypes)} DocTypes")
         

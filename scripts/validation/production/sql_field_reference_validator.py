@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 # Import our comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, get_unified_doctype_loader, DocTypeMetadata, FieldMetadata
 
 
 @dataclass
@@ -54,7 +54,7 @@ class SQLFieldValidator:
         }
 
         # Use comprehensive DocType loader (like basic SQL validator)
-        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_compatibility()
 
         print(f"🔍 SQL Validator loaded {len(self.doctypes)} DocTypes from comprehensive loader")

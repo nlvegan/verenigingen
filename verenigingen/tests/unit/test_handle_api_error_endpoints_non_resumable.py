@@ -386,14 +386,30 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
 
         52 since the short application page (#1727) added ``submit_short_application``
         and ``confirm_short_application``; both are asserted by name so the count cannot
-        stay at 52 by losing one of them while gaining something else."""
+        stay at 52 by losing one of them while gaining something else.
+
+        51 since #1866 deleted ``suspension_api.get_suspension_list`` (an unchecked
+        leak with no caller); its absence is asserted so the count cannot stay at 51 by
+        the endpoint coming back while another one is lost.
+
+        Still 51 after #1765 (application-as-record), which SWAPPED two endpoints for two:
+        removed ``chapter_dashboard_api.quick_approve_member`` and
+        ``membership_application.approve_membership_application``; added
+        ``chapter_dashboard_api.quick_approve_application`` and ``quick_approve_join_request``.
+        All four are asserted by name, so the count cannot stay at 51 by swapping again."""
         endpoints = list(self._whitelisted_handle_api_error_functions())
         found = {f"{p.relative_to(APP_ROOT)}:{n.name}" for p, n in endpoints}
         self.assertEqual(
             len(endpoints),
-            52,
-            f"expected 52 whitelisted @handle_api_error endpoints (#481's 50 + #1727's 2), "
+            51,
+            f"expected 51 whitelisted @handle_api_error endpoints "
+            f"(#481's 50 + #1727's 2 - #1866's 1), "
             f"found {len(endpoints)}: " + ", ".join(sorted(found)),
         )
         for name in ("submit_short_application", "confirm_short_application"):
             self.assertIn(f"api/short_application.py:{name}", found)
+        self.assertNotIn("api/suspension_api.py:get_suspension_list", found)
+        for name in ("quick_approve_application", "quick_approve_join_request"):
+            self.assertIn(f"api/chapter_dashboard_api.py:{name}", found)
+        self.assertNotIn("api/chapter_dashboard_api.py:quick_approve_member", found)
+        self.assertNotIn("api/membership_application.py:approve_membership_application", found)

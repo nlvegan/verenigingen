@@ -230,6 +230,32 @@ class TestMijnRoodMemberReconciliation(EnhancedTestCase):
         self.assertEqual(applicants[pending_mid]["our_status"], "Pending")
         self.assertEqual(members[active_mid]["our_status"], "Active")
 
+    def test_mijnrood_application_record_is_bucketed_as_application(self):
+        """#1855: a MijnRood application is a Membership Application Submission, not a Pending
+        Member. A Pending Review one reconciles against admin_membership_application; a decided
+        one, and a web-form one, do not. Real rows through the real staging path."""
+        from verenigingen.services.member.application.application_record import record_external_application
+
+        mid = 9_100_000 + abs(hash(str(self.uid))) % 100_000
+        email = f"app.recon.{self.uid}@verenigingen.test"
+        payload = {"first_name": "Appl", "last_name": "Reconcile", "email": email}
+        pending = record_external_application("MijnRood", email, payload, f"MR-APP-{mid}")
+        decided_email = f"decided.recon.{self.uid}@verenigingen.test"
+        decided = record_external_application(
+            "MijnRood", decided_email, dict(payload, email=decided_email), f"MR-APP-{mid + 1}"
+        )
+        frappe.get_doc("Membership Application Submission", decided).set_status("Rejected")
+        self.track_doc("Membership Application Submission", pending)
+        self.track_doc("Membership Application Submission", decided)
+
+        members, applicants = report._fetch_our_members()
+
+        self.assertEqual(applicants[mid]["our_status"], "Pending")
+        self.assertEqual(applicants[mid]["email"], email)
+        self.assertIsNone(applicants[mid]["member_name"])
+        self.assertNotIn(mid, members)
+        self.assertNotIn(mid + 1, applicants, "a rejected application is no longer open")
+
     # --- End-to-end via execute() with both fetches mocked ------------------
 
     def test_execute_summary_counts(self):

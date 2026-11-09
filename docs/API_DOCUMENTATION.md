@@ -111,8 +111,6 @@ These endpoints power the public membership application form. Most are guest-acc
 | `get_member_field_info_endpoint()` | Guest | -- | Returns Member DocType field metadata |
 | `check_application_status_endpoint(application_id)` | Guest | -- | Checks status of a submitted application |
 | `test_submit()` | Guest | -- | Test endpoint for application submission |
-| `approve_membership_application(member_name, notes)` | Login | `@high_security_api()` | Approves a pending membership application |
-| `reject_membership_application(member_name, reason)` | Login | `@high_security_api()` | Rejects a pending membership application |
 | `debug_member_issue(member_name)` | Login | `@standard_api(UTILITY)` | Debug endpoint for member issues |
 | `fix_specific_member(member_name, chapter_name, dry_run)` | Login | `@high_security_api(ADMIN)` | Fixes chapter assignment for a specific member |
 
@@ -129,21 +127,12 @@ Admin-only endpoints for reviewing and processing membership applications.
 
 | Endpoint | Auth | Security Decorator | Description |
 |---|---|---|---|
-| `approve_membership_application(member_name, membership_type, notes, ...)` | Login | `@high_security_api()` | Full approval workflow: creates membership, invoice, user account, sends notifications. Params include `activate_as_volunteer`, `chapter_name` |
-| `reject_membership_application(member_name, reason, ...)` | Login | `@high_security_api()` | Rejects application with reason, optional `email_template` and `rejection_category` |
+| `approve_application(application_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer)` | Login | `@high_security_api()` | Approves a Membership Application Submission: creates (or updates) the Member, then membership, invoice, user account, notifications |
+| `reject_application(application_name, reason, ...)` | Login | `@high_security_api()` | Rejects an application with reason, optional `email_template` and `rejection_category`; creates and changes no Member |
+| `request_more_info(application_name, info_needed)` | Login | `@high_security_api()` | Mails the applicant a question; changes no status |
+| `get_application_changes(application_name)` | Login | `@standard_api()` | Preview of the Member fields approving the application would change |
 | `get_user_chapter_access(**kwargs)` | Login | `@standard_api` | Returns chapters accessible to the current user |
 | `get_pending_applications(chapter, days_overdue)` | Login | `@standard_api()` | Lists pending applications, optionally filtered by chapter or overdue days |
-
----
-
-## Background Approval
-
-**Module:** `verenigingen.api.background_approval_api`
-
-| Endpoint | Auth | Security Decorator | Description |
-|---|---|---|---|
-| `approve_membership_application_background(member_name, ...)` | Login | -- | Enqueues approval as a background job for heavy operations |
-| `get_approval_progress(member_name)` | Login | -- | Polls progress of a background approval job |
 
 ---
 
@@ -184,11 +173,9 @@ Admin-only endpoints for reviewing and processing membership applications.
 |---|---|---|---|
 | `suspend_member(member_name, suspension_reason, ...)` | Login | -- | Suspends a member. Optional params: `suspension_end_date`, `notify_member`, `internal_notes` |
 | `unsuspend_member(member_name, unsuspension_reason)` | Login | -- | Lifts a member's suspension |
-| `get_suspension_status(member_name)` | Login | `@standard_api(MEMBER_DATA)` | Returns current suspension status for a member |
 | `can_suspend_member(member_name)` | Login | -- | Checks whether current user can suspend the given member |
 | `get_suspension_preview(member_name)` | Login | `@high_security_api(MEMBER_DATA)` | Returns preview of suspension impact |
 | `bulk_suspend_members(members, suspension_reason, ...)` | Login | -- | Suspends multiple members at once |
-| `get_suspension_list(limit, offset, status, chapter)` | Login | `@standard_api(MEMBER_DATA)` | Lists suspended members with filters |
 | `get_suspension_status_safe(member_name)` | Guest | `@standard_api(MEMBER_DATA)` | Safe public suspension status check |
 | `test_bank_details_debug()` | Login | -- | Debug endpoint for bank details |
 

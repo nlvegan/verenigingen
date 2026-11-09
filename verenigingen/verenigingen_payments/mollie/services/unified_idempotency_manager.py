@@ -319,6 +319,17 @@ class UnifiedIdempotencyManager:
         # STEP 4: Validate each Mollie refund against Frappe state
         for mollie_refund in mollie_refunds:
             refund_id = mollie_refund.get("id")
+            if not self._refund_is_paid_out(mollie_refund):
+                # #1806: list() also returns refunds that never paid out (failed,
+                # canceled) and ones still on their way (queued, pending,
+                # processing). Booking those books money that did not leave. Skip
+                # them; the delivery Mollie sends when the status changes finds the
+                # refund again once it is "refunded".
+                self.logger.info(
+                    f"Skipping refund {refund_id} of {payment_id}: status "
+                    f"{mollie_refund.get('status')!r} is not paid out"
+                )
+                continue
             refund_amount = float(mollie_refund.get("amount", {}).get("value", 0))
 
             has_payment_entry = refund_id in payment_entries_map
@@ -353,6 +364,11 @@ class UnifiedIdempotencyManager:
             f"{len(result.pending_refunds)} need PE, "
             f"{len(result.payment_history_missing)} need payment history"
         )
+
+    @staticmethod
+    def _refund_is_paid_out(mollie_refund) -> bool:
+        """Only Mollie's terminal success status counts; a missing status is not presumed paid."""
+        return mollie_refund.get("status") == "refunded"
 
     def _check_chargeback_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
@@ -395,22 +411,32 @@ class UnifiedIdempotencyManager:
                         chargeback_id = chargeback.get("id")
                         amount = float(chargeback.get("amount", {}).get("value", 0))
                         reason = chargeback.get("reason", {})
+                        created_at = chargeback.get("createdAt")
                     else:
                         # Handle object format
                         chargeback_id = getattr(chargeback, "id", None)
                         amount_obj = getattr(chargeback, "amount", None)
                         amount = float(getattr(amount_obj, "value", 0)) if amount_obj else 0
                         reason = getattr(chargeback, "reason", {})
+                        created_at = getattr(chargeback, "createdAt", None) or getattr(
+                            chargeback, "created_at", None
+                        )
 
-                    return chargeback_id, amount, reason
+                    return chargeback_id, amount, reason, created_at
 
                 result.pending_chargebacks = []
                 for chargeback in mollie_chargebacks:
                     try:
-                        chargeback_id, amount, reason = safe_extract_chargeback_data(chargeback)
+                        chargeback_id, amount, reason, created_at = safe_extract_chargeback_data(chargeback)
                         if chargeback_id and chargeback_id not in processed_chargeback_ids:
                             result.pending_chargebacks.append(
-                                {"chargeback_id": chargeback_id, "amount": amount, "reason": reason}
+                                {
+                                    "chargeback_id": chargeback_id,
+                                    "amount": amount,
+                                    "reason": reason,
+                                    # #1806: the booking date; without it the booking fell back to today.
+                                    "chargeback_date": created_at,
+                                }
                             )
                     except Exception as e:
                         self.logger.error(f"Failed to process chargeback data: {e}, chargeback: {chargeback}")

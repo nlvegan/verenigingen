@@ -94,7 +94,7 @@
         <div class="footer">
             <p>This is an automated administrator alert.<br>
             Timestamp: {{ timestamp|e }}<br>
-            System: {{ company_name|default('Verenigingen', true) }} Management Platform</p>
+            System: {{ company_name|default('Verenigingen', true)|e }} Management Platform</p>
         </div>
     </div>
 </body>

@@ -37,8 +37,8 @@ from verenigingen.utils.project_permissions import (
     get_project_permission_query_conditions,
     get_team_permission_level,
     get_user_project_teams,
-    get_volunteer_for_user,
     has_project_permission_via_team,
+    invalidate_volunteer_lookup_memo,
     user_has_any_chapter_projects,
     user_has_any_team_projects,
     user_has_project_chapter_access,
@@ -54,10 +54,10 @@ class _ProjectPermBase(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # The lru_cache on get_volunteer_for_user persists across tests; clear it
-        # so each test sees a fresh member<->user<->volunteer mapping.
-        get_volunteer_for_user.cache_clear()
-        self.addCleanup(get_volunteer_for_user.cache_clear)
+        # The lookup memo lives in frappe.local.cache, which a whole test process shares;
+        # drop it so each test sees a fresh member<->user<->volunteer mapping.
+        invalidate_volunteer_lookup_memo()
+        self.addCleanup(invalidate_volunteer_lookup_memo)
 
     # --- construction helpers (prefixed _make_ per test-quality-enforcer) -----
     def _make_member_with_user(self, first_name="Perm", last_name="Tester"):

@@ -43,6 +43,11 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -95,8 +100,9 @@ class ChapterAssignmentService(StatelessService):
         if not member or not chapter:
             frappe.throw(_("Member and Chapter are required"))
 
-        chapter_doc = frappe.get_doc("Chapter", chapter)
-        result = chapter_doc.member_manager.add_member(member, join_date=join_date)
+        # Chained (no `chapter_doc` variable): the ast-field-analyzer hook reads
+        # `chapter_doc.member_manager`, a property, as a missing field.
+        result = frappe.get_doc("Chapter", chapter).member_manager.add_member(member, join_date=join_date)
 
         if result.get("action") == "already_exists":
             # Nothing changed, so there is nothing to record: rewriting the tracking
@@ -182,6 +188,15 @@ class ChapterAssignmentService(StatelessService):
         if not member or not chapter:
             frappe.throw(_("Member and Chapter are required"))
 
+        # The cleanup removes the member from every other chapter and ends their board
+        # seats BEFORE the add is attempted, and add_member can then refuse (a
+        # non-Active member, #1582/#1564) by RETURNING success False, not by raising.
+        # Everything below is one unit: a refusal or an exception rolls it back, so a
+        # refused move leaves the member's rows and seats as they were (#1793). Attempting
+        # the add first would not do: the already-in-target branches below key on the
+        # post-cleanup state, and a pre-check would duplicate add_member's refusal rules.
+        savepoint = f"assign_with_cleanup_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
         try:
             cleanup_performed = False
 
@@ -235,9 +250,23 @@ class ChapterAssignmentService(StatelessService):
                 elif result["success"]:
                     result["message"] = _("Member successfully assigned to {0}").format(chapter)
 
+            if result["success"]:
+                release_savepoint_if_present(savepoint)
+            else:
+                rollback_to_savepoint(savepoint)
+                result["cleanup_performed"] = False
             return result
 
+        except NON_RESUMABLE_DB_ERRORS as e:
+            # Propagate (#561), but a 1205 keeps the transaction and its savepoints alive,
+            # so the cleanup would otherwise stay applied with no add and a later commit
+            # would make that durable. A 1213 has already destroyed the savepoint;
+            # rollback_to_savepoint tolerates that.
+            if isinstance(e, frappe.QueryTimeoutError):
+                rollback_to_savepoint(savepoint)
+            raise
         except Exception as e:
+            rollback_to_savepoint(savepoint)
             self.logger.error(f"Error in assign_with_cleanup: {str(e)}")
             return {"success": False, "message": str(e)}
 
@@ -263,37 +292,51 @@ class ChapterAssignmentService(StatelessService):
 
         for membership in existing_memberships:
             if membership.parent != target_chapter:
-                try:
-                    # Try to use chapter's remove_member method first
-                    old_chapter_doc = frappe.get_doc("Chapter", membership.parent)
-                    old_chapter_doc.remove_member(member, leave_reason=f"Reassigned to {target_chapter}")
-                    cleanup_performed = True
-                    self.logger.info(f"Removed member {member} from chapter {membership.parent}")
-
-                except Exception as e:
-                    # If chapter method fails, disable directly
-                    try:
-                        frappe.db.set_value("Chapter Member", membership.name, "enabled", 0)
-                        frappe.db.set_value(
-                            "Chapter Member",
-                            membership.name,
-                            "leave_reason",
-                            f"Reassigned to {target_chapter}",
-                        )
-                        frappe.db.commit()
-                        cleanup_performed = True
-                        self.logger.info(
-                            f"Directly disabled membership {membership.name} for member {member}"
-                        )
-
-                    except Exception as e2:
-                        self.logger.error(
-                            f"Error removing member from chapter {membership.parent}: {str(e)} and {str(e2)}"
-                        )
+                self._remove_from_old_chapter(member, membership.parent, target_chapter)
+                cleanup_performed = True
             else:
                 self.logger.info(f"Member {member} is already in target chapter {target_chapter}")
 
         return cleanup_performed
+
+    def _remove_from_old_chapter(self, member: str, old_chapter: str, target_chapter: str) -> None:
+        """Remove the member from one old chapter through the full path, or refuse the move.
+
+        Chapter.remove_member records the termination history and tells both boards. It
+        raises when the old chapter cannot be saved: a deliberate refusal (the National
+        Board chapter for a Verenigingen Administrator), a chapter that fails its own
+        validation, or a lock timeout. A direct ``set_value(enabled=0)`` fallback used to
+        disable the row anyway: no history, no "Member left" mail, and the refusal
+        bypassed (#1945). The raise now ends the move; assign_with_cleanup rolls back.
+        """
+        logged_before = len(frappe.local.message_log)
+        try:
+            frappe.get_doc("Chapter", old_chapter).remove_member(
+                member, leave_reason=f"Reassigned to {target_chapter}"
+            )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            reason = str(e) or self._last_logged_message(logged_before) or type(e).__name__
+            # frappe.throw() queues the raw reason too; the caller must see one message.
+            del frappe.local.message_log[logged_before:]
+            frappe.throw(
+                _("{0} could not be removed from chapter {1}, so the move to {2} was not made: {3}").format(
+                    member, old_chapter, target_chapter, reason
+                )
+            )
+        self.logger.info(f"Removed member {member} from chapter {old_chapter}")
+
+    @staticmethod
+    def _last_logged_message(since: int) -> str:
+        """Text of the newest message queued since ``since`` (a throw with no exception text)."""
+        for entry in reversed(frappe.local.message_log[since:]):
+            if isinstance(entry, str):
+                entry = frappe.parse_json(entry)
+            text = (entry or {}).get("message")
+            if text:
+                return str(text)
+        return ""
 
     def _cleanup_board_memberships(self, member: str, reassignment_reason: str) -> bool:
         """End all board memberships for a member.
@@ -329,8 +372,21 @@ class ChapterAssignmentService(StatelessService):
 
                 self.logger.info(f"Ended board membership {board_membership.name} for member {member}")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
+                # A failed WITHDRAWAL must reach the caller (#1953): swallowing it leaves the
+                # row ended and the user still holding the board role. assign_with_cleanup
+                # rolls its savepoint back on this raise.
+                from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+                if isinstance(e, BoardAccessWithdrawalError):
+                    raise
                 self.logger.error(f"Error ending board membership {board_membership.name}: {str(e)}")
+                frappe.log_error(
+                    title="Chapter board term ending failed",
+                    message=f"Board membership {board_membership.name} of member {member}: {str(e)}",
+                )
 
         return cleanup_performed
 

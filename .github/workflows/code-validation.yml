@@ -1,6 +1,11 @@
 name: Code Validation
 
 on:
+  # #2184: queue runs. Inert until develop's ruleset enables the merge queue - no
+  # merge_group event fires before that. No `paths:` here on purpose: the queue
+  # needs every required check to REPORT, and a path-skipped workflow reports nothing.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [ main, develop ]
   pull_request:
@@ -22,6 +27,8 @@ concurrency:
   # Added 2026-09-05: develop took ~7 merges in 70 minutes and each fired 5-6
   # workflows with no concurrency group at all, leaving 43 of 83 active runs on
   # develop alone and jobs queued 5h+ without ever being assigned a runner.
+  # merge_group: per-ref is right for the queue - every queue run has its own
+  # gh-readonly-queue/... ref, so queue runs never cancel each other or a PR run.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -53,6 +60,8 @@ jobs:
         python -m pip install --upgrade pip
         # Install minimal dependencies needed for validation
         pip install pathlib
+        # template_escaping_validator (#1890) and its unit test parse Jinja
+        pip install jinja2
 
     - name: Run Database Field Validation
       id: field-validation
@@ -244,6 +253,9 @@ jobs:
     # undetected -- see baseline_shrink_gate.py's module docstring.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -262,9 +274,9 @@ jobs:
     # only signal is that the baseline GREW, which is legitimate solely when the
     # validator's own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/submittability_drift_baseline.txt
         VALIDATOR=scripts/validation/submittability_drift_validator.py
@@ -363,6 +375,9 @@ jobs:
     # left that forces the committed baseline to ever tighten.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -381,9 +396,9 @@ jobs:
     # The only signal is that the baseline GREW, which is legitimate solely when
     # the validator's own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/error_swallow_baseline.txt
         VALIDATOR=scripts/validation/error_swallow_validator.py
@@ -432,9 +447,9 @@ jobs:
     # narrowing `_is_broad` or `LOG_NAMES` is invisible to it. It sees a narrowing of
     # the falsy test -- the heuristic, which has now been widened twice.
     - name: Every shrink was actually a fix
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/error_swallow_baseline.txt
         if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
@@ -600,6 +615,9 @@ jobs:
     # remaining forcing function that tightens the committed baseline.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -618,9 +636,9 @@ jobs:
     # signal is that the baseline GREW, which is legitimate solely when the
     # validator's own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/log_error_arg_order_baseline.txt
         VALIDATOR=scripts/validation/log_error_arg_order_validator.py
@@ -657,9 +675,9 @@ jobs:
     # baseline is kept in sync with the head tree by the step above, so diffing a
     # freshly-synced baseline against itself would report nothing every time.
     - name: Every shrink was actually a fix
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/log_error_arg_order_baseline.txt
         if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
@@ -711,6 +729,9 @@ jobs:
     # split across triggers instead of picking one for both.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -729,9 +750,9 @@ jobs:
     # signal is that the baseline GREW, legitimate solely when the validator's
     # own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/db_clock_date_window_baseline.txt
         VALIDATOR=scripts/validation/db_clock_date_window_validator.py
@@ -768,9 +789,9 @@ jobs:
     # step above, so diffing a freshly-synced baseline against itself would
     # report nothing every time.
     - name: Every shrink was actually a fix
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/db_clock_date_window_baseline.txt
         if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
@@ -860,6 +881,9 @@ jobs:
       env:
         # NOT a bare boolean `FAIL_ON_SHRINK`: `[ -n "false" ]` is true, so the old form failed
         # any shrink on a PR as well (drift included). #1641.
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         IS_PR: ${{ github.event_name == 'pull_request' }}
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
@@ -923,9 +947,9 @@ jobs:
     # against the PR's BASE branch instead -- growth there can only be legitimate
     # when the validator's own detection rules changed in this PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/harness_super_skip_baseline.txt
         VALIDATOR=scripts/validation/harness_super_skip_validator.py
@@ -984,6 +1008,9 @@ jobs:
       env:
         # NOT a bare boolean `FAIL_ON_SHRINK`: `[ -n "false" ]` is true, so the old form failed
         # any shrink on a PR as well (drift included). #1641.
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         IS_PR: ${{ github.event_name == 'pull_request' }}
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
@@ -1042,9 +1069,9 @@ jobs:
         echo "Baseline shrank, but every entry was already stale at the base -- not caused by this PR."
 
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/harness_factory_shadow_baseline.txt
         VALIDATOR=scripts/validation/harness_factory_shadow_validator.py
@@ -1177,6 +1204,9 @@ jobs:
     # own "THE COST OF SELF-HEALING" section.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -1195,9 +1225,9 @@ jobs:
     # signal is that the baseline GREW, which is legitimate solely when the
     # validator's own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/critical_operation_rule_orphan_baseline.txt
         VALIDATOR=scripts/validation/critical_operation_rule_orphan_validator.py
@@ -1269,6 +1299,9 @@ jobs:
     # argument and the commit that introduced this gate for the tradeoff.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -1287,9 +1320,9 @@ jobs:
     # only signal is that the baseline GREW, which is legitimate solely when the
     # enforcer's own detection rules changed in the same PR.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/test_quality_baseline.txt
         VALIDATOR=scripts/validation/test_quality_enforcer.py
@@ -1360,6 +1393,9 @@ jobs:
     # "SCOPING TO A SUBSET OF LINES" section.
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -1384,9 +1420,9 @@ jobs:
     # SUPPOSED to be recorded rather than removed, and failing here for it would
     # leave the developer the same dead end -- rename the method -- by another door.
     - name: Clone-family copies did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/duplicate_helper_baseline.txt
         VALIDATOR=scripts/validation/duplicate_helper_validator.py
@@ -1451,6 +1487,9 @@ jobs:
     # scan_order_dependence.py's module docstring ("FIXED -- #825").
     - name: Baseline is in sync with the tree
       env:
+        # merge_group: push semantics ON PURPOSE. A queue run is the pre-merge copy of the
+        # develop push, so a stale or grown baseline fails here, before the merge, instead
+        # of turning develop red after it (#2184).
         FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
         # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
         BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
@@ -1472,9 +1511,9 @@ jobs:
     # what makes this step independent. Every sibling ratchet in this file carries the same
     # step for the same reason; omitting it here was an oversight, not a tradeoff.
     - name: Baseline did not grow
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
       env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       run: |
         BASELINE=scripts/validation/order_dependence_baseline.txt
         SCANNER=scripts/testing/scan_order_dependence.py
@@ -1503,6 +1542,9 @@ jobs:
   fast-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # merge_group: skipped ON PURPOSE (a job skipped by `if:` reports success). Its validator
+    # ends in `|| echo`, so this job cannot fail; its only effect is a PR comment, and a queue
+    # run has no PR to comment on. Revisit if #2190 makes the validator able to fail.
     if: github.event_name == 'pull_request'
 
     steps:
@@ -1526,6 +1568,7 @@ jobs:
         python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
 
     - name: Comment PR Results
+      # merge_group: never reached - the fast-validation job above is pull_request only.
       if: always()
       uses: actions/github-script@v7
       with:
@@ -1598,6 +1641,65 @@ jobs:
 
     - name: Whole-tree check
       run: python scripts/validation/dynamic_link_append_validator.py
+
+  # Frappe renders page AND email templates with Jinja autoescape OFF (measured, #1890),
+  # so a bare `{{ x }}` of user-typed text is stored XSS. Same reasoning as the guards
+  # above: the pre-commit hook can be skipped and only sees one commit's files. HARD GATE,
+  # no baseline: the tree is swept to zero, chapter_dashboard.html included.
+  template-escaping-validator:
+    name: 🛡️ Template Output Escaping (hard gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # jinja2 only (its lexer/parser decide what is an output expression); no bench, no site.
+    - name: Install jinja2
+      run: python -m pip install jinja2
+
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_template_escaping_validator.py' -v
+
+    - name: Whole-tree check
+      run: python scripts/validation/template_escaping_validator.py
+
+  # #2061: advisory check for test changes that make the suite easier to pass.
+  # NON-BLOCKING by design (the script always exits 0 and the job is
+  # continue-on-error); whether it ever gates is decided after its false-positive
+  # rate is known. Stdlib-only; pull_request only because it diffs against the base.
+  weakened-tests-advisory:
+    name: 🪶 Weakened Test Check (advisory)
+    # merge_group: skipped ON PURPOSE - advisory, non-blocking, and it diffs against the PR base.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # merge-base needs the history of both sides.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_weakened_test_validator.py' -v
+
+    - name: Weakened test check (advisory)
+      # merge_group: never reached - the job above is pull_request only.
+      run: python scripts/validation/weakened_test_validator.py --base "origin/${{ github.base_ref }}"
 
   # The former `integration-test` job was deleted in PR #53.
   # It invoked scripts/testing/runners/validation_test_runner.py, which was

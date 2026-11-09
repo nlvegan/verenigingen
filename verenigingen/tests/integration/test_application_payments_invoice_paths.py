@@ -110,6 +110,22 @@ class _InvoicePathBase(EnhancedTestCase):
         return member, membership, membership_type
 
 
+    def _drive_schedule_frequency(self, member, frequency, number=None, unit=None):
+        """The member's dues schedule decides the first invoice's period (#1773)."""
+        schedule = frappe.db.get_value("Membership Dues Schedule", {"member": member.name, "is_template": 0})
+        self.assertTrue(schedule, "precondition: the membership gave the member a dues schedule")
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            schedule,
+            {
+                "billing_frequency": frequency,
+                "custom_frequency_number": number or 0,
+                "custom_frequency_unit": unit or "",
+            },
+        )
+        return schedule
+
+
 class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
     """create_membership_invoice_with_amount() full secure path + branches."""
 
@@ -156,8 +172,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
             first_name="Inv", last_name=f"M{self.factory.test_run_id}"
         )
         # Drive the Monthly branch of the coverage-period calculation.
-        frappe.db.set_value("Membership Type", membership_type.name, "billing_period", "Monthly")
-        membership_type.reload()
+        self._drive_schedule_frequency(member, "Monthly")
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 10.0)
@@ -172,8 +187,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         member, membership, membership_type = self._member_with_customer_and_membership(
             first_name="Inv", last_name=f"DY{self.factory.test_run_id}"
         )
-        frappe.db.set_value("Membership Type", membership_type.name, "billing_period", "Daily")
-        membership_type.reload()
+        self._drive_schedule_frequency(member, "Daily")
 
         with self.assertNoErrorLog():
             invoice = ap.create_membership_invoice_with_amount(member, membership, 1.0)
@@ -186,32 +200,61 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
     def test_quarterly_biannual_and_custom_periods_stop_before_the_next_one(self):
         """Every non-Annual branch is the same defect as #206's Annual branch."""
         cases = [
-            # (billing_period, billing_period_in_months, expected inclusive end)
-            ("Quarterly", None, add_days(add_months(today(), 3), -1)),
-            ("Biannual", None, add_days(add_months(today(), 6), -1)),
-            ("Custom", 4, add_days(add_months(today(), 4), -1)),
-            # Lifetime has no period of its own; this path has always billed a
-            # first Annual period for it, and that must stay Annual - not the
-            # Monthly that an unmapped frequency would fall back to.
-            ("Lifetime", None, add_days(add_years(today(), 1), -1)),
+            # (schedule frequency, custom number, custom unit, expected inclusive end)
+            ("Quarterly", None, None, add_days(add_months(today(), 3), -1)),
+            ("Semi-Annual", None, None, add_days(add_months(today(), 6), -1)),
+            ("Custom", 4, "Months", add_days(add_months(today(), 4), -1)),
         ]
-        for idx, (billing_period, months, expected_end) in enumerate(cases):
-            with self.subTest(billing_period=billing_period):
+        for idx, (frequency, number, unit, expected_end) in enumerate(cases):
+            with self.subTest(billing_frequency=frequency):
                 member, membership, membership_type = self._member_with_customer_and_membership(
                     first_name="Inv", last_name=f"P{idx}{self.factory.test_run_id}"
                 )
-                frappe.db.set_value("Membership Type", membership_type.name, "billing_period", billing_period)
-                if months is not None:
-                    frappe.db.set_value(
-                        "Membership Type", membership_type.name, "billing_period_in_months", months
-                    )
-                membership_type.reload()
+                self._drive_schedule_frequency(member, frequency, number, unit)
 
                 with self.assertNoErrorLog():
                     invoice = ap.create_membership_invoice_with_amount(member, membership, 5.0)
                 self._track_approval_invoice(invoice.name)
 
                 self.assertEqual(str(invoice.custom_coverage_start_date), today())
+                self.assertEqual(str(invoice.custom_coverage_end_date), expected_end)
+
+    def test_the_membership_types_period_is_ignored_while_a_schedule_exists(self):
+        """#1773 control: a Monthly type does not shorten an Annual schedule's first invoice."""
+        member, membership, membership_type = self._member_with_customer_and_membership(
+            first_name="Inv", last_name=f"TY{self.factory.test_run_id}"
+        )
+        self._drive_schedule_frequency(member, "Annual")
+        frappe.db.set_value("Membership Type", membership_type.name, "billing_period", "Monthly")
+
+        invoice = ap.create_membership_invoice_with_amount(member, membership, 5.0)
+        self._track_approval_invoice(invoice.name)
+
+        self.assertEqual(str(invoice.custom_coverage_end_date), add_days(add_years(today(), 1), -1))
+
+    def test_without_a_schedule_the_membership_types_period_is_the_fallback(self):
+        """Only a caller outside the approval flow reaches this: no live schedule, so the
+        type decides. A Cancelled schedule is not live. Lifetime has no period of its own and
+        has always billed a first Annual period - not the Monthly an unmapped frequency gives.
+        """
+        for idx, (billing_period, expected_end) in enumerate(
+            [
+                ("Monthly", add_days(add_months(today(), 1), -1)),
+                ("Lifetime", add_days(add_years(today(), 1), -1)),
+            ]
+        ):
+            with self.subTest(billing_period=billing_period):
+                member, membership, membership_type = self._member_with_customer_and_membership(
+                    first_name="Inv", last_name=f"FB{idx}{self.factory.test_run_id}"
+                )
+                schedule = self._drive_schedule_frequency(member, "Annual")
+                frappe.db.set_value("Membership Dues Schedule", schedule, "status", "Cancelled")
+                frappe.db.set_value("Membership Type", membership_type.name, "billing_period", billing_period)
+                membership_type.reload()
+
+                invoice = ap.create_membership_invoice_with_amount(member, membership, 5.0)
+                self._track_approval_invoice(invoice.name)
+
                 self.assertEqual(str(invoice.custom_coverage_end_date), expected_end)
 
     def test_custom_amount_supporter_description(self):

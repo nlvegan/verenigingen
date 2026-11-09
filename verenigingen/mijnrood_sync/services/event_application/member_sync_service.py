@@ -29,6 +29,7 @@ from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_servic
 )
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.member_sync")
 
@@ -81,21 +82,21 @@ class MijnRoodMemberSyncService:
         existing_name, existing_result = self.find_existing_member_or_conflict(
             row_data.get("member_id"), row_data.get("email")
         )
+        # Check for application→member promotion: MijnRood deletes the application row and creates
+        # a new member row with a different ID. The application is a Membership Application
+        # Submission here (#1855), not a Member, so it never shows up as an existing member or a
+        # conflict: look for it whenever no member of this member_id exists. If a member of this
+        # email does exist, approving the application refuses it and the event fails loudly.
+        if row_data.get("email") and (existing_result is None or not existing_result.get("success")):
+            from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+                get_application_sync_service,
+            )
+
+            promotion_result = get_application_sync_service().try_promote_application(event, row_data)
+            if promotion_result:
+                return promotion_result
+
         if existing_result is not None:
-            # Check for application→member promotion: MijnRood deletes the
-            # application row and creates a new member row with a different ID.
-            # find_existing_member_or_conflict sees this as a conflict (email
-            # match, member_id mismatch). If the existing member is a pending
-            # application, this is actually a promotion, not a conflict.
-            if not existing_result.get("success") and row_data.get("email"):
-                from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
-                    get_application_sync_service,
-                )
-
-                promotion_result = get_application_sync_service().try_promote_application(event, row_data)
-                if promotion_result:
-                    return promotion_result
-
             if existing_name:
                 event.linked_member = existing_name
             return existing_result
@@ -141,6 +142,16 @@ class MijnRoodMemberSyncService:
 
         return _("Member number changed from {0} to {1}").format(current, incoming)
 
+    def _undo_transfer_or_raise(self, savepoint: str) -> None:
+        """Take the chapter transfer back, or abandon the whole event if it cannot be.
+
+        ``rollback_to_savepoint`` returns False when the savepoint is gone (a nested commit
+        cleared it), i.e. the transfer is durable. Returning a plain failure then would leave
+        the very state #2067 is about, so raise: apply_event rolls back and records the failure.
+        """
+        if not rollback_to_savepoint(savepoint):
+            frappe.throw(_("Member update failed after the chapter transfer was already committed"))
+
     def apply_changed_member(self, event) -> dict:
         """Update existing Member fields from MijnRood admin_member data.
 
@@ -176,6 +187,13 @@ class MijnRoodMemberSyncService:
                 "success": False,
                 "message": _("No linked member found for MijnRood ID {0}").format(new_data.get("id")),
             }
+
+        # The transfer below is written before the member fields, and a failed member update
+        # is RETURNED (not raised), so apply_event then saves and commits the event with the
+        # transfer still pending in the transaction (#2067). The savepoint lets that failure
+        # take the transfer back out: the event is all-or-nothing, and a re-apply starts clean.
+        transfer_savepoint = f"mijnrood_changed_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(transfer_savepoint)
 
         # Chapter transfer if division_id changed
         chapter_result = get_related_records_orchestrator()._handle_division_field_change(
@@ -220,6 +238,7 @@ class MijnRoodMemberSyncService:
                     get_related_records_orchestrator()._create_related_records(updated_name, row_data, event)
                 )
             else:
+                self._undo_transfer_or_raise(transfer_savepoint)
                 return {"success": False, "message": _("Member update {0}").format(status)}
 
         role_msgs = get_volunteer_sync_service()._process_member_roles(

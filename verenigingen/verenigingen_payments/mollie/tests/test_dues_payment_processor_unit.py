@@ -256,7 +256,11 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
 
         self.processor._create_bank_transaction_for_dues = _no_bt
 
-        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+        # An allocation was asked for (invoice_name): only then is a BT with no PE
+        # unfinished work. Without one, "BT only" is complete (#1780, next test).
+        result = self.processor.process_dues_payment(
+            ref, payment=payment, creation_mode="Bank Transaction", invoice_name="SINV-PARTIAL"
+        )
         self.assertEqual(result["status"], "success", msg=result)
         self.assertTrue(result.get("partial_processing"))
         self.assertEqual(result["payment_entry"], "PE-PARTIAL-001")
@@ -304,11 +308,74 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
 
         self.processor._reconcile_bank_transaction_with_payment_entry = _capture_reconcile
 
-        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+        result = self.processor.process_dues_payment(
+            ref, payment=payment, creation_mode="Bank Transaction", invoice_name="SINV-RECON"
+        )
         self.assertEqual(result["status"], "success", msg=result)
         self.assertTrue(result.get("partial_processing"))
         self.assertEqual(recon_calls, [(bt.name, "PE-RECON-001")])
         self.assertTrue(result.get("reconciled"))
+
+    def test_bank_transaction_only_is_complete_when_no_allocation_was_requested(self):
+        # #1780: a repeat delivery (no invoice_name) finds the BT and must not post an
+        # unallocated Payment Entry or reconcile the BT to it. The existing BT is
+        # resolved through the BT creator (which also resubmits a draft), not recreated.
+        customer_id = "cst_dues_noop"
+        member = self._matched_member(customer_id)
+        ref = f"tr_bt_noop_{frappe.generate_hash(length=8)}"
+        bt = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "reference_number": ref,
+                "deposit": 25.0,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "bank_account": self._ensure_plain_bank_account(),
+            }
+        )
+        bt.insert()
+        bt.submit()
+
+        def _no_pe(*a, **k):
+            raise AssertionError("a retry must not create a Payment Entry")
+
+        self.processor._create_payment_entry_for_dues = _no_pe
+        self.processor._reconcile_bank_transaction_with_payment_entry = _no_pe
+        self.processor._create_bank_transaction_for_dues = lambda *a, **k: bt.name
+
+        payment = FakeMolliePayment(id=ref, description="contributie", customer_id=customer_id)
+        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+
+        self.assertEqual(result["status"], "already_processed", msg=result)
+        self.assertNotIn("partial_processing", result)
+        self.assertIsNone(result["payment_entry"])
+        self.assertEqual(result["bank_transaction"], bt.name)
+        self.assertEqual(result["member"], member.name)
+
+    def test_a_retry_that_resubmits_a_draft_bank_transaction_is_not_reported_as_a_skip(self):
+        customer_id = "cst_dues_draft"
+        self._matched_member(customer_id)
+        ref = f"tr_bt_draft_{frappe.generate_hash(length=8)}"
+        bt = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "reference_number": ref,
+                "deposit": 25.0,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "bank_account": self._ensure_plain_bank_account(),
+            }
+        )
+        bt.insert()  # left in draft
+        self.processor._create_bank_transaction_for_dues = lambda *a, **k: bt.name
+
+        payment = FakeMolliePayment(id=ref, description="contributie", customer_id=customer_id)
+        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+
+        self.assertEqual(result["status"], "success", msg=result)
+        self.assertIsNone(result["payment_entry"])
 
     def test_already_processed_when_both_records_exist(self):
         # When the idempotency check reports both a Payment Entry and a Bank

@@ -23,6 +23,22 @@ after_install = [
     # creates them; a fresh site (every CI shard) never runs patches.txt or a
     # bare `bench migrate`, but does run after_install via `install-app`.
     "verenigingen.verenigingen_payments.utils.shared.sepa_ops_tables.ensure_sepa_ops_tables",
+    # A notification key with no Email Configuration row counts as disabled, and a fresh site never
+    # runs the per-key patches, so every alert would be skipped silently -- see #1959.
+    "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
+]
+
+# Run at the end of `install-app`, AFTER sync_fixtures (frappe/installer.py: after_install hooks
+# fire BEFORE the fixtures sync, after_sync after it). The webhook user's Role Profile ships as a
+# fixture, so the after_install webhook-user step can never find it on a fresh site: the user is
+# created with no roles and Verenigingen Payments Settings.webhook_user stays unset. That was
+# harmless while get_service_user fell back to Administrator; #1876 removed the fallback, so every
+# gateway webhook would refuse. `bench migrate` does not run after_sync (it has after_migrate), and a
+# CI site is a fresh install that never migrates, so this is the only convergence point there.
+after_sync = [
+    "verenigingen.setup.webhook_user_setup.ensure_webhook_user",
+    # The default membership types need the `Verenigingen Member` Role Profile, also a fixture (#1956).
+    "verenigingen.setup.ensure_default_membership_types",
 ]
 
 # Run before patches and schema sync. Records what our frozen DocTypes' JSON declares
@@ -46,7 +62,7 @@ after_migrate = [
     # used to govern Member.application_status was removed in
     # patches/v2_2/remove_membership_application_workflow.py -- a global role list
     # cannot express "board member of THIS chapter", which is the actual approval rule.
-    # Authorization lives in chapter_security.validate_chapter_permission_or_throw.)
+    # Authorization lives in chapter_security.validate_application_permission_or_throw.)
     # Security framework
     "verenigingen.utils.security.setup_all_security",
     # Database indexes
@@ -61,11 +77,11 @@ after_migrate = [
     # a site installed before this existed (or one where the install step failed --
     # execute_after_install swallows the error and prints a warning) could never
     # converge, leaving Verenigingen Payments Settings.webhook_user unset and every
-    # gateway service running as Administrator via get_service_user()'s fallback.
+    # gateway webhook refusing to run (get_service_user() has no Administrator fallback, #1876).
     # Safe to run repeatedly only because generate_webhook_user_email() is now
     # deterministic; it previously returned a deliberately-unused address, so this
     # would have minted a new user on every migrate.
-    "verenigingen.setup.webhook_user_setup.setup_webhook_user",
+    "verenigingen.setup.webhook_user_setup.ensure_webhook_user",
     # The public document creator is only ever impersonated in-process and must hold no
     # password / API key / session (#1670). Sites that created it earlier still carry them.
     "verenigingen.setup.public_document_creator_setup.harden_public_document_creator",
@@ -77,6 +93,12 @@ after_migrate = [
     # fixture and makes our own DocTypes' JSON permissions win over frozen Custom DocPerm
     # rows (#1621/#1622). Last, so every role it grants to already exists.
     "verenigingen.setup.custom_docperm_setup.apply_custom_permissions",
+    # A key added after a site's install has no Email Configuration row, so it counts as disabled
+    # and its alerts are skipped silently (#2037, maintainer ruling 2026-11-03). Only ADDS rows:
+    # existing ones, disabled included, are never touched. No save when nothing is missing.
+    # (When a key IS missing the Single is saved, so a pre-existing invalid row, e.g. a bad email
+    # or duplicate key, would fail that save and so the migrate; the v2_2 patch shares the risk.)
+    "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
 ]
 
 # Run before test suite executes
@@ -91,6 +113,10 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # bearer token).
 on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
 auth_hooks = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
+
+# Run at the start of every background job (after frappe.local.job is set). Keeps a job whose
+# user was deleted from recursing in _() (#1970).
+before_job = ["verenigingen.utils.job_language.mark_language_resolved_for_vanished_user"]
 
 # Run when the application starts
 # Used for startup verification of critical infrastructure

@@ -23,6 +23,7 @@ import frappe
 
 from verenigingen.api.membership_email_templates import create_default_email_templates
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 
 # The exact set of templates the module manages, with their expected subjects.
 # Kept in sync with membership_email_templates.py so cleanup + assertions are exhaustive.
@@ -34,13 +35,20 @@ MANAGED_TEMPLATES = {
     "membership_rejection_ineligible": "Membership Application Update - {{ member_name }}",
     "membership_rejection_duplicate": "Membership Application - Duplicate Detected - {{ member_name }}",
     "membership_application_approved": (
-        "Membership Application Approved - Payment Required - {{ member_name }}"
+        "Membership Application Approved{% if payment_url %} - Payment Required{% endif %} - {{ member_name }}"
     ),
 }
 
 
 class TestMembershipEmailTemplates(VereningingenTestCase):
     """Behaviour-level tests for the default membership email template creator."""
+
+    @classmethod
+    def tearDownClass(cls):
+        # #1981: this class force-deletes stock Email Templates; put the shipped
+        # fixture rows back so later modules do not see a missing row.
+        _cleanup_stock_email_templates(MANAGED_TEMPLATES)
+        super().tearDownClass()
 
     def setUp(self):
         super().setUp()
@@ -115,9 +123,31 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
 
         approved = frappe.get_doc("Email Template", "membership_application_approved")
         self.assertIn("{{ payment_url }}", approved.response)
-        self.assertIn("{{ membership_type.membership_type_name }}", approved.response)
+        # #1981: the bare `membership_type.membership_type_name` raised UndefinedError (the status
+        # notification passes no membership_type); the body must stay null-safe.
+        self.assertIn("membership_type.membership_type_name if membership_type is mapping", approved.response)
+        self.assertNotIn("{{ membership_type.membership_type_name }}", approved.response)
         self.assertIn("{{ payment_amount }}", approved.response)
         self.assertIn("Congratulations", approved.response)
+
+    def test_approved_template_has_no_payment_section_without_a_payment_url(self):
+        """#1900: an approval without an invoice has no payment_url. The mail then carries no pay button
+        (it rendered href="None"), no fee row and no "Payment Required" subject. Control: with a
+        payment_url all three are there."""
+        create_default_email_templates()
+        self._track_all_created()
+        approved = frappe.get_doc("Email Template", "membership_application_approved")
+        base = {"first_name": "Ann", "member_name": "Ann B", "application_id": "APP-1", "company": "Co"}
+        with_link = {**base, "payment_url": "https://x.test/pay/1", "payment_amount": "EUR 25.00"}
+
+        render = frappe.render_template
+        bare = render(approved.subject, base) + render(approved.response, base)
+        full = render(approved.subject, with_link) + render(approved.response, with_link)
+        for absent in ("Pay Membership Fee", "Fee Amount", "Payment Required", "href"):
+            self.assertNotIn(absent, bare)
+        for present in ("Pay Membership Fee", "Fee Amount", "Payment Required", "https://x.test/pay/1"):
+            self.assertIn(present, full)
+        self.assertIn("Congratulations", bare)
 
     # ------------------------------------------------------------------
     # Idempotency

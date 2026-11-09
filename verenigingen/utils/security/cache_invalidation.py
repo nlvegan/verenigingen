@@ -23,8 +23,7 @@ def invalidate_user_role_cache_on_user_update(doc, method):
 
     - Every role GRANT/WITHDRAWAL goes through
       ``user_doc.append("roles", ...)`` / ``user_doc.roles.remove(...)`` +
-      ``user_doc.save()`` (ChapterBoardMember.assign_board_member_role,
-      ``withdraw_board_member_role_if_unseated``, member_role_service, ...).
+      ``user_doc.save()`` (``withdraw_board_member_role_if_unseated``, member_role_service, ...).
       None of those touch ``role_profile_name`` at all, and "Has Role" is a
       child table whose own doc_events never fire for rows written through
       the parent User save (see hooks/doc_events.py's CHILD TABLES note) --

@@ -56,7 +56,6 @@ verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::det
 verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::forecast_member_growth::1
 verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py::get_initial_member_count::1
 verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py::get_data::1
-verenigingen/verenigingen/report/pending_membership_applications/pending_membership_applications.py::get_data::1
 verenigingen/verenigingen_payments/utils/sepa_monitoring_dashboard.py::SEPAMonitoringDashboard.get_mandate_health_report::2
 verenigingen/verenigingen_payments/utils/sepa_monitoring_dashboard.py::SEPAMonitoringDashboard.get_system_alerts::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration.get_zabbix_discovery_data::1

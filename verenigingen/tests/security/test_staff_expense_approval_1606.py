@@ -55,11 +55,13 @@ class StaffExpenseBase(EnhancedTestCase):
         self.chapter_a = self.create_chapter(chapter_name=f"Exp A {self.token}", region=region)
         self.chapter_b = self.create_chapter(chapter_name=f"Exp B {self.token}", region=region)
 
-        self.staff = self._staffexp_user("Verenigingen Staff", "staff")
+        self.staff = self._registered_staff_user("staff")
         self.staff_emp = self._staffexp_employee(self.staff)
-        self.staff_boards(self.chapter_a)  # plain Staff sits on the board of chapter A
+        # plain Staff sits on the board of chapter A (a default seat; after #1969 is decided a seated
+        # staffer may also get the board role, which these fixtures do not assume either way)
+        self.staff_boards(self.chapter_a)
 
-        self.other_staff = self._staffexp_user("Verenigingen Staff", "staff2")
+        self.other_staff = self._registered_staff_user("staff2")
         self.other_staff_emp = self._staffexp_employee(self.other_staff)
 
         self.volunteer_user = self._staffexp_user("Verenigingen Volunteer", "vol")
@@ -77,7 +79,7 @@ class StaffExpenseBase(EnhancedTestCase):
         self.admin_emp = self._staffexp_employee(self.admin)
 
         # Staff who also holds HR Manager is not "plain" Staff
-        self.hr_staff = self._staffexp_user("Verenigingen Staff", "hr", extra_roles=("HR Manager",))
+        self.hr_staff = self._registered_staff_user("hr", extra_roles=("HR Manager",))
         self.hr_staff_emp = self._staffexp_employee(self.hr_staff)
 
     # ---------------------------------------------------------------- fixtures
@@ -99,6 +101,13 @@ class StaffExpenseBase(EnhancedTestCase):
         )
 
     def _staffexp_employee(self, user):
+        # Creating a user's volunteer (registered Staff, seated board members) already makes an
+        # Employee stub for them via the role-profile sync: use it rather than a duplicate.
+        existing = frappe.db.get_value("Employee", {"user_id": user.name}, "name")
+        if existing:
+            frappe.db.set_value("Employee", existing, "company", self.company)
+            self._track_test_document("Employee", existing, priority=2)
+            return frappe.get_doc("Employee", existing)
         emp = frappe.get_doc(
             {
                 "doctype": "Employee",
@@ -117,15 +126,105 @@ class StaffExpenseBase(EnhancedTestCase):
         self._track_test_document("Employee", emp.name, priority=2)
         return emp
 
-    def staff_boards(self, chapter):
-        member = self.create_test_member(
-            first_name="Stf", last_name="Board", email=self.staff.name, user=self.staff.name
-        )
+    def _registered_staff_user(self, tag, extra_roles=()):
+        """A Staff user registered the production way: the person's volunteer is a member of an
+        association-wide Team whose default profile is Verenigingen Staff, and the Team save
+        syncs the profile. The user starts with only the Member role; Staff comes from the sync.
+
+        ``extra_roles`` (HR Manager is in no shipped staff profile) go through a Role Profile an
+        administrator attaches by hand next to the synced one; the sync removes only profiles it
+        granted itself, so the manual one stays."""
+        user = self.create_test_user(email=f"x1606-{tag}-{self.token}@test.com", roles=["Verenigingen Member"])
+        member = self.create_test_member(first_name="Stf", last_name=tag, email=user.name, user=user.name)
         volunteer = self.create_test_volunteer(member.name)
+        team = self._association_staff_team_1922()
+        team.append(
+            "team_members",
+            {"volunteer": volunteer.name, "team_role": "Team Member", "from_date": today(), "status": "Active"},
+        )
+        team.save()
+        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
+        self.assertLessEqual(
+            set(_roles_shipped_for_profile("Verenigingen Staff")), have, "control: the team made the user Staff"
+        )
+        if extra_roles:
+            self._attach_manual_profile_1922(user, tag, extra_roles)
+        user.volunteer_1922 = volunteer
+        return user
+
+    def _attach_manual_profile_1922(self, user, tag, roles):
+        profile = frappe.get_doc(
+            {
+                "doctype": "Role Profile",
+                "role_profile": f"X1606 {tag} {self.token}",
+                "roles": [{"role": r} for r in roles],
+            }
+        ).insert()
+        self._track_test_document("Role Profile", profile.name, priority=1)
+        user_doc = frappe.get_doc("User", user.name)
+        user_doc.append("role_profiles", {"role_profile": profile.name})
+        user_doc.save()
+        have = set(frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role"))
+        self.assertLessEqual(
+            {*roles, *_roles_shipped_for_profile("Verenigingen Staff")}, have, "control: both profiles' roles"
+        )
+
+    def _association_staff_team_1922(self):
+        if not getattr(self, "_staff_team_doc", None):
+            self._staff_team_doc = frappe.get_doc(
+                {
+                    "doctype": "Team",
+                    "team_name": f"Staff {self.token}",
+                    "status": "Active",
+                    "team_type": "Project Team",
+                    "start_date": today(),
+                    "is_association_wide": 1,
+                    "default_role_profile": "Verenigingen Staff",
+                }
+            ).insert()
+            self._track_test_document("Team", self._staff_team_doc.name, priority=3)
+        return self._staff_team_doc
+
+    def staff_boards(self, chapter):
+        """Seat the registered Staff user on a DEFAULT board seat (no role-specific profile)."""
         role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
                 "role_name": f"Exp Fin {self.token}",
+                "permissions_level": "Financial",
+                "is_active": 1,
+            }
+        ).insert()
+        frappe.get_doc(
+            {
+                "doctype": "Chapter Board Member",
+                "parent": chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "board_members",
+                "volunteer": self.staff.volunteer_1922.name,
+                "chapter_role": role.name,
+                "from_date": today(),
+                "is_active": 1,
+            }
+        ).insert()
+
+    def seat_holder_without_claim_read(self, tag):
+        """(user, chapter): a seat holder who truly lacks the Expense Claim read right, by a real path.
+
+        The chapter's default board profile is mapped to ``Verenigingen Member``, which grants no
+        Expense Claim read; seating the user then gives them exactly that profile's roles (the
+        flush a Chapter save also runs). Returns the chapter because the seat only counts there.
+        """
+        chapter = self.create_chapter(chapter_name=f"Exp N {tag} {self.token}", region=ensure_test_region())
+        chapter.default_board_role_profile = "Verenigingen Member"
+        chapter.save()
+        user = self.create_test_user(email=f"x1606-{tag}-{self.token}@test.com", roles=["Verenigingen Member"])
+        member = self.create_test_member(first_name="Brd", last_name=tag, email=user.name, user=user.name)
+        volunteer = self.create_test_volunteer(member.name)
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"Exp N {tag} {self.token}",
                 "permissions_level": "Financial",
                 "is_active": 1,
             }
@@ -142,6 +241,11 @@ class StaffExpenseBase(EnhancedTestCase):
                 "is_active": 1,
             }
         ).insert()
+        self.assertFalse(
+            self.act_as(user, lambda: frappe.has_permission("Expense Claim", "read")),
+            "control: the mapped profile really carries no claim read right",
+        )
+        return user, chapter
 
     def claim(self, employee, chapter=None, expense_approver=None, submit=False, approval_status="Draft"):
         data = {
@@ -233,7 +337,7 @@ class TestStaffSeesOnlyScopedClaims(StaffExpenseBase):
 
     def test_plain_staff_without_board_seat_or_designation_sees_only_own(self):
         # control: a Staff user who sits on no board and is nobody's designated approver
-        lonely = self._staffexp_user("Verenigingen Staff", "lonely")
+        lonely = self._registered_staff_user("lonely")
         lonely_emp = self._staffexp_employee(lonely)
         own = self.claim(lonely_emp)
         stranger = self.claim(self.volunteer_emp, chapter=self.chapter_a)

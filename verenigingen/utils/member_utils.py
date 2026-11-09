@@ -157,16 +157,29 @@ def get_current_user_member_name() -> Optional[str]:
         Member name/ID if found, None otherwise
 
     Note:
-        This function tries two lookup strategies:
-        1. By user field (primary - explicit User link)
-        2. By email field (fallback for legacy records)
+        Resolves by the explicit Member.user link ONLY (#1936, rulings #1853/#1546).
+        There is NO Member.email fallback: this answers "who is the caller", and a
+        User who merely shares an email with a Member must not act as that Member.
+        Code that needs a lenient "is there a Member with my email" lookup (not an
+        identity decision) calls get_member_name_for_user directly.
 
     Error Handling:
         Returns None if no member found - caller should handle explicitly.
         Use get_current_user_member_doc() for automatic exception throwing.
-        A database error propagates (see get_member_name_for_user).
+        A database error propagates (see get_member_name_for_board_access).
     """
-    return get_member_name_for_user(frappe.session.user)
+    return get_current_user_linked_member_name()
+
+
+def get_current_user_linked_member_name() -> Optional[str]:
+    """Member name for the current user by the explicit Member.user link ONLY (#1853).
+
+    For self-service chapter paths where acting as a Member changes state (join a chapter, file
+    a join request). Unlike get_current_user_member_name there is NO Member.email fallback: a
+    User who merely shares an email with an unrelated Member must not act as that Member.
+    Returns None when the user has no linked Member; a database error propagates.
+    """
+    return get_member_name_for_board_access(frappe.session.user)
 
 
 def get_current_user_member_doc():

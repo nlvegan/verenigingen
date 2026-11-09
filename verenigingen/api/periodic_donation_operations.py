@@ -22,7 +22,10 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Periodic Donation Agreement.payment_method is a Select with exactly these
 # three options (periodic_donation_agreement.json). Callers -- notably the
@@ -156,6 +159,9 @@ def create_periodic_agreement(
         return OperationResult.fail(_("Failed to create periodic donation agreement"), errors=[str(e)])
 
 
+_LINK_SAVEPOINT = "link_donation_to_agreement"
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str, Any]]:
@@ -169,6 +175,11 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
     Returns:
         OperationResult: Success status
     """
+    # Both sides of the link are written below, the Donation first. This endpoint answers a
+    # refusal with OperationResult.fail (HTTP 200), so frappe/app.py COMMITS the request;
+    # without a rollback to this savepoint a refused agreement save leaves the Donation
+    # pointing at an agreement that does not list it (#2281).
+    frappe.db.savepoint(_LINK_SAVEPOINT)
     try:
         # Validate donation and agreement
         donation_doc = frappe.get_doc("Donation", donation)
@@ -201,16 +212,37 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
                 _("Failed to link donation to agreement: {0}").format("; ".join(donation_result.errors))
             )
 
-        # Add to agreement's donation table
-        agreement_doc.link_donation(donation)
+        # Add to agreement's donation table. ``add_donation_link`` is the undecorated body:
+        # ``link_donation`` carries its own rate-limit bucket, so calling it from this
+        # already-rate-limited endpoint burned two buckets per action (#352). The save inside
+        # still runs under the caller's own permissions.
+        agreement_doc.add_donation_link(donation)
 
         frappe.db.commit()
 
         return OperationResult.ok({}, message=_("Donation linked to agreement successfully"))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A deadlock has already discarded the transaction; let the request-level rollback run.
+        raise
+
     except Exception as e:
+        rollback_to_savepoint(_LINK_SAVEPOINT)
         frappe.log_error(
             f"Failed to link donation: {str(e)}\n{traceback.format_exc()}", "Donation Linking Error"
+        )
+        # The failure is returned, not raised, so critical_api records this call as a success.
+        # Before #352 the inner link_donation decorator audited a refused link as api_call_failed;
+        # record it here, through the emitter the decorators use, so a refused financial write
+        # is not audited only as a success.
+        get_audit_emitter().log_api_call(
+            func=link_donation_to_agreement,
+            security_level=SecurityLevel.CRITICAL,
+            success=False,
+            error=str(e),
+            user=frappe.session.user,
+            args_count=0,
+            kwargs_keys=["donation", "agreement"],
         )
         return OperationResult.fail(_("Failed to link donation to agreement"), errors=[str(e)])
 
@@ -252,13 +284,15 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
         )
 
         sent_count = 0
+        failed_count = 0
+        skipped_reasons = {}
 
         for agreement in agreements:
             days_remaining = frappe.utils.date_diff(agreement.end_date, today())
 
             try:
                 email_service = get_email_service()
-                email_service.send_simple_email(
+                result = email_service.send_simple_email(
                     recipients=[agreement.donor_email],
                     subject=_("Your Periodic Donation Agreement is Expiring Soon"),
                     message=get_renewal_reminder_email(agreement, days_remaining),
@@ -266,6 +300,19 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                     reference_name=agreement.name,
                     notification_key="periodic_donation_expiry",
                 )
+
+                # A skip (cooldown, disabled key, opt-out) or a failed queueing is not a
+                # send: do not log it as sent or count it (#2044)
+                if result.skip_reason:
+                    skipped_reasons[result.skip_reason] = skipped_reasons.get(result.skip_reason, 0) + 1
+                    continue
+                if not result.success:
+                    failed_count += 1
+                    frappe.log_error(
+                        title="Agreement Renewal Reminder Not Sent",
+                        message=f"{agreement.agreement_number}: {result.error_message}",
+                    )
+                    continue
 
                 # Log the reminder (frappe has no module-level add_comment; it is a
                 # Document method)
@@ -277,6 +324,7 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                 sent_count += 1
 
             except Exception as e:
+                failed_count += 1
                 frappe.log_error(
                     f"Failed to send renewal reminder for {agreement.agreement_number}: {str(e)}\n{traceback.format_exc()}",
                     "Agreement Renewal Reminder Error",
@@ -287,8 +335,13 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
         return OperationResult.ok(
             {
                 "sent_count": sent_count,
+                "skipped_count": sum(skipped_reasons.values()),
+                "failed_count": failed_count,
+                "skipped_reasons": skipped_reasons,
             },
-            message=_("{0} renewal reminders sent").format(sent_count),
+            message=_("{0} renewal reminders sent, {1} skipped, {2} failed").format(
+                sent_count, sum(skipped_reasons.values()), failed_count
+            ),
         )
 
     except Exception as e:
@@ -484,12 +537,11 @@ def render_tax_receipt_html(agreement_name: str) -> str:
     the linked Donor record.
 
     Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
-    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
-    reaches the template (prevents HTML/JS injection into the PDF). Money/date
+    wkhtmltopdf, so every donor/org-controlled string is escaped ONCE, by `|e` in
+    the template (enforced by scripts/validation/template_escaping_validator.py).
+    Do not escape here as well: that double-escapes ("Acme &amp;amp; Co"). Money/date
     values are framework-formatted and safe.
     """
-    from frappe.utils import escape_html
-
     agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
     donor = frappe.get_doc("Donor", agreement.donor)
 
@@ -499,13 +551,13 @@ def render_tax_receipt_html(agreement_name: str) -> str:
     donor_address = donor.get("address")
 
     context = {
-        "org_name": escape_html(org_name),
-        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "org_name": org_name,
+        "org_rsin": org_rsin if org_rsin else None,
         "issue_date": frappe.utils.formatdate(today()),
-        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
-        "donor_address": escape_html(donor_address) if donor_address else None,
-        "agreement_number": escape_html(agreement.agreement_number or ""),
-        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "donor_name": agreement.donor_name or donor.donor_name or "",
+        "donor_address": donor_address if donor_address else None,
+        "agreement_number": agreement.agreement_number or "",
+        "agreement_type": agreement.agreement_type if agreement.agreement_type else None,
         "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
         "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
         "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,
@@ -565,12 +617,11 @@ def render_agreement_html(agreement_name: str) -> str:
     identity from Verenigingen Settings and donor identity from the linked Donor.
 
     Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
-    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
-    reaches the template. Money/date values are framework-formatted and the
-    remaining fields come from fixed Select option sets, so all are safe.
+    wkhtmltopdf, so every donor/org-controlled string is escaped ONCE, by `|e` in
+    the template (enforced by scripts/validation/template_escaping_validator.py).
+    Do not escape here as well: that double-escapes. Money/date values are
+    framework-formatted and the remaining fields come from fixed Select option sets.
     """
-    from frappe.utils import escape_html
-
     agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
     donor = frappe.get_doc("Donor", agreement.donor)
 
@@ -580,26 +631,24 @@ def render_agreement_html(agreement_name: str) -> str:
     donor_address = donor.get("address")
 
     context = {
-        "org_name": escape_html(org_name),
-        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "org_name": org_name,
+        "org_rsin": org_rsin if org_rsin else None,
         "issue_date": frappe.utils.formatdate(today()),
-        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
-        "donor_address": escape_html(donor_address) if donor_address else None,
-        "agreement_number": escape_html(agreement.agreement_number or ""),
-        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "donor_name": agreement.donor_name or donor.donor_name or "",
+        "donor_address": donor_address if donor_address else None,
+        "agreement_number": agreement.agreement_number or "",
+        "agreement_type": agreement.agreement_type if agreement.agreement_type else None,
         "anbi_eligible": bool(agreement.anbi_eligible),
         "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
-        "payment_frequency": (
-            escape_html(agreement.payment_frequency) if agreement.payment_frequency else None
-        ),
+        "payment_frequency": (agreement.payment_frequency if agreement.payment_frequency else None),
         "payment_amount": (
             frappe.utils.fmt_money(agreement.payment_amount, currency="EUR")
             if agreement.payment_amount
             else None
         ),
-        "payment_method": escape_html(agreement.payment_method) if agreement.payment_method else None,
+        "payment_method": agreement.payment_method if agreement.payment_method else None,
         "agreement_duration": (
-            escape_html(agreement.agreement_duration_years) if agreement.agreement_duration_years else None
+            agreement.agreement_duration_years if agreement.agreement_duration_years else None
         ),
         "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
         "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,

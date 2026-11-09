@@ -3,19 +3,19 @@ Comprehensive tests for membership application submission edge cases and validat
 """
 
 import frappe
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 import unittest
 
 
-class TestApplicationSubmissionValidation(EnhancedTestCase):
+class TestApplicationSubmissionValidation(ApprovalCase):
     """Test application submission validation and edge cases"""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Seed masters so submit_application (which creates Member -> Customer and
+        # Seed masters so approve_application (which creates Member -> Customer and
         # may run the creation_user-gated secure paths) succeeds in ISOLATION.
         # before_tests is unreliable for single-module runs in this v16 setup.
         from verenigingen.tests.setup import ensure_member_test_masters
@@ -43,6 +43,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             test_case=self,
         )["membership_type"]
         self.membership_type_name = self.membership_type.name
+        self.membership_type.get_or_create_membership_item()  # approval needs the type's item (ApprovalCase did it for its own type)
 
     def _standard_amount(self):
         """The rate `validate_membership_amount_selection` compares against.
@@ -96,33 +97,30 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
-
-        result = submit_application(data=test_data)
+        # Real flow: submit -> the emailed confirm link -> approve_application creates the Member and Volunteer.
+        result = self._approve_as(self._stage_and_confirm(**test_data))
 
         # Application should succeed
         self.assertTrue(
             result.get("success"), f"Application with volunteer interest should succeed: {result}"
         )
 
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
+        member_record = result["member"]
+        self.add_cleanup_record("Member", member_record)
 
-            # Check volunteer was created with correct status
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": member_record}, fields=["name", "status", "volunteer_name"]
-            )
+        # A Volunteer must exist for an interested applicant: no Volunteer is a failure, not a pass
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"member": member_record}, fields=["name", "status", "volunteer_name"]
+        )
+        self.assertEqual(len(volunteers), 1, "Exactly one Volunteer should be created for a volunteering applicant")
+        volunteer = volunteers[0]
+        self.add_cleanup_record("Volunteer", volunteer["name"])
+        self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
 
-            if volunteers:
-                volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
-                self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
-
-            # Check member record
-            member = frappe.get_doc("Member", member_record)
-            if member.primary_address:
-                self.add_cleanup_record("Address", member.primary_address)
+        # Check member record
+        member = frappe.get_doc("Member", member_record)
+        if member.primary_address:
+            self.add_cleanup_record("Address", member.primary_address)
 
     def test_volunteer_status_options_are_valid(self):
         """Test that all volunteer status options are properly defined"""
@@ -204,13 +202,11 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 0,  # No volunteer interest
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
-
-        result = submit_application(data=test_data_no_volunteer)
+        result = self._approve_as(self._stage_and_confirm(**test_data_no_volunteer))
         self.assertTrue(result.get("success"), "Application without volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # Should NOT create volunteer record
@@ -235,11 +231,11 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,  # With volunteer interest
             "payment_method": "Bank Transfer"}
 
-        result = submit_application(data=test_data_with_volunteer)
+        result = self._approve_as(self._stage_and_confirm(**test_data_with_volunteer))
         self.assertTrue(result.get("success"), "Application with volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
+            member_record = result["member"]
             self.add_cleanup_record("Member", member_record)
 
             # SHOULD create volunteer record
@@ -273,6 +269,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
         from verenigingen.api.membership_application import submit_application
 
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
         result = submit_application(data=invalid_data)
         self.assertFalse(result.get("success"), "Application with invalid membership type should fail")
         self.assertIn("error", result, "Error should be reported for invalid membership type")
@@ -306,11 +303,8 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
         from verenigingen.api.membership_application import submit_application
 
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
         result = submit_application(data=test_data)
-
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
 
         self.assertFalse(
             result.get("success"),
@@ -360,11 +354,8 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
         from verenigingen.api.membership_application import submit_application
 
+        self._request_from_fresh_ip()  # the guest endpoint's limiter keys on the client IP
         result = submit_application(data=test_data)
-
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
 
         self.assertTrue(
             result.get("success"),
@@ -389,39 +380,35 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
-        from verenigingen.api.membership_application import submit_application
-
-        result = submit_application(data=test_data)
+        result = self._approve_as(self._stage_and_confirm(**test_data))
         self.assertTrue(result.get("success"), "Application with special characters should succeed")
 
-        if result.get("success"):
-            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
-            self.add_cleanup_record("Member", member_record)
+        member_record = result["member"]
+        self.add_cleanup_record("Member", member_record)
 
-            # Check volunteer was created correctly
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": member_record}, fields=["name", "volunteer_name", "status"]
-            )
+        # Check volunteer was created correctly: no Volunteer is a failure, not a pass
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"member": member_record}, fields=["name", "volunteer_name", "status"]
+        )
+        self.assertEqual(len(volunteers), 1, "Exactly one Volunteer should be created for a volunteering applicant")
+        volunteer = volunteers[0]
+        self.add_cleanup_record("Volunteer", volunteer["name"])
 
-            if volunteers:
-                volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
+        # Verify volunteer was created with correct status and name handling
+        self.assertEqual(volunteer["status"], "New")
+        self.assertIn("José María", volunteer["volunteer_name"])
+        self.assertIn("García-López", volunteer["volunteer_name"])
 
-                # Verify volunteer was created with correct status and name handling
-                self.assertEqual(volunteer["status"], "New")
-                self.assertIn("José María", volunteer["volunteer_name"])
-                self.assertIn("García-López", volunteer["volunteer_name"])
+        # Get the full volunteer doc to verify member linkage. The
+        # `email` field is the organization email (assigned later, not
+        # at creation), so it is intentionally empty here — do not
+        # assert it equals the applicant's personal email.
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer["name"])
+        self.assertEqual(volunteer_doc.member, member_record)
 
-                # Get the full volunteer doc to verify member linkage. The
-                # `email` field is the organization email (assigned later, not
-                # at creation), so it is intentionally empty here — do not
-                # assert it equals the applicant's personal email.
-                volunteer_doc = frappe.get_doc("Volunteer", volunteer["name"])
-                self.assertEqual(volunteer_doc.member, member_record)
-
-            member = frappe.get_doc("Member", member_record)
-            if member.primary_address:
-                self.add_cleanup_record("Address", member.primary_address)
+        member = frappe.get_doc("Member", member_record)
+        if member.primary_address:
+            self.add_cleanup_record("Address", member.primary_address)
 
 
 def run_application_validation_tests():

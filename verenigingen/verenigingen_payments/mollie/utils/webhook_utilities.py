@@ -94,7 +94,10 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
     top_id = _top_level_id(webhook_data)
 
     return {
-        "payment_id": _nested_id(webhook_data, "payment") or webhook_data.get("payment_id"),
+        # Mollie's refund and chargeback objects name the parent payment ``paymentId`` (#2138).
+        "payment_id": _nested_id(webhook_data, "payment")
+        or webhook_data.get("payment_id")
+        or webhook_data.get("paymentId"),
         "refund_id": (
             top_id
             if "refund" in resource
@@ -135,16 +138,26 @@ def safe_extract_date(webhook_data: Dict[str, Any], date_field: str = "created_a
 
     Args:
         webhook_data: Parsed webhook JSON payload
-        date_field: Field name to extract date from
+        date_field: Field name to extract date from. Mollie's resources spell
+            these camelCase (``createdAt``), so that spelling is read when the
+            snake_case key is absent (#2138).
 
     Returns:
         Date string in YYYY-MM-DD format or None
     """
     try:
-        date_value = webhook_data.get(date_field)
+        head, *tail = date_field.split("_")
+        camel_field = head + "".join(part.capitalize() for part in tail)
+        date_value = webhook_data.get(date_field) or webhook_data.get(camel_field)
         if date_value:
-            # Extract date part (first 10 characters for YYYY-MM-DD)
-            return date_value[:10] if len(date_value) >= 10 else None
+            # Mollie stamps in UTC; the booking day is the site's, not the first ten
+            # characters of the UTC string (#2162).
+            from verenigingen.verenigingen_payments.utils.timezone_utils import (
+                mollie_timestamp_to_local_date,
+            )
+
+            local_date = mollie_timestamp_to_local_date(date_value)
+            return local_date.isoformat() if local_date else None
     except (TypeError, AttributeError):
         frappe.logger().warning(f"⚠️ Could not extract {date_field} from webhook data")
 

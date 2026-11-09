@@ -214,7 +214,9 @@ class TestGetNotificationRecipients(FrappeTestCase):
             # The emergency-fallback call queries by System Manager role —
             # intercept only that; anything else (e.g. frappe.log_error's own
             # internal lookups) must still hit the real implementation.
-            if filters == [["Has Role", "role", "=", Roles.SYSTEM_MANAGER]]:
+            # The fallback excludes the Administrator user by name (#1960): if that filter ever goes
+            # missing this no longer matches and the real query answers, so the test reddens.
+            if filters == [["name", "!=", "Administrator"], ["Has Role", "role", "=", Roles.SYSTEM_MANAGER]]:
                 return ["sysmgr1@test.com", "sysmgr2@test.com", None]
             return real_get_all(doctype, filters=filters, **kwargs)
 
@@ -264,11 +266,8 @@ class TestCreateSystemNotification(FrappeTestCase):
     def _create_test_recipient(self):
         """Ensure a real, enabled User exists whose docname == email.
 
-        create_system_notification resolves recipients via a `pluck="email"`
-        query and then uses that value as the `for_user` Link (a User
-        docname). For most users name == email, but "Administrator"'s name
-        differs from its email — using it as a recipient here would 404 on
-        the Link. A dedicated fixture user sidesteps that special case.
+        A dedicated fixture user whose docname == email; the Administrator
+        and name != email cases (#1958) have their own tests below.
         """
         if not frappe.db.exists("User", self._TEST_RECIPIENT):
             user = frappe.get_doc(
@@ -282,6 +281,67 @@ class TestCreateSystemNotification(FrappeTestCase):
                 }
             )
             user.insert(ignore_permissions=True)
+
+    def _logs_for(self, subject):
+        return frappe.get_all("Notification Log", filters={"subject": subject}, pluck="for_user")
+
+    def _creation_error_count(self):
+        """Error Log is MyISAM (no rollback), so tests compare the count before and after the call."""
+        return frappe.db.count("Error Log", {"method": "Notification Creation Error"})
+
+    def test_administrator_alone_is_dropped_silently_by_name_and_by_email_1958(self):
+        """Staff alerts never go to Administrator (2026-11-01): no log, no Error Log row, no error entry."""
+        admin_email = frappe.db.get_value("User", "Administrator", "email")
+        self.assertTrue(admin_email, "control: Administrator has an email")
+        self.assertNotEqual(admin_email, "Administrator", "control: its email is not its name")
+        for label, recipient in (("name", "Administrator"), ("email", admin_email)):
+            marker = f"adm1958 {label} {frappe.generate_hash(length=8)}"
+            errors_before = self._creation_error_count()
+            result = create_system_notification([recipient], marker, "m")
+            self.assertEqual(result["notifications_created"], 0, (label, result))
+            self.assertFalse(result["success"], (label, result))
+            self.assertFalse(result.get("errors"), (label, result))
+            self.assertEqual(self._logs_for(marker), [], label)
+            self.assertEqual(self._creation_error_count(), errors_before, label)
+
+    def test_a_user_whose_name_differs_from_their_email_is_addressed_by_name_1958(self):
+        """Probe shortcut: Frappe's User.validate forces email = name for every non-standard user, so a
+        real non-Administrator user cannot be made with name != email through insert/save/rename. The
+        drift is written straight to the column (``db.set_value``), as legacy data or a raw write would.
+        Reached both by the drifted email and by the name."""
+        drifted_name = f"drift1958-{frappe.generate_hash(length=6)}@example.com".lower()
+        drifted_email = f"other-{frappe.generate_hash(length=6)}@example.com".lower()
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": drifted_name,
+                "first_name": "Drift",
+                "enabled": 1,
+                "send_welcome_email": 0,
+            }
+        ).insert()
+        frappe.db.set_value("User", drifted_name, "email", drifted_email, update_modified=False)
+        self.assertNotEqual(frappe.db.get_value("User", drifted_name, "email"), drifted_name, "control")
+        for label, recipient in (("by-email", drifted_email), ("by-name", drifted_name)):
+            marker = f"drift1958 {label} {frappe.generate_hash(length=8)}"
+            errors_before = self._creation_error_count()
+            result = create_system_notification([recipient], marker, "m")
+            self.assertTrue(result["success"], (label, result))
+            self.assertEqual(self._logs_for(marker), [drifted_name], label)
+            self.assertEqual(self._creation_error_count(), errors_before, label)
+
+    def test_administrator_mixed_with_a_real_user_only_the_real_user_gets_a_log_1958(self):
+        admin_email = frappe.db.get_value("User", "Administrator", "email")
+        marker = f"mixed1958 {frappe.generate_hash(length=8)}"
+        errors_before = self._creation_error_count()
+        result = create_system_notification(
+            ["Administrator", admin_email, self._TEST_RECIPIENT, self._TEST_RECIPIENT], marker, "m"
+        )
+        self.assertEqual(result["notifications_created"], 1, result)
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result.get("errors"), result)
+        self.assertEqual(self._logs_for(marker), [self._TEST_RECIPIENT])
+        self.assertEqual(self._creation_error_count(), errors_before)
 
     def test_returns_failure_when_no_recipients(self):
         """Test returns failure when no recipients provided."""

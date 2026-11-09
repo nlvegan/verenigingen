@@ -29,13 +29,13 @@
 
                         {% if current_address.phone %}
                         <div class="contact-info" style="margin-top: 15px;">
-                            <strong>{{ _("Phone") }}:</strong> {{ current_address.phone }}
+                            <strong>{{ _("Phone") }}:</strong> {{ current_address.phone|e }}
                         </div>
                         {% endif %}
 
                         {% if current_address.email_id %}
                         <div class="contact-info">
-                            <strong>{{ _("Email") }}:</strong> {{ current_address.email_id }}
+                            <strong>{{ _("Email") }}:</strong> {{ current_address.email_id|e }}
                         </div>
                         {% endif %}
                     </div>

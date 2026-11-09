@@ -99,8 +99,8 @@ class MembershipGoal(Document):
         member, neither new nor lost there. Chapter.member_manager.
         remove_member(permanent=False) -- used by both a standalone
         leave_chapter() (a member who leaves this chapter but stays in the
-        association) and the source side of
-        ChapterMembershipManager.transfer_member_between_chapters() --
+        association) and the source side of the staff move
+        (chapter.assign_member_to_chapter_with_cleanup) --
         disables the row WITHOUT touching status, leaving it
         status="Active", enabled=0 indefinitely. That is a DIFFERENT
         `enabled=0` shape than termination's (status flips to "Inactive"

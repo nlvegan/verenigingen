@@ -387,7 +387,7 @@
             <h6>{{ _("Changes Saved Successfully!") }}</h6>
             <ul style="margin-bottom: 0;">
                 {% for message in success_messages %}
-                <li>{{ message }}</li>
+                <li>{{ message|e }}</li>
                 {% endfor %}
             </ul>
         </div>
@@ -411,7 +411,7 @@
         <!-- Tab 1: Personal Details -->
         <div class="tab-panel {% if active_tab != 'contact' %}active{% endif %}" id="tab-personal">
             <form method="post" action="/api/method/verenigingen.templates.pages.personal_details.update_personal_details" id="personal-details-form" enctype="multipart/form-data">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token|e }}">
 
                 <!-- Basic Information -->
                 <div class="form-section">
@@ -421,13 +421,13 @@
                         <div class="form-group half">
                             <label for="first_name" class="form-label">{{ _("Preferred Name") }} <span class="required">*</span></label>
                             <input type="text" class="form-control" id="first_name" name="first_name"
-                                   value="{{ member.first_name or '' }}" required>
+                                   value="{{ (member.first_name or '')|e }}" required>
                             <div class="help-text">{{ _("Your preferred first name or calling name") }}</div>
                         </div>
                         <div class="form-group half">
                             <label for="middle_name" class="form-label">{{ _("Middle Name(s)") }}</label>
                             <input type="text" class="form-control" id="middle_name" name="middle_name"
-                                   value="{{ member.middle_name or '' }}">
+                                   value="{{ (member.middle_name or '')|e }}">
                         </div>
                     </div>
 
@@ -435,13 +435,13 @@
                         <div class="form-group half">
                             <label for="tussenvoegsel" class="form-label">{{ _("Tussenvoegsel") }}</label>
                             <input type="text" class="form-control" id="tussenvoegsel" name="tussenvoegsel"
-                                   value="{{ member.tussenvoegsel or '' }}">
+                                   value="{{ (member.tussenvoegsel or '')|e }}">
                             <div class="help-text">{{ _("Dutch name particles (van, de, van der, etc.)") }}</div>
                         </div>
                         <div class="form-group half">
                             <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
                             <input type="text" class="form-control" id="last_name" name="last_name"
-                                   value="{{ member.last_name or '' }}" required>
+                                   value="{{ (member.last_name or '')|e }}" required>
                         </div>
                     </div>
 
@@ -449,13 +449,13 @@
                         <div class="form-group half">
                             <label for="birth_date" class="form-label">{{ _("Date of Birth") }}</label>
                             <input type="date" class="form-control" id="birth_date" name="birth_date"
-                                   value="{{ member.birth_date or '' }}">
+                                   value="{{ (member.birth_date or '')|e }}">
                             <div class="help-text">{{ _("Optional - helps us provide age-appropriate services") }}</div>
                         </div>
                         <div class="form-group half">
                             <label for="contact_number" class="form-label">{{ _("Phone Number") }}</label>
                             <input type="tel" class="form-control" id="contact_number" name="contact_number"
-                                   value="{{ member.contact_number or '' }}">
+                                   value="{{ (member.contact_number or '')|e }}">
                         </div>
                     </div>
                 </div>
@@ -468,9 +468,9 @@
                         <div class="pronouns-options">
                             {% for value, label in [("She/her", "She/her"), ("He/him", "He/him"), ("They/them", "They/them")] %}
                             <div class="pronoun-option">
-                                <input type="radio" id="pronouns_{{ value|lower|replace('/', '_') }}" name="pronouns" value="{{ value }}"
+                                <input type="radio" id="pronouns_{{ value|lower|replace('/', '_')|e }}" name="pronouns" value="{{ value|e }}"
                                        {% if member.pronouns == value %}checked{% endif %}>
-                                <label for="pronouns_{{ value|lower|replace('/', '_') }}">{{ _(label) }}</label>
+                                <label for="pronouns_{{ value|lower|replace('/', '_')|e }}">{{ _(label)|e }}</label>
                             </div>
                             {% endfor %}
                             <div class="pronoun-option">
@@ -483,7 +483,7 @@
                             <label for="custom_pronouns" class="form-label">{{ _("Please specify your pronouns") }}</label>
                             <input type="text" class="form-control" id="custom_pronouns" name="custom_pronouns"
                                    placeholder="{{ _('e.g., Ze/zir, Name only, etc.') }}"
-                                   value="{% if member.pronouns and member.pronouns not in ['She/her', 'He/him', 'They/them'] %}{{ member.pronouns }}{% endif %}">
+                                   value="{% if member.pronouns and member.pronouns not in ['She/her', 'He/him', 'They/them'] %}{{ member.pronouns|e }}{% endif %}">
                         </div>
                     </div>
                 </div>
@@ -494,7 +494,7 @@
                     <div class="image-upload-section">
                         {% if member.image %}
                         <div class="current-image-container">
-                            <img src="{{ member.image }}" alt="{{ _('Current profile image') }}" class="current-image">
+                            <img src="{{ member.image|e }}" alt="{{ _('Current profile image') }}" class="current-image">
                             <p>{{ _("Current profile image") }}</p>
                         </div>
                         {% endif %}
@@ -546,11 +546,11 @@
                 <div class="form-row">
                     <div class="form-group half">
                         <label class="form-label">{{ _("Email Address") }}</label>
-                        <input type="email" class="form-control" value="{{ member.email or '' }}" disabled>
+                        <input type="email" class="form-control" value="{{ (member.email or '')|e }}" disabled>
                     </div>
                     <div class="form-group half">
                         <label class="form-label">{{ _("Phone Number") }}</label>
-                        <input type="tel" class="form-control" value="{{ member.contact_number or '' }}" disabled>
+                        <input type="tel" class="form-control" value="{{ (member.contact_number or '')|e }}" disabled>
                         <div class="help-text">{{ _("Editable on the Personal Details tab") }}</div>
                     </div>
                 </div>
@@ -564,10 +564,10 @@
                 <div class="current-info" style="margin-bottom: 1.5rem;">
                     <h5 style="margin-bottom: 0.5rem;">{{ _("Current Address") }}</h5>
                     <address id="current-address-display">
-                        {% if current_address.address_line1 %}{{ current_address.address_line1 }}<br>{% endif %}
-                        {% if current_address.address_line2 %}{{ current_address.address_line2 }}<br>{% endif %}
-                        {% if current_address.pincode %}{{ current_address.pincode }} {% endif %}{{ current_address.city or '' }}{% if current_address.state %}, {{ current_address.state }}{% endif %}<br>
-                        {% if current_address.country %}{{ current_address.country }}{% endif %}
+                        {% if current_address.address_line1 %}{{ current_address.address_line1|e }}<br>{% endif %}
+                        {% if current_address.address_line2 %}{{ current_address.address_line2|e }}<br>{% endif %}
+                        {% if current_address.pincode %}{{ current_address.pincode|e }} {% endif %}{{ (current_address.city or '')|e }}{% if current_address.state %}, {{ current_address.state|e }}{% endif %}<br>
+                        {% if current_address.country %}{{ current_address.country|e }}{% endif %}
                     </address>
                 </div>
                 {% endif %}
@@ -577,40 +577,40 @@
                         <div class="form-group" style="flex: 1;">
                             <label for="address_line1" class="form-label">{{ _("Street Address") }} <span class="required">*</span></label>
                             <input type="text" class="form-control" id="address_line1" name="address_line1"
-                                   value="{{ address_data.address_line1 }}" required>
+                                   value="{{ address_data.address_line1|e }}" required>
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label for="address_line2" class="form-label">{{ _("Address Line 2") }}</label>
                             <input type="text" class="form-control" id="address_line2" name="address_line2"
-                                   value="{{ address_data.address_line2 }}" placeholder="{{ _('Apartment, suite, etc.') }}">
+                                   value="{{ address_data.address_line2|e }}" placeholder="{{ _('Apartment, suite, etc.') }}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group half">
                             <label for="pincode" class="form-label">{{ _("Postal Code") }}</label>
                             <input type="text" class="form-control" id="pincode" name="pincode"
-                                   value="{{ address_data.pincode }}">
+                                   value="{{ address_data.pincode|e }}">
                         </div>
                         <div class="form-group half">
                             <label for="city" class="form-label">{{ _("City") }} <span class="required">*</span></label>
                             <input type="text" class="form-control" id="city" name="city"
-                                   value="{{ address_data.city }}" required>
+                                   value="{{ address_data.city|e }}" required>
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group half">
                             <label for="state" class="form-label">{{ _("State/Province") }}</label>
                             <input type="text" class="form-control" id="state" name="state"
-                                   value="{{ address_data.state }}">
+                                   value="{{ address_data.state|e }}">
                         </div>
                         <div class="form-group half">
                             <label for="country" class="form-label">{{ _("Country") }} <span class="required">*</span></label>
                             <select class="form-control" id="country" name="country" required>
                                 <option value="">{{ _("Select Country") }}</option>
                                 {% for country in countries %}
-                                <option value="{{ country.name }}" {% if address_data.country == country.name %}selected{% endif %}>{{ country.name }}</option>
+                                <option value="{{ country.name|e }}" {% if address_data.country == country.name %}selected{% endif %}>{{ country.name|e }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -619,12 +619,12 @@
                         <div class="form-group half">
                             <label for="addr_phone" class="form-label">{{ _("Address Phone") }}</label>
                             <input type="tel" class="form-control" id="addr_phone" name="phone"
-                                   value="{{ address_data.phone }}">
+                                   value="{{ address_data.phone|e }}">
                         </div>
                         <div class="form-group half">
                             <label for="addr_email" class="form-label">{{ _("Address Email") }}</label>
                             <input type="email" class="form-control" id="addr_email" name="email_id"
-                                   value="{{ address_data.email_id }}">
+                                   value="{{ address_data.email_id|e }}">
                         </div>
                     </div>
                     <div class="action-buttons">
@@ -705,7 +705,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Address form (AJAX) ---
     var addressForm = document.getElementById('address-form');
     if (addressForm) {
-        var currentAddr = {{ address_data_json }};
+        var currentAddr = {{ address_data|default({})|tojson }};
 
         addressForm.addEventListener('submit', function(e) {
             e.preventDefault();

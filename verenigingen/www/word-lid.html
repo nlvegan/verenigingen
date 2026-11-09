@@ -39,7 +39,8 @@
     <form id="short-application-form" novalidate
           data-door="{{ door.name }}"
           data-shape="{{ door.form_shape }}"
-          data-minimums='{{ minimums | tojson }}'>
+          data-plans='{{ plans | tojson }}'
+          data-default-plan="{{ default_plan_id or '' }}">
         <div class="wl-hp" aria-hidden="true">
             <label>Laat dit veld leeg <input type="text" name="leave_this_empty" tabindex="-1" autocomplete="off" value=""></label>
         </div>
@@ -48,38 +49,42 @@
         <section class="wl-card mb-6">
             <h2 class="text-xl font-semibold mb-4">{{ _("My choices") }}</h2>
 
-            {% if frequencies | length > 1 %}
-            <div class="mb-4">
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="wl-annual-toggle">
-                    <span>{{ _("I want to pay yearly") }}</span>
+            {% if not plans %}
+            <p class="wl-error mb-4" role="alert">{{ _("This form cannot be used right now. Please contact us.") }}</p>
+            {% else %}
+            {% if plans | length > 1 %}
+            <fieldset class="mb-4" id="wl-plans">
+                <legend class="wl-label">{{ _("Payment plan") }}</legend>
+                {% for plan in plans %}
+                <label class="flex items-center gap-2 mb-1">
+                    <input type="radio" name="plan_choice" value="{{ plan.id | e }}" {{ "checked" if plan.id == default_plan_id else "" }}>
+                    <span>{{ plan.label | e }} <span class="wl-hint">({{ plan.billing_display | e }})</span></span>
                 </label>
-            </div>
+                {% endfor %}
+            </fieldset>
             {% endif %}
-            <input type="hidden" name="frequency" id="wl-frequency" value="{{ 'Monthly' if 'Monthly' in frequencies else 'Annual' }}">
+            <input type="hidden" name="plan" id="wl-plan" value="{{ default_plan_id or '' }}">
 
             <div class="mb-4" id="wl-amount-block">
                 <span class="wl-label">{{ _("Amount") }}</span>
-                {% for o in amount_options %}
-                <label class="flex items-center gap-2 mb-1" data-frequency="{{ o.frequency }}">
-                    <input type="radio" name="amount_choice" value="{{ o.amount }}">
-                    <span>&euro; {{ o.amount }}</span>
-                </label>
-                {% endfor %}
-                {% if door.allow_custom_amount or not amount_options %}
-                <label class="flex items-center gap-2 mt-2" id="wl-custom-amount-row">
+                <p class="text-2xl font-semibold" id="wl-fixed-amount" style="display:none"></p>
+                <div id="wl-amount-choices"></div>
+                <label class="flex items-center gap-2 mt-2" id="wl-custom-amount-row" style="display:none">
                     <input type="radio" name="amount_choice" value="custom">
                     <span>{{ _("My own amount") }}</span>
                     <input type="number" step="0.01" min="0" class="wl-input" style="max-width:10rem" id="wl-custom-amount" inputmode="decimal">
                 </label>
-                {% endif %}
+                {% include "templates/includes/contribution_calculator.html" %}
+                <p class="mb-2" id="wl-calculated-row" style="display:none">{{ _("Your contribution") }}: <strong id="wl-calculated-amount"></strong></p>
                 <p class="wl-hint mt-1" id="wl-minimum-hint"></p>
             </div>
+            {% endif %}
 
             {% if "magazine_delivery" not in hidden %}
             <div class="mb-4">
                 <label class="wl-label" for="magazine_delivery">{{ _("Magazine") }}</label>
                 <select class="wl-input delivery-select" name="magazine_delivery" id="magazine_delivery">
+                    <option value="" selected>{{ _("Choose...") }}</option>
                     <option value="Digitaal">{{ _("Digital") }}</option>
                     <option value="Papier">{{ _("Paper") }}</option>
                     <option value="Beide">{{ _("Both") }}</option>
@@ -91,6 +96,7 @@
             <div class="mb-2">
                 <label class="wl-label" for="starter_guide_delivery">{{ _("Starter guide") }}</label>
                 <select class="wl-input delivery-select" name="starter_guide_delivery" id="starter_guide_delivery">
+                    <option value="" selected>{{ _("Choose...") }}</option>
                     <option value="Digitaal">{{ _("Digital") }}</option>
                     <option value="Papier">{{ _("Paper") }}</option>
                     <option value="Beide">{{ _("Both") }}</option>
@@ -190,7 +196,7 @@
         {% endif %}
 
         <p class="wl-error mb-3" id="wl-error" role="alert"></p>
-        <button type="submit" class="wl-button" id="wl-submit">{{ _("Submit application") }}</button>
+        <button type="submit" class="wl-button" id="wl-submit" {{ "disabled" if door.form_shape == "Regular" and not plans else "" }}>{{ _("Submit application") }}</button>
     </form>
     <div class="wl-card mt-6" id="wl-done" style="display:none"></div>
 {% endif %}
@@ -199,6 +205,8 @@
 
 {% block script %}
 {% if door %}
+<!-- Plain tag first, as the full form does: frappe.require adds one script per file with no order guarantee -->
+<script src="/assets/verenigingen/js/contribution_calculator.js"></script>
 <script>
 frappe.ready(function() {
     frappe.require(['/assets/verenigingen/js/short_application.js']);

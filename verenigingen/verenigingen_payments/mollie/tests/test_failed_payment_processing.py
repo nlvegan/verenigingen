@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 
 
 class TestFailedPaymentProcessing(EnhancedTestCase):
@@ -323,6 +324,9 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
 
         payment = NotificationPayment()
 
+        # A skipped send is invisible to the function, so own the key and prove the mail went out (#2010).
+        own_notification_keys(self, "payment_failure_first")
+
         # Test the notification function
         try:
             _notify_member_of_payment_failure(self.test_member, payment, 1)
@@ -331,6 +335,7 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
             # If email notification fails, the test should fail too
             # This is core functionality that must work
             self.fail(f"Email notification failed: {str(e)}")
+        self.assertEqual(len(self.get_sent_emails(to=self.test_member.email)), 1)
 
     def test_database_transaction_integrity_verification(self):
         """Test that database operations maintain ACID properties"""

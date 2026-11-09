@@ -161,6 +161,36 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertEqual(request.pipeline_stage, "Account Creation")
         self.assertIn("explosion", request.failure_reason)
 
+    def _failure_log_rows(self, request):
+        """Error Log rows for ``request``. Scoped by the request's own name: ``tabError Log`` is
+        MyISAM, so rows from earlier runs survive a rollback."""
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": f"Account Creation Request failed: {request.name}"},
+            fields=["name", "error"],
+        )
+
+    def test_mark_failed_writes_an_error_log_row(self):
+        """#2066: the failure used to reach only frappe.logger(), which nobody reads."""
+        request = self._insert_acr()
+        self.assertEqual(self._failure_log_rows(request), [])
+        request.mark_failed("explosion in stage 2 #2066", stage="Account Creation")
+        rows = self._failure_log_rows(request)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("explosion in stage 2 #2066", rows[0].error)
+        self.assertIn("Account Creation", rows[0].error)
+        self.assertIn(self.member.name, rows[0].error)
+
+    def test_mark_failed_on_a_cancelled_request_writes_no_error_log_row(self):
+        """Control: a late pipeline error on a cancelled request is not a failure (#1709)."""
+        request = self._insert_acr()
+        request.cancel_request("operator said stop")
+        request.mark_failed("late pipeline error", "Role Assignment")
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request.name, "status"), "Cancelled"
+        )
+        self.assertEqual(self._failure_log_rows(request), [])
+
     def test_mark_failed_truncates_long_reason(self):
         request = self._insert_acr()
         request.mark_failed("x" * 5000)
@@ -242,109 +272,6 @@ class TestAccountCreationRequest(VereningingenTestCase):
         # left in the initial Requested state.
         status = frappe.db.get_value("Account Creation Request", request.name, "status")
         self.assertIn(status, ("Queued", "Processing", "Completed"))
-
-    # =================================================================
-    # _get_acr_age_in_hours
-    # =================================================================
-
-    def test_acr_age_in_hours_recent(self):
-        request = self._insert_acr()
-        age = request._get_acr_age_in_hours()
-        self.assertGreaterEqual(age, 0)
-        self.assertLess(age, 1)  # just created
-
-    # =================================================================
-    # handle_completion / _assign_pending_board_member_roles
-    # =================================================================
-
-    def test_handle_completion_assigns_pending_board_role(self):
-        # A volunteer added to a chapter board BEFORE their user existed gets the
-        # board role retroactively when the ACR completes.
-        email = f"acrctl.board.{frappe.generate_hash(length=6)}@test.invalid"
-        member = self.create_test_member(
-            first_name="AcrBoard",
-            last_name=f"M{frappe.generate_hash(length=5)}",
-            email=email,
-            status="Active",
-        )
-        user = self.create_test_user(email, roles=["Verenigingen Member"])
-        self.track_doc("User", user.name)
-        frappe.db.set_value("Member", member.name, "user", user.name)
-
-        volunteer = self.create_test_volunteer(member=member.name)
-        if not frappe.db.exists("Chapter Role", "Bestuurslid"):
-            frappe.get_doc(
-                {"doctype": "Chapter Role", "role_name": "Bestuurslid", "is_active": 1}
-            ).insert()
-            self.track_doc("Chapter Role", "Bestuurslid")
-        chapter = self.create_test_chapter()
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-        chapter_doc.append(
-            "board_members",
-            {
-                "volunteer": volunteer.name,
-                "chapter_role": "Bestuurslid",
-                "from_date": frappe.utils.today(),
-                "is_active": 1,
-            },
-        )
-        chapter_doc.save()
-
-        request = self._insert_acr(source_record=member.name, email=email)
-        # Call the private helper directly (the public path is on_update->handle_completion).
-        request._assign_pending_board_member_roles(member.name)
-
-        has_role = frappe.db.exists(
-            "Has Role", {"parent": user.name, "role": "Verenigingen Chapter Board Member"}
-        )
-        self.assertTrue(has_role)
-
-    def test_assign_pending_board_role_no_volunteer_noop(self):
-        # No volunteer for the member -> graceful no-op: no board-member role granted.
-        request = self._insert_acr()
-        self.assertFalse(
-            frappe.db.exists("Volunteer", {"member": self.member.name}),
-            "precondition: member has no volunteer",
-        )
-        request._assign_pending_board_member_roles(self.member.name)  # must not raise
-        # The early-return must leave no Chapter Board Member role behind.
-        self.assertFalse(
-            frappe.db.exists(
-                "Has Role",
-                {"parent": self.member.email, "role": "Verenigingen Chapter Board Member"},
-            ),
-            "no board-member role may be granted when the member has no volunteer",
-        )
-
-    def test_handle_completion_skips_email_for_csv_member(self):
-        # A member with no application_id (CSV import) must not trigger an approval
-        # email; handle_completion returns early without raising.
-        frappe.db.set_value("Member", self.member.name, "application_id", "")
-        request = self._insert_acr()
-        request.db_set("status", "Completed")
-        # has_value_changed needs a prior load; call handle_completion directly.
-        request.handle_completion()  # no exception, no email path entered
-
-    # =================================================================
-    # get_application_invoice / send_member_approval_email
-    # =================================================================
-
-    def test_get_application_invoice_no_history_returns_none(self):
-        request = self._insert_acr()
-        member = frappe.get_doc("Member", self.member.name)
-        self.assertIsNone(request.get_application_invoice(member))
-
-    def test_send_member_approval_email_without_invoice_does_not_raise(self):
-        # The email is skipped precisely BECAUSE no invoice resolves. Pin that cause
-        # so this fails loudly if the skip-trigger logic ever changes, instead of
-        # merely asserting "nothing raised".
-        request = self._insert_acr()
-        member = frappe.get_doc("Member", self.member.name)
-        self.assertIsNone(
-            request.get_application_invoice(member),
-            "precondition: no application invoice -> approval email must be skipped",
-        )
-        request.send_member_approval_email(member)  # skip branch, must not raise
 
     # =================================================================
     # get_pending_requests (@whitelist)

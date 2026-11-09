@@ -41,8 +41,10 @@ from frappe.test_runner import make_test_records
 # Import our comprehensive test framework
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_mandate_test_factory import SEPAMandateTestMixin
+# Module, not ComprehensiveSEPAMandateTests: a module-level TestCase is re-collected under
+# this module and its tests run twice (#1939).
+from verenigingen.verenigingen_payments.doctype.sepa_mandate import test_sepa_mandate_comprehensive
 from verenigingen.verenigingen_payments.doctype.sepa_mandate.test_sepa_mandate_comprehensive import (
-    ComprehensiveSEPAMandateTests,
     SEPAMandateTestDataFactory
 )
 
@@ -638,7 +640,7 @@ class SEPAMandateTestSuite:
     @staticmethod
     def run_comprehensive_tests():
         """Run the complete comprehensive test suite."""
-        suite = unittest.TestLoader().loadTestsFromTestCase(ComprehensiveSEPAMandateTests)
+        suite = unittest.TestLoader().loadTestsFromTestCase(test_sepa_mandate_comprehensive.ComprehensiveSEPAMandateTests)
         runner = unittest.TextTestRunner(verbosity=2)
         result = runner.run(suite)
         return result
@@ -654,7 +656,7 @@ class SEPAMandateTestSuite:
             SEPAMandateValidationTests,
             SEPAMandateComplianceTests, 
             SEPAMandateIntegrationTests,
-            ComprehensiveSEPAMandateTests
+            test_sepa_mandate_comprehensive.ComprehensiveSEPAMandateTests
         ]
         
         all_results = []

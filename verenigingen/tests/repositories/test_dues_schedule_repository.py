@@ -19,13 +19,21 @@ from verenigingen.repositories import DuesScheduleRepository, ScheduleInfo, Sche
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
+# Owned by this module. It must NOT be "Regular": another module
+# (services/csv_import/test_member_import_service) commits a persistent "Regular" with
+# minimum_amount 60, and reusing it made the EUR 15 schedules below refuse to
+# pause/cancel whenever CI packed that module earlier in the shard (#1071).
+DUES_TYPE_NAME = "Test Dues Repository Type"
+# Single source for the type's minimum and the rate the template schedules carry (EUR 15).
+DUES_TYPE_MINIMUM = 15.00
+
+
 @shared_fixture
 def _ensure_named_membership_type(type_name):
     """Idempotently ensure a Membership Type with a specific literal `name`.
 
-    The enhanced factory uniquifies names, so it cannot produce a record named
-    exactly "Regular". These schedules reference the type by literal name, which
-    is not seeded on fresh CI-mirror sites.
+    The enhanced factory uniquifies names, so it cannot produce a record with an
+    exact, known `name`. These schedules reference the type by that literal name.
 
     @shared_fixture (#1026): site-wide master data, no company/test scope.
     """
@@ -40,7 +48,7 @@ def _ensure_named_membership_type(type_name):
             "membership_type_name": type_name,
             "is_active": 1,
             "role_profile": role_profile,
-            "minimum_amount": 15.00,
+            "minimum_amount": DUES_TYPE_MINIMUM,
         }
     )
     doc.insert(ignore_permissions=True)
@@ -55,9 +63,17 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         super().setUp()
         self.repo = DuesScheduleRepository()
 
-        # Schedules below reference Membership Type "Regular" by its literal name;
-        # ensure it exists on fresh CI-mirror sites where it is not seeded.
-        _ensure_named_membership_type("Regular")
+        # Schedules below reference this module's own Membership Type by name.
+        _ensure_named_membership_type(DUES_TYPE_NAME)
+        # The helper is get-if-exists, so a stale type with a higher minimum would
+        # silently make pause/cancel refuse again (#1071).
+        actual_minimum = frappe.db.get_value("Membership Type", DUES_TYPE_NAME, "minimum_amount")
+        self.assertLessEqual(
+            actual_minimum,
+            DUES_TYPE_MINIMUM,
+            f"#1071: Membership Type {DUES_TYPE_NAME} has minimum {actual_minimum}, above the "
+            f"EUR {DUES_TYPE_MINIMUM} dues rate these schedules use",
+        )
 
         # Create test member
         self.test_member = self.create_test_member(
@@ -78,7 +94,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
                 ),
                 "dues_rate": amount,
                 "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
-                "membership_type": kwargs.get("membership_type", "Regular"),  # Required field
+                "membership_type": kwargs.get("membership_type", DUES_TYPE_NAME),  # Required field
                 "status": status,
                 "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1))
                 if status == "Active"

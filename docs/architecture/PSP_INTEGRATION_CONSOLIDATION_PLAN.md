@@ -133,7 +133,7 @@ Both Ponto and ING Checkout now use thin wrappers that delegate to the unified m
 Refactored `authenticate_mollie_webhook()` in `mollie/utils/webhook_security.py` to use the
 shared `get_service_user()` utility. This provides consistent behavior with Ponto and ING Checkout:
 - User validation is now handled by the shared utility
-- Fallback to Administrator with audit logging
+- No Administrator fallback (#1876): with no enabled webhook user it writes an Error Log row and refuses
 - Error handling consistent across all PSPs
 
 **Files Modified**:
