@@ -29,6 +29,7 @@ from verenigingen.tests.utils.notification_state import (
     snapshot_notification_rows as _snapshot_rows,
 )
 from verenigingen.utils.notification_helpers import notify_administrators, resolve_admin_recipients
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.verenigingen_payments.api import sepa_batch_notifications as notif
 from verenigingen.verenigingen_payments.monitoring.balance_monitor import AlertType, BalanceMonitor
 from verenigingen.verenigingen_payments.utils import sepa_alerting_system as sas
@@ -213,7 +214,7 @@ class TestBatchSendersSkipWithoutRecipients(EnhancedTestCase):
         self.assertFalse(result["success"])
 
     def test_control_senders_do_mail_a_resolved_recipient(self):
-        sender = MagicMock()
+        sender = MagicMock(return_value=OperationResult.ok({}))  # a real "queued" result (#2178)
         with patch("verenigingen.services.communication.email_service.EmailService.send_templated_email", sender):
             with patch.object(notif, "get_financial_admin_emails", return_value=["fin-2002@example.org"]):
                 result = self._run_all()

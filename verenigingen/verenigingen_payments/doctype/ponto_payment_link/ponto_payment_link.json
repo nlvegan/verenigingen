@@ -108,7 +108,7 @@
     {
       "description": "Link for customer to authorize the payment",
       "fieldname": "redirect_link",
-      "fieldtype": "Data",
+      "fieldtype": "Small Text",
       "label": "Authorization Link",
       "read_only": 1
     },
