@@ -419,7 +419,9 @@ class TestIssuerNeverFabricatesAnId(EnhancedTestCase):
     returning a timestamp-derived ID). It fires only on the counter-row lock
     (``SELECT ... FOR UPDATE`` on tabSingles), which is the statement a concurrent
     Verenigingen Settings save deadlocks with. The error is a stand-in for a 1213:
-    no second connection is used.
+    no second connection is used. That a REAL 1213 rolls back the caller's whole
+    transaction (the reason there is no in-place retry) is verified out-of-band by a
+    two-process probe, not by these tests: the stand-in error does not roll back.
     """
 
     def setUp(self):
@@ -438,17 +440,13 @@ class TestIssuerNeverFabricatesAnId(EnhancedTestCase):
 
         return patch.object(frappe.db, "sql", side_effect=sql)
 
-    def _counter(self):
-        row = frappe.db.sql("SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
-        return cint(row[0][0]) if row and row[0][0] not in (None, "") else None
-
     def test_a_deadlock_on_the_counter_lock_raises_and_issues_nothing(self):
-        before = self._counter()
+        before = TestMemberIDManager._get_singles_counter(self)
         with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
             with self.assertRaises(frappe.QueryDeadlockError):
                 MemberIDManager.get_next_member_id()
         self.assertEqual(self.lock_attempts, 1, "a 1213 aborts the whole transaction: no in-place retry")
-        self.assertEqual(self._counter(), before)
+        self.assertEqual(TestMemberIDManager._get_singles_counter(self), before)
 
     def test_any_other_error_on_the_counter_lock_raises_too(self):
         with self._fail_on_counter_lock(frappe.QueryTimeoutError()):
