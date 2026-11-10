@@ -16,7 +16,6 @@ resolves to no privileged role. Tests that only asserted wrapper-internal behavi
 """
 
 import unittest
-from unittest.mock import Mock, patch
 
 import frappe
 

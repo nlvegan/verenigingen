@@ -14,7 +14,7 @@ This test suite covers:
 
 import unittest
 import frappe
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen import auth_hooks
 
@@ -71,8 +71,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         frappe.set_user(self.original_user)
         super().tearDown()
 
-    # ===== SESSION CREATION SAFETY TESTS =====
-
     # ===== RACE CONDITION TESTS =====
 
     def test_user_role_check_race_condition(self):
@@ -94,10 +92,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         errors = [r for r in results if isinstance(r, str) and r.startswith("Error:")]
         if errors:
             self.fail(f"Concurrent role checks failed: {errors}")
-
-    # ===== SESSION STATE VALIDATION TESTS =====
-
-    # ===== EDGE CASE VALIDATION TESTS =====
 
     # ===== ROLE CHECKING SECURITY TESTS =====
 

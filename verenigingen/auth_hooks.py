@@ -74,7 +74,6 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
     get_member_name_for_board_access,
-    get_member_name_for_user,
     get_volunteer_name_for_user,
 )
 
