@@ -48,10 +48,16 @@ class TestPaymentProcessingHTTPIntegration(CommittedLoginUsersMixin, EnhancedTes
             finance="Verenigingen Administrator",
             low_profile=("Verenigingen Member", ["Accounts Manager"]),
             board="Verenigingen National Board Member",
+            # Clears the framework (CRITICAL profile) and Sales Invoice/Member read, so ONLY the
+            # endpoint's role check refuses it. The has_permission layer cannot be pinned
+            # independently by role (every role passing the role check also reads Sales Invoice;
+            # Member read is held by every CRITICAL profile): only a User Permission fixture could.
+            role_check_only=("Verenigingen National Board Member", ["Accounts User"]),
         )
         self.finance_user = users["finance"]
         self.low_profile_user = users["low_profile"]
         self.board_user = users["board"]
+        self.role_check_only_user = users["role_check_only"]
 
     def _login(self, user):
         return {"usr": user, "pwd": self.password}
@@ -97,6 +103,12 @@ class TestPaymentProcessingHTTPIntegration(CommittedLoginUsersMixin, EnhancedTes
                 "json": {"reminder_type": "Security Test"},
             },
             {
+                "name": "role_check_only",
+                "login": self._login(self.role_check_only_user),
+                "csrf": "valid",
+                "json": {"reminder_type": "Security Test"},
+            },
+            {
                 "name": "missing_csrf",
                 "login": self._login(self.finance_user),
                 "csrf": "missing",
@@ -124,6 +136,8 @@ class TestPaymentProcessingHTTPIntegration(CommittedLoginUsersMixin, EnhancedTes
         self.assertNotIn("Access denied", out["no_financial_role"]["body"])
         self.assertEqual(out["no_financial_role"]["status"], 403, out["no_financial_role"]["body"][:300])
         self.assertIn("permission", out["no_financial_role"]["body"].lower())
+        self.assertEqual(out["role_check_only"]["status"], 403, out["role_check_only"]["body"][:300])
+        self.assertIn("Required roles", out["role_check_only"]["body"])
         for name in ("missing_csrf", "wrong_csrf"):
             self.assertIn("CSRFTokenError", out[name]["body"], out[name]["body"][:300])
             self.assertNotEqual(out[name]["status"], 200, name)
@@ -132,7 +146,7 @@ class TestPaymentProcessingHTTPIntegration(CommittedLoginUsersMixin, EnhancedTes
         self.assertEqual(out["control_authorised"]["status"], 200, out["control_authorised"]["body"][:300])
 
     def test_performance_monitoring_through_http(self):
-        """An authorised request through @performance_monitor completes in reasonable time."""
+        """An authorised request completes within 30s. Only guards against a hang: it does not check that @performance_monitor ran."""
         out = self._run_wsgi_cases(
             {
                 "name": "run",
