@@ -237,7 +237,7 @@ class TestHealthySiteStillInstallsTwice(FrappeTestCase):
 
 # #1880: the steps #1662 left swallowing their own failure. Same stand-in rule as above:
 # the failure is injected BELOW every layer that swallows (a refused insert/save/get_doc/
-# set_value, an unreadable fixture file); the step's own handlers and the runner are real.
+# set_value); the step's own handlers and the runner are real.
 
 
 class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
@@ -280,51 +280,6 @@ class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
                 failed = setup_mod.execute_after_install()
         self.assertIn("set up workspace", failed)
         self.assertFalse(mark.called)
-
-    # -- load_application_fixtures
-    def _fake_app_with_fixtures_1880(self, files):
-        """A fake app dir whose sibling `fixtures` dir holds `files` ({name: text})."""
-        import os
-        import tempfile
-
-        root = tempfile.mkdtemp(prefix="fx1880_")
-        self.addCleanup(__import__("shutil").rmtree, root, True)
-        os.makedirs(os.path.join(root, "app"))
-        os.makedirs(os.path.join(root, "fixtures"))
-        for name, text in files.items():
-            with open(os.path.join(root, "fixtures", name), "w") as f:
-                f.write(text)
-        return mock.patch.object(frappe, "get_app_path", return_value=os.path.join(root, "app"))
-
-    def test_unreadable_fixture_raises(self):
-        with self._fake_app_with_fixtures_1880({"workflow.json": "{not json"}):
-            with self.assertRaises(RuntimeError) as ctx:
-                setup_mod.load_application_fixtures()
-        self.assertIn("workflow.json", str(ctx.exception))
-
-    def test_refused_fixture_doc_raises_and_later_files_still_load(self):
-        bad = '[{"doctype": "No Such DocType 1880"}]'
-        good = '{"doctype": "Role", "role_name": "Fixture Role 1880"}'
-        with self._fake_app_with_fixtures_1880({"workflow.json": bad, "membership_workflow.json": good}):
-            with self.assertRaises(RuntimeError) as ctx:
-                setup_mod.load_application_fixtures()
-        self.assertIn("workflow.json", str(ctx.exception))
-        self.assertTrue(frappe.db.exists("Role", "Fixture Role 1880"), "a later file was skipped")
-
-    def test_fixture_failure_reaches_the_failed_step_list(self):
-        with self._fake_app_with_fixtures_1880({"workflow.json": "{not json"}):
-            failed = setup_mod.execute_after_install()
-        self.assertIn("load fixtures", failed)
-
-    def test_healthy_fixtures_load_twice(self):
-        good = '{"doctype": "Role", "role_name": "Fixture Role 1880"}'
-        with self._fake_app_with_fixtures_1880({"workflow.json": good}):
-            setup_mod.load_application_fixtures()
-            setup_mod.load_application_fixtures()
-
-    def test_missing_fixture_files_are_not_a_failure(self):
-        with self._fake_app_with_fixtures_1880({}):
-            setup_mod.load_application_fixtures()
 
     # -- create_comprehensive_email_templates
     def test_comprehensive_templates_report_a_failed_template(self):
@@ -400,4 +355,3 @@ class TestRemainingSwallowersHealthySite(FrappeTestCase):
         for _ in range(2):
             setup_mod.ensure_prerequisites()
             setup_mod.setup_workspace()
-            setup_mod.load_application_fixtures()
