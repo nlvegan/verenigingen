@@ -725,8 +725,10 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # test_existing_account_currency_mismatch_is_fixed took its BUSINESS LOGIC
         # MOCK finding with it (the method it tested, _fix_bank_account_currency,
         # was removed by the #2125 ruling). Baseline shrink committed with the code.
-        self.assertEqual(220, len(self.findings), "finding count moved")
-        self.assertEqual(198, len(tqe.counts_of(self.findings)), "key count moved")
+        # 220 -> 217 findings, 198 -> 196 keys (#2099): deleting the dead `tests/test_harness.py`
+        # removed its 3 baselined findings (2 DATABASE MOCK + 1 BUSINESS LOGIC MOCK, 2 keys).
+        self.assertEqual(217, len(self.findings), "finding count moved")
+        self.assertEqual(196, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
