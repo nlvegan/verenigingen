@@ -443,11 +443,15 @@ class SEPAAuthorizationManager:
 
             return True
 
-        except Exception as e:
+        except Exception:
             # Fail CLOSED: business-hours is an opt-in restriction, so if it
             # cannot be evaluated we deny rather than silently allowing access
-            # outside the intended window.
-            frappe.logger("verenigingen.sepa_auth").warning(f"BUSINESS_HOURS_CHECK_FAILED (denying): {e}")
+            # outside the intended window. Recorded via log_error (#2283):
+            # frappe.logger() output is not captured anywhere readable.
+            frappe.log_error(
+                title="SEPA business-hours check failed (denying)",
+                message=frappe.get_traceback(),
+            )
             return False
 
     def _check_ip_restrictions(self) -> bool:
@@ -489,9 +493,13 @@ class SEPAAuthorizationManager:
             # Check if IP is in allowed list
             return current_ip in self.allowed_ips
 
-        except Exception as e:
-            # Fail CLOSED on any error while an allowlist is active.
-            frappe.logger("verenigingen.sepa_auth").warning(f"IP_RESTRICTION_CHECK_FAILED (denying): {e}")
+        except Exception:
+            # Fail CLOSED on any error while an allowlist is active. Recorded via
+            # log_error (#2283): frappe.logger() output is not captured anywhere readable.
+            frappe.log_error(
+                title="SEPA IP restriction check failed (denying)",
+                message=frappe.get_traceback(),
+            )
             return False
 
     def _check_batch_permissions(self, context: Dict[str, Any], user: str) -> bool:

@@ -145,12 +145,25 @@ class SelfServiceAccessController:
         Returns:
             Member name or None if not found
         """
+        if not isinstance(volunteer_name, str):
+            # A request-supplied dict/list must not reach get_doc or the Error Log.
+            return None
         try:
             volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
             if hasattr(volunteer_doc, "member") and volunteer_doc.member:
                 return volunteer_doc.member
+        except frappe.DoesNotExistError:
+            # An unknown volunteer is an answer, not an error: nothing to record.
+            return None
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
-            pass
+            # Fail CLOSED: None makes validate_access refuse the target. Recorded (#2283)
+            # so the refusal is diagnosable.
+            frappe.log_error(
+                title="Self-service volunteer member lookup failed",
+                message=f"volunteer={volunteer_name[:140]}\n{frappe.get_traceback()}",
+            )
         return None
 
     def validate_access(self, implicit_allowed: bool = False, **kwargs) -> bool:
