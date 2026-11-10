@@ -17,7 +17,7 @@
 # change to the validator's own detection rules, which must land in the same
 # commit as the regeneration.
 #
-# Totals at generation: 161 sites across 131 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 16, FALLS_THROUGH 141
+# Totals at generation: 162 sites across 132 functions -- LOOP_CONTINUES 5, RETURNS_TRUTHY 16, FALLS_THROUGH 141
 
 scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
 scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
