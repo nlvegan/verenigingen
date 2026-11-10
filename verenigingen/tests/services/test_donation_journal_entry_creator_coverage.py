@@ -213,6 +213,27 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
             "Donation.journal_entry must be written back",
         )
 
+    def test_posting_date_is_the_site_local_day_of_paid_at_2378(self):
+        """23:30 UTC on 3 March is the 4th in Amsterdam (and Kolkata): the JE posts on the 4th (#2378)."""
+        from verenigingen.tests.support.system_timezone import system_timezone
+
+        amount = 12.50
+        payment_id = f"tr_{frappe.generate_hash(length=12)}"
+        donation = self._make_donation(self._make_donor(), amount, payment_id=payment_id)
+
+        with system_timezone("Europe/Amsterdam"):
+            je_name = self.creator.create_from_mollie_payment(
+                {
+                    "id": payment_id,
+                    "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
+                    "paid_at": "2026-03-03T23:30:00+00:00",
+                },
+                donation,
+            )
+
+        self.assertTrue(je_name)
+        self.assertEqual(getdate(frappe.db.get_value("Journal Entry", je_name, "posting_date")), getdate("2026-03-04"))
+
     def test_failed_submit_does_not_leave_a_claimed_reference(self):
         """See #385/#(this fix): a failed submit is NOT a draft.
 
