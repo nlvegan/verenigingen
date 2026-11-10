@@ -209,6 +209,11 @@ class _PollBase(EnhancedTestCase):
         frappe.db.set_value(doc.doctype, doc.name, "docstatus", 2, update_modified=False)
         return doc
 
+    def _submitted(self, doc):
+        """Fixture shortcut: docstatus 1 on a made row (db.set_value)."""
+        frappe.db.set_value(doc.doctype, doc.name, "docstatus", 1, update_modified=False)
+        return doc
+
     def _http_stub(self, fake_get):
         """A context manager stubbing ONLY the transport (``requests.Session.get`` -> ``fake_get(session,
         url, **kwargs)``), the token manager and sleep: the real clients, ``with_retry``, the doctype
@@ -954,6 +959,9 @@ class TestCancelledRowSelection(_PollBase):
         ]
         controls = [
             self._cancelled_docstatus(self._make_poll_request("Executed")),  # not open
+            # docstatus 1 + Cancelled: the shape the token-proved callback cancel writes (shortcut:
+            # docstatus set with db.set_value). Not a cancelled DOCUMENT, so never read.
+            self._submitted(self._make_poll_request("Cancelled")),
             self._make_poll_request("Cancelled"),  # a docstatus-0 "Cancelled" row is not a cancelled DOCUMENT
             # Created recently but CANCELLED outside the window (#1931: the window is the cancel time).
             self._cancelled_at(self._cancelled_docstatus(self._make_poll_request("Pending")), window + 5),
@@ -967,6 +975,7 @@ class TestCancelledRowSelection(_PollBase):
         link_controls = [
             self._cancelled_docstatus(self._make_poll_link("Executed")),
             self._make_poll_link("Cancelled"),
+            self._submitted(self._make_poll_link("Cancelled")),
             self._cancelled_at(
                 self._cancelled_docstatus(self._make_poll_link("Pending Authorization")), window + 5
             ),

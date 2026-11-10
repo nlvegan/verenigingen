@@ -38,6 +38,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
+    persist_cancelled_status,
     refuse_unless_system_update,
 )
 
@@ -72,20 +73,7 @@ class PontoPaymentRequest(Document):
         """Handle cancellation."""
         if self.status == "Pending" and self.ponto_payment_id:
             self.cancel_ponto_payment()
-        self._persist_cancelled_status()
-
-    def _persist_cancelled_status(self):
-        """Write "Cancelled" to the row (#1918).
-
-        Frappe has already written docstatus 2 by the time ``on_cancel`` runs, so assigning
-        ``self.status`` here only changed the in-memory document and the table kept the open status
-        (the row then still read as payable/pending). ``db_set`` is the fix, as for
-        DirectDebitBatch (#1230); ``update_modified=False`` keeps ``modified`` as the cancel time,
-        which the #1931 poll window counts from. Executed is final (#1835): it stays Executed.
-        """
-        if is_refused_move(self.status, "Cancelled"):
-            return
-        self.db_set("status", "Cancelled", update_modified=False)
+        persist_cancelled_status(self)
 
     def validate_currency(self):
         """Ensure currency is EUR for SEPA payments."""
