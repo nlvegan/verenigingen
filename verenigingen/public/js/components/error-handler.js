@@ -45,6 +45,10 @@
  * @requires jQuery, Bootstrap
  */
 
+// Error text is plain text and can carry server output that echoes applicant input,
+// so every HTML sink below escapes it (#2276).
+const escapeErrorText = (value) => verenigingen.utils.escapeHtml(value);
+
 class ErrorHandler {
 	constructor(options = {}) {
 		this.options = {
@@ -298,8 +302,8 @@ class ErrorHandler {
 
 		// Build error content
 		let content = '<div class="error-details">';
-		content += `<h6>${error.title || 'An error occurred'}</h6>`;
-		content += `<p>${error.message}</p>`;
+		content += `<h6>${escapeErrorText(error.title || 'An error occurred')}</h6>`;
+		content += `<p>${escapeErrorText(error.message)}</p>`;
 
 		if (error.details) {
 			content += '<div class="error-technical-details mt-3">';
@@ -307,7 +311,7 @@ class ErrorHandler {
                             Show Technical Details
                         </button>`;
 			content += '<div class="collapse mt-2" id="error-stack">';
-			content += `<pre class="bg-light p-2 small">${error.details}</pre>`;
+			content += `<pre class="bg-light p-2 small">${escapeErrorText(error.details)}</pre>`;
 			content += '</div></div>';
 		}
 
@@ -471,7 +475,7 @@ class ErrorHandler {
 		if (notification.actions && notification.actions.length > 0) {
 			actionsHTML = '<div class="notification-actions mt-2">';
 			notification.actions.forEach((action) => {
-				actionsHTML += `<button class="btn btn-sm btn-outline-primary me-2" onclick="(${action.action})()">${action.text}</button>`;
+				actionsHTML += `<button class="btn btn-sm btn-outline-primary me-2" onclick="(${action.action})()">${escapeErrorText(action.text)}</button>`;
 			});
 			actionsHTML += '</div>';
 		}
@@ -483,8 +487,8 @@ class ErrorHandler {
                 <div class="d-flex align-items-start">
                     <i class="${iconMap[notification.type]} me-2 mt-1"></i>
                     <div class="flex-grow-1">
-                        <strong>${notification.title}</strong>
-                        <div class="small">${notification.message}</div>
+                        <strong>${escapeErrorText(notification.title)}</strong>
+                        <div class="small">${escapeErrorText(notification.message)}</div>
                         ${actionsHTML}
                     </div>
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
