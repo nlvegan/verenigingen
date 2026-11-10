@@ -134,9 +134,8 @@ boot_session = [
 
 # Note: The following hooks are DISABLED due to issues:
 #
-# on_session_creation: Disabled because it interferes with session resumption.
-# The hook gets called during session.resume() before user is properly set.
-# on_session_creation = "verenigingen.auth_hooks.on_session_creation"
+# on_session_creation: the handler was deleted (#2253). It interfered with session
+# resumption and resolved the Member leniently; do not re-add it.
 #
 # before_request: Disabled because it was causing "User None is disabled" errors
 # by interfering with Frappe's core session initialization process.

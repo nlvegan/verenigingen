@@ -90,92 +90,9 @@ from verenigingen.utils.member_utils import (
 # function below, which handles portal access rules without session validation.
 #
 # PROPER ALTERNATIVES:
-# - Session validation: Use on_session_creation hook (runs after session setup)
 # - Session cleanup: Use utils/session_cleanup.py background jobs
 # - Role checking: Use frappe.get_roles() directly, after validating the user
 # - Portal access: Use enforce_member_portal_access() function
-
-
-def on_session_creation(login_manager):
-    """
-    Hook called when a user session is created (login)
-    Redirects members to the member portal
-
-    CRITICAL: This hook runs AFTER Frappe's session initialization is complete,
-    preventing the "User None is disabled" error that occurs during session setup.
-    """
-    try:
-        # Enhanced validation to prevent "User None is disabled" errors
-        if not login_manager:
-            frappe.logger().debug("Auth hook: No login_manager provided, skipping")
-            return
-
-        # Ensure session object exists and is properly initialized
-        if not hasattr(frappe, "session") or not frappe.session:
-            frappe.logger().error("Auth hook: frappe.session is not available")
-            return
-
-        if not hasattr(frappe.session, "user"):
-            frappe.logger().error("Auth hook: frappe.session.user attribute missing")
-            return
-
-        user = frappe.session.user
-
-        # CRITICAL: Comprehensive user validation to prevent None user errors
-        if user is None:
-            frappe.logger().error("Auth hook: User is None - session may be corrupted")
-            return
-
-        if not isinstance(user, str):
-            frappe.logger().error(f"Auth hook: User is not a string: {type(user)} = {repr(user)}")
-            return
-
-        if user in ["", "None", "null", "undefined"]:
-            frappe.logger().error(f"Auth hook: User has invalid string value: {repr(user)}")
-            return
-
-        if len(user.strip()) == 0:
-            frappe.logger().error("Auth hook: User is empty string after trim")
-            return
-
-        # Skip for Guest users (this is normal)
-        if user == "Guest":
-            frappe.logger().debug("Auth hook: Guest user detected, skipping member portal redirect")
-            return
-
-        # Check if user is a member by looking for linked member record
-        member_record = get_member_name_for_user(user)
-
-        if member_record:
-            # User is a member - redirect to member portal
-            frappe.local.response["home_page"] = "/member_portal"
-            frappe.local.response["message"] = _("Welcome to the Member Portal")
-
-            frappe.logger().info(f"Member {user} redirected to member portal")
-
-        elif has_member_role(user):
-            # User has Member role but no linked member record - still redirect to portal
-            frappe.local.response["home_page"] = "/member_portal"
-            frappe.local.response["message"] = _("Welcome to the Member Portal")
-
-            frappe.logger().info(f"User {user} with Member role redirected to member portal")
-
-        else:
-            # Check if user has volunteer role
-            if has_volunteer_role(user):
-                # User is a volunteer - could redirect to volunteer portal
-                volunteer_record = get_volunteer_name_for_user(user)
-                if volunteer_record:
-                    # Could redirect to volunteer dashboard if it exists
-                    # For now, keep default behavior
-                    pass
-
-            # Default behavior for other users (system users, admins, etc.)
-            # Let Frappe handle the default redirect
-
-    except Exception as e:
-        # Log error but don't break login process
-        frappe.logger().error(f"Error in member portal redirect: {str(e)}")
 
 
 def has_member_role(user):
@@ -328,7 +245,7 @@ def enforce_member_portal_access():
 
         user = getattr(frappe.session, "user", None)
 
-        # Comprehensive user validation - similar to on_session_creation but more defensive
+        # Comprehensive user validation - more defensive
         if user is None:
             frappe.logger().debug(
                 "Portal access: User is None, skipping (may be during session initialization)"
