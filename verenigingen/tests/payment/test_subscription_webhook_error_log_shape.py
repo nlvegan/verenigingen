@@ -16,6 +16,7 @@ back from the database.
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import now_datetime
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -40,7 +41,8 @@ class TestSubscriptionWebhookErrorLogShape(EnhancedTestCase):
             },
         )
         frappe.local.request = Request(builder.get_environ())
-        self._before = set(frappe.get_all("Error Log", pluck="name", limit_page_length=0))
+        # Rows are identified by creation time, not by snapshotting the whole table.
+        self._started = now_datetime()
         self.addCleanup(self._restore_request_and_rows)
 
     def _restore_request_and_rows(self):
@@ -49,8 +51,12 @@ class TestSubscriptionWebhookErrorLogShape(EnhancedTestCase):
             frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
 
     def _new_rows(self):
-        now = set(frappe.get_all("Error Log", pluck="name", limit_page_length=0))
-        return list(now - self._before)
+        return frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", self._started]},
+            pluck="name",
+            limit_page_length=0,
+        )
 
     def _rows(self):
         return frappe.get_all("Error Log", filters={"name": ["in", self._new_rows()]}, fields=["method", "error"])
