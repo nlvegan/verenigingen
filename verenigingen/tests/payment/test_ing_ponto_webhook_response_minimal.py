@@ -13,9 +13,11 @@ and the ING secret are written directly (``set_single_value`` / ``set_encrypted_
 rather than through the settings forms, and restored on cleanup.
 """
 
+import base64
 import hashlib
 import hmac
 import json
+import time
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -283,10 +285,9 @@ class TestPontoWebhookAck(_GuestWebhookCase):
         self.assertEqual((status, body), (200, {"status": "ok"}))
 
 
-class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
-    """#2172: a refused audience must leave BOTH the expected and the received value in the Error Log.
+class _PontoJwtCase(_GuestWebhookCase):
+    """Real RS512 JWT, real verification and real dispatch; only the JWKS fetch is stubbed.
 
-    Real RS512 JWT, real verification and real dispatch; only the JWKS fetch is stubbed.
     Probe shortcut, stated per the brief: the settings switches are written with
     ``set_single_value`` and restored on cleanup.
     """
@@ -313,13 +314,22 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _deliver(self, audience, issuer=None):
+    def _deliver(self, audience=None, issuer=None, token_builder=None, **token_kwargs):
         from verenigingen.tests.sepa.test_ponto_webhook_security_unit import TEST_ISSUER, _make_token
 
         raw = json.dumps(
             {"data": {"id": f"evt-{uuid.uuid4().hex[:8]}", "type": "pontoConnect.nope", "attributes": {}}}
         ).encode()
-        token = _make_token(self.private_pem, raw, audience=audience, issuer=issuer or TEST_ISSUER)
+        if token_builder:
+            token = token_builder(raw)
+        else:
+            token = _make_token(
+                self.private_pem,
+                raw,
+                audience=audience or self.expected,
+                issuer=issuer or TEST_ISSUER,
+                **token_kwargs,
+            )
         self.last_token = token
         # unique per delivery: log_error_once dedupes per IP per hour, so a prior row could hide ours
         ip = f"2001:db8::{uuid.uuid4().hex[:4]}"
@@ -331,6 +341,10 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
         for text in self._error_log_texts():
             self.assertNotIn(self.last_token, text, "the raw webhook token must not be written to the Error Log")
         self.assertNotIn(self.last_token, json.dumps(body) + " ".join(messages))
+
+
+class TestPontoWebhookAudienceDiagnostics(_PontoJwtCase):
+    """#2172: a refused audience must leave BOTH the expected and the received value in the Error Log."""
 
     def _audience_rows(self):
         return [t for t in self._error_log_texts() if "Invalid webhook audience" in t]
@@ -388,3 +402,129 @@ class TestPontoWebhookAudienceDiagnostics(_GuestWebhookCase):
         rows = [t for t in self._error_log_texts() if "Invalid webhook issuer" in t and received in t]
         self.assertEqual(len(rows), 1)
         self.assertIn("expected_issuer", rows[0])
+
+
+class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
+    """#2324: an expired / not-yet-valid token must log exp, iat and the server clock; a wrong
+    algorithm must log the header's alg. A clock skew and a replayed delivery look the same
+    without them. The caller's answer must not change (status, body, message_log, response dict).
+    """
+
+    def setUp(self):
+        super().setUp()
+        # MyISAM Error Log: nothing rolls back, so delete the rows this test wrote.
+        self._log_before = set(frappe.get_all("Error Log", pluck="name"))
+        self.addCleanup(self._delete_new_error_logs)
+
+    def _delete_new_error_logs(self):
+        new = set(frappe.get_all("Error Log", pluck="name")) - self._log_before
+        if new:
+            frappe.db.delete("Error Log", {"name": ["in", list(new)]})
+
+    def _assert_unchanged_refusal(self, body, status, messages):
+        self.assertEqual((status, body), (401, {"status": "error"}))
+        self.assertEqual(messages, [])
+        # the whole response dict (status code + headers), not just the pieces named above
+        response = dict(frappe.local.response)
+        headers = {
+            k: v for k, v in response.pop("headers").items() if k not in ("X-RateLimit-Remaining", "X-RateLimit-Reset")
+        }  # the two counters move with every request
+        self.assertEqual(response, {"http_status_code": 401})
+        self.assertEqual(
+            headers,
+            {
+                "Referrer-Policy": "strict-origin-when-cross-origin",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "X-RateLimit-Limit": "100",
+                "X-RateLimit-Window": "3600",
+            },
+        )
+        self._assert_token_not_leaked(body, messages)
+
+    def _server_time_in(self, row, before, after):
+        import re
+
+        found = re.search(r"'server_time': (\d+)", row)
+        self.assertTrue(found, f"no server_time in: {row}")
+        self.assertTrue(before <= int(found.group(1)) <= after)
+
+    def test_expired_token_logs_exp_iat_and_server_time(self):
+        now = int(time.time())
+        iat = now - 1000 - uuid.uuid4().int % 500  # unique per run, so the row is ours
+        body, status, messages = self._deliver(iat=iat, exp_offset=300)
+        self._assert_unchanged_refusal(body, status, messages)
+        rows = [t for t in self._error_log_texts() if "Webhook signature expired" in t and str(iat) in t]
+        self.assertEqual(len(rows), 1)
+        self.assertIn(f"'exp': '{iat + 300}'", rows[0])
+        self.assertIn(f"'iat': '{iat}'", rows[0])
+        self._server_time_in(rows[0], now, int(time.time()))
+
+    def test_not_yet_valid_token_logs_exp_iat_and_server_time(self):
+        now = int(time.time())
+        iat = now + 1000 + uuid.uuid4().int % 500  # in the future, beyond the 30s leeway
+        body, status, messages = self._deliver(iat=iat, exp_offset=300)
+        self._assert_unchanged_refusal(body, status, messages)
+        rows = [t for t in self._error_log_texts() if str(iat) in t and "'server_time'" in t]
+        self.assertEqual(len(rows), 1, "the immature refusal must write one row naming iat and the server clock")
+        self.assertIn(f"'exp': '{iat + 300}'", rows[0])
+        self._server_time_in(rows[0], now, int(time.time()))
+
+    def test_wrong_algorithm_logs_the_header_alg(self):
+        import jwt
+
+        def hs256(raw):
+            claims = {"iss": "x", "aud": self.expected, "iat": int(time.time()), "exp": int(time.time()) + 300}
+            return jwt.encode(claims, "k" * 64, algorithm="HS256", headers={"kid": "whatever"})
+
+        body, status, messages = self._deliver(token_builder=hs256)
+        self._assert_unchanged_refusal(body, status, messages)
+        rows = [t for t in self._error_log_texts() if "Invalid webhook signature algorithm" in t]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("'received_algorithm': 'HS256'", rows[0])
+        self.assertIn("RS512", rows[0])
+
+    def test_hostile_header_values_are_capped_and_never_raise(self):
+        import jwt
+
+        from verenigingen.verenigingen_payments.ponto.utils.webhook_security import (
+            received_header_alg,
+            token_time_diagnostics,
+        )
+
+        def forge(header, claims=None):
+            enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+            return f"{enc(header)}.{enc(claims or {})}.sig"
+
+        self.assertEqual(len(received_header_alg(forge({"alg": "A" * 500}))), 50)
+        self.assertEqual(received_header_alg(forge({"alg": 5})), "5")
+        self.assertIsNone(received_header_alg(forge({"typ": "JWT"})))
+        self.assertEqual(
+            token_time_diagnostics(forge({"alg": "RS512"}, {"exp": "9" * 500, "iat": [1, 2]}))["exp"],
+            "9" * 200,
+        )
+        # control: the readable case does return values, so the Nones below mean "unreadable"
+        good = jwt.encode({"exp": 7, "iat": 5}, self.private_pem, algorithm="RS512")
+        self.assertEqual(received_header_alg(good), "RS512")
+        self.assertEqual(token_time_diagnostics(good)["iat"], "5")
+        for garbage in ("not-a-jwt", "", None, 12, b"\xff\xfe", "a.b.c", "...."):
+            self.assertIsNone(received_header_alg(garbage))
+            diag = token_time_diagnostics(garbage)
+            self.assertEqual((diag["exp"], diag["iat"]), (None, None))
+            self.assertIsInstance(diag["server_time"], int)
+
+    def test_unreadable_claims_with_a_readable_header_yield_no_times(self):
+        from verenigingen.verenigingen_payments.ponto.utils.webhook_security import (
+            received_header_alg,
+            token_time_diagnostics,
+        )
+
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "x"}).encode()).decode()
+        claims = base64.urlsafe_b64encode(b"[1]").decode()
+        token = f"{header}.{claims}.sig"
+        self.assertEqual(received_header_alg(token), "x")
+        self.assertEqual(token_time_diagnostics(token)["exp"], None)
+
+    def test_malformed_token_is_still_refused_without_the_new_fields(self):
+        body, status, messages = self._deliver(token_builder=lambda raw: "not-a-jwt")
+        self._assert_unchanged_refusal(body, status, messages)
