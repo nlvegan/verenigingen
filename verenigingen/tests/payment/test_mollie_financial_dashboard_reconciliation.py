@@ -399,7 +399,13 @@ class TestSettlementMetrics(FinancialDashboardTestBase):
             ]
         )
 
-        metrics = self.dashboard._get_settlement_metrics()
+        # self.now is UTC and the shown day is the site's (#2378): pin UTC so the expected
+        # day below is the same on any site. The zone-sensitive control is
+        # TestSettlementDisplayDate2378.
+        from verenigingen.tests.support.system_timezone import system_timezone
+
+        with system_timezone("UTC"):
+            metrics = self.dashboard._get_settlement_metrics()
 
         self.assertEqual(metrics["last_30_days"]["count"], 1)
         self.assertEqual(metrics["last_30_days"]["total_amount"], 80.00)
@@ -455,6 +461,23 @@ class TestSettlementMetrics(FinancialDashboardTestBase):
 
         self.assertEqual(len(metrics["recent_settlements"]), 5)
         self.assertEqual(metrics["last_30_days"]["count"], 8)
+
+
+class TestSettlementDisplayDate2378(FinancialDashboardTestBase):
+    def test_recent_settlement_date_is_the_site_local_day(self):
+        """23:30 UTC on 3 March is the 4th in Amsterdam: the shown day is the 4th, not the UTC 3rd (#2378)."""
+        from verenigingen.tests.support.system_timezone import system_timezone
+
+        self.given_settlements(
+            [
+                settlement_json(
+                    "stl_late", "10.00", settled_at=datetime(2026, 3, 3, 23, 30, tzinfo=timezone.utc)
+                )
+            ]
+        )
+        with system_timezone("Europe/Amsterdam"):
+            metrics = self.dashboard._get_settlement_metrics()
+        self.assertEqual(metrics["recent_settlements"][0]["date"], "2026-03-04")
 
 
 class TestFinancialReport(FinancialDashboardTestBase):
