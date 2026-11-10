@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, cint, now_datetime
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 
 def handle_invoice_events_batched():
     """
@@ -154,6 +156,7 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
                 f"Queued invoice {invoice} for payment history update for member {member['name']} (batching system)"
             )
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             frappe.log_error(
                 f"Failed to update payment history for member {member['name']} after invoice {invoice}: {str(e)}",
                 "Invoice Payment History Update Error",
@@ -195,6 +198,7 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
                 f"Queued removal of cancelled invoice {invoice} from payment history for member {member['name']} (batching system)"
             )
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             frappe.log_error(
                 f"Failed to remove cancelled invoice {invoice} from payment history for member {member['name']}: {str(e)}",
                 "Invoice Cancellation Payment History Update Error",
@@ -234,6 +238,7 @@ def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
                 f"Updated invoice {invoice} in payment history for member {member_name}"
             )
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             frappe.log_error(
                 f"Failed to update invoice {invoice} in payment history for member {member_name}: {str(e)}",
                 "Invoice Update Payment History Update Error",

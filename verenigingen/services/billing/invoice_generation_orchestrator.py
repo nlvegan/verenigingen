@@ -32,6 +32,7 @@ from verenigingen.services.billing.invoice_error_handler_service import (
 )
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 
 class InvoiceGenerationOrchestrator(StatelessService):
@@ -88,6 +89,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
             return self._execute_generation()
 
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             self._handle_error(e)
 
         finally:
