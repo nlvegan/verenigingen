@@ -147,6 +147,12 @@ def get_auth_health_status():
 
 
 AUTH_ALERT_KEY = "auth_monitoring_alert"
+
+# The critical alert is a failed-login RATE across all users (maintainer ruling on #2285). The check runs
+# daily, so the window is a day; Frappe itself locks one user out after a handful of failures, so a
+# site-wide count this high is a spray across users or addresses, not one person's typos.
+FAILED_LOGIN_WINDOW_HOURS = 24
+FAILED_LOGIN_ALERT_THRESHOLD = 25
 AUTH_ALERT_PROFILE = "Verenigingen System Administrator"
 
 
@@ -187,54 +193,59 @@ def _profile_holder_emails(profile):
     )
 
 
-def alert_if_auth_issues():
-    """
-    Check for authentication issues and send alerts if necessary
+def count_recent_failed_logins():
+    """Failed logins of every user in the last FAILED_LOGIN_WINDOW_HOURS, from Frappe's Activity Log.
 
-    This can be called from scheduled tasks to monitor authentication health.
+    Frappe writes one ``operation=Login, status=Failed`` row per refused attempt (measured: also for a
+    username that is no User). ``creation`` is stamped on the SITE clock, so the cutoff is
+    ``now_datetime()``, not SQL ``NOW()`` (which is the server's zone).
+    """
+    cutoff = now_datetime() - timedelta(hours=FAILED_LOGIN_WINDOW_HOURS)
+    return frappe.db.count(
+        "Activity Log",
+        {"operation": "Login", "status": "Failed", "creation": [">=", cutoff]},
+    )
+
+
+def alert_if_auth_issues():
+    """Mail the critical authentication alert when failed logins across ALL users reach the threshold.
+
+    Scheduled daily. This used to key on ``get_auth_health_status`` reporting ``"error"``, which only
+    means the CURRENT session (the scheduler's own) is invalid, so it could not fire (#2285).
     """
     try:
-        health_status = get_auth_health_status()
-
-        if not health_status["success"]:
-            frappe.logger().error(f"AUTH_MONITOR: Health check failed: {health_status.get('error')}")
+        failed_logins = count_recent_failed_logins()
+        if failed_logins < FAILED_LOGIN_ALERT_THRESHOLD:
             return
+        _send_failed_login_alert(failed_logins)
+    except Exception:
+        frappe.log_error(title="auth_monitoring: failed-login alert crashed", message=frappe.get_traceback())
 
-        if health_status["health_status"] == "error":
-            # Send critical alert
-            subject = "CRITICAL: Authentication System Issues Detected"
-            message = f"""
-            Critical authentication issues detected on {frappe.local.site}:
 
-            Warnings: {health_status['warnings']}
-            Invalid Sessions: {health_status['invalid_sessions']}
-            Recent Errors: {health_status['recent_errors']['error_count']}
+def _send_failed_login_alert(failed_logins):
+    subject = "CRITICAL: High rate of failed logins detected"
+    message = (
+        f"{failed_logins} failed login attempts in the last {FAILED_LOGIN_WINDOW_HOURS} hours "
+        f"on {frappe.local.site} (alert threshold: {FAILED_LOGIN_ALERT_THRESHOLD}).\n\n"
+        "See the Activity Log (Operation: Login, Status: Failed) for the users and IP addresses involved."
+    )
+    recipients = get_auth_alert_recipients()
+    if not recipients:
+        frappe.log_error(
+            title="auth_monitoring: failed-login alert has no recipient",
+            message=f"{subject}\n{message}",
+        )
+        return
 
-            Please check the system immediately.
-            """
-
-            recipients = get_auth_alert_recipients()
-
-            if recipients:
-                email_service = get_email_service()
-                email_service.send_simple_email(
-                    recipients=recipients,
-                    subject=subject,
-                    message=message,
-                    delayed=False,
-                    notification_key=AUTH_ALERT_KEY,
-                )
-                frappe.logger().error(
-                    f"AUTH_MONITOR: Critical alert sent to {len(recipients)} administrators"
-                )
-
-        elif (
-            health_status["health_status"] == "warning" and health_status["recent_errors"]["error_count"] > 5
-        ):
-            # Send warning for frequent errors
-            frappe.logger().warning(
-                f"AUTH_MONITOR: High frequency of auth errors detected: {health_status['recent_errors']['error_count']} in 24h"
-            )
-
-    except Exception as e:
-        frappe.logger().error(f"AUTH_MONITOR: Alert system failed: {str(e)}")
+    result = get_email_service().send_simple_email(
+        recipients=recipients,
+        subject=subject,
+        message=message,
+        delayed=False,
+        notification_key=AUTH_ALERT_KEY,
+    )
+    if not result.success:
+        frappe.log_error(
+            title="auth_monitoring: failed-login alert was not sent",
+            message=f"{subject}\n{message}\n{result.error_message}",
+        )
