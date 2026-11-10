@@ -224,3 +224,53 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
         state = _check(self.payment_id, refunds=self.rows)
         self.assertEqual(state.pending_refunds, [])
         self.assertEqual([m["payment_entry"] for m in state.payment_history_missing], [pe.name])
+
+    # -- #2384: a refund Payment Entry whose submit fails must not claim the key ----------
+
+    def _book_refund_pe(self):
+        return create_refund_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            refund_id=self.refund_id,
+            refund_amount=100.0,
+            refund_date=today(),
+        )
+
+    def _live_rows_under_key(self):
+        return frappe.get_all(
+            "Payment Entry", filters={"reference_no": self.key, "docstatus": ["!=", 2]}, pluck="name"
+        )
+
+    def _assert_failed_submit_frees_the_key(self):
+        self.assertEqual(self._live_rows_under_key(), [], "a failed submit left a live row on the key")
+        self.assertIsNone(find_booked_reversal(self.key), "the failed booking still claims the key")
+        state = _check(self.payment_id, refunds=self.rows)
+        self.assertEqual([r["refund_id"] for r in state.pending_refunds], [self.refund_id])
+        self.assertEqual(state.payment_history_missing, [])
+        self.assertEqual(state.refunds_processed, [])
+
+    def _assert_a_retry_books_a_submitted_entry(self):
+        pe = self._book_refund_pe()
+        self.assertIsNotNone(pe, "the retry after a failed submit did not book the refund")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "docstatus"), 1)
+        self.assertEqual(find_booked_reversal(self.key), ("Payment Entry", pe.name))
+
+    def test_a_failed_submit_before_posting_leaves_no_draft_claiming_the_key(self):
+        """Submit raises in validate/before_submit: the row is still a draft (docstatus 0)."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        self.expectErrorLog("Unified Payment Entry Creation")
+        with patch.object(PaymentEntry, "submit", side_effect=frappe.ValidationError("period closed")):
+            self.assertIsNone(self._book_refund_pe())
+        self._assert_failed_submit_frees_the_key()
+        self._assert_a_retry_books_a_submitted_entry()
+
+    def test_a_failed_submit_after_docstatus_is_written_leaves_no_live_entry_on_the_key(self):
+        """Submit raises in on_submit (the GL post): docstatus 1 is already written, ledger is not."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        self.expectErrorLog("Unified Payment Entry Creation")
+        with patch.object(PaymentEntry, "on_submit", side_effect=frappe.ValidationError("bad account")):
+            self.assertIsNone(self._book_refund_pe())
+        self._assert_failed_submit_frees_the_key()
+        self._assert_a_retry_books_a_submitted_entry()
