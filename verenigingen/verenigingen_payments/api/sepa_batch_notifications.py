@@ -375,7 +375,7 @@ def test_notification_system():
             "company": get_mollie_config().get_default_company(),
         }
 
-        email_service.send_templated_email(
+        result = email_service.send_templated_email(
             template_name="payment_notification",
             recipients=recipients,
             context=context,
@@ -384,6 +384,9 @@ def test_notification_system():
             reference_name=None,
             notification_key="email_template_test",
         )
+        if not result.success or result.skip_reason:
+            # A skip (cooldown, disabled key, opt-out) or a failure sent nothing (#2178)
+            return {"success": False, "error": result.skip_reason or "Test notification was not queued"}
 
         return {
             "success": True,

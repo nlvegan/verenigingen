@@ -116,6 +116,68 @@ verenigingen.utils.getErrorMessage = function (message, defaultMsg) {
 };
 
 /**
+ * Readable text for a refused/failed Frappe HTTP call, from the parsed JSON ERROR BODY (#2231).
+ *
+ * Never returns `body.exc`: on a 4xx/5xx that is the raw Python traceback as a JSON string.
+ * Prefers `_server_messages` (what `frappe.throw` showed the user), then the `exception` line with its
+ * "dotted.module.Class: " prefix removed. A PermissionError about a missing member record is replaced
+ * by the fixed "not linked to a membership" sentence (the one #1936's strict gate raises).
+ * @param {Object} body - parsed response body (xhr.responseJSON / await response.json())
+ * @param {string} fallback - text when the body carries nothing readable
+ * @returns {string}
+ */
+verenigingen.utils.getHttpErrorMessage = function (body, fallback) {
+	// Plain text via the browser's own HTML parser (it never runs scripts); a regex cannot do this
+	// (CodeQL js/incomplete-multi-character-sanitization). Parsing decodes entities, so a message such
+	// as "&lt;script&gt;" comes out as "<script>"; repeat until stable so that cannot survive as
+	// markup, and give up (empty) rather than return something still changing after a few passes.
+	const stripTags = (text) => {
+		let current = String(text);
+		for (let pass = 0; pass < 5; pass++) {
+			const next = new DOMParser().parseFromString(current, 'text/html').body.textContent;
+			if (next === current) {
+				return next.trim();
+			}
+			current = next;
+		}
+		return '';
+	};
+	const notLinked = () =>
+		__('Your account is not linked to a membership. Please contact the office to have it linked.');
+	if (!body || typeof body !== 'object') {
+		return fallback;
+	}
+	const exception = typeof body.exception === 'string' ? body.exception : '';
+	if (body.exc_type === 'PermissionError' && /No member record found/i.test(exception)) {
+		return notLinked();
+	}
+	if (typeof body._server_messages === 'string') {
+		try {
+			const texts = JSON.parse(body._server_messages)
+				.map((raw) => {
+					try {
+						return JSON.parse(raw).message;
+					} catch (e) {
+						return raw;
+					}
+				})
+				.map(stripTags)
+				.filter(Boolean);
+			if (texts.length) {
+				return texts.join(' ');
+			}
+		} catch (e) {
+			// fall through to the exception line
+		}
+	}
+	const line = stripTags(exception.split('\n')[0].replace(/^[\w.]+(Error|Exception):\s*/, ''));
+	if (line) {
+		return line;
+	}
+	return typeof body.message === 'string' && body.message ? stripTags(body.message) : fallback;
+};
+
+/**
  * Check if response is a successful OperationResult
  * @param {*} message - Response from frappe.call (r.message)
  * @returns {boolean} True if successful OperationResult
@@ -237,5 +299,6 @@ if (typeof window !== 'undefined') {
 	window.escapeHtml = verenigingen.utils.escapeHtml;
 	window.unwrapOperationResult = verenigingen.utils.unwrapOperationResult;
 	window.getErrorMessage = verenigingen.utils.getErrorMessage;
+	window.getHttpErrorMessage = verenigingen.utils.getHttpErrorMessage;
 	window.parseDonorExistsResponse = verenigingen.utils.parseDonorExistsResponse;
 }

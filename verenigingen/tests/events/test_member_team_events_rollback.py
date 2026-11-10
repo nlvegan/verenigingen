@@ -40,19 +40,6 @@ class _RollbackBase(VereningingenTestCase):
         # Each create_test_volunteer() would otherwise leave an untracked test-volunteer-* User
         # behind (11 per run); this module builds its own User where it needs one.
         frappe.flags.skip_volunteer_account_creation = True
-        # in_import=False also re-arms Frappe's throttle_user_creation() (>60 Users created in
-        # the last hour raises "Throttled"), and these setUps insert a User. Raise the limit
-        # instead, as enhanced_test_factory does; restore via addCleanup so it cannot leak.
-        self._had_throttle_limit = "throttle_user_limit" in frappe.local.conf
-        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
-        self.addCleanup(self._restore_throttle_limit_2144)
-        frappe.local.conf["throttle_user_limit"] = 1000000
-
-    def _restore_throttle_limit_2144(self):
-        if self._had_throttle_limit:
-            frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
-        else:
-            frappe.local.conf.pop("throttle_user_limit", None)
 
     def tearDown(self):
         for k, v in self._saved_flags.items():

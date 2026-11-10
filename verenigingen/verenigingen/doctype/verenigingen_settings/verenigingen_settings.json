@@ -272,13 +272,13 @@
   },
   {
    "default": "1000",
-   "description": "The starting number for new member IDs",
+   "description": "The counter starts here: the first new member ID is this number plus 1. Raising it moves the counter up; lowering it has no effect",
    "fieldname": "member_id_start",
    "fieldtype": "Int",
    "label": "Member ID Starting Number"
   },
   {
-   "description": "Automatically updated when new member IDs are assigned",
+   "description": "The most recently assigned member ID (the next new ID is this plus 1). Automatically updated when new member IDs are assigned",
    "fieldname": "last_member_id",
    "fieldtype": "Int",
    "label": "Last Assigned Member ID",

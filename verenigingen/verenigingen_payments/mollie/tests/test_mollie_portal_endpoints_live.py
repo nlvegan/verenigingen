@@ -39,6 +39,8 @@ from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServ
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import ensure_mollie_test_credentials
 
+CI_ALWAYS_SKIPS = "live Mollie API tests; skip without Mollie test credentials, which CI never has"
+
 # Mollie-accepted test IBAN that yields an immediately-valid SEPA direct-debit mandate
 # (a valid mandate is a precondition for subscription creation, so its presence is
 # implicitly asserted by every subscription this module builds).
