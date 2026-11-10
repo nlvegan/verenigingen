@@ -28,6 +28,7 @@ from frappe.utils import add_days, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.api import balance_transaction_processing as api
 from verenigingen.verenigingen_payments.core.models.balance import Balance, BalanceTransaction
+from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
 
 
 def _make_balance_transaction(
@@ -402,12 +403,14 @@ class TestBalanceTransactionProcessingAPI(EnhancedTestCase):
         reached this query. The literal is now correctly doubled (`baltr_%%`), so
         the endpoint returns real statistics. This test asserts that success
         behaviour."""
-        self._make_bank_transaction(
-            reference_number="baltr_STAT_1", deposit=100.0, status="Reconciled"
+        # Drafts are "Pending" in ERPNext; the pool's marker is their state (#2082/#2344).
+        # Stamping ``status`` on a draft (as this test used to) is a state no flow produces.
+        reconciled = self._make_bank_transaction(reference_number="baltr_STAT_1", deposit=100.0)
+        bts.record_pool_outcome(reconciled, bts.RECONCILED)
+        unreconciled = self._make_bank_transaction(
+            reference_number="baltr_STAT_2", withdrawal=40.0, deposit=0.0
         )
-        self._make_bank_transaction(
-            reference_number="baltr_STAT_2", withdrawal=40.0, deposit=0.0, status="Unreconciled"
-        )
+        bts.record_pool_outcome(unreconciled, bts.FAILED)
         result = api.get_processing_statistics(days=30)
         self.assertEqual(result["status"], "success")
         self.assertGreaterEqual(result["totals"]["total_processed"], 2)
