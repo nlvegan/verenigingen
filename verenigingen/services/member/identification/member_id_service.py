@@ -173,7 +173,8 @@ class MemberIDService(StatelessService):
 
         Performance:
             - Processes members in batches
-            - Commits after each successful assignment
+            - Does NOT commit per member: assignments ride the request's transaction
+            - Stops at the first deadlock/lock timeout (see _abort_after_db_lock_error)
             - Can handle thousands of members
 
         Note:
@@ -214,6 +215,7 @@ class MemberIDService(StatelessService):
 
             total_checked = len(members_without_ids)
             assigned_count = 0
+            assigned_names = []
             errors = []
 
             self.logger.info(f"MemberIDService: Found {total_checked} members without member IDs")
@@ -226,6 +228,7 @@ class MemberIDService(StatelessService):
                     if member.should_have_member_id():
                         member.ensure_member_id()
                         assigned_count += 1
+                        assigned_names.append(member.name)
 
                         self.logger.info(
                             f"MemberIDService: Assigned ID {member.member_id} to {member.full_name} ({member.name})"
@@ -236,6 +239,10 @@ class MemberIDService(StatelessService):
                             f"(status: {member.status})"
                         )
 
+                except (frappe.QueryDeadlockError, frappe.QueryTimeoutError) as e:
+                    return self._abort_after_db_lock_error(
+                        e, member_data.name, total_checked, assigned_names, errors
+                    )
                 except Exception as e:
                     error_msg = f"Failed to assign ID to {member_data.name}: {str(e)}"
                     self.logger.error(f"MemberIDService: {error_msg}")
@@ -268,6 +275,38 @@ class MemberIDService(StatelessService):
         except Exception as e:
             self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
+
+    def _abort_after_db_lock_error(self, error, failed_member, total_checked, assigned_names, errors):
+        """Stop the batch after a 1213 deadlock / 1205 lock timeout and report what persisted.
+
+        A 1213 rolls back the caller's WHOLE uncommitted transaction (savepoints
+        included), so the members assigned earlier in this loop are gone and carrying
+        on would write on a fresh transaction and count them anyway (#2388). The count
+        is therefore read back from the database rather than inferred, which is also
+        right for a 1205 (that one rolls back only the failing statement).
+        """
+        persisted = (
+            frappe.get_all(
+                "Member",
+                filters={"name": ["in", assigned_names], "member_id": ["is", "set"]},
+                pluck="name",
+            )
+            if assigned_names
+            else []
+        )
+        lost = len(assigned_names) - len(persisted)
+        error_msg = (
+            f"Batch aborted at {failed_member}: {type(error).__name__}. "
+            f"{len(persisted)} assignment(s) persisted, {lost} rolled back by the database; "
+            "run the bulk assignment again."
+        )
+        self.logger.error(f"MemberIDService: {error_msg}")
+        return OperationResult.fail(
+            "Bulk member ID assignment aborted by a database lock error",
+            errors=[*errors, error_msg],
+            total_checked=total_checked,
+            assigned=len(persisted),
+        )
 
     def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """

@@ -10,6 +10,7 @@ bulk assignment, and the debug diagnostic, all against real Member docs.
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -147,3 +148,78 @@ class TestDebugMemberIdAssignment(EnhancedTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
+    """#2388: a 1213/1205 inside the bulk loop must stop the batch and report the truth.
+
+    The fault is injected at ``frappe.db.sql`` on the counter's ``FOR UPDATE`` read,
+    i.e. below every layer that catches on the real path (the decorator, the
+    per-member ``except``). For a deadlock the injection also rolls back the assignments made so far, which
+    is what MariaDB does to the transaction (see _seed_unassigned_members).
+    """
+
+    COUNTER_READ = "FOR UPDATE"
+    SAVEPOINT = "bulk_member_id_2388"
+
+    def _seed_unassigned_members(self, n):
+        names = []
+        for i in range(n):
+            member = self.create_test_member(
+                first_name="Lock",
+                last_name=f"Loop{i}",
+                email=f"lock.loop{i}@example.com",
+            )
+            frappe.db.set_value("Member", member.name, "member_id", None)
+            names.append(member.name)
+        # The injected rollback must not take the fixtures with it; only assignments are
+        # at risk. A bare commit would grow the order-dependence baseline (hard gate), so
+        # the "rollback" below is a rollback TO this savepoint: it discards exactly the
+        # assignments made after it, which is the part of a 1213 under test. (A real 1213
+        # also destroys the savepoint and the fixtures; that is why this is an emulation
+        # of the rollback's effect on the assignments, not of the whole server behaviour.)
+        frappe.db.savepoint(self.SAVEPOINT)
+        return names
+
+    def _run_with_fault_on_nth_counter_read(self, nth, exc_class, rollback):
+        real_sql = frappe.db.sql
+        counter_reads = []
+
+        def faulty_sql(query, *args, **kwargs):
+            if isinstance(query, str) and self.COUNTER_READ in query and "tabSingles" in query:
+                counter_reads.append(1)
+                if len(counter_reads) == nth:
+                    if rollback:
+                        frappe.db.rollback(save_point=self.SAVEPOINT)
+                    raise exc_class("injected below the per-member except")
+            return real_sql(query, *args, **kwargs)
+
+        with patch.object(frappe.db, "sql", side_effect=faulty_sql):
+            result = get_member_id_service().assign_missing_member_ids()
+        return result, len(counter_reads)
+
+    def _persisted(self, names):
+        return len(frappe.get_all("Member", filters={"name": ["in", names], "member_id": ["is", "set"]}))
+
+    def test_deadlock_stops_the_batch_and_does_not_count_rolled_back_members(self):
+        names = self._seed_unassigned_members(4)
+        result, counter_reads = self._run_with_fault_on_nth_counter_read(3, frappe.QueryDeadlockError, True)
+        frappe.db.rollback(save_point=self.SAVEPOINT)  # discard what a (wrongly) continuing loop wrote
+
+        self.assertEqual(counter_reads, 3, "the loop kept taking IDs after a 1213")
+        self.assertFalse(result.success)
+        reported = result.metadata["assigned"]
+        self.assertEqual(reported, 0, "the 1213 rolled back every uncommitted assignment")
+        self.assertEqual(self._persisted(names), 0)
+        self.assertTrue(any("QueryDeadlockError" in e for e in result.errors))
+
+    def test_lock_timeout_stops_the_batch_but_keeps_what_persisted(self):
+        """A 1205 rolls back only the failing statement: earlier assignments survive and are counted."""
+        self._seed_unassigned_members(4)
+        result, counter_reads = self._run_with_fault_on_nth_counter_read(3, frappe.QueryTimeoutError, False)
+        frappe.db.rollback(save_point=self.SAVEPOINT)  # discard the assignments; keep the fixtures
+
+        self.assertEqual(counter_reads, 3, "the loop kept taking IDs after a lock timeout")
+        self.assertFalse(result.success)
+        # Two members were assigned before the 3rd counter read failed; a 1205 keeps them.
+        self.assertEqual(result.metadata["assigned"], 2)
