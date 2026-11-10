@@ -250,7 +250,7 @@ jobs:
           # credentials, ...). A whole-suite shard gets them from an earlier integration module; one
           # `run-tests` per module does not. Not guarded: a failed seed must fail the job here, not
           # surface as an unrelated red in whichever module needed the row.
-          bench --site test_site execute ${{ github.event.repository.name }}.tests.setup.before_tests
+          bench --site test_site execute ${{ github.event.repository.name }}.tests.setup.seed_for_standalone_module_runs
           fail=0
           count=0
           for m in $MODULES; do

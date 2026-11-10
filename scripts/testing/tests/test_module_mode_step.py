@@ -87,7 +87,7 @@ class SeedStep(unittest.TestCase):
     module filed as "unspecified" runs on the fresh CI site with none of this app's seeds. The step
     seeds once, BEFORE the first module, and a failed seed fails the job without running modules."""
 
-    SEED = "verenigingen.tests.setup.before_tests"
+    SEED = "verenigingen.tests.setup.seed_for_standalone_module_runs"
 
     def run_step(self, seed_rc=0, modules=MOD):
         with tempfile.TemporaryDirectory() as d:
