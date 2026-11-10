@@ -17,6 +17,7 @@ import frappe
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 from ..utils.logging import MollieLogger
+from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
 
 
 class PaymentIdempotencyCheckResult:
@@ -239,7 +240,7 @@ class UnifiedIdempotencyManager:
         Check refund processing completeness using Mollie as SSOT.
 
         Validates each refund ID from Mollie against:
-        1. Payment Entry existence (with correct refund_id in reference_no)
+        1. A booking under the refund's reversal key (Journal Entry or Payment Entry)
         2. Payment history child table entry (with matching mollie_payment_id)
 
         Returns granular state:
@@ -273,27 +274,6 @@ class UnifiedIdempotencyManager:
         if not mollie_refunds:
             # No refunds in Mollie - nothing to validate
             return
-
-        # STEP 2: Get all Payment Entries for this payment (refunds only)
-        payment_entries_map = {}
-        processed_refunds_db = frappe.db.get_all(
-            "Payment Entry",
-            filters={
-                # #1277: payment_id is Mollie-supplied and routinely contains a
-                # literal '_' (e.g. "tr_abc123"), which LIKE reads as a
-                # single-character wildcard unless escaped -- see #1153.
-                "reference_no": ["like", f"%{escape_sql_like_wildcards(payment_id)}_refund_%"],
-                "payment_type": "Pay",
-                "docstatus": 1,
-            },
-            fields=["name", "reference_no", "paid_amount"],
-        )
-
-        # Map refund_id -> Payment Entry name
-        for pe in processed_refunds_db:
-            if "_refund_" in pe.reference_no:
-                refund_id = pe.reference_no.split("_refund_")[-1]
-                payment_entries_map[refund_id] = pe.name
 
         # STEP 3: Check payment history child table using optimized SQL query
         payment_history_map = {}
@@ -332,23 +312,29 @@ class UnifiedIdempotencyManager:
                 continue
             refund_amount = float(mollie_refund.get("amount", {}).get("value", 0))
 
-            has_payment_entry = refund_id in payment_entries_map
+            # #2355: ask the booker's own arbiter, not a Payment-Entry-only query. A
+            # reversal is booked as a Journal Entry (donation/dues sweep) OR a Payment
+            # Entry (refund webhook), always under build_reversal_key.
+            booked = find_booked_reversal(build_reversal_key(payment_id, "refund", refund_id))
             has_payment_history = refund_id in payment_history_map
 
-            if has_payment_entry and has_payment_history:
-                # Fully processed
+            if booked and booked[0] == "Payment Entry":
+                if has_payment_history:
+                    result.refunds_processed.append(refund_id)
+                else:
+                    result.payment_history_missing.append(
+                        {"refund_id": refund_id, "payment_entry": booked[1], "amount": refund_amount}
+                    )
+            elif booked and (has_payment_history or not result.donation_name):
+                # Journal Entry booking. A payment with no Donation keeps no history rows,
+                # so there is nothing to be missing.
                 result.refunds_processed.append(refund_id)
-            elif has_payment_entry and not has_payment_history:
-                # PE exists but payment history missing
-                result.payment_history_missing.append(
-                    {
-                        "refund_id": refund_id,
-                        "payment_entry": payment_entries_map[refund_id],
-                        "amount": refund_amount,
-                    }
-                )
-            elif not has_payment_entry:
-                # Need to create PE (and payment history)
+            else:
+                # Not booked -- or booked as a Journal Entry whose Donation Payment row is
+                # missing. The latter stays pending on purpose: payment_history_missing
+                # carries a Payment Entry name (_update_missing_payment_history reads it as
+                # one), while _process_pending_refunds' already-booked branch writes the
+                # row for a Journal Entry and books nothing twice.
                 created_at = mollie_refund.get("createdAt") or mollie_refund.get("created_at")
                 result.pending_refunds.append(
                     {
@@ -373,25 +359,10 @@ class UnifiedIdempotencyManager:
     def _check_chargeback_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
     ):
-        """Check chargeback processing completeness."""
-        # Find all processed chargebacks (Payment Entries with Pay type)
-        processed_chargebacks = frappe.db.get_all(
-            "Payment Entry",
-            filters={
-                "reference_no": ["like", "chb_%"],
-                "payment_type": "Pay",
-                "docstatus": 1,
-                # #1277: same wildcard hazard as the refund lookup above.
-                "remarks": ["like", f"%{escape_sql_like_wildcards(payment_id)}%"],
-            },
-            fields=["name", "reference_no", "paid_amount"],
-        )
+        """Check chargeback processing completeness.
 
-        result.chargebacks_processed = [
-            {"chargeback_id": pe.reference_no, "payment_entry": pe.name, "amount": pe.paid_amount}
-            for pe in processed_chargebacks
-        ]
-
+        Needs Mollie (the chargeback ids come from it): without it nothing is classified.
+        """
         if include_mollie_api:
             # Fetch current chargebacks from Mollie to find unprocessed ones
             try:
@@ -401,8 +372,6 @@ class UnifiedIdempotencyManager:
                 mollie_client = client._get_mollie_client()
                 payment = mollie_client.payments.get(payment_id)
                 mollie_chargebacks = payment.chargebacks.list()
-
-                processed_chargeback_ids = {c["chargeback_id"] for c in result.chargebacks_processed}
 
                 def safe_extract_chargeback_data(chargeback):
                     """Safely extract chargeback data from either dict or object format."""
@@ -428,7 +397,23 @@ class UnifiedIdempotencyManager:
                 for chargeback in mollie_chargebacks:
                     try:
                         chargeback_id, amount, reason, created_at = safe_extract_chargeback_data(chargeback)
-                        if chargeback_id and chargeback_id not in processed_chargeback_ids:
+                        if not chargeback_id:
+                            continue
+                        # #2355: the booker's own arbiter (Journal Entry or Payment Entry
+                        # under build_reversal_key), not a Payment-Entry 'chb_%' query.
+                        booked = find_booked_reversal(
+                            build_reversal_key(payment_id, "chargeback", chargeback_id)
+                        )
+                        if booked:
+                            result.chargebacks_processed.append(
+                                {
+                                    "chargeback_id": chargeback_id,
+                                    "payment_entry": booked[1],
+                                    "reversal_doctype": booked[0],
+                                    "amount": amount,
+                                }
+                            )
+                        else:
                             result.pending_chargebacks.append(
                                 {
                                     "chargeback_id": chargeback_id,
