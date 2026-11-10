@@ -274,3 +274,32 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
             self.assertIsNone(self._book_refund_pe())
         self._assert_failed_submit_frees_the_key()
         self._assert_a_retry_books_a_submitted_entry()
+
+    def test_a_refund_redelivered_after_staff_cancelled_it_is_booked_again(self):
+        """Real flow: book -> staff cancel -> redeliver. The cancelled row keeps the unique
+        idempotency key, which used to make the new insert collide (IntegrityError)."""
+        first = self._book_refund_pe()
+        self.assertIsNotNone(first, "fixture problem: refund not booked")
+        frappe.get_doc("Payment Entry", first.name).cancel()
+        self.assertIsNone(find_booked_reversal(self.key), "fixture problem: cancel did not free the key")
+
+        second = self._book_refund_pe()
+        self.assertIsNotNone(second, "the redelivered refund was not booked")
+        self.assertNotEqual(second.name, first.name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", second.name, "docstatus"), 1)
+        self.assertEqual(find_booked_reversal(self.key), ("Payment Entry", second.name))
+        live_gl = frappe.db.count(
+            "GL Entry", {"voucher_type": "Payment Entry", "voucher_no": second.name, "is_cancelled": 0}
+        )
+        self.assertGreater(live_gl, 0, "the new Payment Entry posted no GL rows")
+
+    def test_a_long_submit_error_message_still_returns_none(self):
+        """The handler's log_error was positional: a >140-char message landed in the title and
+        raised CharacterLengthExceededError out of the creator."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        self.expectErrorLog("Unified Payment Entry Creation")
+        long_message = "closed period " * 30
+        with patch.object(PaymentEntry, "submit", side_effect=frappe.ValidationError(long_message)):
+            self.assertIsNone(self._book_refund_pe())
+        self._assert_failed_submit_frees_the_key()

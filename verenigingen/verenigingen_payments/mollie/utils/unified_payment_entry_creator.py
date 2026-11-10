@@ -85,6 +85,8 @@ def create_unified_payment_entry(
             # must book anew rather than be handed that cancelled entry (#2384).
             existing_filters["docstatus"] = ["!=", 2]
         existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
+        if not existing_pe and payment_type == "Pay":
+            _free_cancelled_reversal_keys(reference_no, customer)
 
         if existing_pe:
             frappe.logger().info(f"⚠️ Payment Entry already exists: {existing_pe}")
@@ -204,10 +206,25 @@ def create_unified_payment_entry(
     except Exception as e:
         frappe.logger().error(f"❌ Failed to create {payment_type} Payment Entry: {str(e)}")
         frappe.log_error(
-            f"Unified Payment Entry creation failed for {donation_doc.name}: {str(e)}",
-            "Unified Payment Entry Creation",
+            title="Unified Payment Entry Creation",
+            message=f"Unified Payment Entry creation failed for {donation_doc.name}: {str(e)}",
         )
         return None
+
+
+def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
+    """Release the unique idempotency key held by a cancelled reversal PE (#2384).
+
+    A cancelled reversal frees its key for rebooking (``find_booked_reversal``), but
+    the cancelled row keeps ``custom_mollie_idempotency_key``, a unique index, so the
+    rebooking's insert would collide. The cancelled row stays as the audit record.
+    """
+    for name in frappe.get_all(
+        "Payment Entry",
+        filters={"payment_type": "Pay", "reference_no": reference_no, "party": customer, "docstatus": 2},
+        pluck="name",
+    ):
+        frappe.db.set_value("Payment Entry", name, IDEMPOTENCY_KEY_FIELD, None, update_modified=False)
 
 
 def _discard_unposted_payment_entry(payment_entry_name: str, error_message: str) -> None:

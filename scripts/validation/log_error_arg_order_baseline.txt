@@ -609,7 +609,6 @@ verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger._cre
 verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger.cleanup_old_logs::1
 verenigingen/verenigingen_payments/mollie/utils/logging.py::MollieLogger.error::1
 verenigingen/verenigingen_payments/mollie/utils/security.py::WebhookSecurityManager._load_security_settings::1
-verenigingen/verenigingen_payments/mollie/utils/unified_payment_entry_creator.py::create_unified_payment_entry::1
 verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_bulk_payments::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_payment::1
