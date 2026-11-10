@@ -21,40 +21,18 @@ from verenigingen.tests.unit import test_zabbix_mollie_bank_transaction_metrics 
 from verenigingen.verenigingen_payments.api import balance_transaction_processing as api
 from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
 
-SRC = zabbix_2088.TestZabbixMollieBankTransactionMetrics
-
 
 class TestProcessingStatisticsDrafts(BTRBase):
-    _national_board_member = SRC._national_board_member
-    _baltr = SRC._baltr
+    # Fixture helpers borrowed from the #2088 test; bound in the class body so that module's
+    # TestCase is not collected (and re-run) here.
+    _national_board_member = zabbix_2088.TestZabbixMollieBankTransactionMetrics._national_board_member
+    _baltr = zabbix_2088.TestZabbixMollieBankTransactionMetrics._baltr
+    _reconcile_through_erpnext = zabbix_2088.TestZabbixMollieBankTransactionMetrics._reconcile_through_erpnext
 
     def _totals(self):
         result = api.get_processing_statistics(days=7)
         self.assertEqual(result["status"], "success", result)
         return result["totals"]
-
-    def _reconcile_through_erpnext(self, bt):
-        """ERPNext's own "create voucher" flow: it allocates, ERPNext derives "Reconciled"."""
-        from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
-            create_journal_entry_bts,
-        )
-
-        income = frappe.db.get_value(
-            "Account", {"company": self.company, "root_type": "Income", "is_group": 0}, "name"
-        )
-        self.assertTrue(income, "the shared test company has no income leaf account")
-        je = create_journal_entry_bts(
-            bt.name,
-            reference_number=bt.reference_number,
-            reference_date=today(),
-            posting_date=today(),
-            entry_type="Journal Entry",
-            second_account=income,
-        )
-        je_doc = je if hasattr(je, "doctype") else frappe.get_doc("Journal Entry", je)
-        self.track_doc("Journal Entry", je_doc.name)
-        bt.reload()
-        self.assertEqual(bt.status, "Reconciled", "ERPNext did not reconcile the row")
 
     def test_every_state_is_classified_and_controls_are_left_out(self):
         before = self._totals()
