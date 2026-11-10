@@ -33,6 +33,7 @@ class TestDebugPageRowOutcome(BTRBase):
     def _row(self, submitted, marker=None):
         bt = self._baltr(submitted=submitted)
         frappe.db.set_value("Bank Transaction", bt.name, "description", f"{self.token} {bt.name}")
+        bt.reload()  # the direct write above moved `modified`
         if marker:
             bts.record_pool_outcome(bt, marker)
         return bt
@@ -67,6 +68,21 @@ class TestDebugPageRowOutcome(BTRBase):
         found = self._found()
         self.assertEqual(found[unreconciled.name]["status"], "Unreconciled")
         self.assertEqual(found[unreconciled.name]["outcome"], "unreconciled")
+
+    def test_a_cancelled_row_carrying_a_marker_is_pending(self):
+        """Control for the marker branch: #2397's counts include no cancelled row, so the page
+        may not claim an outcome for one. Probe shortcut: the marker is written with
+        ``db.set_value`` onto the cancelled row (no flow leaves one there; a draft marked by the
+        pool and later submitted would, but submit re-validates the Select and fails on sites
+        whose Custom Field options predate the fixtures)."""
+        for marker in (bts.RECONCILED, bts.FAILED):
+            bt = self._row(True)
+            bt.cancel()
+            frappe.db.set_value("Bank Transaction", bt.name, bts.FIELD, marker, update_modified=False)
+            self.assertEqual(frappe.db.get_value("Bank Transaction", bt.name, "docstatus"), 2)
+            row = self._found()[bt.name]
+            self.assertEqual(row["processing_status"], marker, "fixture: the marker is on the row")
+            self.assertEqual(row["outcome"], "pending", f"cancelled row with marker {marker!r}")
 
     def test_a_submitted_reconciled_row_is_reconciled(self):
         """Control: ``status`` is still honoured where ERPNext owns it (submitted rows)."""
