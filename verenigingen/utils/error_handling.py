@@ -564,6 +564,14 @@ def handle_api_error(func: Callable) -> Callable:
                 trace_id=trace_id,
             )
         except Exception as e:
+            # #2112: an RQ job timeout is raised once; turning it into a failed
+            # OperationResult lets the job carry on past its timeout. Imported here because
+            # this module is imported very early.
+            from verenigingen.verenigingen_payments.core.resilience.job_timeout import (
+                reraise_if_job_timeout,
+            )
+
+            reraise_if_job_timeout(e)
             # Unexpected errors - log with full traceback
             trace_id = log_error(
                 e,

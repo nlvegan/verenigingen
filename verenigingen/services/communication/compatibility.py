@@ -127,7 +127,6 @@ def send_member_notification(
             "approval": "member_approval",
             "suspension": "member_suspension",
             "termination": "member_termination",
-            "reactivation": "member_reactivation",
         }
 
         mapped_type = notification_mapping.get(notification_type, notification_type)

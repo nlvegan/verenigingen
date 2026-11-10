@@ -535,7 +535,7 @@ Generated at: {timestamp}
         try:
             # Send email using EmailService
             email_service = get_email_service()
-            email_service.send_simple_email(
+            result = email_service.send_simple_email(
                 recipients=recipients,
                 subject=content["subject"],
                 message=content["message"],
@@ -543,6 +543,10 @@ Generated at: {timestamp}
                 reference_name=context.get("reference_name"),
                 notification_key=context.get("notification_key", "sepa_member_pre_notification"),
             )
+
+            # A skip (cooldown, disabled key, opt-out) or a failure is not a delivery (#2178)
+            if not result.success or result.skip_reason:
+                return {"success": False, "error": result.skip_reason or "email not queued"}
 
             return {"success": True, "recipients_count": len(recipients)}
 

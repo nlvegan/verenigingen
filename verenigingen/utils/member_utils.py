@@ -93,8 +93,8 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
         rolls back frappe.log_error()'s Error Log row, leaving no trace.
 
         Callers that genuinely want to degrade to None must catch it themselves -
-        auth_hooks.get_default_home_page() and
-        SelfServiceAccessController.get_user_member() already do.
+        auth_hooks.get_default_home_page() does. SelfServiceAccessController.
+        get_user_member() used to and no longer does: it refuses (#2297).
     """
     if not user_email:
         frappe.logger().warning("get_member_name_for_user called with empty user_email")
@@ -180,6 +180,15 @@ def get_current_user_linked_member_name() -> Optional[str]:
     Returns None when the user has no linked Member; a database error propagates.
     """
     return get_member_name_for_board_access(frappe.session.user)
+
+
+def get_not_linked_message() -> str:
+    """The sentence shown to a logged-in user whose account has no linked Member (#2207).
+
+    Shared by the home-page routing and the portal "no member" banners, so an unlinked
+    user never reads "Member Record Not Found".
+    """
+    return _("Your account is not linked to a membership. Please contact the office to have it linked.")
 
 
 def get_current_user_member_doc():

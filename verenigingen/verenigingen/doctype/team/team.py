@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
+from frappe.utils import getdate
 
 from verenigingen.events.team_events import (
     emit_team_leadership_changed,
@@ -171,6 +172,7 @@ class Team(Document):
                         member.volunteer,
                         member.team_role,
                         change_date,  # Use change date, not original from_date
+                        row_from_date=member.from_date,
                     )
 
                 # Check if member was reactivated
@@ -192,11 +194,15 @@ class Team(Document):
                     old_member.volunteer, old_member.team_role, old_member.from_date, end_date
                 )
 
-    def add_team_assignment_history(self, volunteer_id: str, team_role: str, start_date: str):
+    def add_team_assignment_history(
+        self, volunteer_id: str, team_role: str, start_date: str, row_from_date=None
+    ):
         """Add active assignment to volunteer history when joining team"""
         from verenigingen.services.team_service import TeamService
 
-        return TeamService().add_assignment_history(self, volunteer_id, team_role, start_date)
+        return TeamService().add_assignment_history(
+            self, volunteer_id, team_role, start_date, row_from_date=row_from_date
+        )
 
     def complete_team_assignment_history(
         self, volunteer_id: str, team_role: str, start_date: str, end_date: str
@@ -312,19 +318,30 @@ class Team(Document):
                 f"Failed to emit team change events for {self.name}: {str(e)}", "Team Event Emission Error"
             )
 
+    @staticmethod
+    def _membership_key(member):
+        """Row identity (volunteer, start date), with the date normalised (#2181).
+
+        A stored row carries a ``date`` and a desk form save the string the client sent, so
+        the raw values never compared equal and a role change looked like removed + added.
+        A blank date stays None: ``getdate(None)`` would be today.
+        """
+        from_date = member.from_date
+        return (member.volunteer, getdate(from_date) if from_date else None)
+
     def _detect_and_emit_membership_changes(self, old_doc):
         """Detect and emit team membership changes"""
         # Group by volunteer to detect changes
         old_by_volunteer = {}
         for m in old_doc.team_members or []:
             if m.volunteer:
-                key = (m.volunteer, m.from_date)
+                key = self._membership_key(m)
                 old_by_volunteer[key] = m
 
         new_by_volunteer = {}
         for m in self.team_members or []:
             if m.volunteer:
-                key = (m.volunteer, m.from_date)
+                key = self._membership_key(m)
                 new_by_volunteer[key] = m
 
         # Find added members

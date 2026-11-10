@@ -44,8 +44,10 @@ from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
+from verenigingen.tests.utils.throttle_guard import raise_throttle_user_limit
 
 
 class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
@@ -77,6 +79,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # in one process, on one DB connection, and frappe.db.rollback()
         # never touches session state.
         guard_session_variables(cls)
+        # #2256: also cover Users inserted in setUpClass (the per-test call comes too late).
+        raise_throttle_user_limit(cls)
+
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
 
         cls._ensure_test_environment()
         cls._track_created_docs = []
@@ -193,6 +200,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         guard_form_dict(self)
         # #1983: frappe.local.response too (a bare `_dict()` has no `docs`).
         guard_local_response(self)
+        # #2256: Frappe's User-creation throttle (>60/hour) is armed unless raised; see throttle_guard.
+        raise_throttle_user_limit(self)
 
         # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
         # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
@@ -297,8 +306,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Clean up test request context
         self._cleanup_test_request_context()
 
-        # Restore original behaviors
-        self._cleanup_test_mocks()
+        # The mocks are NOT stopped here (#2221): tearDown runs before addCleanup, so a test's
+        # own nested patch of the same target would put the mock back permanently. The stop is
+        # registered with addCleanup in _setup_test_mocks and unwinds LIFO after the test's own.
+        # Exception: a hand-driven setUp()/tearDown() pair (no run(), `_outcome` is None) never
+        # reaches doCleanups, so stop here; the stop is idempotent and nothing is nested.
+        if self._outcome is None:
+            self._cleanup_test_mocks()
 
         super().tearDown()
 

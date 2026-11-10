@@ -22,8 +22,10 @@ from verenigingen.services.member.application.short_application_confirm import (
     EXPIRY_DAYS,
     PURGE_DAYS,
     SUBMISSION,
+    chosen_plan_still_on_door,
     confirmable_submission,
     expire,
+    plan_removed_refusal,
     refusal,
     submitted_template_still_valid,
     success,
@@ -101,9 +103,13 @@ def confirm_application(name, token) -> dict:
     if not submission:
         return refusal()
     payload = json.loads(submission.payload)
-    if not submitted_template_still_valid(submission.source, payload):  # ruling R15: the door changed
+    # ruling R15: the door changed
+    if not submitted_template_still_valid(submission.source, payload):
         expire(submission.name)
         return refusal()
+    if not chosen_plan_still_on_door(submission.source, payload, submission.door):
+        expire(submission.name)
+        return plan_removed_refusal()
     existing = frappe.db.get_value(
         "Member", {"email": submission.email}, ["name", "status", "application_status"], as_dict=True
     )

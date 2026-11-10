@@ -218,7 +218,12 @@ def get_context(context):
         member = get_current_user_member_name()
 
         if not member and is_member:
-            frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+            # Not linked to a membership: show the banner instead of an error page (#2207)
+            from verenigingen.utils.member_portal_utils import set_no_member_context
+
+            context.title = _("Payment Dashboard")
+            set_no_member_context(context)
+            return context
         elif not member and is_admin:
             # Admin without member record - show member selection
             context.show_member_selection = True
@@ -244,7 +249,9 @@ def get_context(context):
 def _add_bank_details_context(context):
     """Add bank details context data"""
     # Import helpers from their new locations
-    from verenigingen.services.payment.sepa_mandate_manager import get_active_sepa_mandate
+    from verenigingen.services.payment.sepa_mandate_manager import (
+        get_active_sepa_mandate_choice,
+    )
     from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 
     # Ensure CSRF token is available
@@ -263,7 +270,11 @@ def _add_bank_details_context(context):
     context.current_details = current_details
 
     # Check for active SEPA mandate
-    context.current_mandate = get_active_sepa_mandate(context.member)
+    # A refusal (several Active mandates for dues) is not absence: the template must not
+    # tell a member who is being collected from that direct debit is "not configured" (#607).
+    mandate_choice = get_active_sepa_mandate_choice(context.member)
+    context.current_mandate = mandate_choice.mandate
+    context.mandate_ambiguous = mandate_choice.is_ambiguous
 
     # Get Mollie subscription information from MEMBER record only (not donor)
     # Dues/payment dashboard should only check membership payment methods, not donation methods

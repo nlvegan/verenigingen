@@ -11,14 +11,24 @@ Manages configuration for Ponto banking integration including:
 - Synchronization settings
 """
 
+from collections import Counter
 from typing import List, Optional
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_url
+from frappe.utils import get_url, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+    IMPORT_REFUSED,
+    PontoConfigurationService,
+)
+from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import (
+    _normalise_iban,
+    mapping_pause_reason,
+    resolve_bank_account_for_ponto_account,
+)
 
 
 class PontoSettings(Document):
@@ -176,8 +186,9 @@ class PontoSettings(Document):
         """
         Get the application ID for webhook JWT verification.
 
-        The webhook application ID (from Ibanity developer console) may differ
-        from the OAuth client_id. Falls back to client_id if not set.
+        The webhook JWT's ``aud`` is the client ID of the environment in use, so this
+        must equal it (measured on sandbox, #2172). Leave it blank to fall back to the
+        active client ID.
 
         Returns:
             str: Application ID for webhook verification
@@ -230,19 +241,22 @@ class PontoSettings(Document):
 
     def cleanup_duplicate_mappings(self) -> int:
         """
-        Remove duplicate bank account mappings, keeping the first entry for each IBAN.
+        Remove duplicate bank account mappings, keeping the first row per Ponto account ID.
+
+        The Ponto account ID is the identity (#2125). IBAN is not: accounts without an
+        IBAN, or sharing one, are different accounts.
 
         Returns:
             int: Number of duplicates removed
         """
-        seen_ibans = set()
+        seen_ids = set()
         duplicates_to_remove = []
 
         for i, row in enumerate(self.bank_account_mappings or []):
-            if row.ponto_iban in seen_ibans:
+            if row.ponto_account_id in seen_ids:
                 duplicates_to_remove.append(i)
             else:
-                seen_ibans.add(row.ponto_iban)
+                seen_ids.add(row.ponto_account_id)
 
         # Remove duplicates in reverse order to preserve indices
         removed = 0
@@ -255,45 +269,74 @@ class PontoSettings(Document):
 
         return removed
 
-    def _fix_bank_account_currency(self, bank_account_name: str, correct_currency: str) -> bool:
-        """
-        Fix Bank Account currency if it doesn't match.
+    @staticmethod
+    def _iban_holders(ponto_accounts, mappings) -> dict:
+        """Map each non-empty IBAN to the set of Ponto account IDs that carry it."""
+        holders = {}
+        pairs = [(a.iban, a.id) for a in ponto_accounts] + [
+            (r.ponto_iban, r.ponto_account_id) for r in mappings
+        ]
+        for iban, account_id in pairs:
+            if _normalise_iban(iban):
+                holders.setdefault(_normalise_iban(iban), set()).add(account_id)
+        return holders
 
-        Args:
-            bank_account_name: Name of the Bank Account to check/fix
-            correct_currency: The correct currency from Ponto
+    @staticmethod
+    def _pause_row(row, reason: str):
+        """Pause a mapping: nothing is imported, and the reason stays visible on the row."""
+        row.enabled = 0
+        row.sync_status = "Paused"
+        row.last_sync_error = reason
+        row.last_sync_failure_time = now_datetime()
+
+    @staticmethod
+    def _respect_concurrent_pauses(settings):
+        """Carry pauses written to the database since `settings` was loaded into the rows
+        about to be saved, so the save cannot un-pause them (pause_mapping does not bump
+        `modified`, so the timestamp check cannot catch it)."""
+        for row in settings.bank_account_mappings:
+            if row.sync_status == "Paused" or not row.name:
+                continue
+            # FOR UPDATE: under REPEATABLE READ a plain read answers from this transaction's
+            # snapshot and never sees a pause another connection committed since.
+            db = frappe.db.get_value(
+                "Ponto Bank Account Mapping",
+                row.name,
+                ["enabled", "sync_status", "last_sync_error", "last_sync_failure_time"],
+                as_dict=True,
+                for_update=True,
+            )
+            if db and db.sync_status == "Paused":
+                row.enabled, row.sync_status = db.enabled, "Paused"
+                row.last_sync_error, row.last_sync_failure_time = (
+                    db.last_sync_error,
+                    db.last_sync_failure_time,
+                )
+
+    def _audit_mappings(self, settings) -> list:
+        """
+        Pause every mapping whose Bank Account is shared or in the wrong currency; resume
+        those WE paused whose Bank Account is now fine. Never rewrites a GL Account.
 
         Returns:
-            True if currency was fixed, False if already correct or not fixable
+            list of (account label, reason) for every paused mapping.
         """
-        try:
-            bank_account = frappe.get_doc("Bank Account", bank_account_name)
-
-            # Bank Account currency comes from the linked GL Account
-            if not bank_account.account:
-                frappe.logger().warning(
-                    f"Bank Account {bank_account_name} has no linked GL Account - cannot check currency"
-                )
-                return False
-
-            gl_account = frappe.get_doc("Account", bank_account.account)
-            current_currency = gl_account.account_currency or "EUR"
-
-            if current_currency != correct_currency:
-                frappe.logger().warning(
-                    f"Fixing GL Account {bank_account.account} currency: "
-                    f"{current_currency} -> {correct_currency}"
-                )
-                gl_account.account_currency = correct_currency
-                # Security: Admin settings method - currency fix for Ponto bank sync
-                gl_account.save(ignore_permissions=True)
-                return True
-
-            return False
-
-        except Exception as e:
-            frappe.logger().error(f"Error fixing Bank Account currency: {e}")
-            return False
+        rows = settings.bank_account_mappings
+        links = Counter(row.bank_account for row in rows if row.bank_account)
+        for row in rows:
+            if not row.bank_account:
+                continue
+            reason = mapping_pause_reason(row.bank_account, row.ponto_currency, links[row.bank_account])
+            if reason:
+                self._pause_row(row, reason)
+            elif row.sync_status == "Paused" and not (row.last_sync_error or "").startswith(IMPORT_REFUSED):
+                # Only a pause THIS audit set may lift itself. An import refusal needs a person.
+                row.enabled, row.sync_status, row.last_sync_error = 1, "OK", None
+        return [
+            (row.ponto_account_name or row.ponto_account_id, row.last_sync_error)
+            for row in rows
+            if row.sync_status == "Paused"
+        ]
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -310,16 +353,6 @@ class PontoSettings(Document):
         """
         try:
             from verenigingen.verenigingen_payments.ponto.clients.accounts_client import PontoAccountsClient
-            from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import (
-                create_ponto_bank_account,
-            )
-
-            # Clean up any existing duplicates first (by IBAN)
-            duplicates_removed = self.cleanup_duplicate_mappings()
-            if duplicates_removed:
-                # Security: @high_security_api decorator - admin settings cleanup
-                self.save(ignore_permissions=True)
-                frappe.db.commit()
 
             # Get company from Verenigingen Settings
             verenigingen_settings = frappe.get_single("Verenigingen Settings")
@@ -337,81 +370,50 @@ class PontoSettings(Document):
             client = PontoAccountsClient()
             ponto_accounts = client.list_accounts()
 
-            # Get fresh settings after all API calls are done
+            # Get fresh settings after all API calls are done. Every write below goes through
+            # THIS copy and the final save, so it is loaded last, and the duplicate cleanup
+            # runs on it instead of saving the caller's possibly stale `self` (#2125).
             settings = frappe.get_single("Ponto Settings")
+            settings.cleanup_duplicate_mappings()
 
-            # Build lookup of existing mappings from database (atomic check)
-            # This prevents race conditions when button is clicked multiple times
-            # Use IBAN as the unique identifier (more stable than Ponto account UUID)
-            existing_in_db = frappe.get_all(
-                "Ponto Bank Account Mapping",
-                filters={"parent": "Ponto Settings"},
-                fields=["name", "ponto_account_id", "ponto_iban"],
-            )
-            existing_ibans = {row.ponto_iban for row in existing_in_db if row.ponto_iban}
-
-            # Also build in-memory lookup for updates (by IBAN)
-            existing_mappings = {
-                row.ponto_iban: row for row in settings.bank_account_mappings if row.ponto_iban
-            }
+            by_id = {row.ponto_account_id: row for row in settings.bank_account_mappings}
+            iban_holders = self._iban_holders(ponto_accounts, settings.bank_account_mappings)
+            claimed = {row.bank_account for row in settings.bank_account_mappings if row.bank_account}
 
             added = 0
             updated = 0
             bank_accounts_created = 0
-            bank_account_errors = []
-
-            currency_fixes = 0
             for account in ponto_accounts:
-                if account.iban in existing_ibans:
-                    # Already exists in database - update if we have it in memory
-                    if account.iban in existing_mappings:
-                        row = existing_mappings[account.iban]
-                        row.ponto_account_name = account.description or account.holder_name
-                        row.ponto_account_id = account.id  # Update Ponto ID in case it changed
-                        row.ponto_currency = account.currency or "EUR"
-
-                        # Fix linked Bank Account currency if mismatched
-                        if row.bank_account:
-                            fixed = self._fix_bank_account_currency(
-                                row.bank_account, account.currency or "EUR"
-                            )
-                            if fixed:
-                                currency_fixes += 1
+                row = by_id.get(account.id)
+                if row:
                     updated += 1
                 else:
-                    # Create GL Account, Bank, and Bank Account for new Ponto account
-                    bank_result = create_ponto_bank_account(
-                        ponto_account=account,
-                        company=company,
+                    row = settings.append(
+                        "bank_account_mappings", {"enabled": 1, "ponto_account_id": account.id}
                     )
-
-                    bank_account_name = None
-                    if bank_result.get("success"):
-                        bank_account_name = bank_result.get("bank_account")
-                        bank_accounts_created += 1
-                        frappe.logger().info(
-                            f"Created Bank Account {bank_account_name} for Ponto account {account.id}"
-                        )
-                    else:
-                        error_msg = bank_result.get("error", "Unknown error")
-                        bank_account_errors.append(f"{account.iban}: {error_msg}")
-                        frappe.logger().warning(
-                            f"Failed to create Bank Account for Ponto account {account.id}: {error_msg}"
-                        )
-
-                    # Add new mapping with auto-linked Bank Account
-                    settings.append(
-                        "bank_account_mappings",
-                        {
-                            "enabled": 1,
-                            "ponto_account_id": account.id,
-                            "ponto_account_name": account.description or account.holder_name,
-                            "ponto_iban": account.iban,
-                            "ponto_currency": account.currency or "EUR",
-                            "bank_account": bank_account_name,
-                        },
-                    )
+                    by_id[account.id] = row
                     added += 1
+                row.ponto_account_name = account.description or account.holder_name
+                row.ponto_iban = account.iban
+                row.ponto_currency = account.currency or "EUR"
+
+                if not row.bank_account:
+                    outcome = resolve_bank_account_for_ponto_account(
+                        account,
+                        company,
+                        shared_iban=len(iban_holders.get(_normalise_iban(account.iban), ())) > 1,
+                        claimed=claimed,
+                    )
+                    if outcome.get("bank_account"):
+                        row.bank_account = outcome["bank_account"]
+                        claimed.add(row.bank_account)
+                        bank_accounts_created += 1 if outcome["created"] else 0
+                    else:
+                        self._pause_row(row, outcome["pause_reason"])
+
+            self._respect_concurrent_pauses(settings)
+            paused = self._audit_mappings(settings)
+            bank_account_errors = [f"{name}: {reason}" for name, reason in paused]
 
             # Sync modified timestamp with DB to avoid version conflict
             # (token refresh may have saved the doc during validate_credentials)
@@ -425,8 +427,8 @@ class PontoSettings(Document):
             ]
             if bank_accounts_created:
                 message_parts.append(_("Created {0} Bank Accounts.").format(bank_accounts_created))
-            if currency_fixes:
-                message_parts.append(_("Fixed {0} Bank Account currencies.").format(currency_fixes))
+            if paused:
+                message_parts.append(_("Paused {0} accounts.").format(len(paused)))
 
             message = " ".join(message_parts)
 
@@ -435,9 +437,11 @@ class PontoSettings(Document):
                 if len(bank_account_errors) > 5:
                     error_list += f"<br>... and {len(bank_account_errors) - 5} more"
                 frappe.msgprint(
-                    _("Some Bank Accounts could not be created:<br>{0}").format(error_list),
+                    _("These Ponto accounts are paused and import nothing until fixed:<br>{0}").format(
+                        error_list
+                    ),
                     indicator="orange",
-                    title=_("Bank Account Creation Warnings"),
+                    title=_("Ponto Accounts Paused"),
                 )
 
             frappe.msgprint(message, indicator="green", alert=True)
@@ -450,6 +454,7 @@ class PontoSettings(Document):
                 "updated": updated,
                 "bank_accounts_created": bank_accounts_created,
                 "bank_account_errors": bank_account_errors,
+                "paused": len(paused),
             }
 
         except Exception as e:
@@ -502,25 +507,25 @@ class PontoSettings(Document):
         Returns:
             dict: Import result with transaction counts
         """
-        from frappe.utils import now_datetime
+        # Validate BEFORE the try: an ordinary "nothing configured" answer must reach the
+        # user as is, not re-wrapped as "Sync failed" with an Error Log row.
+        enabled_mappings = self.get_enabled_account_mappings()
+        paused = [row for row in self.bank_account_mappings if row.sync_status == "Paused"]
+        if not enabled_mappings:
+            frappe.throw(
+                _("No enabled Ponto accounts configured.") + self._paused_summary_html(paused),
+                title=_("No Accounts"),
+            )
 
         try:
             from verenigingen.verenigingen_payments.ponto.services.transaction_import_service import (
                 import_new_transactions,
             )
 
-            # Get enabled account mappings
-            enabled_mappings = self.get_enabled_account_mappings()
-
-            if not enabled_mappings:
-                frappe.throw(
-                    _("No enabled Ponto accounts configured"),
-                    title=_("No Accounts"),
-                )
-
             total_imported = 0
             total_skipped = 0
             errors = []
+            paused_lines = [(r.ponto_account_name or r.ponto_iban, r.last_sync_error) for r in paused]
 
             for mapping in enabled_mappings:
                 account_id = mapping.ponto_account_id
@@ -536,7 +541,9 @@ class PontoSettings(Document):
                     # Import transactions from Ponto (uses what Ponto has already synced)
                     import_result = import_new_transactions(account_id)
 
-                    if import_result:
+                    if import_result and import_result.get("paused"):
+                        paused_lines.append((account_name, "; ".join(import_result.get("errors") or [])))
+                    elif import_result:
                         total_imported += import_result.get("imported", 0)
                         total_skipped += import_result.get("skipped", 0)
                         if import_result.get("errors"):
@@ -547,21 +554,21 @@ class PontoSettings(Document):
                     errors.append(error_msg)
                     frappe.logger().error(f"Ponto sync failed for {account_id}: {e}")
 
-            # Update last sync time
-            self.last_sync_time = now_datetime()
-            self.save()
+            # Update last sync time. A direct write: self.save() would write this stale
+            # in-memory copy of the mappings over a pause set during the import.
+            frappe.db.set_value("Ponto Settings", "Ponto Settings", "last_sync_time", now_datetime())
+            PontoConfigurationService.clear_cache()
 
             # Build result message
             message = _("Sync complete. Imported {0} transactions, skipped {1} duplicates.").format(
                 total_imported, total_skipped
             )
 
-            if errors:
-                frappe.msgprint(
-                    _("Sync completed with errors:<br>{0}").format("<br>".join(errors[:5])),
-                    indicator="orange",
-                    title=_("Sync Warnings"),
-                )
+            if errors or paused_lines:
+                details = self._paused_summary_html_from(paused_lines)
+                if errors:
+                    details += _("Sync completed with errors:<br>{0}").format("<br>".join(errors[:5]))
+                frappe.msgprint(f"{message}<br>{details}", indicator="orange", title=_("Sync Warnings"))
             else:
                 frappe.msgprint(message, indicator="green", alert=True)
 
@@ -571,6 +578,7 @@ class PontoSettings(Document):
                 "imported": total_imported,
                 "skipped": total_skipped,
                 "errors": errors,
+                "paused": [{"account": n, "reason": r} for n, r in paused_lines],
             }
 
         except Exception as e:
@@ -583,6 +591,20 @@ class PontoSettings(Document):
                 title=_("Sync Error"),
             )
 
+    @staticmethod
+    def _paused_summary_html(paused_rows) -> str:
+        return PontoSettings._paused_summary_html_from(
+            [(r.ponto_account_name or r.ponto_iban, r.last_sync_error) for r in paused_rows]
+        )
+
+    @staticmethod
+    def _paused_summary_html_from(paused_lines) -> str:
+        """One block naming every paused account and why."""
+        if not paused_lines:
+            return ""
+        lines = "<br>".join(f"{name}: {reason}" for name, reason in paused_lines)
+        return "<br>" + _("Paused accounts (nothing is imported into them):") + f"<br>{lines}<br>"
+
     def get_enabled_account_mappings(self) -> List:
         """
         Get list of enabled bank account mappings.
@@ -590,7 +612,7 @@ class PontoSettings(Document):
         Returns:
             List of enabled Ponto Bank Account Mapping rows
         """
-        return [row for row in self.bank_account_mappings if row.enabled]
+        return [row for row in self.bank_account_mappings if PontoConfigurationService.is_active(row)]
 
     def get_mapping_for_ponto_account(self, ponto_account_id: str) -> Optional[object]:
         """
@@ -618,7 +640,7 @@ class PontoSettings(Document):
             Bank Account name or None if not mapped
         """
         mapping = self.get_mapping_for_ponto_account(ponto_account_id)
-        if mapping and mapping.enabled:
+        if mapping and PontoConfigurationService.is_usable(mapping):
             return mapping.bank_account
         return None
 
@@ -683,7 +705,26 @@ class PontoSettings(Document):
             )
             self.last_status_refresh = now_datetime()
 
-            self.save()
+            # Direct write of just these fields: self.save() would write this possibly stale
+            # copy of the mappings over a pause set meanwhile (#2125).
+            frappe.db.set_value(
+                "Ponto Settings",
+                "Ponto Settings",
+                {
+                    field: self.get(field)
+                    for field in (
+                        "organization_name",
+                        "organization_id",
+                        "onboarding_complete",
+                        "payments_activated",
+                        "payment_requests_activated",
+                        "payments_activation_requested",
+                        "payment_requests_activation_requested",
+                        "last_status_refresh",
+                    )
+                },
+            )
+            PontoConfigurationService.clear_cache()
 
             # Build status message
             env = "Sandbox" if self.sandbox_mode else "Production"

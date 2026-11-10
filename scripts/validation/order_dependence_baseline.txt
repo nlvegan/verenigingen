@@ -341,6 +341,7 @@ COMMIT_EXEMPT tests/backend/components/test_setup_install_path.py::1  # order-de
 COMMIT_EXEMPT tests/backend/components/test_staff_anbi_allocation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_event_driven.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_volunteer_assignment_history_bugs.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/comprehensive/test_financial_integration_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/features/test_anbi_clarity_lifecycle.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/features/test_application_submission_validation.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_chapter_cost_center_seeding.py::1  # order-dep-exempt
@@ -394,6 +395,8 @@ COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::2  # or
 COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_ponto_account_identity_2125_unit.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_ponto_paused_executed_payment_2125_unit.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_payment_request_paid_after_pe.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_submitted_documents.py::5  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_recurring_donation_charge.py::1  # order-dep-exempt
@@ -408,6 +411,7 @@ COMMIT_EXEMPT tests/security/test_link_sanitizer.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_permissions_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_modules.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_penetration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/security/test_unlinked_member_home_page_2207.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_batch_processing_service_happy_path.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_dd_batch_pipeline_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_sepa_bank_reconciliation_coverage.py::1  # order-dep-exempt
@@ -447,6 +451,7 @@ COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribut
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule_extra.py::6  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/member/mixins/test_payment_mixin.py::2  # order-dep-exempt
+COMMIT_EXEMPT verenigingen/doctype/member/test_member_id_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/mt940_import/test_mt940_import.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/vip_import/test_vip_import.py::6  # order-dep-exempt

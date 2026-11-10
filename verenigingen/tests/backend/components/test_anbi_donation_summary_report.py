@@ -165,6 +165,11 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
 
     def test_tax_id_processing(self):
         """Test tax ID encryption/decryption handling"""
+        from frappe.utils.password import encrypt
+
+        # A genuine token, so the decrypt branch (not only its failure branch) is pinned (#690).
+        real_token = encrypt("987654321")
+        self.assertTrue(real_token.startswith("gAAAAAB"), "fixture must look like the encrypted shape")
         with patch("frappe.db.get_single_value") as mock_get_single:
             mock_get_single.return_value = 500
             
@@ -195,20 +200,37 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                         "last_donation": today(),
                         "reportable": 1,
                         "agreements": None,
+                        "agreement_numbers": None},
+                    {
+                        "donor": "DON-003",
+                        "donor_name": "Test Real Token",
+                        "donor_type": "Organization",
+                        "tax_id_value": real_token,
+                        "consent_given": 1,
+                        "total_donations": 700.00,
+                        "donation_count": 1,
+                        "first_donation": today(),
+                        "last_donation": today(),
+                        "reportable": 1,
+                        "agreements": None,
                         "agreement_numbers": None}
                 ]
 
                 result = get_data({})
 
                 # Check tax ID processing
-                self.assertEqual(len(result), 2)
+                self.assertEqual(len(result), 3)
                 
                 # Plain text tax ID should be preserved
                 self.assertEqual(result[0]["tax_id"], "123456789")
                 
-                # Encrypted tax ID should show encryption indicator or be decrypted
-                # (depends on whether decrypt is available)
-                self.assertIn(result[1]["tax_id"], ["***ENCRYPTED***", "gAAAAABhMockEncryptedRSIN"])
+                # The fixture value is not a real Fernet token, so decrypt() raises and the
+                # report must show the indicator. Never the raw ciphertext (#690: the old
+                # either-or also accepted the ciphertext leaking through unchanged).
+                self.assertEqual(result[1]["tax_id"], "***ENCRYPTED***")
+
+                # A real token must decrypt back to the plaintext, not the indicator.
+                self.assertEqual(result[2]["tax_id"], "987654321")
 
     def test_agreement_type_determination(self):
         """Test agreement type and number processing"""

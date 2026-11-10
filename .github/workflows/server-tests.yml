@@ -11,8 +11,10 @@ name: Server Tests (GitHub Hosted)
 on:
   # #2184 flip: the full suite runs ONCE PER QUEUE BATCH, on the exact tree that lands.
   # - merge_group: runs the suite. develop's merge queue requires `Test Summary`.
-  # - pull_request: triggers only so `Test Summary` REPORTS on the PR (the `tests` job
-  #   below is skipped there; a skipped job reports success). No `paths:` on any trigger:
+  # - pull_request: the full `tests` job below is skipped there, but a SMALL pre-queue run
+  #   (`select-pr-modules` + `pr-tests`: the PR's own test modules plus a fixed census of
+  #   tree-scanning invariants) catches the defects that otherwise cost a ~50 minute queue
+  #   build. `Test Summary` gates on it. No `paths:` on any trigger:
   #   a path-skipped workflow reports nothing, so a required check would never arrive.
   # - no push trigger: a develop push would re-run the suite the queue already ran on
   #   that tree. The old per-file path lists (#1113/#1189/#1541/#1550) go with it - the
@@ -88,17 +90,77 @@ jobs:
       # checkbox still wins so you can run a fast, coverage-free dispatch.
       enable-coverage: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_coverage }}
 
+  # Pre-queue census (pull_request only). The merge queue and dispatch run the whole suite;
+  # a PR gets this subset on the merged tree, so a census/floor test in a module the PR never
+  # touched (#2293) or an AST invariant over an edited test file (#2272) reddens the PR and
+  # not a queue batch. Selection: scripts/testing/select_pr_test_modules.py (own changed test
+  # modules + bounded derived ones + scripts/testing/pr_census_modules.txt).
+  select-pr-modules:
+    # merge_group: this job does not run in the queue (the full suite does); dispatch: neither.
+    name: Select PR Test Modules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      modules: ${{ steps.select.outputs.modules }}
+    steps:
+      # The default pull_request checkout is the MERGE of the PR into the current base tip, so
+      # the selected modules run on the tree that would land. Its first parent is that base
+      # tip, which makes `HEAD^1..HEAD` exactly the PR's own change (github.base.sha can be
+      # stale when the base moved after the PR's last push). Full history: HEAD^1 is a
+      # parent, and a shallow clone would be one fetch-depth mistake from an unusable diff.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select modules
+        id: select
+        run: |
+          git rev-parse --verify -q HEAD^2 >/dev/null || { echo "::error::checkout is not a merge commit"; exit 1; }
+          python3 scripts/testing/select_pr_test_modules.py \
+            --base "$(git rev-parse HEAD^1)" --github-output "$GITHUB_OUTPUT"
+
+  # Fail closed: an empty selection skips this job, and `summary` refuses a PR whose pr-tests
+  # did not succeed. Without the `!= ''` guard an empty list would make the reusable workflow
+  # run the WHOLE suite.
+  pr-tests:
+    # merge_group: skipped in the queue (see select-pr-modules); the full suite runs there.
+    name: PR Tests (census and own modules)
+    needs: select-pr-modules
+    if: github.event_name == 'pull_request' && needs.select-pr-modules.outputs.modules != ''
+    uses: ./.github/workflows/_base-server-tests.yml
+    with:
+      python-version: '3.14'
+      node-version: 24
+      parallel-runs: 1
+      enable-coverage: false
+      test-modules: ${{ needs.select-pr-modules.outputs.modules }}
+      test-timeout-minutes: 45
+
   summary:
     name: Test Summary
-    needs: tests
+    needs: [tests, select-pr-modules, pr-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Report Result
         run: |
           status="${{ needs.tests.result }}"
+          pr_status="${{ needs.pr-tests.result }}"
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          # merge_group: a queue run is not a pull_request, so it takes the full-suite branch below.
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # `tests` is skipped on a PR by design. What must have SUCCEEDED is pr-tests; a
+            # skipped or failed select-pr-modules leaves it skipped, which is a failure too:
+            # a PR that ran no census must not read green.
+            if [ "$pr_status" == "success" ]; then
+              echo ":white_check_mark: PR census and own test modules passed. The full suite runs in the merge queue." >> $GITHUB_STEP_SUMMARY
+              exit 0
+            fi
+            echo ":x: PR census run did not succeed (pr-tests: $pr_status, select-pr-modules: ${{ needs.select-pr-modules.result }})." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
           # `skipped` is the pull_request path from the gate on `tests`, not a failure: the
           # suite runs in the merge queue instead (#2184). Without this branch the
           # `if: always()` above would turn every PR red here.

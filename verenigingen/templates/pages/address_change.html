@@ -282,6 +282,7 @@
 {% endblock %}
 
 {% block script %}
+{% if not no_member_record %}
 <script>
 $(document).ready(function() {
     let currentAddressData = {
@@ -443,4 +444,5 @@ $(document).ready(function() {
     }
 });
 </script>
+{% endif %}
 {% endblock %}
