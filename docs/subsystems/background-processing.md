@@ -24,7 +24,6 @@ The hooks package at `hooks/__init__.py` imports from focused submodules:
 **Member and Membership:**
 - `refresh_all_member_financial_histories`
 - `process_expired_memberships`, `send_renewal_reminders`, `notify_about_orphaned_records`
-- `send_overdue_notifications`
 
 **Billing and Dues:**
 - `auto_create_missing_dues_schedules_scheduled`, `generate_dues_invoices`

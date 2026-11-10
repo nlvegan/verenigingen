@@ -186,8 +186,9 @@ class PontoSettings(Document):
         """
         Get the application ID for webhook JWT verification.
 
-        The webhook application ID (from Ibanity developer console) may differ
-        from the OAuth client_id. Falls back to client_id if not set.
+        The webhook JWT's ``aud`` is the client ID of the environment in use, so this
+        must equal it (measured on sandbox, #2172). Leave it blank to fall back to the
+        active client ID.
 
         Returns:
             str: Application ID for webhook verification

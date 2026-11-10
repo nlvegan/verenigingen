@@ -131,9 +131,19 @@ runs:
         node-version: ${{ inputs.node-version }}
         check-latest: true
 
+    # Every setup cache below is restored here and saved by an explicit step at the END of this
+    # action ("Save setup caches"), not by actions/cache's implicit post step. A post step ran
+    # at the end of EVERY job, merge-queue prepare included, costing 30-53 s measured on
+    # 2026-11-09 (npm 13 s with a real save, pip 12.6 s and yarn 9.7 s on exact hits) while a
+    # cache saved from a gh-readonly-queue/... ref is unreadable by every later queue run
+    # (header of cache-warm.yml). The explicit save steps skip merge_group; every other event
+    # (develop's warm, workflow_dispatch, pull_request) saves exactly as before: only when the
+    # restore was not an exact hit on the primary key. Keys, restore-keys and paths are
+    # unchanged from the actions/cache@v4 versions.
     - name: Cache pip
+      id: cache-pip
       if: ${{ inputs.mode == 'full' }}
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py') }}
@@ -142,8 +152,9 @@ runs:
           ${{ runner.os }}-
 
     - name: Cache yarn
+      id: cache-yarn
       if: ${{ inputs.mode == 'full' }}
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ~/.cache/yarn
         key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
@@ -152,8 +163,9 @@ runs:
 
     # This app is npm-managed (no yarn.lock), so its downloads never hit the yarn cache.
     - name: Cache npm
+      id: cache-npm
       if: ${{ inputs.mode == 'full' }}
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ~/.npm
         key: ${{ runner.os }}-npm-${{ hashFiles('**/package.json') }}
@@ -175,7 +187,8 @@ runs:
     # a truncated file or an HTML error page would otherwise be installed, or
     # saved into the cache and inherited by every later run.
     - name: Cache wkhtmltopdf package
-      uses: actions/cache@v4
+      id: cache-wkhtmltopdf
+      uses: actions/cache/restore@v4
       with:
         path: /tmp/wkhtmltox.deb
         key: wkhtmltox-0.12.6.1-2-jammy-amd64
@@ -205,7 +218,8 @@ runs:
         echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
     - name: Cache apt archives
-      uses: actions/cache@v4
+      id: cache-apt
+      uses: actions/cache/restore@v4
       with:
         path: ~/.cache/apt-archives/*.deb
         key: ${{ steps.apt-cache-key.outputs.prefix }}${{ steps.apt-cache-key.outputs.week }}
@@ -611,3 +625,48 @@ runs:
         overwrite: true
         retention-days: 1
         if-no-files-found: error
+
+    # The saves for the restore steps above. Each runs only off the merge queue and only when
+    # the restore was not an exact hit on the primary key, which is when actions/cache's own
+    # post step used to save. They run last, after the work that fills these directories
+    # (pip, yarn and npm downloads, apt archives, the wkhtmltopdf .deb). A failed save is a
+    # lost optimisation, never a failed build, hence continue-on-error.
+    - name: Save setup caches - pip
+      if: ${{ github.event_name != 'merge_group' && inputs.mode == 'full' && steps.cache-pip.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ steps.cache-pip.outputs.cache-primary-key }}
+
+    - name: Save setup caches - yarn
+      if: ${{ github.event_name != 'merge_group' && inputs.mode == 'full' && steps.cache-yarn.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/yarn
+        key: ${{ steps.cache-yarn.outputs.cache-primary-key }}
+
+    - name: Save setup caches - npm
+      if: ${{ github.event_name != 'merge_group' && inputs.mode == 'full' && steps.cache-npm.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.npm
+        key: ${{ steps.cache-npm.outputs.cache-primary-key }}
+
+    - name: Save setup caches - wkhtmltopdf
+      if: ${{ github.event_name != 'merge_group' && steps.cache-wkhtmltopdf.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: /tmp/wkhtmltox.deb
+        key: ${{ steps.cache-wkhtmltopdf.outputs.cache-primary-key }}
+
+    - name: Save setup caches - apt
+      if: ${{ github.event_name != 'merge_group' && steps.cache-apt.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/apt-archives/*.deb
+        key: ${{ steps.cache-apt.outputs.cache-primary-key }}

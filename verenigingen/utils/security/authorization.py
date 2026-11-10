@@ -29,6 +29,7 @@ from verenigingen.utils.security.audit_logging import AuditEventType, AuditSever
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.security.types import OperationType
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class SEPAPermissionLevel(Enum):
@@ -204,25 +205,39 @@ class SEPAAuthorizationManager:
 
     def __init__(self):
         """Initialize authorization manager"""
-        self.allowed_ips = self._get_allowed_ips()
+        # None means "could not be read" (distinct from [] = "not configured");
+        # _check_ip_restrictions retries and denies HTTP requests while it stays None.
+        self.allowed_ips = self._load_allowed_ips()
         self.business_hours = self._get_business_hours()
 
-    def _get_allowed_ips(self) -> List[str]:
-        """Get allowed IP addresses from configuration"""
+    def _load_allowed_ips(self) -> Optional[List[str]]:
+        """Allowed IPs, or None when the configuration could not be read (#2296)."""
         try:
-            # Get from site config or Verenigingen Payments Settings
-            allowed_ips = frappe.conf.get("sepa_allowed_ips", [])
+            return self._get_allowed_ips()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:  # swallow-ok: caller-checks
+            # None is an explicit "unreadable" state; _check_ip_restrictions denies on it.
+            frappe.log_error(
+                title="SEPA allowed IPs could not be read",
+                message=frappe.get_traceback(),
+            )
+            return None
 
-            # Also check Verenigingen Payments Settings
-            settings_ips = frappe.db.get_single_value("Verenigingen Payments Settings", "sepa_allowed_ips")
-            if settings_ips:
-                settings_ips_list = [ip.strip() for ip in settings_ips.split(",") if ip.strip()]
-                allowed_ips.extend(settings_ips_list)
+    def _get_allowed_ips(self) -> List[str]:
+        """Get allowed IP addresses from configuration. Raises if the read fails."""
+        # Copy: extending frappe.conf's own list would mutate site config in place.
+        allowed_ips = frappe.conf.get("sepa_allowed_ips") or []
+        if isinstance(allowed_ips, str):
+            allowed_ips = [ip.strip() for ip in allowed_ips.split(",") if ip.strip()]
+        allowed_ips = list(allowed_ips)
 
-            return list(set(allowed_ips))  # Remove duplicates
+        # Also check Verenigingen Payments Settings
+        settings_ips = frappe.db.get_single_value("Verenigingen Payments Settings", "sepa_allowed_ips")
+        if settings_ips:
+            allowed_ips.extend(ip.strip() for ip in settings_ips.split(",") if ip.strip())
 
-        except Exception:
-            return []
+        return list(set(allowed_ips))  # Remove duplicates
 
     def _get_business_hours(self) -> Dict[str, Any]:
         """Get business hours configuration"""
@@ -437,7 +452,7 @@ class SEPAAuthorizationManager:
 
     def _check_ip_restrictions(self) -> bool:
         """Check if current IP is allowed for restricted operations"""
-        if not self.allowed_ips:
+        if self.allowed_ips is not None and not self.allowed_ips:
             return True  # No restrictions configured
 
         # Non-HTTP contexts (background jobs, scheduler, CLI/console) have no
@@ -445,6 +460,15 @@ class SEPAAuthorizationManager:
         # so it does not apply to these contexts.
         if not getattr(frappe.local, "request", None):
             return True
+
+        if self.allowed_ips is None:
+            # Built while the config was unreadable (#2296): retry, and deny while it
+            # stays unreadable. "Could not read" is not "no allowlist".
+            self.allowed_ips = self._load_allowed_ips()
+            if self.allowed_ips is None:
+                return False
+            if not self.allowed_ips:
+                return True
 
         try:
             # Use the centralized, spoofing-hardened resolver (trusted-proxy aware)
