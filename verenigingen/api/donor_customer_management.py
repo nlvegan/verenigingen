@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
@@ -155,6 +156,9 @@ def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationRe
     # COMMITS the request: without this savepoint the half-unlink is kept (#2304, class of #2281).
     frappe.db.savepoint(_UNLINK_SAVEPOINT)
     try:
+        # Over HTTP the flag is a string and "0" is truthy, which attempted the delete (#2327).
+        remove_customer = cbool(remove_customer)
+
         if not frappe.db.exists("Donor", donor_name):
             return OperationResult.fail(message=_("Donor not found"), error_code="DONOR_NOT_FOUND")
 
@@ -210,7 +214,8 @@ def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationRe
         raise
     except Exception as e:
         rollback_to_savepoint(_UNLINK_SAVEPOINT)
-        error_msg = _("Error unlinking donor-customer: {0}").format(str(e))
+        # A bare PermissionError has no text, so name the class when str(e) is empty.
+        error_msg = _("Error unlinking donor-customer: {0}").format(str(e) or type(e).__name__)
         frappe.log_error(
             title=_("Donor Customer Unlink Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
         )
