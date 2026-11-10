@@ -82,5 +82,51 @@ class ModuleStep(unittest.TestCase):
         self.assertEqual(self.run_step("Ran 1 test\n\nOK", modules="")[0], 1)
 
 
+class SeedStep(unittest.TestCase):
+    """#2361: the runner prepares (runs `before_tests`) only for integration-category tests, so a
+    module filed as "unspecified" runs on the fresh CI site with none of this app's seeds. The step
+    seeds once, BEFORE the first module, and a failed seed fails the job without running modules."""
+
+    SEED = "verenigingen.tests.setup.before_tests"
+
+    def run_step(self, seed_rc=0, modules=MOD):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            (ws / "env" / "bin").mkdir(parents=True)
+            fake = ws / "fakebin"
+            fake.mkdir()
+            calls = ws / "calls.log"
+            # Logs every invocation; `execute` is the seed, anything else is a module run.
+            (fake / "bench").write_text(
+                f'#!/bin/bash\necho "$@" >> {calls}\n'
+                f'if [[ " $* " == *" execute "* ]]; then echo "seeding"; exit {seed_rc}; fi\n'
+                "printf 'Ran 3 tests in 1s\\n\\nOK\\n'\n"
+            )
+            (fake / "bench").chmod((fake / "bench").stat().st_mode | stat.S_IXUSR)
+            (ws / "env" / "bin" / "activate").write_text(f'export PATH="{fake}:$PATH"\n')
+            (ws / "step.sh").write_text(step_script())
+            res = subprocess.run(
+                ["bash", "-e", str(ws / "step.sh")],
+                env={**os.environ, "GITHUB_WORKSPACE": str(ws), "MODULES": modules},
+                capture_output=True, text=True,
+            )
+            lines = calls.read_text().splitlines() if calls.exists() else []
+            return res.returncode, res.stdout + res.stderr, lines
+
+    def test_the_seed_runs_once_on_the_test_site_before_the_first_module(self):
+        rc, out, calls = self.run_step(modules=f"{MOD} {MOD}_b")
+        self.assertEqual(rc, 0, out)
+        seeds = [i for i, c in enumerate(calls) if " execute " in f" {c} "]
+        self.assertEqual(len(seeds), 1, calls)
+        self.assertEqual(seeds[0], 0, calls)
+        self.assertEqual(calls[0], f"--site test_site execute {self.SEED}")
+        self.assertEqual(len(calls), 3, calls)
+
+    def test_a_failing_seed_fails_the_job_and_runs_no_module(self):
+        rc, out, calls = self.run_step(seed_rc=1)
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual(len(calls), 1, calls)
+
+
 if __name__ == "__main__":
     unittest.main()
