@@ -174,15 +174,24 @@ class TestStaffAlertCooldownScope2310(EnhancedTestCase):
         )
 
     def test_balance_monitor_alert(self):
-        from verenigingen.verenigingen_payments.monitoring.balance_monitor import BalanceMonitor
+        """The type is FIXED at the only value that reaches the sender (negative balance); the incident
+        identity that varies is the currency."""
+        from verenigingen.verenigingen_payments.monitoring.balance_monitor import AlertType, BalanceMonitor
 
         monitor = BalanceMonitor.__new__(BalanceMonitor)
-        self._assert_scoped(
-            "balance_monitor_alert",
-            lambda t: monitor._send_emergency_notification(
-                {"message": t, "type": t, "severity": "critical"}, {"type": "emergency_escalation"}
-            ),
-        )
+
+        def send(currency):
+            monitor._send_emergency_notification(
+                {
+                    "type": AlertType.NEGATIVE_BALANCE.value,
+                    "currency": currency,
+                    "message": f"Negative balance detected: {currency}",
+                    "severity": "critical",
+                },
+                {"type": "emergency_escalation"},
+            )
+
+        self._assert_scoped("balance_monitor_alert", send)
 
     def test_contact_request_escalated(self):
         from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (
@@ -337,17 +346,32 @@ class TestEmailServiceAlwaysQueues2336(EnhancedTestCase):
         self.assertIs(self.captured_emails[-1]["kwargs"]["delayed"], True)
 
     def test_no_caller_passes_delayed_false(self):
+        """Every non-test module: a ``delayed=`` keyword on an EmailService method is dead. Raw
+        ``frappe.sendmail`` is not EmailService and honours it, so it is not flagged."""
         import ast
         import os
 
+        methods = {"send_simple_email", "send_templated_email", "send_notification_email", "send_email"}
         app = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        roots = [app, os.path.join(os.path.dirname(app), "scripts")]
         offenders = []
-        for rel in self.CALLER_FILES:
-            with open(os.path.join(app, rel)) as handle:
-                tree = ast.parse(handle.read())
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call):
-                    for kw in node.keywords:
-                        if kw.arg == "delayed" and isinstance(kw.value, ast.Constant) and not kw.value.value:
-                            offenders.append(f"{rel}:{node.lineno}")
-        self.assertEqual(offenders, [], "EmailService always queues; delayed=False is dead")
+        for root in roots:
+            for dirpath, _dirs, files in os.walk(root):
+                for name in files:
+                    if not name.endswith(".py") or name.startswith("test_") or "/tests" in dirpath:
+                        continue
+                    path = os.path.join(dirpath, name)
+                    try:
+                        with open(path) as handle:
+                            tree = ast.parse(handle.read())
+                    except (SyntaxError, UnicodeDecodeError):
+                        continue
+                    for node in ast.walk(tree):
+                        if (
+                            isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and node.func.attr in methods
+                            and any(kw.arg == "delayed" for kw in node.keywords)
+                        ):
+                            offenders.append(f"{os.path.relpath(path, app)}:{node.lineno}")
+        self.assertEqual(offenders, [], "EmailService always queues; delayed= is ignored")

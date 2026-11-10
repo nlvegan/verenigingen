@@ -3,7 +3,8 @@
 ponto_executed_on_cancelled_row / ponto_executed_unbookable were registered without a cooldown, so their rows
 were seeded with the default 60. The registry now carries 0 (every unbookable executed payment must reach
 staff). A row still holding the seeded 60 follows; any other value is an admin's own choice and is left
-alone. Idempotent.
+alone. Accepted: a row an admin deliberately set to 60 cannot be told from the seeded one, so it is
+moved too. Idempotent.
 
 Today this changes nothing in practice: both alerts go through Notification Log, which applies no cooldown
 (measured on #2248). It keeps the rows consistent with the registry should either alert ever move onto
