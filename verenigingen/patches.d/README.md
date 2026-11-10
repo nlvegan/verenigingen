@@ -31,10 +31,12 @@ Frappe's `patch_handler.get_patches_from_app`. As a result:
 A malformed fragment fails the migrate with the file named:
 - a bad name;
 - not exactly one entry;
-- a duplicate of another entry;
-- a dotted module with no `execute()`.
+- a duplicate of another entry.
 
-`test_patch_fragments_2407` checks every committed fragment the same way.
+`test_patch_fragments_2407` also checks that every committed fragment's dotted module imports
+with an `execute()`. That check is not run at migrate time, because an already-executed fragment
+must keep working after its module is gone, as a `patches.txt` line does. **If you delete a
+patch module, delete its fragment in the same PR.**
 
 ## Notes
 

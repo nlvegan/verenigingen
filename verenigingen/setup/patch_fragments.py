@@ -15,6 +15,11 @@ registered as a before_migrate and a before_install hook, which Frappe runs befo
 Wrapping there, rather than running fragments from after_migrate, keeps them inside the
 post_model_sync pass (before fixtures and customizations sync) and keeps fresh installs marking them
 complete instead of running them.
+
+The runtime read checks only what can be checked without importing anything: the name, one entry per
+file, no duplicates. Whether a dotted entry imports is checked over the committed fragments by a test
+(`unimportable_entries`), not at migrate time: like a patches.txt line, an already-executed fragment
+must keep working after its module is deleted.
 """
 
 import importlib
@@ -35,8 +40,9 @@ def install():
     if getattr(original, "_verenigingen_fragments", False):
         return
 
-    def get_patches_from_app(app, patch_type=None):
-        patches = original(app, patch_type=patch_type)
+    def get_patches_from_app(app, *args, **kwargs):
+        patches = original(app, *args, **kwargs)
+        patch_type = kwargs.get("patch_type", args[0] if args else None)
         if app == APP and patch_type in (None, patch_handler.PatchType.post_model_sync):
             patches = patches + read_fragments()
         return patches
@@ -46,25 +52,24 @@ def install():
     patch_handler.get_patches_from_app = get_patches_from_app
 
 
+def fragment_dir():
+    return Path(frappe.get_app_path(APP, "patches.d", "post_model_sync"))
+
+
 def read_fragments():
     """This app's fragment entries in run order. Throws on any malformed fragment."""
-    directory = Path(frappe.get_app_path(APP, "patches.d", "post_model_sync"))
+    directory = fragment_dir()
     if not directory.is_dir():
         return []
-    seen = set(_patches_txt_entries())
+    seen = set(patch_handler.parse_as_configfile(frappe.get_app_path(APP, "patches.txt")))
     entries = []
     for path in sorted(p for p in directory.iterdir() if not p.name.startswith(".")):
         entry = _read_one(path)
         if entry in seen:
             frappe.throw(_("Patch fragment {0}: {1} is already registered").format(path.name, entry))
-        _check_importable(path.name, entry)
         seen.add(entry)
         entries.append(entry)
     return entries
-
-
-def _patches_txt_entries():
-    return patch_handler.parse_as_configfile(frappe.get_app_path(APP, "patches.txt"))
 
 
 def _read_one(path):
@@ -81,14 +86,17 @@ def _read_one(path):
     return entries[0]
 
 
-def _check_importable(name, entry):
-    """A dotted entry must name a module with execute(), as patch_handler.execute_patch requires."""
-    if entry.startswith(("execute:", "finally:")):
-        return
-    module = entry.split(maxsplit=1)[0]
-    try:
-        importable = callable(getattr(importlib.import_module(module), "execute", None))
-    except ImportError:
-        importable = False
-    if not importable:
-        frappe.throw(_("Patch fragment {0}: {1} has no importable execute()").format(name, module))
+def unimportable_entries(entries):
+    """Dotted entries whose module has no importable execute(), as patch_handler.execute_patch needs."""
+    bad = []
+    for entry in entries:
+        if entry.startswith(("execute:", "finally:")):
+            continue
+        module = entry.split(maxsplit=1)[0]
+        try:
+            ok = callable(getattr(importlib.import_module(module), "execute", None))
+        except ImportError:
+            ok = False
+        if not ok:
+            bad.append(entry)
+    return bad
