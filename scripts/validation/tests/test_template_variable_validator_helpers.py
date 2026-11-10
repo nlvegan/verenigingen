@@ -38,6 +38,10 @@ class TestHelperFollowing(unittest.TestCase):
         )
         self.assertEqual(provided(src) & {"first", "second"}, {"first", "second"})
 
+    def test_update_with_a_dict_in_a_renamed_parameter_helper_is_followed(self):
+        src = "def get_context(context):\n    _h(context)\n\ndef _h(ctx):\n    ctx.update({'k': 1})\n"
+        self.assertIn("k", provided(src))
+
     # Controls: each of these has a real assignment in a function that is NOT handed the context.
     def test_helper_not_passed_the_context_does_not_provide_anything(self):
         src = (

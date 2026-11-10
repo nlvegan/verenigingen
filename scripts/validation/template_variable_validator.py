@@ -404,6 +404,13 @@ class ModernTemplateValidator:
         when the context is actually passed to it (positionally or by keyword);
         the helper's own parameter name is used to read its assignments. Followed
         transitively (helpers of helpers) with a visited set, so cycles stop.
+
+        Known blind spot, inherited from _extract_context_from_function and now
+        widened to helpers (#2408): any ``ctx.attr`` / ``ctx['k']`` counts as
+        provided, including reads, ``ctx.get(...)``, dead or conditional
+        assignments and a reassigned parameter. Also not handled: keyword-only
+        and positional-only parameters, and a helper called twice with the
+        context bound differently (``seen`` is keyed by helper name).
         """
         seen = set() if seen is None else seen
         module_funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
@@ -460,7 +467,7 @@ class ModernTemplateValidator:
                 if (hasattr(node.func, 'attr') and node.func.attr == 'update' and
                     hasattr(node.func, 'value') and 
                     isinstance(node.func.value, ast.Name) and 
-                    node.func.value.id == 'context'):
+                    node.func.value.id == context_name):
                     
                     for arg in node.args:
                         if isinstance(arg, ast.Dict):
