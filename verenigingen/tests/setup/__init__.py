@@ -253,8 +253,8 @@ def seed_for_standalone_module_runs():
     (``frappe.tests.utils.toggle_test_mode(True)``, called from
     ``frappe.testing.environment._initialize_test_environment``). Without it Frappe's
     password-strength policy applies, so on a fresh site erpnext's fixture users
-    (``new_password`` "Eastern_43A1W") are refused with "This is a top-10 common
-    password." Locally the users already existed, which hid it. Call this, not
+    marcus@abc.com, thalia@abc.com and mathias@abc.com (``new_password`` "password") are
+    refused with "This is a top-10 common password." ("Eastern_43A1W" passes.) Locally the users already existed, which hid it. Call this, not
     ``before_tests``, from any non-runner entry point.
 
     It also mutes outgoing mail for the call. With ``in_test`` on, a new User's welcome
