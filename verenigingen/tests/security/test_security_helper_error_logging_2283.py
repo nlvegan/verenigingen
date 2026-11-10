@@ -4,9 +4,10 @@
 below denied correctly but invisibly. Each error is injected at the boundary the helper calls
 (pytz / client-IP resolver / frappe.db.get_value / frappe.get_doc). Asserted per helper:
 (a) the SAME deny outcome as before, (b) an Error Log row whose body carries the traceback and the
-injected message, (c) a deadlock is re-raised rather than flattened into the deny.
+injected message, (c) where the handler reaches a caller (role profiles, volunteer lookup), a deadlock is re-raised.
+The business-hours / IP helpers do no DB work, so they carry no deadlock re-raise.
 
-Mock justified: infrastructure failures (timezone database, DB driver, deadlock) cannot be produced
+Mock justified: infrastructure failures (DB driver, deadlock) cannot be produced
 for real from one session; the logic under test (the helpers' except handlers) is not mocked.
 """
 
@@ -60,18 +61,6 @@ class TestSecurityHelperErrorLogging2283(EnhancedTestCase):
         self.assertIn("Not/AZone-2283", row.error)
         self.assertIn("Traceback", row.error)
 
-    def test_business_hours_deadlock_propagates(self):
-        class DeadlockingConfig(dict):
-            def get(self, key, default=None):
-                if key == "timezone":
-                    raise QueryDeadlockError("1213")
-                return super().get(key, default)
-
-        mgr = self._manager_2283()
-        mgr.business_hours = DeadlockingConfig(mgr.business_hours)
-        with self.assertRaises(QueryDeadlockError):
-            mgr._check_business_hours()
-
     # ---- IP allowlist --------------------------------------------------------------------
 
     def _with_request(self, remote_addr="10.0.0.1"):
@@ -107,18 +96,6 @@ class TestSecurityHelperErrorLogging2283(EnhancedTestCase):
         self.assertFalse(mgr._check_ip_restrictions())
         row = self._new_row(IP_TITLE, before)
         self.assertIn("ip-boom-2283", row.error)
-
-    def test_ip_check_deadlock_propagates(self):
-        self._with_request()
-        mgr = self._manager_2283()
-
-        class DeadlockingAllowlist(list):
-            def __contains__(self, item):
-                raise QueryDeadlockError("1213")
-
-        mgr.allowed_ips = DeadlockingAllowlist(["10.0.0.1"])
-        with self.assertRaises(QueryDeadlockError):
-            mgr._check_ip_restrictions()
 
     # ---- role profiles -------------------------------------------------------------------
 
@@ -184,6 +161,20 @@ class TestSecurityHelperErrorLogging2283(EnhancedTestCase):
         with self._get_doc_failing_for_volunteer(QueryDeadlockError("1213")):
             with self.assertRaises(QueryDeadlockError):
                 SelfServiceAccessController().get_volunteer_member("VOL-X")
+
+    def test_non_string_volunteer_name_is_refused_without_an_error_row(self):
+        """A dict-valued name from a request must not let a caller write Error Log rows."""
+        before = self._error_log_rows_2283(VOL_TITLE)
+        self.assertIsNone(SelfServiceAccessController().get_volunteer_member({"a": 1}))
+        self.assertEqual(len(self._error_log_rows_2283(VOL_TITLE)), len(before))
+
+    def test_logged_volunteer_name_is_bounded(self):
+        self.expectErrorLog(VOL_TITLE)
+        before = self._error_log_rows_2283(VOL_TITLE)
+        with self._get_doc_failing_for_volunteer(frappe.ValidationError("vol-boom-2283")):
+            SelfServiceAccessController().get_volunteer_member("V" * 5000)
+        row = self._new_row(VOL_TITLE, before)
+        self.assertNotIn("V" * 200, row.error)
 
     def test_control_missing_volunteer_is_not_an_error_row(self):
         before = self._error_log_rows_2283(VOL_TITLE)

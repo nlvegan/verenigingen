@@ -443,8 +443,6 @@ class SEPAAuthorizationManager:
 
             return True
 
-        except NON_RESUMABLE_DB_ERRORS:
-            raise
         except Exception:
             # Fail CLOSED: business-hours is an opt-in restriction, so if it
             # cannot be evaluated we deny rather than silently allowing access
@@ -495,8 +493,6 @@ class SEPAAuthorizationManager:
             # Check if IP is in allowed list
             return current_ip in self.allowed_ips
 
-        except NON_RESUMABLE_DB_ERRORS:
-            raise
         except Exception:
             # Fail CLOSED on any error while an allowlist is active. Recorded via
             # log_error (#2283): frappe.logger() output is not captured anywhere readable.

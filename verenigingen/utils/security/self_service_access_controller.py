@@ -145,6 +145,9 @@ class SelfServiceAccessController:
         Returns:
             Member name or None if not found
         """
+        if not isinstance(volunteer_name, str):
+            # A request-supplied dict/list must not reach get_doc or the Error Log.
+            return None
         try:
             volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
             if hasattr(volunteer_doc, "member") and volunteer_doc.member:
@@ -159,7 +162,7 @@ class SelfServiceAccessController:
             # so the refusal is diagnosable.
             frappe.log_error(
                 title="Self-service volunteer member lookup failed",
-                message=f"volunteer={volunteer_name}\n{frappe.get_traceback()}",
+                message=f"volunteer={volunteer_name[:140]}\n{frappe.get_traceback()}",
             )
         return None
 
