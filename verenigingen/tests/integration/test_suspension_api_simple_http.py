@@ -1,128 +1,120 @@
 """
-Simple HTTP Integration Test for Suspension API
-Phase 4 Week 3 - API Integration Testing
+Suspension API: simple HTTP-stack integration tests (#2370)
+===========================================================
 
-Demonstrates HTTP integration testing approach for suspension APIs.
-This is a simplified version that proves the methodology works.
+These drive the suspension endpoints through the real WSGI app (see
+``verenigingen.tests.support.wsgi_http_session``): the whitelist dispatch, a real login, and the
+``@critical_api`` / ``@utility_api`` / ``@public_api`` security tiers all run.
 
-Eliminates mocks by using real HTTP requests through the security framework.
+They used to send ``requests`` to ``frappe.utils.get_url()`` and skipped whenever no live web
+server answered, so they never ran in CI. Their assertions were also vacuous: each only printed a
+tick when the status was one of 200/401/403, so a refusal and a success were both "success" and
+nothing could fail. Each test now pins the specific outcome per caller, and an authorised control
+shows the endpoint body really ran.
+
+No Member is created: an unknown member name is enough to tell "the body ran" from "refused", and it
+keeps the committed footprint to the login users, which are removed again afterwards.
 """
 
-import requests
-import frappe
+import json
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.wsgi_http_session import (
+    CommittedLoginUsersMixin,
+    api_path,
+    operation_result,
+    run_wsgi_cases,
+)
+
+SUSPENSION_API = "verenigingen.api.suspension_api."
+UNKNOWN_MEMBER = "HTTP-SUSPENSION-NO-SUCH-MEMBER"
 
 
-class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
-    """
-    Simple HTTP integration test for suspension APIs
-    
-    Demonstrates the A+ pattern:
-    - Zero inappropriate business logic mocks
-    - Real HTTP requests through security framework
-    - Tests API security validation as success indicator
-    """
-
+class TestSuspensionAPISimpleHTTP(CommittedLoginUsersMixin, EnhancedTestCase):
     def setUp(self):
         super().setUp()
-        
-        # Set up HTTP testing environment
-        self.site_url = frappe.utils.get_url()
-        self.api_base = f"{self.site_url}/api/method"
-        
-        # Create real test member
-        self.test_member = self.create_test_member(
-            first_name="HTTP",
-            last_name="Test",
-            email="http.test@example.nl",
-            chapter="Amsterdam",
-            status="Active"
+        # @critical_api grants CRITICAL only through a vetted Role Profile, so the admin and the
+        # board user both clear the framework; only the endpoint's own check tells them apart.
+        # The member profile tops out below CRITICAL and has no admin role.
+        users = self._create_login_users(
+            admin="Verenigingen Administrator",
+            board="Verenigingen National Board Member",
+            member="Verenigingen Member",
         )
+        self.admin_user, self.board_user, self.member_user = users["admin"], users["board"], users["member"]
 
-    def _post_or_skip(self, endpoint, data):
-        """POST to an API endpoint, skipping the test if no HTTP server is reachable.
-
-        These are real-HTTP integration tests. Under `bench run-tests` there is
-        usually no live web server bound to the site hostname (e.g. the site name
-        does not resolve via DNS), so a ConnectionError here means "no server to
-        integrate with" rather than a product failure - skip instead of erroring.
-        """
-        try:
-            return requests.post(f"{self.api_base}/{endpoint}", data=data, timeout=10)
-        except requests.exceptions.RequestException as e:
-            self.skipTest(f"HTTP server not reachable for integration test ({e})")
+    def _suspension_case(self, name, endpoint, payload, user=None):
+        return {
+            "name": name,
+            "endpoint": api_path(SUSPENSION_API + endpoint),
+            "login": {"usr": user, "pwd": self.password} if user else None,
+            "csrf": "valid" if user else False,
+            "json": payload,
+        }
 
     def test_suspension_api_security_validation_http(self):
-        """
-        Test suspension API security validation through HTTP
-        
-        This demonstrates that our HTTP integration approach works:
-        - Makes real HTTP request to suspension API
-        - Tests that security framework responds correctly
-        - No business logic mocks required
-        """
-        # Unauthenticated request to test security
-        response = self._post_or_skip(
-            "verenigingen.api.suspension_api.suspend_member",
-            {
-                "member_name": self.test_member.name,
-                "suspension_reason": "HTTP Security Test",
-            },
+        """suspend_member refuses a guest at dispatch, a low profile at the framework, a non-admin at the endpoint."""
+        # The endpoint logs both its refusal and its unknown-member answer; they are the behaviour here.
+        self.expectErrorLog("Suspension API Permission Error", "Suspension API Validation Error")
+        payload = {"member_name": UNKNOWN_MEMBER, "suspension_reason": "HTTP Security Test"}
+        out = run_wsgi_cases(
+            self._suspension_case("guest", "suspend_member", payload),
+            self._suspension_case("member", "suspend_member", payload, self.member_user),
+            self._suspension_case("board", "suspend_member", payload, self.board_user),
+            self._suspension_case("admin", "suspend_member", payload, self.admin_user),
         )
-        
-        # Security responses (401, 403) are SUCCESS indicators
-        # This proves the security framework is working
-        if response.status_code in [200, 401, 403]:
-            print("✅ HTTP security framework validation successful")
-            print(f"   Response code: {response.status_code}")
-        else:
-            print(f"⚠️ Unexpected response code: {response.status_code}")
+
+        self.assertEqual(out["guest"]["status"], 403, out["guest"]["body"][:300])
+        self.assertIn("PermissionError", out["guest"]["body"])
+        # A profile below CRITICAL is refused by the framework tier before the body runs.
+        self.assertEqual(out["member"]["status"], 403, out["member"]["body"][:300])
+        self.assertIn("Access denied", out["member"]["body"])
+        # The board user clears the framework tier, so this refusal is the endpoint's own check.
+        self.assertEqual(out["board"]["status"], 200, out["board"]["body"][:300])
+        board = operation_result(out["board"])
+        self.assertFalse(board["success"], board)
+        self.assertEqual(board["error"]["code"], "PERMISSION_DENIED")
+        # Control: the admin gets past both layers and the body runs (unknown member, so nothing is
+        # suspended), which is what makes the two refusals above about the caller.
+        admin = operation_result(out["admin"])
+        self.assertEqual(admin["error"]["code"], "DOES_NOT_EXIST", admin)
 
     def test_suspension_status_api_http_access(self):
-        """
-        Test suspension status API through HTTP
-        
-        Demonstrates HTTP integration without mocks
-        """
-        # Test status API access
-        response = self._post_or_skip(
-            "verenigingen.api.suspension_api.get_suspension_status_safe",
-            {"member_name": self.test_member.name},
+        """get_suspension_status_safe serves a guest only a login prompt, never another member's status."""
+        out = run_wsgi_cases(
+            self._suspension_case("guest_self", "get_suspension_status_safe", {}),
+            self._suspension_case("guest_other", "get_suspension_status_safe", {"member_name": UNKNOWN_MEMBER}),
+            self._suspension_case(
+                "member_other", "get_suspension_status_safe", {"member_name": UNKNOWN_MEMBER}, self.member_user
+            ),
+            self._suspension_case(
+                "admin_other", "get_suspension_status_safe", {"member_name": UNKNOWN_MEMBER}, self.admin_user
+            ),
         )
-        
-        # Any response shows the API is accessible through HTTP
-        if response.status_code in [200, 401, 403]:
-            print("✅ Status API HTTP access validated")
-            print(f"   Security response: {response.status_code}")
-        else:
-            print(f"⚠️ Unexpected status API response: {response.status_code}")
+
+        for name in out:
+            self.assertEqual(out[name]["status"], 200, out[name]["body"][:300])
+        self.assertEqual(operation_result(out["guest_self"])["error"]["code"], "NOT_AUTHENTICATED")
+        for name in ("guest_other", "member_other"):
+            result = operation_result(out[name])
+            self.assertFalse(result["success"], result)
+            self.assertEqual(result["error"]["code"], "PERMISSION_DENIED", result)
+            self.assertNotIn("is_suspended", json.dumps(result), name)
+        # Control: an admin may look at any member, so the denials above are about the caller.
+        admin = operation_result(out["admin_other"])
+        self.assertTrue(admin["success"], admin)
+        self.assertEqual(admin["data"]["access_type"], "admin_access")
 
     def test_can_suspend_member_api_http(self):
-        """
-        Test permission checking API through HTTP
-        
-        Shows HTTP integration testing of utility APIs
-        """
-        # Test permission checking API
-        response = self._post_or_skip(
-            "verenigingen.api.suspension_api.can_suspend_member",
-            {"member_name": self.test_member.name},
+        """can_suspend_member needs a login and answers per role: an admin may suspend, a member may not."""
+        out = run_wsgi_cases(
+            self._suspension_case("guest", "can_suspend_member", {}),
+            self._suspension_case("member", "can_suspend_member", {}, self.member_user),
+            self._suspension_case("admin", "can_suspend_member", {}, self.admin_user),
         )
-        
-        # Permission checking should respond through HTTP
-        if response.status_code in [200, 401, 403]:
-            print("✅ Permission API HTTP integration working")
-            print(f"   Permission check response: {response.status_code}")
-        else:
-            print(f"⚠️ Unexpected permission response: {response.status_code}")
 
-
-# Mock Classification for this simple test:
-# ✅ LEGITIMATE: None - all operations test HTTP security framework
-# ❌ ELIMINATED: All frappe.get_doc, frappe.db.*, MagicMock mocks from original
-# 
-# This simple test demonstrates:
-# 1. ✅ HTTP requests work through security framework
-# 2. ✅ Security validation responses prove API integration
-# 3. ✅ Zero business logic mocks required
-# 4. ✅ Real API endpoints tested through complete HTTP stack
+        self.assertEqual(out["guest"]["status"], 403, out["guest"]["body"][:300])
+        member = operation_result(out["member"])
+        self.assertTrue(member["success"], member)
+        self.assertIs(member["data"]["can_suspend"], False)
+        self.assertIs(operation_result(out["admin"])["data"]["can_suspend"], True)
