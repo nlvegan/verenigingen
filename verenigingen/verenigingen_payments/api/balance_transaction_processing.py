@@ -590,6 +590,8 @@ def get_processing_statistics(days: int = 30) -> Dict:
 
         from frappe.utils import getdate, now_datetime
 
+        from verenigingen.verenigingen_payments.utils import bank_transaction_status
+
         # Validate days
         try:
             days = int(days)
@@ -613,23 +615,13 @@ def get_processing_statistics(days: int = 30) -> Dict:
         )
 
         # Get reconciliation status breakdown
-        reconciled = frappe.db.count(
-            "Bank Transaction",
-            filters={
-                "reference_number": ["like", "baltr_%"],
-                "date": ["between", [getdate(start_date), getdate(end_date)]],
-                "status": "Reconciled",
-            },
-        )
-
-        unreconciled = frappe.db.count(
-            "Bank Transaction",
-            filters={
-                "reference_number": ["like", "baltr_%"],
-                "date": ["between", [getdate(start_date), getdate(end_date)]],
-                "status": "Unreconciled",
-            },
-        )
+        # Drafts carry the pool's marker, not a status (#2344); same window as the total.
+        window = {
+            "reference_number": ["like", "baltr_%"],
+            "date": ["between", [getdate(start_date), getdate(end_date)]],
+        }
+        reconciled = bank_transaction_status.count_reconciled(window)
+        unreconciled = bank_transaction_status.count_unreconciled(window)
 
         # Get total amounts
         amounts = frappe.db.sql(
