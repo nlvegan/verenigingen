@@ -12,8 +12,8 @@ Tests create real Members and Chapters via the test factory (no business-logic
 mocking) and run as Administrator. Notification helpers send through the unified
 EmailService and are wrapped in try/except in production, so they are exercised
 indirectly via approve/reject/join and asserted only on their observable side
-effects (status, history, comments) -- the email send itself is a no-op in the
-test environment.
+effects (status, history, comments). The join-request tests are the exception: they
+own an outgoing Email Account and the key row, and assert on the queued mail itself.
 """
 
 import json
