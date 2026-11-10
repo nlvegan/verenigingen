@@ -13,6 +13,9 @@ from typing import Any, Optional
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    FIELDNAME as IDEMPOTENCY_KEY_FIELD,
+)
 from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
@@ -74,11 +77,16 @@ def create_unified_payment_entry(
                 return None
 
         # Check if Payment Entry already exists (UNIFIED IDEMPOTENCY)
-        existing_pe = frappe.db.get_value(
-            "Payment Entry",
-            {"payment_type": payment_type, "reference_no": reference_no, "party": customer},
-            "name",
-        )
+        existing_filters = {"payment_type": payment_type, "reference_no": reference_no, "party": customer}
+        if payment_type == "Pay":
+            # A cancelled reversal frees its key (find_booked_reversal's rule), so it is
+            # not "already exists" either: a submit that failed after docstatus 1 was
+            # written is cancelled by _discard_unposted_payment_entry, and the retry
+            # must book anew rather than be handed that cancelled entry (#2384).
+            existing_filters["docstatus"] = ["!=", 2]
+        existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
+        if not existing_pe and payment_type == "Pay":
+            _free_cancelled_reversal_keys(reference_no, customer)
 
         if existing_pe:
             frappe.logger().info(f"⚠️ Payment Entry already exists: {existing_pe}")
@@ -186,7 +194,11 @@ def create_unified_payment_entry(
 
         # Insert and submit using proper webhook user permissions
         pe.insert()
-        pe.submit()
+        try:
+            pe.submit()
+        except Exception as submit_error:
+            _discard_unposted_payment_entry(pe.name, str(submit_error))
+            raise
 
         frappe.logger().info(f"✅ Created {payment_type} Payment Entry: {pe.name}")
         return pe
@@ -194,10 +206,70 @@ def create_unified_payment_entry(
     except Exception as e:
         frappe.logger().error(f"❌ Failed to create {payment_type} Payment Entry: {str(e)}")
         frappe.log_error(
-            f"Unified Payment Entry creation failed for {donation_doc.name}: {str(e)}",
-            "Unified Payment Entry Creation",
+            title="Unified Payment Entry Creation",
+            message=f"Unified Payment Entry creation failed for {donation_doc.name}: {str(e)}",
         )
         return None
+
+
+def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
+    """Release the unique idempotency key held by a cancelled reversal PE (#2384).
+
+    A cancelled reversal frees its key for rebooking (``find_booked_reversal``), but
+    the cancelled row keeps ``custom_mollie_idempotency_key``, a unique index, so the
+    rebooking's insert would collide. The cancelled row stays as the audit record.
+    """
+    for name in frappe.get_all(
+        "Payment Entry",
+        # docstatus 2 only: keeps a live key safe if a future caller reaches this helper
+        # without the upstream find_booked_reversal/existing_pe guards.
+        filters={"payment_type": "Pay", "reference_no": reference_no, "party": customer, "docstatus": 2},
+        pluck="name",
+    ):
+        frappe.db.set_value("Payment Entry", name, IDEMPOTENCY_KEY_FIELD, None, update_modified=False)
+
+
+def _discard_unposted_payment_entry(payment_entry_name: str, error_message: str) -> None:
+    """Free the reference key held by a Payment Entry whose submit failed (#2384).
+
+    ``find_booked_reversal`` counts every ``docstatus != 2`` row as booked, so an
+    entry left behind makes every redelivery answer "already booked" -- the refund
+    is never booked and the report looks clean. Where the row ends up depends on
+    where submit raised: ``validate``/``before_submit`` leave a draft (0), while
+    ``on_submit`` (the GL post) fails AFTER ``docstatus = 1`` was written, with the
+    ledger not posted -- the same shape ``discard_unposted_journal_entry`` documents.
+    A draft cannot be cancelled, so it is deleted; a written-as-submitted one is
+    cancelled, which is auditable. Both free the key.
+
+    A cancelled row still holds ``custom_mollie_idempotency_key`` (a unique index, kept
+    for cancelled rows on purpose), which would make the retry's insert fail on
+    ``IntegrityError`` -- so the failed attempt's key is cleared once it is cancelled.
+    """
+    try:
+        docstatus = frappe.db.get_value("Payment Entry", payment_entry_name, "docstatus")
+        if docstatus == 0:
+            frappe.delete_doc("Payment Entry", payment_entry_name, force=True)
+        elif docstatus == 1:
+            frappe.get_doc("Payment Entry", payment_entry_name).cancel()
+    except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
+        frappe.log_error(
+            title="Mollie Payment Entry Discard Failed",
+            message=f"Could not discard unposted Payment Entry {payment_entry_name}: {cleanup_error}",
+        )
+
+    # Re-read: cancel()/delete can raise yet still have changed the row.
+    docstatus = frappe.db.get_value("Payment Entry", payment_entry_name, "docstatus")
+    if docstatus == 2:
+        frappe.db.set_value(
+            "Payment Entry", payment_entry_name, IDEMPOTENCY_KEY_FIELD, None, update_modified=False
+        )
+    if docstatus is not None and docstatus != 2:
+        frappe.log_error(
+            title="Mollie Payment Entry Still Claims Its Key",
+            message=f"Unposted Payment Entry {payment_entry_name} (submit failed: {error_message}) is at "
+            f"docstatus={docstatus} and still claims its reference. Redeliveries will report it as "
+            f"already booked. Cancel or delete it by hand.",
+        )
 
 
 def create_refund_payment_entry(
