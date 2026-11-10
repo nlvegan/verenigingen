@@ -1967,9 +1967,9 @@ def mollie_subscription_webhook():
                 frappe.logger().info(f"Processed subscription payment {payment_id} for member {member_name}")
             except Exception as e:
                 frappe.log_error(
-                    f"Failed to process subscription payment {payment_id} "
+                    title="Mollie Subscription Payment Processing",
+                    message=f"Failed to process subscription payment {payment_id} "
                     f"for member {member_name}: {str(e)}",
-                    "Mollie Subscription Payment Processing",
                 )
                 result["payment_error"] = str(e)
 
@@ -1978,7 +1978,9 @@ def mollie_subscription_webhook():
         return result
 
     except Exception as e:
-        frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
+        frappe.log_error(
+            title="Mollie Subscription Webhook", message=f"Mollie subscription webhook error: {str(e)}"
+        )
         return create_error_response(str(e))
 
 
@@ -2011,7 +2013,8 @@ def _authenticate_and_parse_subscription_payload():
             {
                 "event": "authentication_failed",
                 "error": str(auth_error),
-                "headers": dict(frappe.request.headers),
+                # Not the header dict: it carries Authorization/Cookie (#2252).
+                "has_signature": bool(frappe.request.headers.get("X-Mollie-Signature")),
             },
         )
         return None, create_error_response("Webhook authentication failed", {"details": str(auth_error)})
@@ -2041,10 +2044,10 @@ def _authenticate_and_parse_subscription_payload():
             except Exception as form_error:
                 frappe.logger().error(f"Subscription form-encoded parsing also failed: {str(form_error)}")
                 frappe.log_error(
-                    f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\n"
+                    title="Mollie Subscription Webhook Parsing Error",
+                    message=f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\n"
                     f"JSON error: {str(json_error)}\nForm error: {str(form_error)}\n"
                     f"Full payload: {repr(payload)}",
-                    "Mollie Subscription Webhook Parsing Error",
                 )
                 return None, create_error_response("Invalid payload format")
         else:
@@ -2063,9 +2066,9 @@ def _authenticate_and_parse_subscription_payload():
                 error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
 
             frappe.log_error(
-                f"Mollie subscription webhook JSON parsing failed: {error_msg}\n"
+                title="Mollie Subscription Webhook JSON Error",
+                message=f"Mollie subscription webhook JSON parsing failed: {error_msg}\n"
                 f"Full payload: {repr(payload)}",
-                "Mollie Subscription Webhook JSON Error",
             )
             return None, create_error_response("Invalid JSON payload")
 
@@ -2109,8 +2112,8 @@ def _find_member_for_subscription(subscription_id):
 
     if not customers:
         frappe.log_error(
-            f"No customer found for subscription {subscription_id}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"No customer found for subscription {subscription_id}",
         )
         return None, None, None
 
@@ -2121,8 +2124,8 @@ def _find_member_for_subscription(subscription_id):
 
     if not members:
         frappe.log_error(
-            f"No member found for customer {customer_name} with subscription {subscription_id}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"No member found for customer {customer_name} with subscription {subscription_id}",
         )
         return None, None, None
 
@@ -2156,8 +2159,8 @@ def _update_subscription_status(gateway, customer_id, subscription_id, member_na
         )
     else:
         frappe.log_error(
-            f"Failed to get subscription status: {status_result['message']}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"Failed to get subscription status: {status_result['message']}",
         )
         result["subscription_error"] = status_result["message"]
 

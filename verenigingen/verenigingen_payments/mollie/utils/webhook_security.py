@@ -220,8 +220,8 @@ def validate_webhook_user_permissions():
         # Use shorter title to avoid exceeding Error Log title length (140 chars)
         error_msg = f"Webhook user {current_user} missing permissions:\n\n{chr(10).join(missing_permissions)}"
         frappe.log_error(
-            error_msg,
-            "Webhook Permissions Error",
+            title="Webhook Permissions Error",
+            message=error_msg,
         )
         return False
 
@@ -247,4 +247,6 @@ def log_webhook_security_event(event_type: str, details: dict):
             }
         ).insert(ignore_permissions=True)
     except Exception as e:
-        frappe.log_error(f"Failed to log webhook security event: {e}", "Webhook Security Logging")
+        frappe.log_error(
+            title="Webhook Security Logging", message=f"Failed to log webhook security event: {e}"
+        )
