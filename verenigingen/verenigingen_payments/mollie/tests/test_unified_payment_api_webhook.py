@@ -228,7 +228,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         a refund id when `resource` says so or it starts with `re_`.
         """
         payload = (
-            '{"resource":"refund","id":"re_deleg_1",'
+            '{"resource":"refund","id":"re_deleg_1","status":"refunded",'
             '"payment_id":"tr_deleg_1",'
             '"amount":{"value":"12.50","currency":"EUR"}}'
         )
@@ -277,7 +277,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         not read ``paymentId`` and refused the refund as "Missing payment_id".
         """
         payload = (
-            '{"resource":"refund","id":"re_date_1","paymentId":"tr_date_1",'
+            '{"resource":"refund","id":"re_date_1","status":"refunded","paymentId":"tr_date_1",'
             '"amount":{"value":"5.00","currency":"EUR"},"createdAt":"2026-03-03T10:00:00+00:00"}'
         )
         SVC = (
@@ -293,6 +293,81 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(captured.get("payment_id"), "tr_date_1", "the route must read Mollie's paymentId")
         self.assertEqual(captured.get("reversal_date"), "2026-03-03")
 
+    def _post_refund_payload(self, payload):
+        """Post ``payload`` to the route with a recording service; return (out, booked-calls)."""
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        calls = []
+        fake = types.SimpleNamespace(
+            process_reversal_webhook=lambda **kw: calls.append(kw) or {"status": "success"}
+        )
+        with install_fake_request(json.dumps(payload)), patch(AUTH_PATH), patch(SVC, return_value=fake):
+            out = unified_payment_api.handle_refund_webhook()
+        return out, calls
+
+    def test_only_a_refunded_refund_is_booked_2138(self):
+        """#2138 (maintainer ruling 2026-11-10): a refund counts as booked ONLY at status
+        ``refunded``, the rule the #1806/#2140 discovery path uses. Every other status, and a
+        missing one, is acknowledged 2xx (Mollie sends a fresh delivery when the status changes,
+        so a 5xx retry buys nothing) and books nothing.
+
+        Payload shape: Mollie's real refund object (resource/id/paymentId/amount/status).
+        """
+        for status in ("queued", "pending", "processing", "failed", "canceled", "Refunded", None, 7):
+            with self.subTest(status=status):
+                payload = {
+                    "resource": "refund",
+                    "id": "re_status_1",
+                    "paymentId": "tr_status_1",
+                    "amount": {"value": "5.00", "currency": "EUR"},
+                }
+                if status is not None:
+                    payload["status"] = status
+                frappe.local.response = frappe._dict()
+                frappe.cache.delete_keys("webhook_error_log_once:")
+                self.expectErrorLog("Mollie", "Refund")
+                out, calls = self._post_refund_payload(payload)
+                self.assertEqual(calls, [], "a refund that is not 'refunded' must not reach the booking service")
+                self.assertEqual(out, {"status": "ok"})
+                self.assertLess(frappe.local.response.get("http_status_code") or 200, 300)
+
+    def test_the_refund_status_is_read_from_the_refund_object_not_the_payment_2138(self):
+        """A payload that nests the refund (``refund.id``, as extract_webhook_ids also accepts)
+        carries the refund's own status there; the top-level ``status`` of such a payload is the
+        PAYMENT's (``paid``) and must not decide it. Both directions, so neither field alone passes."""
+        base = {"paymentId": "tr_nested_1", "amount": {"value": "5.00", "currency": "EUR"}}
+        failed = dict(base, status="paid", refund={"id": "re_nested_1", "status": "failed"})
+        booked = dict(base, status="paid", refund={"id": "re_nested_2", "status": "refunded"})
+        self.expectErrorLog("Mollie", "Refund")
+        _out, calls = self._post_refund_payload(failed)
+        self.assertEqual(calls, [])
+        _out, calls = self._post_refund_payload(booked)
+        self.assertEqual([c["reversal_id"] for c in calls], ["re_nested_2"])
+
+    def test_a_refund_not_paid_out_leaves_one_bounded_error_log_row_2138(self):
+        """Recorded once per hour per caller IP, the caller-chosen status cut short, never echoed in the ack."""
+        frappe.cache.delete_keys("webhook_error_log_once:")
+        marker = "S" * 500
+        payload = {"resource": "refund", "id": "re_log_1", "paymentId": "tr_log_1", "status": marker}
+        before = frappe.db.count("Error Log", {"method": "Mollie Refund Not Paid Out"})
+        self.expectErrorLog("Mollie", "Refund")
+        out, _calls = self._post_refund_payload(payload)
+        self._post_refund_payload(payload)
+        after = frappe.db.count("Error Log", {"method": "Mollie Refund Not Paid Out"})
+        self.assertEqual(after, before + 1, "one row for a repeated delivery")
+        row = frappe.get_all(
+            "Error Log",
+            filters={"method": "Mollie Refund Not Paid Out"},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )[0]
+        self.assertIn("re_log_1", row.error)
+        self.assertNotIn(marker, row.error)
+        self.assertNotIn("S" * 100, json.dumps(out))
+
     def test_a_booking_failure_returns_500_so_mollie_retries(self):
         """The freed reversal key is worth nothing if nothing comes back to use it.
 
@@ -302,7 +377,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         then the only remaining route.
         """
         payload = (
-            '{"resource":"refund","id":"re_fail_1","payment_id":"tr_fail_1",'
+            '{"resource":"refund","id":"re_fail_1","status":"refunded","payment_id":"tr_fail_1",'
             '"amount":{"value":"5.00","currency":"EUR"}}'
         )
         SVC = (
@@ -328,7 +403,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         ignored identically every time.
         """
         payload = (
-            '{"resource":"refund","id":"re_ign_1","payment_id":"tr_ign_1",'
+            '{"resource":"refund","id":"re_ign_1","status":"refunded","payment_id":"tr_ign_1",'
             '"amount":{"value":"5.00","currency":"EUR"}}'
         )
         SVC = (
@@ -506,7 +581,7 @@ class TestKnownErrorsAreRefusedWith400AndAnAckOnly(EnhancedTestCase):
     def test_payment_refund_and_chargeback_handlers(self):
         from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
 
-        refund_payload = '{"resource":"refund","id":"re_k_1","payment_id":"tr_k_1","amount":{"value":"1.00"}}'
+        refund_payload = '{"resource":"refund","id":"re_k_1","status":"refunded","payment_id":"tr_k_1","amount":{"value":"1.00"}}'
         cases = {
             "payment": (
                 lambda exc: patch(

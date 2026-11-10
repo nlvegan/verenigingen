@@ -35,6 +35,7 @@ from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhoo
 from ..services.complete_payment_service import CompletePaymentService
 from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
 from ..utils.amount_helpers import extract_amount_value
+from ..utils.webhook_utilities import extract_refund_status
 
 _ERROR_LOG_DEDUPE_PREFIX = "mollie_webhook_failure:"
 
@@ -101,6 +102,21 @@ def _refuse_unusable_payload(messages_before: int, reason: str) -> Dict[str, str
     # ``reason`` doubles as the dedupe key: refund and chargeback refusals have no id, and
     # must not silence each other.
     return _ack_with_error_log(messages_before, {"status": "error", "message": reason}, reason)
+
+
+def _ack_refund_not_paid_out(messages_before: int, webhook_data: Dict[str, Any], ids: Dict[str, Any]):
+    """Ack a refund payload whose status is not `refunded`; one bounded Error Log row says why (#2138).
+
+    Deduped per caller IP per hour (never per id or status: both are the caller's to choose),
+    with the caller-supplied status and ids cut short.
+    """
+    status = extract_refund_status(webhook_data)
+    message = (
+        f"Refund {short_id(ids['refund_id'])} on payment {short_id(ids['payment_id'])} not booked: "
+        f"status is {str(status)[:32]!r}, only 'refunded' counts as paid out"
+    )
+    log_error_once("Mollie Refund Not Paid Out", message, get_client_ip(), "refund_not_paid_out")
+    return webhook_ack(messages_before)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -456,6 +472,7 @@ def handle_refund_webhook():
         from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
         from ..utils.webhook_utilities import (
             extract_webhook_ids,
+            refund_is_paid_out,
             safe_extract_amount,
             safe_extract_date,
         )
@@ -467,6 +484,12 @@ def handle_refund_webhook():
             return _refuse_unusable_payload(
                 messages_before, "Missing payment_id or refund_id in webhook payload"
             )
+
+        # #2138: a refund counts as booked only at status `refunded`. Acknowledge 2xx
+        # (Mollie sends a fresh delivery when the status changes, so a 5xx retry buys
+        # nothing) and book nothing.
+        if not refund_is_paid_out(webhook_data):
+            return _ack_refund_not_paid_out(messages_before, webhook_data, ids)
 
         # Extract refund details using utilities
         refund_amount = safe_extract_amount(webhook_data)
