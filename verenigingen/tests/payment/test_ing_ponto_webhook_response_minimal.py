@@ -305,6 +305,10 @@ class _PontoJwtCase(_GuestWebhookCase):
             frappe.db.set_single_value("Ponto Settings", field, value)
             self.addCleanup(frappe.db.set_single_value, "Ponto Settings", field, old)
         self.expected = frappe.db.get_single_value("Ponto Settings", "webhook_application_id")
+        # MyISAM Error Log: nothing rolls back, so delete the rows this test wrote. Scoped by
+        # creation time (no whole-table read), and only to rows the verifier's handler writes.
+        self._log_start = frappe.utils.now()
+        self.addCleanup(self._delete_new_ponto_error_logs)
         self.private_pem, public_key = _generate_keypair()
         signing_key, _ = _build_jwk(public_key)
         patcher = patch(
@@ -326,7 +330,7 @@ class _PontoJwtCase(_GuestWebhookCase):
             token = _make_token(
                 self.private_pem,
                 raw,
-                audience=audience or self.expected,
+                audience=audience if audience is not None else self.expected,
                 issuer=issuer or TEST_ISSUER,
                 **token_kwargs,
             )
@@ -334,6 +338,24 @@ class _PontoJwtCase(_GuestWebhookCase):
         # unique per delivery: log_error_once dedupes per IP per hour, so a prior row could hide ours
         ip = f"2001:db8::{uuid.uuid4().hex[:4]}"
         return self._post(f"{PONTO}.handle_ponto_webhook", raw=raw, headers={"Signature": token}, ip=ip)
+
+    def _new_ponto_error_rows(self):
+        return frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", self._log_start], "method": ["like", "Ponto Error%"]},
+            fields=["name", "method", "error"],
+        )
+
+    def _delete_new_ponto_error_logs(self):
+        names = [r.name for r in self._new_ponto_error_rows()]
+        if names:
+            frappe.db.delete("Error Log", {"name": ["in", names]})
+
+    def _assert_no_time_or_alg_diagnostics(self):
+        """The new fields belong to the expired / immature / wrong-alg refusals ONLY."""
+        for row in self._new_ponto_error_rows():
+            for field in ("server_time", "received_algorithm"):
+                self.assertNotIn(field, row.error, f"{field} leaked into an unrelated refusal row")
 
     def _assert_token_not_leaked(self, body, messages):
         """A signed token is replayable until it expires; it must reach neither the Error Log nor the caller."""
@@ -358,6 +380,7 @@ class TestPontoWebhookAudienceDiagnostics(_PontoJwtCase):
         self.assertIn(self.expected, rows[0])
         self.assertNotIn(received, " ".join(messages), "the received aud must not reach the caller")
         self._assert_token_not_leaked(body, messages)
+        self._assert_no_time_or_alg_diagnostics()
 
     def test_list_audience_is_logged_and_still_refused(self):
         received = [f"one-{uuid.uuid4().hex[:8]}", f"two-{uuid.uuid4().hex[:8]}"]
@@ -399,6 +422,7 @@ class TestPontoWebhookAudienceDiagnostics(_PontoJwtCase):
         body, status, messages = self._deliver(self.expected, issuer=received)
         self.assertEqual(status, 401)
         self._assert_token_not_leaked(body, messages)
+        self._assert_no_time_or_alg_diagnostics()
         rows = [t for t in self._error_log_texts() if "Invalid webhook issuer" in t and received in t]
         self.assertEqual(len(rows), 1)
         self.assertIn("expected_issuer", rows[0])
@@ -409,17 +433,6 @@ class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
     algorithm must log the header's alg. A clock skew and a replayed delivery look the same
     without them. The caller's answer must not change (status, body, message_log, response dict).
     """
-
-    def setUp(self):
-        super().setUp()
-        # MyISAM Error Log: nothing rolls back, so delete the rows this test wrote.
-        self._log_before = set(frappe.get_all("Error Log", pluck="name"))
-        self.addCleanup(self._delete_new_error_logs)
-
-    def _delete_new_error_logs(self):
-        new = set(frappe.get_all("Error Log", pluck="name")) - self._log_before
-        if new:
-            frappe.db.delete("Error Log", {"name": ["in", list(new)]})
 
     def _assert_unchanged_refusal(self, body, status, messages):
         self.assertEqual((status, body), (401, {"status": "error"}))
@@ -470,6 +483,14 @@ class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
         self.assertIn(f"'exp': '{iat + 300}'", rows[0])
         self._server_time_in(rows[0], now, int(time.time()))
 
+    def test_nbf_immature_token_logs_nbf(self):
+        nbf = int(time.time()) + 2000 + uuid.uuid4().int % 500
+        body, status, messages = self._deliver(extra_claims={"nbf": nbf})
+        self._assert_unchanged_refusal(body, status, messages)
+        rows = [t for t in self._error_log_texts() if "Webhook signature not yet valid" in t and str(nbf) in t]
+        self.assertEqual(len(rows), 1, "an nbf-immature token must name its nbf")
+        self.assertIn(f"'nbf': '{nbf}'", rows[0])
+
     def test_wrong_algorithm_logs_the_header_alg(self):
         import jwt
 
@@ -498,6 +519,9 @@ class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
 
         self.assertEqual(len(received_header_alg(forge({"alg": "A" * 500}))), 50)
         self.assertEqual(received_header_alg(forge({"alg": 5})), "5")
+        hostile = received_header_alg(forge({"alg": "HS\n\x00[SECRET]\r\u2028x"}))
+        self.assertTrue(all(32 <= ord(c) < 127 for c in hostile), repr(hostile))
+        self.assertTrue(hostile.startswith("HS") and "[SECRET]" in hostile)
         self.assertIsNone(received_header_alg(forge({"typ": "JWT"})))
         self.assertEqual(
             token_time_diagnostics(forge({"alg": "RS512"}, {"exp": "9" * 500, "iat": [1, 2]}))["exp"],
@@ -528,3 +552,25 @@ class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
     def test_malformed_token_is_still_refused_without_the_new_fields(self):
         body, status, messages = self._deliver(token_builder=lambda raw: "not-a-jwt")
         self._assert_unchanged_refusal(body, status, messages)
+        self._assert_no_time_or_alg_diagnostics()
+
+    def test_bad_signature_is_refused_without_the_new_fields(self):
+        import jwt
+
+        from verenigingen.tests.sepa.test_ponto_webhook_security_unit import _generate_keypair
+
+        other_pem, _ = _generate_keypair()
+
+        def forged(raw):
+            claims = {"iss": "x", "aud": self.expected, "iat": int(time.time()), "exp": int(time.time()) + 300}
+            return jwt.encode(claims, other_pem, algorithm="RS512", headers={"kid": "k"})
+
+        body, status, messages = self._deliver(token_builder=forged)
+        self._assert_unchanged_refusal(body, status, messages)
+        self._assert_no_time_or_alg_diagnostics()
+
+    def test_a_valid_token_writes_no_ponto_error_row(self):
+        """Control for every test above: a diagnostic logged on EVERY request would also pass
+        them. A verified delivery must leave no Ponto Error row at all."""
+        self._deliver()
+        self.assertEqual([r.error[:200] for r in self._new_ponto_error_rows()], [])

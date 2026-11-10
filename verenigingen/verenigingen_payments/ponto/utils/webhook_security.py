@@ -30,6 +30,7 @@ Usage:
 
 import base64
 import hashlib
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -405,11 +406,12 @@ def received_header_alg(signature) -> Any:
         value = jwt.get_unverified_header(signature).get("alg")
     except Exception:
         return None
-    return None if value is None else str(value)[:50]
+    # a hostile header must not smuggle line breaks or control bytes into the Error Log
+    return None if value is None else re.sub(r"[^\x20-\x7e]", "?", str(value))[:50]
 
 
 def token_time_diagnostics(signature) -> Dict[str, Any]:
-    """``exp`` and ``iat`` of a webhook JWT (unverified) next to the server clock (#2324).
+    """``exp``, ``iat`` and ``nbf`` of a webhook JWT (unverified) next to the server clock (#2324).
 
     Without the server's own epoch, a clock skew and a replayed old delivery look the same.
     Never raises; the claims are None when the token cannot be read.
@@ -417,6 +419,7 @@ def token_time_diagnostics(signature) -> Dict[str, Any]:
     return {
         "exp": received_claim(signature, "exp"),
         "iat": received_claim(signature, "iat"),
+        "nbf": received_claim(signature, "nbf"),
         "server_time": int(time.time()),
     }
 
