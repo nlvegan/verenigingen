@@ -6,6 +6,14 @@ the REAL seeder (``create_comprehensive_email_templates`` / ``create_default_ema
 ``create_application_email_templates``) and renders it through the exact two calls
 ``EmailService.send_templated_email`` makes (``_get_template`` then ``_render_template``).
 
+Reachability, stated plainly: for the rejection templates this is defence in depth, not a reachable
+fix. ``first_name`` markup is refused at submit for the Full Form (``application_validators.py:150``)
+and ``reason`` already arrives HTML-escaped from ``reject_application``; that double escaping is issue
+2391 and is fixed there on the input side, so escaping once at render is the intended end state. The
+reachable value is ``donor_name`` (donor names are not refused), but live donation rows on existing
+sites come from the already-escaped fixture; bare rows of the create-if-missing seeders stay bare
+(#1984, no overwrite added).
+
 Declared shortcuts: the render is called directly rather than through a full sender (the senders'
 own context building is unchanged); the seeders' ``frappe.db.commit`` is patched out so the rows they
 write are rolled back by the harness teardown instead of leaking into the site.
