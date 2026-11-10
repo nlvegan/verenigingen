@@ -72,10 +72,10 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_name_for_user
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    self_service_api,
+from verenigingen.utils.member_utils import (
+    get_member_name_for_board_access,
+    get_member_name_for_user,
+    get_volunteer_name_for_user,
 )
 
 # REMOVED: validate_session_before_request function (August 21, 2025)
@@ -229,13 +229,15 @@ def get_default_home_page(user=None):
     if user == "Guest":
         return "/web"
 
-    # Check if user is a member
+    # Check if user is a member: Member.user link ONLY (#1936, #2207)
     try:
-        member_record = get_member_name_for_user(user)
+        member_record = get_member_name_for_board_access(user)
     except Exception as e:
         frappe.logger().error(f"Error getting member record for user {repr(user)}: {str(e)}")
         member_record = None
 
+    # A Member-role user without a linked Member still goes to the portal: the portal pages
+    # render the "not linked to a membership" banner for them (#2207).
     if member_record or has_member_role(user):
         return "/member_portal"
 
@@ -255,19 +257,21 @@ def get_default_home_page(user=None):
 
 
 @frappe.whitelist()
-@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_member_home_page():
     """
     API method to get the home page for the current user
     Can be called from JavaScript to programmatically redirect
 
-    This is a self-service endpoint: it only ever resolves the *current
-    session user's* own home page, so it sits at the self-service (LOW) auth
-    tier. Requiring @standard_api (MEDIUM) here locked out plain
-    "Verenigingen Member" users, who only hold LOW access, breaking the member
-    portal redirect for exactly the users it is meant to serve.
+    Deliberately NOT behind @self_service_api (#2207): it only picks a route and
+    returns no member data, and the strict self-service gate refuses a logged-in
+    user with no linked Member with a 403, which the browser showed as an error
+    dialog. Guest is refused over HTTP by Frappe's whitelist gate (no allow_guest); the
+    check below only guards direct Python calls.
     """
-    return get_default_home_page(frappe.session.user)
+    user = frappe.session.user
+    if not user or user == "Guest":
+        frappe.throw(_("Please log in"), frappe.PermissionError)
+    return get_default_home_page(user)
 
 
 def on_logout(login_manager):
