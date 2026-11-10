@@ -25,6 +25,7 @@ from frappe.utils import add_days, getdate, now_datetime, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.services.communication.email_service import get_email_service, EmailService
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
@@ -528,6 +529,10 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
     def setUp(self):
         """Set up test environment"""
         super().setUp()
+
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the handler sent 0 mails (#1879).
+        ensure_outgoing_email_account(self)
 
         self.test_member = self.create_test_member(
             first_name="EventTest",
