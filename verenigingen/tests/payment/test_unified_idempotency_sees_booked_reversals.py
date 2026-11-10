@@ -292,14 +292,30 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
             "GL Entry", {"voucher_type": "Payment Entry", "voucher_no": second.name, "is_cancelled": 0}
         )
         self.assertGreater(live_gl, 0, "the new Payment Entry posted no GL rows")
+        live_pes = frappe.get_all(
+            "Payment Entry",
+            filters={"payment_type": "Pay", "reference_no": self.key, "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(live_pes, [second.name], "expected exactly one live Pay entry for the refund")
+        self.assertEqual(
+            frappe.db.count("GL Entry", {"voucher_no": first.name, "is_cancelled": 0}),
+            0,
+            "the cancelled Payment Entry still has live GL rows",
+        )
+        self.assertIsNone(self._book_refund_pe(), "a second redelivery must be a no-op")
+        self.assertEqual(
+            frappe.db.count("Payment Entry", {"payment_type": "Pay", "reference_no": self.key}),
+            2,
+            "the second redelivery created a new row",
+        )
 
-    def test_a_long_submit_error_message_still_returns_none(self):
-        """The handler's log_error was positional: a >140-char message landed in the title and
-        raised CharacterLengthExceededError out of the creator."""
-        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
-
+    def test_a_real_booking_failure_with_a_long_message_still_returns_none(self):
+        """A disabled receivable account makes the booking fail for real. The handler's
+        log_error was positional: a >140-char message landed in the title and raised
+        CharacterLengthExceededError out of the creator instead of returning None."""
         self.expectErrorLog("Unified Payment Entry Creation")
-        long_message = "closed period " * 30
-        with patch.object(PaymentEntry, "submit", side_effect=frappe.ValidationError(long_message)):
-            self.assertIsNone(self._book_refund_pe())
+        frappe.db.set_value("Account", self.receivable, "disabled", 1)
+        self.addCleanup(frappe.db.set_value, "Account", self.receivable, "disabled", 0)
+        self.assertIsNone(self._book_refund_pe())
         self._assert_failed_submit_frees_the_key()

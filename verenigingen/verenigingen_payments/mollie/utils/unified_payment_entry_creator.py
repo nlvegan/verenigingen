@@ -221,6 +221,8 @@ def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
     """
     for name in frappe.get_all(
         "Payment Entry",
+        # docstatus 2 only: keeps a live key safe if a future caller reaches this helper
+        # without the upstream find_booked_reversal/existing_pe guards.
         filters={"payment_type": "Pay", "reference_no": reference_no, "party": customer, "docstatus": 2},
         pluck="name",
     ):
