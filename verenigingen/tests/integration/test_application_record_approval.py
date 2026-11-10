@@ -750,6 +750,53 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual(calls[0]["context"]["rejection_category"], "Other")
         self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
 
+    def _rejection_mail_html(self, name, **kwargs):
+        """The HTML the real EmailService renders from the real default template for a real reject_application
+        call (keyword arguments, as over HTTP, so the security decorator's argument pass runs too)."""
+        from verenigingen.services.communication.email_service import EmailService
+        from verenigingen.utils.operation_result import OperationResult
+
+        sent = []
+
+        def capture(service, **mail):
+            sent.append(mail["content"])
+            return OperationResult.ok({"queued": True})
+
+        # Mock justified: External Service - SMTP delivery; the template render and the endpoint are real
+        with patch.object(EmailService, "_send_email_internal", capture):
+            result = self._reject_as(name, **kwargs)
+        self.assertTrue(result["mail_sent"], result)
+        self.assertEqual(len(sent), 1, "exactly one rejection mail")
+        return sent[0]
+
+    def test_an_apostrophe_and_an_ampersand_in_the_reason_are_escaped_once_in_the_mail(self):
+        """#2391: the reason was HTML-escaped by the decorator, again by _sanitize_text_fields, and a third time
+        by the template's |e, so the applicant read &amp;#x27; for an apostrophe. Once is right."""
+        from markupsafe import escape
+
+        reason = "Doesn't qualify & more"
+        name = self._stage_and_confirm()
+
+        content = self._rejection_mail_html(name, reason=reason)
+
+        self.assertIn(str(escape(reason)), content)
+        self.assertNotIn("&amp;", content.replace(str(escape(reason)), ""), "no other layer of escaping")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "review_notes").count(reason), 1, "stored raw")
+
+    def test_markup_in_the_reason_stays_inert_and_is_escaped_once_in_the_mail(self):
+        """Control for the test above: removing the input-side escaping must not leave markup live."""
+        from markupsafe import escape
+
+        reason = "No <b>x</b> & <script>alert(1)</script>"
+        name = self._stage_and_confirm()
+
+        content = self._rejection_mail_html(name, reason=reason)
+
+        self.assertNotIn("<b>x</b>", content)
+        self.assertNotIn("<script>", content)
+        self.assertIn(str(escape(reason)), content)
+        self.assertNotIn("&amp;lt;", content)
+
     def _reject_with_mail_service(self, name, **service):
         from verenigingen.services.communication.email_service import EmailService
 
@@ -1469,6 +1516,27 @@ class TestRequestMoreInfo(ApprovalCase):
         self.assertNotIn("<b>Bold</b>", content)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more<br>second line", content)
         self.assertIn("&lt;b&gt;Bold&lt;/b&gt;", content)
+
+    def test_an_apostrophe_and_an_ampersand_in_the_request_are_escaped_once_over_keyword_arguments(self):
+        """#2391 sibling: over HTTP every argument is a keyword, so the decorator's escaping pass runs (the
+        positional calls above skip it); the mail and the timeline note must still escape the text once."""
+        from frappe.core.doctype.communication.communication import Communication
+
+        name = self._stage_and_confirm()
+        info = "Don't forget <b>x</b> & more"
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery
+            with patch.object(Communication, "get_outgoing_email_account", return_value=True):
+                with patch.object(Communication, "send_email"):
+                    request_more_info(application_name=name, info_needed=info)
+
+        expected = "Don't forget &lt;b&gt;x&lt;/b&gt; &amp; more"  # escaped once (Frappe's escape_html keeps ')
+        content = self._threads(SUBMISSION, name)[0].content
+        self.assertIn(expected, content)
+        self.assertNotIn("&amp;amp;", content)
+        self.assertNotIn("&amp;lt;", content)
+        self.assertIn(expected, self._notes(name)[0].content)
 
     def test_an_empty_request_is_refused_and_writes_nothing(self):
         name = self._stage_and_confirm()

@@ -2,6 +2,7 @@
 API endpoints for reviewing and managing membership applications
 """
 
+import html
 import json
 
 import frappe
@@ -79,6 +80,11 @@ def _sanitize_text_fields(text_fields):
 
     Returns:
         Dict of {field_name: sanitized_value}.
+
+    allow_html=True keeps the text RAW (stripped, length-checked), for text that is escaped once, where
+    it is rendered. The @high_security_api wrapper has already HTML-escaped every keyword argument
+    (it decodes entities first, then escapes), so the entities are decoded here: left as they are they
+    would be escaped again at render, and the applicant would read "&amp;#x27;" for an apostrophe (#2391).
     """
     sanitized = {}
     if not text_fields:
@@ -88,8 +94,9 @@ def _sanitize_text_fields(text_fields):
         value, max_length = spec[0], spec[1]
         allow_html = spec[2] if len(spec) > 2 else True
         if value:
+            text = html.unescape(str(value)) if allow_html else str(value)
             sanitized[field_name] = APIValidator.sanitize_text(
-                str(value), max_length=max_length, allow_html=allow_html
+                text, max_length=max_length, allow_html=allow_html
             )
         else:
             sanitized[field_name] = value
@@ -683,7 +690,7 @@ def approve_application(
 
     application_name = _sanitize_application_name(application_name, "approval")
     sanitized = _sanitize_text_fields(
-        {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, False)}
+        {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, True)}
     )
     validate_application_permission_or_throw(application_name, "approve")
     with advisory_lock(f"approve_application:{application_name}", timeout=30):
@@ -842,10 +849,10 @@ def reject_application(
     application_name = _sanitize_application_name(application_name, "rejection")
     sanitized = _sanitize_text_fields(
         {
-            "reason": (reason, 1000, False),
+            "reason": (reason, 1000, True),
             "email_template": (email_template, 255),
             "rejection_category": (rejection_category, 255),
-            "internal_notes": (internal_notes, 2000, False),
+            "internal_notes": (internal_notes, 2000, True),
         }
     )
     validate_application_permission_or_throw(application_name, "reject")
