@@ -399,4 +399,99 @@ describe('OperationResult helpers', () => {
 			expect(utils.parseDonorExistsResponse(message)).toEqual({ status: 'none', donorName: null });
 		});
 	});
+	describe('getHttpErrorMessage (#2231)', () => {
+		const TRACE = 'Traceback (most recent call last):\n  File "apps/frappe/frappe/app.py", line 133';
+		const NOT_LINKED = 'Your account is not linked to a membership. Please contact the office to have it linked.';
+
+		test('never returns the raw traceback carried in exc', () => {
+			const out = utils.getHttpErrorMessage({ exc: JSON.stringify([TRACE]) }, 'Failed');
+			expect(out).toBe('Failed');
+			expect(out).not.toContain('Traceback');
+		});
+
+		test('the strict self-service refusal reads as the not-linked sentence', () => {
+			const body = {
+				exc_type: 'PermissionError',
+				exception:
+					'verenigingen.utils.error_handling.PermissionError: Access denied: No member record found for user. Self-service operations require valid member account.',
+				exc: JSON.stringify([TRACE])
+			};
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe(NOT_LINKED);
+		});
+
+		test('prefers the _server_messages text, with markup stripped', () => {
+			const body = {
+				_server_messages: JSON.stringify([JSON.stringify({ message: 'Chapter <b>X</b> is closed' })]),
+				exception: 'frappe.exceptions.ValidationError: other',
+				exc: JSON.stringify([TRACE])
+			};
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe('Chapter X is closed');
+		});
+
+		test('falls back to the exception line without its module.Class prefix', () => {
+			const body = { exception: 'frappe.exceptions.ValidationError: Introduction is required', exc: TRACE };
+			expect(utils.getHttpErrorMessage(body, 'Failed')).toBe('Introduction is required');
+		});
+
+		test('a non-object body yields the fallback', () => {
+			expect(utils.getHttpErrorMessage(null, 'Failed')).toBe('Failed');
+		});
+
+		// CodeQL js/incomplete-multi-character-sanitization: a single-pass tag regex leaves markup behind.
+		const viaServerMessage = (message) =>
+			utils.getHttpErrorMessage({ _server_messages: JSON.stringify([JSON.stringify({ message })]) }, 'Failed');
+
+		test('nested tags cannot reassemble into a tag after stripping', () => {
+			const out = viaServerMessage('<scr<script>ipt>alert(1)</scr</script>ipt>');
+			expect(out).not.toMatch(/<\s*\/?\s*script/i);
+			expect(out).not.toContain('<');
+		});
+
+		test('an img onerror tag is removed, not passed through', () => {
+			const out = viaServerMessage('Closed <img src=x onerror=alert(1)> today');
+			expect(out).toBe('Closed  today');
+			expect(out).not.toMatch(/onerror/i);
+		});
+
+		test('entity-encoded markup is not decoded into markup', () => {
+			const out = viaServerMessage('&lt;script&gt;alert(1)&lt;/script&gt;Closed');
+			expect(out).not.toContain('<');
+			expect(out).not.toMatch(/script/i);
+			expect(out).toContain('Closed');
+		});
+
+		test('markup encoded three times is still removed, however deep the encoding', () => {
+			const out = viaServerMessage('&amp;amp;lt;img src=x onerror=alert(1)&amp;amp;gt;Closed');
+			expect(out).not.toMatch(/<[a-z/!]/i);
+			expect(out).not.toMatch(/onerror/i);
+		});
+
+		test('text still changing after the pass limit yields the caller fallback, never a half-decoded string', () => {
+			let encoded = 'Tom & Jerry';
+			for (let i = 0; i < 6; i++) {
+				encoded = encoded.replace(/&/g, '&amp;');
+			}
+			expect(viaServerMessage(encoded)).toBe('Failed');
+		});
+
+		test('an unterminated tag is dropped, so a later ">" in a template cannot complete it', () => {
+			// The old /<[^>]*>/ needs a closing ">" and leaves these untouched.
+			expect(viaServerMessage('Closed <img src=x onerror=alert(1)')).not.toMatch(/<|onerror/i);
+			expect(viaServerMessage('Closed <script src=//evil')).not.toMatch(/<|script/i);
+			expect(viaServerMessage('<scr<script')).not.toContain('<');
+		});
+
+		test('the exception-line path is sanitised the same way', () => {
+			const out = utils.getHttpErrorMessage(
+				{ exception: 'frappe.exceptions.ValidationError: <scr<script>ipt>alert(1)</scr</script>ipt>Oops' },
+				'Failed'
+			);
+			expect(out).not.toContain('<');
+			expect(out).toContain('Oops');
+		});
+
+		test('plain text with a bare less-than sign is kept readable', () => {
+			expect(viaServerMessage('Amount must be < 100')).toBe('Amount must be < 100');
+		});
+	});
 });

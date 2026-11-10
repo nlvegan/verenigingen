@@ -411,9 +411,12 @@ class MemberPerformanceOptimizer:
         frappe.cache().delete_keys("member_dashboard:")
 
 
-@frappe.whitelist()
 def process_member_post_creation(member_name: str):
     """Background processing for non-critical member setup tasks
+
+    Deliberately NOT whitelisted (#2232): the only caller is the enqueue in
+    create_member_optimized, and background jobs are not whitelist-gated. A whitelist
+    let any logged-in user mail a welcome message to any member.
 
     This function handles tasks that can be delayed without affecting
     the user experience, reducing the synchronous processing time.
