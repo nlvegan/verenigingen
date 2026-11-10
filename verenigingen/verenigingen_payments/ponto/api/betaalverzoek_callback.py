@@ -55,7 +55,7 @@ PONTO_REDIRECT_URI_MAX_LENGTH = 255
 
 # Query parameter -> short alias used on the PONTO_RETURN_ROUTE URL. The long names stay
 # accepted so links already stored at Ponto (and `error`, which Ponto appends) keep working.
-_SHORT_ARGS = {"payment_link": "l", "cancel_token": "c", "return_proof": "p"}
+_SHORT_ARGS = {"payment_link": "l", "cancel_token": "c", "return_proof": "p", "payment_request": "r"}
 
 
 def build_return_url(payment_link_name, cancel_token, return_proof):

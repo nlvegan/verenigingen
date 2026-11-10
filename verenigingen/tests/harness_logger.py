@@ -164,8 +164,8 @@ class _StderrHandler(logging.StreamHandler):
     ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
     the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
     stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
-    drain onto a class-teardown path. Between them they reach TWENTY-TWO logging calls at
-    three levels, of which FOUR are at ERROR: ``_restore_singleton``'s "Failed to restore
+    drain onto a class-teardown path. Between them they reach TWENTY-FOUR logging calls at
+    three levels, of which FIVE are at ERROR: ``_restore_singleton``'s "Failed to restore
     %s: %s" (``singleton_backup.py:292``), ``ErrorLogGuardMixin._capture_test_error_logs``'
     "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
     because a failure that said so nowhere is #433 -- and
@@ -177,7 +177,9 @@ class _StderrHandler(logging.StreamHandler):
     Company delete ... itself failed" (#1154): reaching it means the Company row is gone
     AND its orphan sweep did not run, so the next Company insert in the shard dies
     validating rows nothing will now remove -- the same "a failure that said so nowhere"
-    argument as the first two.
+    argument as the first two. The fifth is ``TestContributionAmendmentRequestCoverage.tearDownClass``'s
+    "could not delete Membership Dues Schedule" (#2271): a schedule that survives leaks its
+    Membership Type link into later modules, so it is kept at ERROR rather than lost below the gate.
 
     (The first two figures in this paragraph read TWENTY and THREE until 2026-09-18, after
     #1154's first sweep had already moved the census to 21/3. Nothing asserts the PROSE --

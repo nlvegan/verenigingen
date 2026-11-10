@@ -18,6 +18,7 @@ dues schedules are built via the factory and the tests run as Administrator.
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (
     ERROR_MESSAGE_MAX_LENGTH,
@@ -73,10 +74,7 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
         for sched in frappe.get_all(
             "Membership Dues Schedule", filters={"member": cls.member.name}, pluck="name"
         ):
-            try:
-                frappe.delete_doc("Membership Dues Schedule", sched, force=True, ignore_permissions=True)
-            except Exception:
-                pass
+            cls._delete_schedule_or_log(sched)
         try:
             m = frappe.get_doc("Membership", cls.membership.name)
             if m.docstatus == 1:
@@ -86,6 +84,16 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
             pass
         frappe.db.commit()
         super().tearDownClass()
+
+    @classmethod
+    def _delete_schedule_or_log(cls, sched):
+        try:
+            frappe.delete_doc("Membership Dues Schedule", sched, force=True, ignore_permissions=True)
+        except Exception:
+            # A surviving schedule leaks into later modules (#2271)
+            get_harness_logger("cleanup").error(
+                "could not delete Membership Dues Schedule %s", sched, exc_info=True
+            )
 
     def setUp(self):
         super().setUp()
