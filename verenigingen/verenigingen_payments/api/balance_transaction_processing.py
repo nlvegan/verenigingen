@@ -22,6 +22,14 @@ from verenigingen.utils.security.types import OperationType
 from verenigingen.verenigingen_payments.services.balance_transaction_processor import (
     BalanceTransactionProcessor,
 )
+from verenigingen.verenigingen_payments.utils import bank_transaction_status
+
+
+def _row_outcome(row):
+    """Classified outcome of a Bank Transaction row: the page must not key on ``status`` (#2396)."""
+    return bank_transaction_status.row_outcome(
+        row.docstatus, row.status, row.get(bank_transaction_status.FIELD)
+    )
 
 
 @frappe.whitelist()
@@ -258,7 +266,17 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
         existing_bt = frappe.db.get_value(
             "Bank Transaction",
             {"reference_number": transaction_id},
-            ["name", "date", "deposit", "withdrawal", "status", "currency", "description"],
+            [
+                "name",
+                "date",
+                "deposit",
+                "withdrawal",
+                "status",
+                "docstatus",
+                bank_transaction_status.FIELD,
+                "currency",
+                "description",
+            ],
             as_dict=True,
         )
 
@@ -272,6 +290,8 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                 "amount": float(existing_bt.deposit or existing_bt.withdrawal or 0),
                 "currency": existing_bt.currency,
                 "status": existing_bt.status,
+                "processing_status": existing_bt.get(bank_transaction_status.FIELD),
+                "outcome": _row_outcome(existing_bt),
                 "description": existing_bt.description,
             }
 
@@ -444,6 +464,8 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
                 withdrawal,
                 currency,
                 status,
+                docstatus,
+                custom_processing_status,
                 reference_number,
                 transaction_id,
                 bank_account
@@ -469,6 +491,8 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
                     "type": "deposit" if row.deposit else "withdrawal",
                     "currency": row.currency,
                     "status": row.status,
+                    "processing_status": row.custom_processing_status,
+                    "outcome": _row_outcome(row),
                     "reference_number": row.reference_number,
                     "transaction_id": row.transaction_id,
                     "bank_account": row.bank_account,
