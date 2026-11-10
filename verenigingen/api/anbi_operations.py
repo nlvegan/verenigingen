@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
@@ -226,6 +227,10 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
             - summary (dict): Total donations, amount, and tax ID inclusion flag
             - donations (list): List of donation records with donor information
     """
+    # Over HTTP the flag is a string and "0" is truthy, which exported decrypted BSN/RSIN (#2377).
+    # An unrecognised string converts to 0, the safe direction here (no identifiers).
+    include_bsn = cbool(include_bsn)
+
     # Check permissions
     if not frappe.has_permission("Donation", "read"):
         frappe.throw(_("Insufficient permissions to generate ANBI report"))
@@ -301,7 +306,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
             "summary": {
                 "total_donations": len(donations),
                 "total_amount": total_amount,
-                "includes_tax_ids": include_bsn,
+                "includes_tax_ids": bool(include_bsn),
             },
             "donations": report_data,
         }
