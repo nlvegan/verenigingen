@@ -23,7 +23,11 @@ _JOB_START = re.compile(r"^  [A-Za-z0-9_-]+:\s*(#.*)?$")
 
 
 def steps_running(text: str, needle: str) -> list[tuple[str, str]]:
-    """Return (job, step_text) for every step whose block mentions ``needle``."""
+    """Return (job, step_text) for every step whose block mentions ``needle``.
+
+    Comment-only lines are dropped from a block before matching (#2400); a ``#`` inside
+    a code line (a quoted argument, a trailing comment) is left alone.
+    """
     out, job, step = [], None, []
     lines = text.splitlines() + ["  __end__:"]
     for line in lines:
@@ -114,6 +118,14 @@ class StepsRunningCommentAttributionTests(unittest.TestCase):
         text = self._WORKFLOW.replace(
             "      run: python earlier.py\n",
             "      run: |\n        # explain\n        python earlier.py || true\n",
+        )
+        (_, block), = steps_running(text, "python earlier.py")
+        self.assertIsNotNone(_SWALLOW.search(block), block)
+
+    def test_a_hash_inside_a_quoted_argument_does_not_hide_a_later_swallow(self):
+        # Control against a "strip # to end of line" fix, which would eat the swallow.
+        text = self._WORKFLOW.replace(
+            "      run: python earlier.py\n", '      run: python earlier.py "a#b" || true\n'
         )
         (_, block), = steps_running(text, "python earlier.py")
         self.assertIsNotNone(_SWALLOW.search(block), block)
