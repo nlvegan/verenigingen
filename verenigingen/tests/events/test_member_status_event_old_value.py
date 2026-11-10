@@ -46,10 +46,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         frappe.flags.bulk_member_operations = False
         frappe.flags.in_test = False
         frappe.flags.skip_volunteer_account_creation = True
-        self._had_throttle = "throttle_user_limit" in frappe.local.conf
-        self._throttle = frappe.local.conf.get("throttle_user_limit")
-        self.addCleanup(self._restore_throttle)
-        frappe.local.conf["throttle_user_limit"] = 1000000
 
         self.member = self.create_test_member(
             first_name="OldValue",
@@ -70,12 +66,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         member = frappe.get_doc("Member", self.member.name)
         member.user = self.user.name
         member.save(ignore_permissions=True)
-
-    def _restore_throttle(self):
-        if self._had_throttle:
-            frappe.local.conf["throttle_user_limit"] = self._throttle
-        else:
-            frappe.local.conf.pop("throttle_user_limit", None)
 
     def tearDown(self):
         for k, v in self._saved_flags.items():

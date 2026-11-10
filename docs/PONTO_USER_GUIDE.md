@@ -477,7 +477,7 @@ sync_interval_hours: Hours between automatic syncs (integer, default: 6)
 last_sync_time: Last successful sync timestamp (read-only, auto-managed)
 enable_webhooks: Enable Ponto webhook notifications (boolean)
 require_webhook_signature: Require JWT signature verification on webhooks (boolean, default: enabled)
-webhook_application_id: Application ID for webhook JWT verification from Ibanity developer console
+webhook_application_id: Should equal the client ID of the environment in use (the webhook JWT audience; measured on the sandbox). Leave blank to use it
 webhook_url: Auto-generated webhook endpoint URL (read-only)
 ```
 
@@ -586,7 +586,8 @@ POST /api/method/verenigingen.verenigingen_payments.ponto.api.webhook.handle_pon
 
 ```
 GET /api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback.payment_callback
-GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback
+GET /ponto-return?l=<link>&c=<cancel_token>&p=<return_proof>   (short guest route; what new links send to Ponto)
+GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback   (links created before the short route)
 GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_page
 ```
 

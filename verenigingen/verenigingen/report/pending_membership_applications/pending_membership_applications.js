@@ -185,18 +185,6 @@ frappe.query_reports['Pending Membership Applications'] = {
 			}
 		});
 
-		// Add custom button to export overdue applications
-		report.page.add_inner_button(__('Email Overdue List'), () => {
-			frappe.call({
-				method: 'verenigingen.api.overdue_application_notifications.send_overdue_notifications',
-				callback(r) {
-					if (r.message) {
-						frappe.msgprint(__('Notifications sent to {0} chapters', [r.message.notified_chapters]));
-					}
-				}
-			});
-		});
-
 		// Add button to bulk approve
 		report.page.add_inner_button(__('Bulk Actions'), () => {
 			show_bulk_actions_dialog(report);

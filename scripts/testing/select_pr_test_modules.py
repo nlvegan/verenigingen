@@ -9,8 +9,8 @@ caught costs a ~50 minute queue build instead. The PR-side job (server-tests.yml
 Selection (union, de-duplicated, sorted):
 
   a. OWN     every test module the PR adds or changes. Deleted modules and modules with no
-             test class are skipped (a module with nothing to collect prints no OK line, a
-             false red: the same two rules as dispatch/rule24_hook.sh).
+             test method are skipped (a module with nothing to collect prints no OK line, a
+             false red: rule24_hook.sh skips both too but uses an older, looser has-tests rule).
   b. DERIVED test modules for changed NON-test .py files, bounded by --derived-cap: first
              a test named after the file (test_<stem>*.py), then test files that mention
              the file's dotted module path. Cheap and heuristic on purpose.
@@ -101,11 +101,20 @@ def is_test_path(path: str) -> bool:
     return bool(_TEST_FILE.search(path))
 
 
+# Framework roots: a class deriving ONLY from these brings no tests of its own.
+_ROOT_BASES = {"TestCase", "FrappeTestCase", "IntegrationTestCase", "UnitTestCase", "EnhancedTestCase"}
+
+
 def has_tests(source: str) -> bool:
-    """True when the module defines something unittest can collect: a class deriving from a
-    *TestCase/*Test base (it may inherit its tests), or a Test* class with a test* method.
-    Same rule as rule24_hook.sh's has_tests (a plain `class TestDataContext:` helper ran 0
-    tests, a false red on #2211)."""
+    """True when the module defines something unittest can collect: a class with a test*
+    method, or a class that may INHERIT tests (it derives from an imported *TestCase/*Test base, whose
+    tests cannot be seen here; a local base is judged by its own body).
+    Deriving from a bare framework root (unittest.TestCase, EnhancedTestCase, ...) or from a
+    local class with no tests does NOT count: tests/utils/test_base_framework.py is only
+    `class VerenigingenTestCase(unittest.TestCase)` with a setUp, so `bench run-tests` prints no
+    OK line and the job reads it as RED (#2352). dispatch/rule24_hook.sh still uses the older rule
+    (any *TestCase base counts), which is how that module got through; a plain `class TestDataContext:` helper ran 0 tests too
+    (#2211)."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -116,19 +125,19 @@ def has_tests(source: str) -> bool:
         return getattr(b, "id", None) or getattr(b, "attr", "")
 
     def has_test_method(c):
+        return any(isinstance(m, ast.FunctionDef) and m.name.startswith("test") for m in c.body)
+
+    classes = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+
+    def may_inherit_tests(c):
+        # A LOCAL base is judged by its own body (it is visited below, so a mixin defining
+        # test_* keeps the module); only an imported base can hide inherited tests.
         return any(
-            isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name.startswith("test")
-            for m in c.body
+            b not in classes and b.endswith(("TestCase", "Test")) and b not in _ROOT_BASES
+            for b in map(base, c.bases)
         )
 
-    return any(
-        isinstance(n, ast.ClassDef)
-        and (
-            any(base(b).endswith(("TestCase", "Test")) for b in n.bases)
-            or (n.name.startswith("Test") and has_test_method(n))
-        )
-        for n in ast.walk(tree)
-    )
+    return any(has_test_method(c) or may_inherit_tests(c) for c in classes.values())
 
 
 def runnable(root: Path, path: str) -> bool:
@@ -147,7 +156,7 @@ def own_modules(root: Path, changed: dict, log) -> list:
         if runnable(root, path):
             picked.append(path_to_module(path))
         else:
-            reason = "deleted" if status == "D" or not (root / path).is_file() else "unsafe name or no test class"
+            reason = "deleted" if status == "D" or not (root / path).is_file() else "unsafe name or no test method"
             log(f"  skip own {path}: {reason}")
     return picked
 
@@ -188,7 +197,10 @@ def derived_modules(root: Path, changed: dict, own: set, cap: int, log) -> list:
     out = []
     for t in dict.fromkeys(named + importing):
         m = path_to_module(t)
-        if m in own or m in out or not runnable(root, t):
+        if m in own or m in out:
+            continue
+        if not runnable(root, t):
+            log(f"  skip derived {t}: no test method")
             continue
         out.append(m)
     if len(out) > cap:

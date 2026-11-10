@@ -344,6 +344,7 @@
 {% endblock %}
 
 {% block script %}
+{% if not no_member_record %}
 <script>
 $(document).ready(function() {
     const feeSlider = $('#fee-slider');
@@ -867,4 +868,5 @@ $(document).ready(function() {
     }
 });
 </script>
+{% endif %}
 {% endblock %}

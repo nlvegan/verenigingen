@@ -333,6 +333,7 @@ class PontoWebhookVerifier:
                 details={
                     "reason": "JWT aud claim does not match application ID",
                     "expected_audience": self.application_id,
+                    "received_audience": received_claim(signature, "aud"),
                 },
             )
         except jwt.InvalidIssuerError:
@@ -341,6 +342,7 @@ class PontoWebhookVerifier:
                 details={
                     "reason": "JWT iss claim does not match expected issuer",
                     "expected_issuer": self.issuer,
+                    "received_issuer": received_claim(signature, "iss"),
                 },
             )
         except jwt.InvalidAlgorithmError:
@@ -364,6 +366,23 @@ class PontoWebhookVerifier:
                 message="Webhook verification failed",
                 details={"error": str(e)},
             )
+
+
+def received_claim(signature, claim: str) -> Any:
+    """A claim a webhook JWT carries, read WITHOUT verifying it, for diagnostics only (#2172).
+
+    Called after verification already failed, so nothing trusts the value (aud and iss are
+    public identifiers). The claim may be a string, a list, of any JSON type, or missing. Never
+    raises: a token that cannot be read yields None, and the value is cut so a caller cannot
+    bloat the Error Log.
+    """
+    try:
+        value = jwt.decode(signature, options={"verify_signature": False}).get(claim)
+    except Exception:
+        return None
+    if isinstance(value, list):
+        return [str(v)[:200] for v in value[:5]]
+    return None if value is None else str(value)[:200]
 
 
 def verify_ponto_webhook(
@@ -394,8 +413,8 @@ def verify_ponto_webhook(
     # Get application ID from settings if not provided
     if not application_id:
         settings = frappe.get_single("Ponto Settings")
-        # Use dedicated webhook application ID (from Ibanity developer console)
-        # Falls back to client_id if webhook_application_id not set
+        # The webhook JWT aud is the client ID of the active environment (#2172); a
+        # blank webhook_application_id falls back to it
         application_id = settings.get_webhook_application_id()
 
     if not application_id:

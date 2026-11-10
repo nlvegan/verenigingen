@@ -9,8 +9,7 @@ Handles redirects from Ponto after payment signing.
 When a user signs a payment in the Ponto authorization portal,
 they are redirected back to this callback URL. This endpoint:
 1. Validates the payment request
-2. Refreshes the payment status from Ponto API
-3. Redirects to appropriate success/failure page
+2. Redirects to the document (status comes from the signed webhook, not from here)
 
 Usage:
     Default callback URL:
@@ -57,11 +56,14 @@ def payment_callback():
         Rate limiting is handled by COR 'payment_callback'
         with per-IP scope: 20 requests per 5 minutes.
     """
-    # Set webhook user context for permission-based operations
+    # Set webhook user context for permission-based operations. No Administrator fallback
+    # (#1834): this is an anonymous GET, so with no usable webhook_user it runs as Guest and
+    # changes nothing (the token-proved cancel below is skipped).
     webhook_user = get_service_user(
         settings_doctype="Verenigingen Payments Settings",
         user_field="webhook_user",
         service_name="Ponto Payment Callback",
+        fallback_user=None,
     )
     if webhook_user:
         frappe.set_user(webhook_user)
@@ -77,21 +79,20 @@ def payment_callback():
     # The query string is attacker-controlled (this is an allow_guest GET), so no status comes
     # from it (#1815), with ONE ruled exception: `error=access_denied` plus a valid
     # `cancel_token` (HMAC of this request's name, minted when signing started) marks a
-    # Pending request Cancelled. Everything else CALLS `refresh_status()`, which is
-    # inert here: it is a high_security_api that the webhook user (or Guest) is refused, and
-    # `_refresh_from_ponto` swallows that into a log line. It stays until #1896 (#1834) removes it.
-    # Requests created before the token existed carry none and so take that same inert path.
+    # Pending request Cancelled, and only as the configured webhook user. Nothing else
+    # changes here: the callback does not call Ponto (#1834), the signed webhook is the
+    # status writer.
     #
     # Known and unknown names must be indistinguishable to the caller, so both redirect to the
-    # same document URL, and the messages `refresh_status()` raises are dropped from the
-    # response (they exist only for a known name).
+    # same document URL, and any message the cancel's save raises is dropped from the response
+    # (it exists only for a known name).
     redirect_to = get_url(f"/app/ponto-payment-request/{quote(payment_request_name, safe='')}")
     messages_before = len(frappe.local.message_log or [])
 
     try:
         if frappe.db.exists("Ponto Payment Request", payment_request_name):
-            if not _cancel_if_proved(payment_request_name):
-                _refresh_from_ponto(payment_request_name)
+            if webhook_user:
+                _cancel_if_proved(payment_request_name)
         else:
             frappe.logger().warning("Payment callback for unknown request")
 
@@ -126,13 +127,13 @@ def _cancel_if_proved(payment_request_name):
         doc.status = "Cancelled"
         # Security: reached only with a valid signed cancel_token for THIS row; narrow skip (#1920).
         doc.save(ignore_permissions=True)
+    _persist_this_get()
     return True
 
 
-def _refresh_from_ponto(payment_request_name):
-    """Adopt the status Ponto reports for this request; a failed fetch is left to the webhook."""
-    doc = frappe.get_doc("Ponto Payment Request", payment_request_name)
-    try:
-        doc.refresh_status()
-    except Exception as e:
-        frappe.logger().error(f"Failed to refresh payment status: {payment_request_name}: {e}")
+def _persist_this_get():
+    """A GET is rolled back by frappe/app.py::sync_database unless flags.commit is set, so
+    without this the cancel above never persists on a real request (#1883). Called ONLY after
+    a successful token-proved cancel; every other path (refused, failed, no token) is still
+    rolled back."""
+    frappe.local.flags.commit = True
