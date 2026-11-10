@@ -111,12 +111,11 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
 def extract_refund_status(webhook_data: Dict[str, Any]) -> Any:
     """The refund's own ``status`` (#2138): ``refund.status`` when the payload nests the refund
     (``refund.id``, as ``extract_webhook_ids`` also reads), else the top-level one. On a nested
-    payload the top-level ``status`` is the PAYMENT's and must not decide it."""
+    payload the top-level ``status`` is the PAYMENT's and never stands in for a missing one."""
     if not isinstance(webhook_data, dict):
         return None
     nested = webhook_data.get("refund")
-    source = nested if isinstance(nested, dict) and "status" in nested else webhook_data
-    return source.get("status")
+    return nested.get("status") if isinstance(nested, dict) else webhook_data.get("status")
 
 
 def refund_is_paid_out(webhook_data: Dict[str, Any]) -> bool:

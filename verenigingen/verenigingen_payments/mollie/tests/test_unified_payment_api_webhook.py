@@ -315,7 +315,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
 
         Payload shape: Mollie's real refund object (resource/id/paymentId/amount/status).
         """
-        for status in ("queued", "pending", "processing", "failed", "canceled", "Refunded", None, 7):
+        for status in ("queued", "pending", "processing", "failed", "canceled", "Refunded", "refunded ", "refunded_x", "refund", None, 7):
             with self.subTest(status=status):
                 payload = {
                     "resource": "refund",
@@ -345,6 +345,37 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(calls, [])
         _out, calls = self._post_refund_payload(booked)
         self.assertEqual([c["reversal_id"] for c in calls], ["re_nested_2"])
+
+    def test_a_nested_refund_without_a_status_is_not_booked_2138(self):
+        """``refund`` is a dict with no status: the top-level ``status`` (the payment's, or a
+        stray 'refunded') must not stand in for it."""
+        payload = {
+            "paymentId": "tr_nostatus_1",
+            "status": "refunded",
+            "amount": {"value": "5.00", "currency": "EUR"},
+            "refund": {"id": "re_nostatus_1"},
+        }
+        self.expectErrorLog("Mollie", "Refund")
+        out, calls = self._post_refund_payload(payload)
+        self.assertEqual(calls, [])
+        self.assertEqual(out, {"status": "ok"})
+
+    def test_a_later_failed_refund_is_logged_after_an_earlier_pending_one_2138(self):  # vacuous-log-test-ok: false-positive
+        """The Error Log dedupe is per (IP, status bucket): a pending delivery must not hide a
+        later failed one for an hour, while two pendings stay one row."""
+        frappe.cache.delete_keys("webhook_error_log_once:")
+        base = {"resource": "refund", "paymentId": "tr_dd_1"}
+        count = lambda: frappe.db.count("Error Log", {"method": "Mollie Refund Not Paid Out"})  # noqa: E731
+        before = count()
+        self.expectErrorLog("Mollie", "Refund")
+        self._post_refund_payload(dict(base, id="re_dd_1", status="pending"))
+        self._post_refund_payload(dict(base, id="re_dd_2", status="pending"))
+        self.assertEqual(count(), before + 1, "two pendings: one row")
+        self._post_refund_payload(dict(base, id="re_dd_3", status="failed"))
+        self.assertEqual(count(), before + 2, "a failed after a pending: a second row")
+        self._post_refund_payload(dict(base, id="re_dd_4", status="x" * 300))
+        self._post_refund_payload(dict(base, id="re_dd_5", status="y" * 300))
+        self.assertEqual(count(), before + 3, "unknown statuses share one bucket")
 
     def test_a_refund_not_paid_out_leaves_one_bounded_error_log_row_2138(self):
         """Recorded once per hour per caller IP, the caller-chosen status cut short, never echoed in the ack."""

@@ -38,6 +38,7 @@ from ..utils.amount_helpers import extract_amount_value
 from ..utils.webhook_utilities import extract_refund_status
 
 _ERROR_LOG_DEDUPE_PREFIX = "mollie_webhook_failure:"
+_KNOWN_REFUND_STATUSES = ("queued", "pending", "processing", "failed", "canceled")
 
 
 def _ack_with_error_log(
@@ -107,7 +108,7 @@ def _refuse_unusable_payload(messages_before: int, reason: str) -> Dict[str, str
 def _ack_refund_not_paid_out(messages_before: int, webhook_data: Dict[str, Any], ids: Dict[str, Any]):
     """Ack a refund payload whose status is not `refunded`; one bounded Error Log row says why (#2138).
 
-    Deduped per caller IP per hour (never per id or status: both are the caller's to choose),
+    Deduped per caller IP and known-status bucket per hour (never per id or raw status: both are the caller's to choose),
     with the caller-supplied status and ids cut short.
     """
     status = extract_refund_status(webhook_data)
@@ -115,7 +116,10 @@ def _ack_refund_not_paid_out(messages_before: int, webhook_data: Dict[str, Any],
         f"Refund {short_id(ids['refund_id'])} on payment {short_id(ids['payment_id'])} not booked: "
         f"status is {str(status)[:32]!r}, only 'refunded' counts as paid out"
     )
-    log_error_once("Mollie Refund Not Paid Out", message, get_client_ip(), "refund_not_paid_out")
+    # Status bucket in the key so an earlier pending delivery cannot hide a later failed one;
+    # the caller-chosen text never becomes a key (unknown statuses share "other").
+    bucket = status if status in _KNOWN_REFUND_STATUSES else "other"
+    log_error_once("Mollie Refund Not Paid Out", message, get_client_ip(), bucket)
     return webhook_ack(messages_before)
 
 
