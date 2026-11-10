@@ -21,6 +21,7 @@ from verenigingen.tests.payment.test_bulk_transaction_importer_sweep import (
 )
 from verenigingen.tests.payment.test_mollie_bulk_run_fetch import _FakePage, _mk_payment
 from verenigingen.tests.support.system_timezone import system_timezone
+from verenigingen.tests.test_site_timezone_today import site_a_day_ahead_of_process
 from verenigingen.verenigingen_payments.monitoring.balance_monitor import BalanceMonitor
 from verenigingen.verenigingen_payments.services import mollie_bulk_run_service as svc
 
@@ -223,6 +224,93 @@ class TestDebugServiceWindowLocalDay(_BulkImporterSweepBase):
             with self.subTest(zone=zone):
                 self.assertTrue(self._passes_date_filter(zone, stamp, local_day(zone, stamp)))
                 self.assertFalse(self._passes_date_filter(zone, stamp, add_days(local_day(zone, stamp), 1)))
+
+
+SITE_ZONE_UNDER_LEVER = "Pacific/Kiritimati"  # what site_a_day_ahead_of_process pins
+
+
+def _site_noon_stamp(day):
+    """UTC stamp for 12:00 on ``day`` in the lever's site zone (day-stable at any hour)."""
+    noon = pytz.timezone(SITE_ZONE_UNDER_LEVER).localize(datetime(day.year, day.month, day.day, 12, 0))
+    return noon.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+class TestCutoffIsTheSiteDayNotTheProcessDay(_BulkImporterSweepBase):
+    """The cutoff `add_days(today(), -days_back)` is the SITE day.
+
+    The lever puts the site strictly ahead of the process (process Pacific/Midway, site
+    Pacific/Kiritimati), so site-today > process-today at every hour. A payment on the site's
+    cutoff day is kept; one on the day before is dropped. A process-clock cutoff
+    (`datetime.now()`) is a day or more earlier and would keep the older payment too.
+    """
+
+    days_back = 5
+
+    def _kept_flags(self, site_today):
+        on_cutoff = add_days(site_today, -self.days_back)
+        before_cutoff = add_days(site_today, -self.days_back - 1)
+        process_cutoff = getdate(add_days(datetime.now().date(), -self.days_back))
+        # Control: the older payment is inside a process-clock window, so only a site-day
+        # cutoff can drop it.
+        self.assertGreaterEqual(getdate(before_cutoff), process_cutoff)
+        return _site_noon_stamp(getdate(on_cutoff)), _site_noon_stamp(getdate(before_cutoff))
+
+    def test_admin_cutoff_uses_the_site_day(self):
+        from verenigingen.verenigingen_payments.mollie.services import bulk_payment_admin_service as admin
+
+        with site_a_day_ahead_of_process() as site_today:
+            on_stamp, before_stamp = self._kept_flags(site_today)
+            payments = [
+                SimpleNamespace(
+                    id=pid,
+                    created_at=stamp,
+                    paid_at=stamp,
+                    status="paid",
+                    amount={"currency": "EUR", "value": "10.00"},
+                )
+                for pid, stamp in (("tr_on", on_stamp), ("tr_before", before_stamp))
+            ]
+            page = _FakePage(batch=payments)
+            with patch("verenigingen.verenigingen_payments.mollie.core.client.MollieClient") as mc, patch(
+                "verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher.get_member_payment_matcher"
+            ):
+                mc.return_value.sdk_client.payments.list.side_effect = lambda **kw: page
+                out = admin._retrieve_global_payments_with_orphans(self.days_back, 10, "all")
+        self.assertEqual(out["total_filtered_by_date"], 1, out.get("error"))
+        self.assertEqual(out["total_payments_after_filtering"], 1)
+
+    def test_debug_service_cutoff_uses_the_site_day(self):
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        with site_a_day_ahead_of_process() as site_today:
+            on_stamp, before_stamp = self._kept_flags(site_today)
+            payments = [
+                SimpleNamespace(id=pid, created_at=stamp, status="paid")
+                for pid, stamp in (("tr_before", before_stamp), ("tr_on", on_stamp))
+            ]
+            matcher = MagicMock()
+            matcher.find_member_for_payment.return_value = {"name": "M-1"}
+            creator = MagicMock()
+            # A payment past the date filter reaches this and the run aborts (the failure is
+            # swallowed by the service); the call count says which payments got that far.
+            creator.check_already_processed.side_effect = RuntimeError("past the date filter")
+            service = MollieDebugService.__new__(MollieDebugService)
+            service.logger = MagicMock()
+            service.mollie_client = MagicMock()
+            service.mollie_client.is_test_mode.return_value = True
+            service.mollie_client.sdk_client.payments.list.side_effect = lambda **kw: payments
+            with patch(
+                "verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher.get_member_payment_matcher",
+                return_value=matcher,
+            ), patch(
+                "verenigingen.verenigingen_payments.services.bank_transaction_creator.get_bank_transaction_creator",
+                return_value=creator,
+            ):
+                out = service.bulk_retrieve_all_member_payments(days_back=self.days_back)
+        # tr_before is dropped, then tr_on is kept and reaches the creator: both were seen.
+        self.assertEqual(out["total_payments_found"], 2, out)
+        self.assertEqual(out["total_filtered_by_date"], 1, out)
+        self.assertEqual(creator.check_already_processed.call_count, 1)
 
 
 class TestBalanceMonitorDailyBuckets(_BulkImporterSweepBase):
