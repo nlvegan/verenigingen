@@ -52,11 +52,17 @@ class DashboardMandateFixture(EnhancedTestCase):
             used_for_memberships=1,
             used_for_donations=0,
         )
-        frappe.db.set_value("SEPA Mandate", new.name, "status", "Active", update_modified=False)
+        # Probe shortcut: `db.set_value` stands in for the legacy/race write. Both flags
+        # are set, because the real state has status Active AND is_active 1; with
+        # is_active left at 0 the old `get_active_mandates` (is_active=1) saw ONE row
+        # and the expiry test could not tell pick-newest from refusal.
+        frappe.db.set_value(
+            "SEPA Mandate", new.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
         self.assertEqual(
             frappe.db.count(
                 "SEPA Mandate",
-                {"member": self.member.name, "status": "Active", "used_for_memberships": 1},
+                {"member": self.member.name, "status": "Active", "is_active": 1, "used_for_memberships": 1},
             ),
             2,
             "fixture must really hold two Active membership mandates",
