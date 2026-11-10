@@ -45,6 +45,7 @@ from verenigingen.patches.v2_2.add_ponto_executed_on_cancelled_row_notification 
     execute as register_alert_notification_type,
 )
 from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
+from verenigingen.tests.sepa.test_ponto_callbacks import fake_request
 from verenigingen.tests.payment.test_ponto_submitted_documents import (
     _create_client,
     _PontoUsers,
@@ -96,7 +97,9 @@ class _PollBase(EnhancedTestCase):
         long_ago = add_to_date(now_datetime(), days=-400)
         for doctype, statuses, _id_field in status_poll_service._POLLED:
             frappe.db.set_value(
-                doctype, {"status": ["in", statuses]}, {"creation": long_ago, "modified": long_ago},
+                doctype,
+                {"status": ["in", [*statuses, status_poll_service.CANCELLED_STATUS]]},
+                {"creation": long_ago, "modified": long_ago},
                 update_modified=False,
             )
 
@@ -204,6 +207,11 @@ class _PollBase(EnhancedTestCase):
     def _cancelled_docstatus(self, doc):
         """Fixture shortcut: an open-looking status on a docstatus-2 row (db.set_value)."""
         frappe.db.set_value(doc.doctype, doc.name, "docstatus", 2, update_modified=False)
+        return doc
+
+    def _submitted(self, doc):
+        """Fixture shortcut: docstatus 1 on a made row (db.set_value)."""
+        frappe.db.set_value(doc.doctype, doc.name, "docstatus", 1, update_modified=False)
         return doc
 
     def _http_stub(self, fake_get):
@@ -930,7 +938,7 @@ class TestRealTokenManagerClassification(_PollBase):
 class TestCancelledRowSelection(_PollBase):
     """#1931 selection and bounds. Shortcut, stated: the rows are docstatus-0 rows pushed to
     docstatus 2 with ``db.set_value`` (``_cancelled_docstatus``), which is exactly the state a real
-    cancel leaves in the table (``on_cancel`` sets "Cancelled" in memory only, #1918); the real
+    cancel leaves in the table (``on_cancel`` now persists "Cancelled", #1918); the real
     submit/cancel flow is driven in TestPollOnReallySubmittedAndCancelledRows. The client factory is
     stubbed here: this class is about WHICH rows are read, not about what Ponto answers."""
 
@@ -946,10 +954,15 @@ class TestCancelledRowSelection(_PollBase):
             self._cancelled_docstatus(self._make_poll_request("Signed")),
             # #1931: CREATED outside the window, CANCELLED inside it (modified = now): still checked.
             self._cancelled_docstatus(self._make_poll_request("Pending", age_days=window + 5)),
+            # #1918: what a real cancel now leaves in the table.
+            self._cancelled_docstatus(self._make_poll_request("Cancelled")),
         ]
         controls = [
             self._cancelled_docstatus(self._make_poll_request("Executed")),  # not open
-            self._cancelled_docstatus(self._make_poll_request("Cancelled")),  # not open
+            # docstatus 1 + Cancelled: the shape the token-proved callback cancel writes (shortcut:
+            # docstatus set with db.set_value). Not a cancelled DOCUMENT, so never read.
+            self._submitted(self._make_poll_request("Cancelled")),
+            self._make_poll_request("Cancelled"),  # a docstatus-0 "Cancelled" row is not a cancelled DOCUMENT
             # Created recently but CANCELLED outside the window (#1931: the window is the cancel time).
             self._cancelled_at(self._cancelled_docstatus(self._make_poll_request("Pending")), window + 5),
             self._cancelled_docstatus(self._make_poll_request("Pending", ponto_id=False)),
@@ -957,9 +970,12 @@ class TestCancelledRowSelection(_PollBase):
         link_wanted = [
             self._cancelled_docstatus(self._make_poll_link("Authorized")),
             self._cancelled_docstatus(self._make_poll_link("Pending Authorization", age_days=window + 5)),
+            self._cancelled_docstatus(self._make_poll_link("Cancelled")),  # #1918
         ]
         link_controls = [
             self._cancelled_docstatus(self._make_poll_link("Executed")),
+            self._make_poll_link("Cancelled"),
+            self._submitted(self._make_poll_link("Cancelled")),
             self._cancelled_at(
                 self._cancelled_docstatus(self._make_poll_link("Pending Authorization")), window + 5
             ),
@@ -1088,10 +1104,9 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             doc.cancel()
         row = self._state(doc)
         self.assertEqual(row.docstatus, 2)
-        # #1918, measured here: the DB keeps the OPEN status, which is what makes the row selectable.
-        # The cancelled pass depends on it: if #1918 is fixed this assertion trips, and the pass's
-        # selection (status_poll_service._open_where, cancelled=True) must change with it.
-        self.assertIn(row.status, ("Pending", "Pending Authorization"))
+        # #1918: the cancel is PERSISTED as "Cancelled" (it used to stay at the open status). The
+        # cancelled pass selects docstatus-2 rows by status "Cancelled" plus the open ones.
+        self.assertEqual(row.status, "Cancelled")
         return doc
 
     def _state(self, doc):
@@ -1116,6 +1131,77 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertEqual(frappe.session.user, "Administrator")
         with self._http_stub(fake_get):
             frappe.get_attr(JOB)()
+
+    # --- #1918: a really cancelled row reads back Cancelled -------------------
+
+    def test_a_really_cancelled_request_and_link_persist_status_cancelled_without_touching_modified(self):
+        """``modified`` of a docstatus-2 row IS its cancel time (the #1931 window counts from it), so
+        the status write must not move it: the ``set_value`` behind ``db_set`` is spied on, because
+        ``db_set`` also assigns the new ``modified`` to the in-memory document and a read-back
+        comparison cannot tell."""
+        real = frappe.db.set_value
+        for doc in (self._poll_submitted_request(), self._poll_submitted_link()):
+            writes = []
+
+            def spy(doctype, name, *args, **kwargs):
+                writes.append((doctype, args, kwargs))
+                return real(doctype, name, *args, **kwargs)
+
+            with patch.object(frappe.db, "set_value", side_effect=spy):
+                self._cancel(doc)
+            status_writes = [w for w in writes if w[0] == doc.doctype and "Cancelled" in w[1]]
+            self.assertEqual(len(status_writes), 1, doc.doctype)
+            self.assertIs(status_writes[0][2].get("update_modified"), False, doc.doctype)
+            row = self._state(doc)
+            self.assertEqual((row.docstatus, row.status), (2, "Cancelled"), doc.doctype)
+
+    def test_cancelling_a_signed_row_persists_cancelled_and_does_not_call_ponto_delete(self):
+        req, link = self._poll_submitted_request(), self._poll_submitted_link()
+        self._poll({req.ponto_payment_id: "signed", link.ponto_request_id: "signed"})
+        for doc in (req, link):
+            doc.reload()
+            deleted = MagicMock()
+            path = PAY_CLIENT if doc.doctype == "Ponto Payment Request" else LINK_CLIENT
+            with patch(path, return_value=deleted):
+                doc.cancel()
+            self.assertEqual(self._state(doc).status, "Cancelled", doc.doctype)
+            deleted.delete_payment.assert_not_called()
+            deleted.delete_payment_request.assert_not_called()
+
+    def test_cancelling_a_pending_row_still_deletes_the_payment_at_ponto(self):
+        """The status write must come AFTER the Pending check that decides the Ponto delete."""
+        req, link = self._poll_submitted_request(), self._poll_submitted_link()
+        for doc, path in ((req, PAY_CLIENT), (link, LINK_CLIENT)):
+            client = MagicMock()
+            with patch(path, return_value=client):
+                doc.cancel()
+            deletes = client.delete_payment.call_count + client.delete_payment_request.call_count
+            self.assertEqual(deletes, 1, doc.doctype)
+
+    def test_cancelling_an_executed_row_keeps_executed(self):
+        """Executed is final (#1835 ruling). Probe shortcut, stated: the row is made Executed with
+        ``db.set_value`` on a really submitted row (no Payment Entry), not through the poll."""
+        for doc in (self._poll_submitted_request(), self._poll_submitted_link()):
+            frappe.db.set_value(doc.doctype, doc.name, "status", "Executed", update_modified=False)
+            doc.reload()
+            with patch(PAY_CLIENT if doc.doctype == "Ponto Payment Request" else LINK_CLIENT):
+                doc.cancel()
+            self.assertEqual(self._state(doc).status, "Executed", doc.doctype)
+
+    def test_a_cancelled_row_is_no_longer_offered_as_pending_or_payable(self):
+        """Readers of status on a docstatus-2 row, driven through their real entry points."""
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
+        from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
+            cancel_payment,
+            list_pending_payments,
+        )
+
+        req, link = self._cancel(self._poll_submitted_request()), self._cancel(self._poll_submitted_link())
+        self.assertNotIn(req.name, [r.name for r in list_pending_payments()])
+        with self.assertRaises(frappe.ValidationError):
+            cancel_payment(req.name)
+        with fake_request(link=link.name):
+            self.assertEqual(payment_page()["status"], "cancelled")
 
     # --- #1907: the poll moves REALLY submitted rows -------------------------
 
