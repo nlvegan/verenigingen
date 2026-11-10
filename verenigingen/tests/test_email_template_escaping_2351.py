@@ -72,10 +72,16 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
             "expense_approval_request",
             {
                 "doc": frappe._dict(name="EXP-1", description=RAW, organization_type="Chapter"),
-                "volunteer_name": RAW, "category_name": RAW, "organization_name": RAW,
-                "approver_name": RAW, "company": "Co", "required_level": "Manager",
-                "formatted_amount": "10.00", "formatted_date": "2026-01-01",
-                "approval_url": "http://x/a?b=1&c=2", "dashboard_url": "http://x/d",
+                "volunteer_name": RAW,
+                "category_name": RAW,
+                "organization_name": RAW,
+                "approver_name": RAW,
+                "company": "Co",
+                "required_level": "Manager",
+                "formatted_amount": "10.00",
+                "formatted_date": "2026-01-01",
+                "approval_url": "http://x/a?b=1&c=2",
+                "dashboard_url": "http://x/d",
             },
         )
         self._assert_escaped(body)
@@ -85,8 +91,12 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         self._seed_comprehensive(["expense_approved", "expense_rejected"])
         ctx = {
             "doc": frappe._dict(name="EXP-1", description=RAW),
-            "volunteer_name": RAW, "approved_by_name": RAW, "rejected_by_name": RAW,
-            "rejection_reason": RAW, "company": "Co", "formatted_amount": "10.00",
+            "volunteer_name": RAW,
+            "approved_by_name": RAW,
+            "rejected_by_name": RAW,
+            "rejection_reason": RAW,
+            "company": "Co",
+            "formatted_amount": "10.00",
             "approved_on": "2026-01-01",
         }
         approved = self._render("expense_approved", ctx)
@@ -99,10 +109,18 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
     def test_donation_templates_escape_donor_notes_and_reference(self):
         self._seed_comprehensive(["donation_confirmation", "donation_payment_confirmation"])
         ctx = {
-            "donation_id": "D-1", "donation_amount": "1.00", "donation_date": "d",
-            "donation_status": "s", "earmarking": RAW, "donation_notes": RAW,
-            "donor_name": RAW, "organization_name": "Org", "organization_email": "o@x.nl",
-            "payment_date": "d", "payment_method": "m", "payment_reference": RAW,
+            "donation_id": "D-1",
+            "donation_amount": "1.00",
+            "donation_date": "d",
+            "donation_status": "s",
+            "earmarking": RAW,
+            "donation_notes": RAW,
+            "donor_name": RAW,
+            "organization_name": "Org",
+            "organization_email": "o@x.nl",
+            "payment_date": "d",
+            "payment_method": "m",
+            "payment_reference": RAW,
         }
         confirmation = self._render("donation_confirmation", ctx)
         self._assert_escaped(confirmation)
@@ -115,14 +133,24 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         self._seed_comprehensive(["anbi_tax_receipt", "member_contact_request_received"])
         receipt = self._render(
             "anbi_tax_receipt",
-            {"donor_name": RAW, "receipt_number": "R", "anbi_number": "A", "tax_year": 2026,
-             "organization_name": "Org", "doc": frappe._dict(amount=1)},
+            {
+                "donor_name": RAW,
+                "receipt_number": "R",
+                "anbi_number": "A",
+                "tax_year": 2026,
+                "organization_name": "Org",
+                "doc": frappe._dict(amount=1),
+            },
         )
         self._assert_escaped(receipt)
         contact = self._render(
             "member_contact_request_received",
-            {"doc": frappe._dict(name="C-1", message=RAW, request_category="c", priority="p"),
-             "contact_name": RAW, "submission_date": "d", "organization_name": "Org"},
+            {
+                "doc": frappe._dict(name="C-1", message=RAW, request_category="c", priority="p"),
+                "contact_name": RAW,
+                "submission_date": "d",
+                "organization_name": "Org",
+            },
         )
         self._assert_escaped(contact)
         self.assertGreaterEqual(contact.count(ESCAPED), 2)
@@ -140,15 +168,22 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         from verenigingen.api.membership_email_templates import create_default_email_templates
 
         names = [
-            "membership_application_rejected", "membership_rejection_incomplete",
-            "membership_rejection_ineligible", "membership_rejection_duplicate",
+            "membership_application_rejected",
+            "membership_rejection_incomplete",
+            "membership_rejection_ineligible",
+            "membership_rejection_duplicate",
         ]
         self._seed(create_default_email_templates, names)
         for name in names:
             body = self._render(
                 name,
-                {"reason": RAW, "first_name": RAW, "member_name": RAW, "application_id": "A-1",
-                 "company": "Co"},
+                {
+                    "reason": RAW,
+                    "first_name": RAW,
+                    "member_name": RAW,
+                    "application_id": "A-1",
+                    "company": "Co",
+                },
             )
             with self.subTest(template=name):
                 self._assert_escaped(body)
@@ -161,19 +196,29 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         self._seed(create_application_email_templates, names)
         volunteer = self._render(
             "volunteer_welcome",
-            {"volunteer": frappe._dict(
-                volunteer_name=RAW, commitment_level="c", experience_level="e", email=RAW,
-                interests=[frappe._dict(interest_area=RAW)])},
+            {
+                "volunteer": frappe._dict(
+                    volunteer_name=RAW,
+                    commitment_level="c",
+                    experience_level="e",
+                    email=RAW,
+                    interests=[frappe._dict(interest_area=RAW)],
+                )
+            },
         )
         self._assert_escaped(volunteer)
         self.assertGreaterEqual(volunteer.count(ESCAPED), 3)
         member = frappe._dict(first_name=RAW, name="M-1", current_chapter=RAW)
         welcome = self._render(
             "membership_welcome",
-            {"member": member, "membership_type": frappe._dict(membership_type_name="T"),
-             "membership": frappe._dict(start_date="2026-01-01", renewal_date="2027-01-01"),
-             "company": frappe.defaults.get_global_default("company"),
-             "member_portal_url": "http://x", "login_url": "http://x"},
+            {
+                "member": member,
+                "membership_type": frappe._dict(membership_type_name="T"),
+                "membership": frappe._dict(start_date="2026-01-01", renewal_date="2027-01-01"),
+                "company": frappe.defaults.get_global_default("company"),
+                "member_portal_url": "http://x",
+                "login_url": "http://x",
+            },
         )
         self._assert_escaped(welcome)
         self.assertGreaterEqual(welcome.count(ESCAPED), 2)
