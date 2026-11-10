@@ -12,6 +12,7 @@ from frappe.utils import getdate
 
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 from verenigingen.utils.secure_operations import is_duplicate_key_error as _is_duplicate_key_error
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 
 class BankTransactionCreator:
@@ -967,6 +968,7 @@ class BankTransactionCreator:
                     return None
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")
                 frappe.log_error(
                     title="Bank Transaction Creation Error",
