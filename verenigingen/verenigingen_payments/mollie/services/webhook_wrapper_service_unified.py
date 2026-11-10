@@ -726,7 +726,27 @@ class UnifiedWebhookWrapperService:
                 "payment_id": payment_id,
             }
 
-        outcomes = [
+        outcomes = self.book_pending_reversals(payment_id, state)
+
+        failed = [o for o in outcomes if o.get("status") == "error"]
+        forward_result["reversals"] = [o.get("status") for o in outcomes]
+        if failed:
+            forward_result["status"] = "error"
+            forward_result["message"] = (
+                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
+                f"{failed[0].get('message')}"
+            )
+        return forward_result
+
+    def book_pending_reversals(self, payment_id: str, state) -> list:
+        """Book every refund/chargeback ``state`` (an idempotency check) found pending.
+
+        The one place a discovered reversal becomes a booking, shared by the payment
+        webhook (``_book_dues_reversals``) and the scheduled rediscovery sweep (#2140),
+        so both book through ``process_reversal_webhook``'s per-reversal-key
+        idempotency and neither has a second booking path.
+        """
+        return [
             self.process_reversal_webhook(
                 payment_id=payment_id,
                 reversal_id=refund["refund_id"],
@@ -746,16 +766,6 @@ class UnifiedWebhookWrapperService:
             )
             for chargeback in state.pending_chargebacks
         ]
-
-        failed = [o for o in outcomes if o.get("status") == "error"]
-        forward_result["reversals"] = [o.get("status") for o in outcomes]
-        if failed:
-            forward_result["status"] = "error"
-            forward_result["message"] = (
-                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
-                f"{failed[0].get('message')}"
-            )
-        return forward_result
 
     def _handle_fully_processed_payment(
         self, payment_id: str, processing_state, start_time: float

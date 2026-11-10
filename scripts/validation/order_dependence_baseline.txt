@@ -477,11 +477,8 @@ REUSE tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-
 REUSE tests/backend/unit/api/test_member_management_mt940_and_emails.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/api/test_validation_endpoint_wrappers.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::1  # order-dependence
-REUSE tests/backend/unit/utils/test_fee_query_consolidation.py::5  # order-dependence
-REUSE tests/backend/workflows/test_chapter_membership_workflow.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle_complete.py::1  # order-dependence
 REUSE tests/chapter/test_team_role_basic.py::1  # order-dependence

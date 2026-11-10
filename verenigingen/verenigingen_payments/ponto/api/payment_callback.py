@@ -12,8 +12,13 @@ they are redirected back to this callback URL. This endpoint:
 2. Redirects to the document (status comes from the signed webhook, not from here)
 
 Usage:
-    Default callback URL:
-    https://your-site.com/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback?payment_request=PONTO-PAY-0001
+    Return URL minted at signing start (build_request_return_url): the short guest route
+    https://your-site.com/ponto-return?r=PONTO-PAY-0001&c=<cancel_token>
+    served by templates/pages/ponto-return, which runs payment_callback. Ponto rejects a
+    redirectUri over 255 characters, which the /api/method/... form could not be kept under.
+    (#2274: the old stored form named the MODULE, ...ponto.api.payment_callback, not this
+    function, so it never dispatched; the dispatchable form is
+    /api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback.payment_callback.)
 
     Custom redirect_uri can be set per payment request.
 """
@@ -27,12 +32,22 @@ from verenigingen.utils.security.api_security_framework import public_api
 from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
 from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.service_user import get_service_user
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+    PONTO_RETURN_ROUTE,
+    _return_arg,
+)
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import system_update
 
 # Scopes the signed `cancel_token` minted into the redirect_uri at signing start
 # (PontoPaymentRequest.create_ponto_payment). A different purpose string from the #1055
 # payment-success token, so neither verifies as the other.
 CANCEL_TOKEN_PURPOSE = "ponto_payment_request_cancel"
+
+
+def build_request_return_url(payment_request_name, cancel_token):
+    """The redirectUri for a Ponto Payment Request: the short guest route shared with payment
+    links (#2274), `r` naming the request and `c` carrying the cancel token."""
+    return get_url(f"{PONTO_RETURN_ROUTE}?r={payment_request_name}&c={cancel_token}")
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -68,7 +83,7 @@ def payment_callback():
     if webhook_user:
         frappe.set_user(webhook_user)
 
-    payment_request_name = frappe.request.args.get("payment_request")
+    payment_request_name = _return_arg("payment_request")
 
     if not payment_request_name:
         frappe.logger().warning("Payment callback received without payment_request")
@@ -115,7 +130,7 @@ def _cancel_if_proved(payment_request_name):
     args = frappe.request.args
     if args.get("error") != "access_denied":
         return False
-    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_request_name, args.get("cancel_token")):
+    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_request_name, _return_arg("cancel_token")):
         return False
     doc = frappe.get_doc("Ponto Payment Request", payment_request_name)
     if doc.status != "Pending":

@@ -12,10 +12,10 @@
 # acceptable, then regenerate in the same commit.
 #
 # Line numbers are deliberately absent -- they rot on any edit above them.
-teardowns 12
-calls 23
+teardowns 13
+calls 24
 level debug 1
-level error 4
+level error 5
 level warning 18
 teardown verenigingen/tests/payment/test_ponto_configuration_service.py::TestPontoConfigurationService.tearDownClass
 teardown verenigingen/tests/payment/test_ponto_oauth2_callback.py::TestPontoOAuth2Callback.tearDownClass
@@ -29,6 +29,7 @@ teardown verenigingen/tests/sepa/test_ponto_payment_initiation_service.py::TestP
 teardown verenigingen/tests/services/test_chapter_permission_service_integration.py::TestChapterPermissionServiceIntegration.tearDownClass
 teardown verenigingen/tests/test_singleton_backup_restoration.py::_Case.tearDownClass
 teardown verenigingen/tests/test_webhook_user_setup.py::TestWebhookUserSetup.tearDownClass
+teardown verenigingen/verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::TestContributionAmendmentRequestCoverage.tearDownClass
 site verenigingen/tests/fixtures/enhanced_test_factory.py error 2
 site verenigingen/tests/fixtures/enhanced_test_factory.py warning 15
 site verenigingen/tests/fixtures/singleton_backup.py debug 1
@@ -36,3 +37,4 @@ site verenigingen/tests/fixtures/singleton_backup.py error 1
 site verenigingen/tests/fixtures/singleton_backup.py warning 2
 site verenigingen/tests/test_webhook_user_setup.py warning 1
 site verenigingen/tests/utils/error_log_guard.py error 1
+site verenigingen/verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py error 1

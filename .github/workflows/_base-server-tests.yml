@@ -244,6 +244,13 @@ jobs:
           MODULES: ${{ inputs.test-modules }}
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
+          # Seed ONCE, before the first module (#2361). Frappe's runner runs the `before_tests` hooks
+          # only for integration-category tests, so a module it files as "unspecified" ran on this
+          # fresh site with none of the app's seeds (Mode of Payment "Manual", MijnRood dummy
+          # credentials, ...). A whole-suite shard gets them from an earlier integration module; one
+          # `run-tests` per module does not. Not guarded: a failed seed must fail the job here, not
+          # surface as an unrelated red in whichever module needed the row.
+          bench --site test_site execute ${{ github.event.repository.name }}.tests.setup.seed_for_standalone_module_runs
           fail=0
           count=0
           for m in $MODULES; do
