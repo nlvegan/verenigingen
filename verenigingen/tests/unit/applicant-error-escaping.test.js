@@ -130,6 +130,33 @@ describe('submission error -> frappe.msgprint fallback', () => {
 		expect(parse(seen[0].message).textContent).toBe(READABLE);
 	});
 
+	const excBody = () => ({
+		exc: 'Traceback',
+		_server_messages: JSON.stringify([JSON.stringify({ message: READABLE })])
+	});
+
+	test('submitApplication xhr.responseJSON.exc branch reads back unchanged (no double escape)', async () => {
+		const app = makeApp();
+		global.$.ajax = jest.fn((opts) =>
+			opts.error({ responseJSON: excBody(), responseText: JSON.stringify(excBody()), status: 417 }, 'error', 'x')
+		);
+		expect(parse(await submitAndCollectMsgprint(app)).textContent).toBe(READABLE);
+	});
+
+	test('call() error() r.responseJSON.exc branch reads back unchanged (no double escape)', async () => {
+		const app = makeApp();
+		global.frappe.call = jest.fn((opts) => opts.error({ responseJSON: excBody() }));
+		const seen = captureMsgprint();
+		let thrown;
+		try {
+			await app.apiService.call('x.y');
+		} catch (e) {
+			thrown = e;
+		}
+		app.handleSubmissionError(thrown);
+		expect(parse(seen[0].message).textContent).toBe(READABLE);
+	});
+
 	test('frappe.call error() branch with r.message is inert', async () => {
 		const app = makeApp();
 		global.frappe.call = jest.fn((opts) => opts.error({ message: PAYLOAD }));

@@ -4248,7 +4248,8 @@ class _UIManager {
 	}
 
 	showError(title, error) {
-		const message = error.message || error.toString();
+		// Error.message is plain text; escape at this HTML sink (#2276). Dead code today (no callers).
+		const message = verenigingen.utils.escapeHtml(error.message || error.toString());
 		frappe.msgprint({
 			title,
 			message,
