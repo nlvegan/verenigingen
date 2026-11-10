@@ -33,6 +33,7 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.services.billing.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 if TYPE_CHECKING:
     pass
@@ -368,6 +369,7 @@ class BulkInvoiceGenerationService(StatefulService):
                         filtered_members["business_logic"].append(member_info)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 filtered_members["business_logic"].append(
                     {
                         "member_id": schedule_data.member_id,
@@ -646,6 +648,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(error_msg)
 
                 except Exception as ge:
+                    reraise_if_job_timeout(ge)  # #2235: never turn an RQ job timeout into a result
                     recovery_result = schedule._handle_invoice_generation_failure(str(ge))
                     error_msg = (
                         f"Schedule {schedule_name} unexpected error "
@@ -655,6 +658,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(f"ERROR: {error_msg}")
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 clean_error = self._clean_error_message(str(e))
                 error_msg = f"Error processing {schedule_name}: {clean_error}"
                 frappe.log_error(error_msg, "Membership Dues Generation")
@@ -670,6 +674,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     members_to_update, successful_invoices
                 )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Error in bulk payment history update: {str(e)[:100]}"
                 frappe.log_error(error_msg, "Bulk Payment History Update Error")
                 result.errors.append(error_msg)
@@ -736,6 +741,7 @@ class BulkInvoiceGenerationService(StatefulService):
                             }
                         )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(f"Error checking coverage gap: {str(e)}", "Coverage Gap Detection")
 
         if coverage_gaps:
@@ -817,6 +823,7 @@ class BulkInvoiceGenerationService(StatefulService):
 
                             manager.add_or_update_entry(inv_data["invoice"], build_invoice_entry, "invoice")
                         except Exception as inv_error:
+                            reraise_if_job_timeout(inv_error)  # #2235: a job timeout must propagate
                             frappe.log_error(
                                 f"Failed to add invoice {inv_data['invoice']} to payment history: {str(inv_error)}",
                                 "Individual Invoice Payment History Update",
@@ -825,6 +832,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     wrote_for_member = True
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(
                     f"Error updating payment history for member {member_name}: {str(e)}",
                     "Bulk Payment History Member Update",
@@ -978,11 +986,13 @@ def process_invoice_chunk(
                 result.errors.append(error_msg)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Unexpected error for {schedule_name}: {str(e)[:MAX_LOG_ERROR_LENGTH]}"
                 _safe_log_error(f"Chunk {chunk_id} Error", schedule_name, e)
                 result.errors.append(error_msg)
 
         except Exception as outer_e:
+            reraise_if_job_timeout(outer_e)  # #2235: never turn an RQ job timeout into a result
             error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:MAX_LOG_ERROR_LENGTH]}"
             _safe_log_error(f"Chunk {chunk_id} Load Error", schedule_name, outer_e)
             result.errors.append(error_msg)
