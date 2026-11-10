@@ -17,7 +17,7 @@
 # change to the validator's own detection rules, which must land in the same
 # commit as the regeneration.
 #
-# Totals at generation: 162 sites across 132 functions -- LOOP_CONTINUES 5, RETURNS_TRUTHY 16, FALLS_THROUGH 141
+# Totals at generation: 161 sites across 131 functions -- LOOP_CONTINUES 5, RETURNS_TRUTHY 16, FALLS_THROUGH 140
 
 scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
 scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
@@ -125,7 +125,6 @@ verenigingen/utils/orphaned_child_table_cleanup.py::_batch_delete_orphans::1
 verenigingen/utils/settings_utils.py::get_payments_settings::1
 verenigingen/verenigingen/doctype/account_group_project_mapping/account_group_project_mapping.py::setup_default_mappings::1
 verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py::process_pending_amendments::1
-verenigingen/verenigingen/doctype/member/member_id_manager.py::MemberIDManager.get_next_member_id::1
 verenigingen/verenigingen/doctype/member/scheduler.py::refresh_all_member_financial_histories::1
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::send_follow_up_reminders::1
 verenigingen/verenigingen/doctype/member_import/member_import.py::MemberImport._create_addresses::1

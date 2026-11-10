@@ -330,7 +330,9 @@ COMMIT_EXEMPT services/billing/test_sales_invoice_account_handler.py::1  # order
 COMMIT_EXEMPT services/billing/test_sales_invoice_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/billing/test_template_services.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/csv_import/test_member_import_service.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/api/test_bool_flags_over_http_2377.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/api/test_unlink_donor_customer_remove_flag_2327.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_history_audit_improvements.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::3  # order-dep-exempt

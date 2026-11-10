@@ -366,35 +366,45 @@ class TestUnifiedIdempotencyManagerWildcardEscaping(_RefundFixtureMixin, Enhance
         )
 
     # -------------------------------------------------- site 2: chargeback lookup
-    def test_wildcard_payment_id_does_not_falsely_match_chargeback_remarks(self):
-        """#1277 site 2: ``_check_chargeback_processing_state``'s ``remarks`` LIKE
-        (``f"%{payment_id}%"``). An unrelated chargeback Payment Entry's remarks
-        merely containing a string one character away from payment_id_b must not
-        be attached to payment_id_b's chargeback state."""
+    def _chargeback_state(self, payment_id, chargeback_id):
+        payment = _FakePayment(
+            chargebacks=[
+                {"id": chargeback_id, "amount": {"value": "5.00"}, "createdAt": "2026-01-01", "reason": {}}
+            ]
+        )
+        result = PaymentIdempotencyCheckResult(payment_id)
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient",
+            return_value=_FakeMollieClient(payment=payment),
+        ):
+            self.mgr._check_chargeback_processing_state(payment_id, result, include_mollie_api=True)
+        return result
+
+    def test_a_chargeback_booked_for_another_payment_is_not_attached_to_this_one(self):
+        """#1277 site 2 (retargeted by #2355): chargeback state is decided by the EXACT
+        reversal key. A booking of the same chargeback id under a payment id one character
+        away (what an unescaped/loose LIKE would match) must not mark this payment's
+        chargeback processed; the same chargeback under its OWN key must."""
         uid = frappe.generate_hash(length=6)
         payment_id_b = f"tr_{uid}"
         payment_id_a = f"trX{uid}"
         self.assertNotIn(payment_id_b, payment_id_a)
+        chargeback_id = f"chb_{uid}"
 
-        pe_name = self._make_refund_payment_entry(reference_no=f"chb_{uid}", amount=5.0)
-        frappe.db.set_value(
-            "Payment Entry",
-            pe_name,
-            "remarks",
-            f"Chargeback correction for {payment_id_a}",
-            update_modified=False,
-        )
-
-        result = PaymentIdempotencyCheckResult(payment_id_b)
-        self.mgr._check_chargeback_processing_state(payment_id_b, result, include_mollie_api=False)
-
+        pe_other = self._make_refund_payment_entry(f"{payment_id_a}_chargeback_{chargeback_id}", amount=5.0)
+        result = self._chargeback_state(payment_id_b, chargeback_id)
         self.assertEqual(
-            result.chargebacks_processed,
-            [],
-            f"remarks containing {payment_id_a!r} is not a literal substring of {payment_id_b!r} but "
-            f"was wildcard-matched, wrongly attaching Payment Entry {pe_name} (a different payment) "
-            "to it",
+            [c["chargeback_id"] for c in result.pending_chargebacks],
+            [chargeback_id],
+            f"Payment Entry {pe_other} books {payment_id_a!r}'s chargeback, not {payment_id_b!r}'s",
         )
+        self.assertEqual(result.chargebacks_processed, [])
+
+        # Control: booked under its own key, it IS processed.
+        pe_own = self._make_refund_payment_entry(f"{payment_id_b}_chargeback_{chargeback_id}", amount=5.0)
+        result = self._chargeback_state(payment_id_b, chargeback_id)
+        self.assertEqual(result.pending_chargebacks, [])
+        self.assertEqual([c["payment_entry"] for c in result.chargebacks_processed], [pe_own])
 
     # ------------------------------------------ site 3: check_refund_idempotency
     def test_wildcard_refund_id_does_not_falsely_match_credit_note_remarks(self):

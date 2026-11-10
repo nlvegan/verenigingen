@@ -108,6 +108,26 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
     }
 
 
+def extract_refund_status(webhook_data: Dict[str, Any]) -> Any:
+    """The refund's own ``status`` (#2138): ``refund.status`` when the payload nests the refund
+    (``refund.id``, as ``extract_webhook_ids`` also reads), else the top-level one. On a nested
+    payload the top-level ``status`` is the PAYMENT's and never stands in for a missing one."""
+    if not isinstance(webhook_data, dict):
+        return None
+    nested = webhook_data.get("refund")
+    return nested.get("status") if isinstance(nested, dict) else webhook_data.get("status")
+
+
+def refund_is_paid_out(webhook_data: Dict[str, Any]) -> bool:
+    """True only when the refund object itself reports status ``refunded`` (#2138).
+
+    The same rule as the discovery path (``UnifiedIdempotencyManager._refund_is_paid_out``):
+    a ``queued``/``pending``/``processing``/``failed``/``canceled`` refund has not moved
+    money out, and a missing status is not presumed paid.
+    """
+    return extract_refund_status(webhook_data) == "refunded"
+
+
 def safe_extract_amount(webhook_data: Dict[str, Any], default: float = 0.0) -> float:
     """
     Safely extract amount from webhook data.

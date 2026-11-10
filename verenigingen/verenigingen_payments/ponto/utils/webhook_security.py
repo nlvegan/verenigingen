@@ -30,6 +30,7 @@ Usage:
 
 import base64
 import hashlib
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -325,7 +326,16 @@ class PontoWebhookVerifier:
         except jwt.ExpiredSignatureError:
             raise PontoWebhookError(
                 message="Webhook signature expired",
-                details={"reason": "JWT exp claim indicates signature has expired"},
+                details={
+                    "reason": "JWT exp claim indicates signature has expired",
+                    **token_time_diagnostics(signature),
+                },
+            )
+        except jwt.ImmatureSignatureError as e:
+            # iat/nbf in the future beyond the leeway: a fast Ibanity clock or a slow ours
+            raise PontoWebhookError(
+                message="Webhook signature not yet valid",
+                details={"reason": str(e), **token_time_diagnostics(signature)},
             )
         except jwt.InvalidAudienceError:
             raise PontoWebhookError(
@@ -350,6 +360,7 @@ class PontoWebhookVerifier:
                 message="Invalid webhook signature algorithm",
                 details={
                     "reason": f"Expected {SIGNING_ALGORITHM} algorithm",
+                    "received_algorithm": received_header_alg(signature),
                 },
             )
         except jwt.DecodeError as e:
@@ -383,6 +394,34 @@ def received_claim(signature, claim: str) -> Any:
     if isinstance(value, list):
         return [str(v)[:200] for v in value[:5]]
     return None if value is None else str(value)[:200]
+
+
+def received_header_alg(signature) -> Any:
+    """The ``alg`` a webhook JWT's header carries, read WITHOUT verifying it (#2324).
+
+    Diagnostics only, called after verification already failed. Never raises: an unreadable
+    token yields None, and the value is cut so a caller cannot bloat the Error Log.
+    """
+    try:
+        value = jwt.get_unverified_header(signature).get("alg")
+    except Exception:
+        return None
+    # a hostile header must not smuggle line breaks or control bytes into the Error Log
+    return None if value is None else re.sub(r"[^\x20-\x7e]", "?", str(value))[:50]
+
+
+def token_time_diagnostics(signature) -> Dict[str, Any]:
+    """``exp``, ``iat`` and ``nbf`` of a webhook JWT (unverified) next to the server clock (#2324).
+
+    Without the server's own epoch, a clock skew and a replayed old delivery look the same.
+    Never raises; the claims are None when the token cannot be read.
+    """
+    return {
+        "exp": received_claim(signature, "exp"),
+        "iat": received_claim(signature, "iat"),
+        "nbf": received_claim(signature, "nbf"),
+        "server_time": int(time.time()),
+    }
 
 
 def verify_ponto_webhook(
