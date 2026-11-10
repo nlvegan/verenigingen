@@ -206,3 +206,35 @@ class TestSettlementWindowAndGenericFilter(EnhancedTestCase):
             got = client._filter_by_date(items, from_date=datetime(2026, 3, 4), until_date=datetime(2026, 3, 4))
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["created_at"].day, 3)
+
+
+class TestFilterByDateNaiveDatetime(EnhancedTestCase):
+    def test_naive_datetime_is_taken_as_utc_and_filtered_by_its_local_day(self):
+        """Settlement/BalanceTransaction models hold NAIVE UTC datetimes; 23:30 naive is the local 4th."""
+        client = MollieBaseClient(use_backend_api=False)
+        items = [{"created_at": datetime(2026, 3, 3, 23, 30)}, {"created_at": datetime(2026, 3, 3, 10, 0)}]
+        with system_timezone(ZONE):
+            got = client._filter_by_date(items, from_date=datetime(2026, 3, 4), until_date=datetime(2026, 3, 4))
+        self.assertEqual(got, [items[0]])
+
+
+class TestCancellationDate(EnhancedTestCase):
+    """MollieDebugService._fetch_mollie_cancellation_date feeds Member.member_end_date."""
+
+    def _date_for(self, canceled_at):
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        sub = types.SimpleNamespace(id="sub_2378", canceled_at=canceled_at)
+        customer = types.SimpleNamespace(subscriptions=types.SimpleNamespace(list=lambda: [sub]))
+        # Only the Mollie SDK (an external HTTP client) is faked
+        sdk = types.SimpleNamespace(customers=types.SimpleNamespace(get=lambda cid: customer))
+        service = object.__new__(MollieDebugService)
+        service.mollie_client = types.SimpleNamespace(sdk_client=sdk)
+        with system_timezone(ZONE):
+            return service._fetch_mollie_cancellation_date("cst_2378", {})
+
+    def test_string_canceled_at_is_the_local_day(self):
+        self.assertEqual(self._date_for(LATE_EVENING_UTC), LOCAL_DAY)
+
+    def test_aware_datetime_canceled_at_is_the_local_day(self):
+        self.assertEqual(self._date_for(datetime(2026, 3, 3, 23, 30, tzinfo=timezone.utc)), LOCAL_DAY)

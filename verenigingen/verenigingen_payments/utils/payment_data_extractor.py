@@ -604,7 +604,7 @@ class PaymentDataExtractor:
         """
         Safely extract payment date from Mollie object.
 
-        Handles timezone conversions (Mollie uses UTC) and provides
+        Returns the SITE-local day of Mollie's UTC timestamp (#2378) and provides
         consistent fallback behavior.
 
         Args:
