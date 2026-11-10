@@ -15,6 +15,7 @@ from verenigingen.utils.operation_result import OperationResult
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 def has_donor_permlevel_access(permission_type="read"):
@@ -322,6 +323,9 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
         )
 
 
+_CONSENT_SAVEPOINT = "update_anbi_consent"
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def update_anbi_consent(donor: str, consent, reason=None) -> OperationResult[Dict[str, Any]]:
@@ -338,6 +342,10 @@ def update_anbi_consent(donor: str, consent, reason=None) -> OperationResult[Dic
             - consent (int): Updated consent status
             - consent_date (str): Consent date
     """
+    # The withdrawal audit Comment is written before the Donor save, which can be refused. The
+    # failure is returned (HTTP 200), so frappe/app.py COMMITS the request: without this
+    # savepoint the trail keeps a withdrawal that never happened (#2304, class of #2281).
+    frappe.db.savepoint(_CONSENT_SAVEPOINT)
     try:
         donor_doc = frappe.get_doc("Donor", donor)
 
@@ -369,7 +377,11 @@ def update_anbi_consent(donor: str, consent, reason=None) -> OperationResult[Dic
             message=_("ANBI consent updated successfully"),
         )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A deadlock has already discarded the transaction and its savepoints.
+        raise
     except Exception as e:
+        rollback_to_savepoint(_CONSENT_SAVEPOINT)
         frappe.log_error(
             f"Failed to update ANBI consent: {str(e)}\n{traceback.format_exc()}", "ANBI Consent Update Error"
         )

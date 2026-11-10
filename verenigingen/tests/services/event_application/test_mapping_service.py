@@ -108,12 +108,14 @@ class TestMapMemberFields(EnhancedTestCase):
             "is_active": 1,
             "verenigingen_membership_type": membership_type.name,
         })
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save(ignore_permissions=True)
         frappe.db.commit()
 
         def _cleanup():
             settings = frappe.get_single("MijnRood Sync Settings")
             settings.status_mapping = original
+            settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
             settings.save(ignore_permissions=True)
             frappe.db.commit()
         self.addCleanup(_cleanup)

@@ -10,10 +10,8 @@ from frappe import _
 from frappe.utils import format_date
 
 from verenigingen.utils.constants import get_volunteer_admin_roles
-from verenigingen.utils.error_handling import (
-    validate_member_for_user,
-    validate_user_logged_in,
-)
+from verenigingen.utils.error_handling import validate_user_logged_in
+from verenigingen.utils.member_portal_utils import setup_portal_context
 
 
 def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
@@ -21,7 +19,11 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
 
     # Modernized validation with helpers
     user = validate_user_logged_in()
-    member = validate_member_for_user(user)
+
+    # An account with no linked Member gets the "not linked" banner, not an error page (#2207)
+    member = setup_portal_context(context, "Team Members")
+    if not member:
+        return context
 
     # If no team specified, show team selector
     team_param = frappe.form_dict.get("team")

@@ -1197,6 +1197,10 @@ def setup_workspace():
     print("🏢 Setting up Verenigingen workspace...")
 
     # Each helper raises on a real failure (#1880); the runner reports it.
+    # The shipped workspace row names a Custom HTML Block that is only a fixture, and
+    # after_install runs before the fixtures sync (#2150).
+    ensure_workspace_custom_blocks()
+
     # Clean up workspace first
     cleanup_workspace_links()
 
@@ -1207,6 +1211,40 @@ def setup_workspace():
     install_and_link_onboarding()
 
     print("✅ Workspace setup completed")
+
+
+def ensure_workspace_custom_blocks():
+    """Create the Custom HTML Blocks the Verenigingen workspace references, if missing.
+
+    `workspace.save()` validates its custom_blocks rows and raises "Could not find Row #1:
+    Custom Block Name: Page Links" while the block does not exist. On a fresh install the
+    block ships only as a fixture, and `install-app` runs after_install BEFORE sync_fixtures
+    (#2150). The block is created from the same fixture file, so the later fixtures sync
+    just finds it and updates it.
+    """
+    if not frappe.db.exists("Workspace", "Verenigingen"):
+        return
+
+    wanted = frappe.get_all(
+        "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+    )
+    missing = [name for name in wanted if name and not frappe.db.exists("Custom HTML Block", name)]
+    if not missing:
+        return
+
+    import json
+
+    fixture_path = frappe.get_app_path("verenigingen", "fixtures", "custom_html_block.json")
+    with open(fixture_path) as f:
+        shipped = {row["name"]: row for row in json.load(f)}
+
+    for name in missing:
+        if name not in shipped:
+            raise RuntimeError(
+                f"Workspace Verenigingen needs Custom HTML Block {name!r}, which is not shipped"
+            )
+        frappe.get_doc(shipped[name]).insert(ignore_permissions=True, ignore_if_duplicate=True)
+        print(f"   ✓ Created Custom HTML Block: {name}")
 
 
 # Workspace Link.link_type options whose link_to names a record we can look up.

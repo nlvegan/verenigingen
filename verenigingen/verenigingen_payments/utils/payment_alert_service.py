@@ -167,15 +167,17 @@ class PaymentAlertService:
         Returns:
             True if alert was sent successfully, False otherwise
         """
+        # Gateway-supplied text (ids, error strings) goes into an HTML body: escape it.
+        escape = frappe.utils.escape_html
         return self._send_email_alert(
             subject=f"{source} Reconciliation Issue: {issue_type} - {transaction_id}",
             message=(
                 f"<p>A payment reconciliation issue has been detected.</p>"
-                f"<p><strong>Source:</strong> {source}</p>"
-                f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-                f"<p><strong>Issue Type:</strong> {issue_type}</p>"
+                f"<p><strong>Source:</strong> {escape(source)}</p>"
+                f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+                f"<p><strong>Issue Type:</strong> {escape(issue_type)}</p>"
                 f"<p><strong>Details:</strong></p>"
-                f"<pre>{details}</pre>"
+                f"<pre>{escape(details)}</pre>"
                 f"<p>Please review and resolve this issue.</p>"
             ),
             alert_type="reconciliation",
@@ -260,11 +262,12 @@ class PaymentAlertService:
         overpayment: float,
     ) -> str:
         """Format HTML email for overpayment alert."""
+        escape = frappe.utils.escape_html
         return (
             f"<p>An overpayment has been detected.</p>"
-            f"<p><strong>Payment Source:</strong> {source}</p>"
-            f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-            f"<p><strong>Reference:</strong> {reference_name}</p>"
+            f"<p><strong>Payment Source:</strong> {escape(source)}</p>"
+            f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+            f"<p><strong>Reference:</strong> {escape(reference_name)}</p>"
             f"<p><strong>Amount Paid:</strong> {amount_paid:.2f}</p>"
             f"<p><strong>Amount Due:</strong> {amount_due:.2f}</p>"
             f"<p><strong>Overpayment:</strong> {overpayment:.2f}</p>"
@@ -280,14 +283,15 @@ class PaymentAlertService:
         error_message: str,
     ) -> str:
         """Format HTML email for payment entry failure alert."""
+        escape = frappe.utils.escape_html
         return (
             f"<p><strong>Payment Entry creation failed.</strong></p>"
-            f"<p><strong>Payment Source:</strong> {source}</p>"
-            f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-            f"<p><strong>Reference:</strong> {reference_name or 'N/A'}</p>"
+            f"<p><strong>Payment Source:</strong> {escape(source)}</p>"
+            f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+            f"<p><strong>Reference:</strong> {escape(reference_name or 'N/A')}</p>"
             f"<p><strong>Amount:</strong> {flt(amount):.2f}</p>"
             f"<p><strong>Error:</strong></p>"
-            f"<pre>{error_message}</pre>"
+            f"<pre>{escape(error_message)}</pre>"
             f"<p>Manual intervention is required to create the Payment Entry.</p>"
         )
 

@@ -16,6 +16,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
     get_related_records_orchestrator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 
 def _cleanup_member_and_customer(test, member_name):
@@ -945,7 +946,9 @@ def _cleanup_dues_schedule(name):
                 "Membership Dues Schedule", name, ignore_permissions=True, force=True
             )
     except Exception:
-        pass
+        # A delete that fails leaves the schedule (and its Membership Type link) behind for
+        # the next module (#2271): say so instead of hiding it.
+        get_harness_logger("cleanup").error("could not delete Membership Dues Schedule %s", name, exc_info=True)
     frappe.db.commit()
 
 

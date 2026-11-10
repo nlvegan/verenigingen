@@ -526,10 +526,12 @@ class BaseRoleProfileManager(ABC):
             ):
                 previous_role_profile = role_profile
 
-                # Commit the transaction first (entity membership changes are already committed).
-                # This commit releases the savepoint, so clear the flag to keep the except
-                # handler from rolling back to a savepoint that no longer exists.
-                frappe.db.commit()
+                # Release the savepoint; the write persists with the request-level commit.
+                # A bare commit here would also run every pending after_commit callback
+                # (e.g. a queued welcome mail), and one that raises aborts the removal
+                # before the profile is stripped (#2260). Clear the flag so the except
+                # handler does not roll back to a savepoint that no longer exists.
+                frappe.db.release_savepoint(save_point)
                 transaction_started = False
 
                 # Log the removal intent

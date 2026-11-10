@@ -377,6 +377,7 @@ COMMIT_EXEMPT tests/integration/services/test_coverage_calculator_module.py::1  
 COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_account_creation_service_orchestration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/integration/test_payment_processing_http_integration.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_retry_invoice_concurrency.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/test_team_background_jobs.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/member/test_account_creation_request_cancel.py::2  # order-dep-exempt
@@ -411,6 +412,7 @@ COMMIT_EXEMPT tests/security/test_link_sanitizer.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_permissions_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_modules.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_penetration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/security/test_unlinked_member_home_page_2207.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_batch_processing_service_happy_path.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_dd_batch_pipeline_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_sepa_bank_reconciliation_coverage.py::1  # order-dep-exempt
@@ -434,6 +436,7 @@ COMMIT_EXEMPT tests/services/test_field_sync_integration.py::1  # order-dep-exem
 COMMIT_EXEMPT tests/services/test_member_cleanup_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_lookup_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/support/wsgi_http_session.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_drains_survive_setup_failure.py::2  # order-dep-exempt
@@ -474,11 +477,8 @@ REUSE tests/backend/unit/api/test_member_management_api_coverage.py::1  # order-
 REUSE tests/backend/unit/api/test_member_management_mt940_and_emails.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  # order-dependence
-REUSE tests/backend/unit/api/test_validation_endpoint_wrappers.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::1  # order-dependence
-REUSE tests/backend/unit/utils/test_fee_query_consolidation.py::5  # order-dependence
-REUSE tests/backend/workflows/test_chapter_membership_workflow.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle_complete.py::1  # order-dependence
 REUSE tests/chapter/test_team_role_basic.py::1  # order-dependence

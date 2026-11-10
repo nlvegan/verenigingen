@@ -2201,6 +2201,12 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         settings.set("role_mapping", [])
         settings.append("role_mapping", fields)
         settings.flags.ignore_validate = True
+        # ignore_validate does NOT skip _validate_mandatory. A single-module run
+        # (the PR census job) never runs the before_tests seed, because this
+        # module's tests are "unspecified-category" and the runner only dispatches
+        # before_tests for integration/old-frappe categories, so the Single's reqd
+        # SSH/DB fields are empty here.
+        settings.flags.ignore_mandatory = True
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.cache.delete_value("mijnrood_role_mapping")
@@ -2211,6 +2217,12 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         for row in snapshot:
             settings.append("role_mapping", row)
         settings.flags.ignore_validate = True
+        # ignore_validate does NOT skip _validate_mandatory. A single-module run
+        # (the PR census job) never runs the before_tests seed, because this
+        # module's tests are "unspecified-category" and the runner only dispatches
+        # before_tests for integration/old-frappe categories, so the Single's reqd
+        # SSH/DB fields are empty here.
+        settings.flags.ignore_mandatory = True
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.cache.delete_value("mijnrood_role_mapping")
