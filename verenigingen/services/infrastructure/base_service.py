@@ -223,6 +223,13 @@ class StatelessService(BaseService):
             self._end_operation(operation_name, start_time, success=True)
             return result
         except Exception as e:
+            # Imported here because this module is imported very early (as in error_handling).
+            from verenigingen.verenigingen_payments.core.resilience.job_timeout import (
+                reraise_if_job_timeout,
+            )
+
+            # #2235: an RQ job timeout is raised once; handle_error would wrap it in a ServiceError
+            reraise_if_job_timeout(e)
             self._end_operation(operation_name, start_time, success=False)
             self.handle_error(e, operation_name, {"args": args, "kwargs": kwargs})
 
