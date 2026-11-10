@@ -572,11 +572,15 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         with patch(PAYMENT_CLIENT, return_value=client):
             doc.create_ponto_payment()
         sent = client.create_payment.call_args.kwargs["redirect_uri"]
-        query = parse_qs(urlparse(sent).query)
-        self.assertEqual(query["payment_request"], [doc.name])
+        parsed_request_url = urlparse(sent)
+        # #2274: the short guest route, not the module-naming /api/method/... path
+        self.assertEqual(parsed_request_url.path, betaalverzoek_callback.PONTO_RETURN_ROUTE)
+        query = parse_qs(parsed_request_url.query)
+        self.assertEqual(query["r"], [doc.name])
         self.assertTrue(
-            verify_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name, query["cancel_token"][0])
+            verify_guest_return_token(payment_callback.CANCEL_TOKEN_PURPOSE, doc.name, query["c"][0])
         )
+        self.assertEqual(len(query["c"][0]), 64)
 
         link = self._make_ppl("Draft")
         link_client = MagicMock()
@@ -619,6 +623,21 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         sent = link_client.create_payment_request.call_args.kwargs["redirect_uri"]
         self.assertTrue(sent.startswith(host), sent)
         # literal 255 on purpose: Ponto's limit, not whatever constant the code under test declares
+        self.assertLessEqual(len(sent), 255, len(sent))
+
+    def test_the_payment_request_redirect_uri_fits_pontos_limit_for_a_long_host(self):
+        """#2274: the Payment Request URL was 182 characters before the host (199 once its dotted
+        path was corrected, which is the wrong-fix this test must catch: 199 + 72 = 271). Same long
+        host and literal 255 as the link test, on the URL the doctype REALLY sends."""
+        host = "https://" + "h" * 52 + ".example.org"
+        doc = self._make_ppr("Draft")
+        doc.ponto_payment_id = None
+        client = MagicMock()
+        client.create_payment.return_value = MagicMock(id="pid-255", redirect_link="https://ponto/sign")
+        with patch.dict(frappe.local.conf, {"host_name": host}), patch(PAYMENT_CLIENT, return_value=client):
+            doc.create_ponto_payment()
+        sent = client.create_payment.call_args.kwargs["redirect_uri"]
+        self.assertTrue(sent.startswith(host), sent)
         self.assertLessEqual(len(sent), 255, len(sent))
 
     def test_the_redirect_uri_fits_for_a_name_that_outgrew_four_digits(self):

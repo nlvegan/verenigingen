@@ -1,5 +1,6 @@
 """
-Short guest return route for Ponto Payment Link redirects (/ponto-return).
+Short guest return route for Ponto redirects (/ponto-return): Payment Links (`l=`) and
+Payment Requests (`r=`, #2274).
 
 Ponto rejects a payment-request redirectUri longer than 255 characters, and the
 /api/method/... path of payment_link_callback with two 64-hex tokens did not fit. This page
@@ -10,7 +11,11 @@ whose URL is already stored at Ponto.
 import frappe
 from frappe.utils import get_url
 
-from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_link_callback
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+    _return_arg,
+    payment_link_callback,
+)
+from verenigingen.verenigingen_payments.ponto.api.payment_callback import payment_callback
 
 
 def get_context(context):
@@ -18,7 +23,12 @@ def get_context(context):
     if frappe.request.method == "GET":
         # Whitelisting is only consulted at dispatch, so calling it here keeps its rate limit
         # (Critical Operation Rule) and every guard; it answers through frappe.local.response.
-        payment_link_callback()
+        # A Payment Request return names its request (`r=`); anything else is a link return.
+        # Each callback verifies only its own proofs, so a crafted mix gains nothing.
+        if _return_arg("payment_link") is None and _return_arg("payment_request") is not None:
+            payment_callback()
+        else:
+            payment_link_callback()
         location = (frappe.local.response or {}).get("location")
     else:
         # The /api endpoint is GET-only; do not let a POST (always committed) reach the logic.
