@@ -200,6 +200,7 @@ from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
 from verenigingen.tests.utils.throttle_guard import raise_throttle_user_limit
@@ -2422,6 +2423,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # never touches session state.
         guard_session_variables(cls)
 
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
+
     def setUp(self):
         super().setUp()
 
@@ -4047,6 +4051,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             ensure_root_item_group()
             ensure_root_customer_group()
             ensure_root_supplier_group()
+
+            # Mode of Payment masters ("Manual", "Mollie", ...): Member.payment_method
+            # links to them. before_tests seeds them, but the runner only runs
+            # before_tests for the "integration" category; a module it files under
+            # "unspecified" (the case for every EnhancedTestCase subclass run with
+            # `run-tests --module` on a fresh site) never sees it, and the first
+            # create_test_member(payment_method="Manual") dies on
+            # "Could not find Payment Method: Manual". Idempotent, and Mode of
+            # Payment is in DRAIN_EXEMPT_DOCTYPES so the drain leaves the seed alone.
+            from verenigingen.services.member.approval.application_helpers import (
+                ensure_payment_modes_exist,
+            )
+
+            ensure_payment_modes_exist()
 
             # Ensure master data exists
             self._ensure_master_data()

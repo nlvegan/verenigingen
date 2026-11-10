@@ -353,10 +353,11 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
 
 def get_renewal_reminder_email(agreement, days_remaining):
     """Generate renewal reminder email content"""
+    escape = frappe.utils.escape_html
     return f"""
-    <p>Dear {agreement.donor_name},</p>
+    <p>Dear {escape(agreement.donor_name)},</p>
 
-    <p>Your periodic donation agreement ({agreement.agreement_number}) will expire in <strong>{days_remaining} days</strong>
+    <p>Your periodic donation agreement ({escape(agreement.agreement_number)}) will expire in <strong>{days_remaining} days</strong>
     on {frappe.utils.formatdate(agreement.end_date)}.</p>
 
     <p>Your support through this agreement has made a significant impact:</p>
