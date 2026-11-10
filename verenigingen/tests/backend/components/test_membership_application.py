@@ -8,6 +8,7 @@ from verenigingen.api.membership_application import submit_application
 from verenigingen.services.member.application.application_materialiser import materialise_member
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.validation.application_validators import (
     validate_birth_date as validate_birth_date_util,
@@ -425,7 +426,10 @@ class TestMembershipApplicationLoad(ApplicationFlowCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
             except Exception:
-                pass
+                # A surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule.name, exc_info=True
+                )
 
         # 4. Delete Memberships
         memberships = frappe.get_all("Membership", filters={"member": member_name})
@@ -1444,7 +1448,10 @@ class TestChapterSelection(ApplicationFlowCase):
                 try:
                     frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
                 except Exception:
-                    pass
+                    # A surviving schedule leaks into later modules (#2271)
+                    get_harness_logger("cleanup").error(
+                        "could not delete Membership Dues Schedule %s", schedule.name, exc_info=True
+                    )
 
             # Delete memberships
             for membership in frappe.get_all("Membership", filters={"member": member_name}):
@@ -1463,7 +1470,8 @@ class TestChapterSelection(ApplicationFlowCase):
             if customer_name:
                 frappe.delete_doc("Customer", customer_name, force=True)
         except Exception:
-            pass
+            # The Member/Customer deletes were swallowed here too (#2271)
+            get_harness_logger("cleanup").error("cleanup of member %s failed", member_name, exc_info=True)
 
     def test_multiple_chapters_in_same_region(self):
         """Test handling of multiple chapters in the same region"""

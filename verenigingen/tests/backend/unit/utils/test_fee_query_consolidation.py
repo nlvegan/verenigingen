@@ -9,6 +9,8 @@ import importlib
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.support.owned_membership_type import make_owned_membership_type
+
 
 class TestFeeQueryConsolidation(FrappeTestCase):
     """Tests verifying fee query functions exist and are importable."""
@@ -44,9 +46,7 @@ class TestFeeQueryConsolidation(FrappeTestCase):
     def test_canonical_function_returns_required_keys(self):
         """Canonical function must return all keys needed by all three wrappers."""
         # Get a real membership type
-        mt = frappe.get_all("Membership Type", limit=1, fields=["name"])
-        if not mt:
-            self.skipTest("No Membership Type exists in the system")
+        mt = [make_owned_membership_type(self)]
 
         from verenigingen.utils.application_helpers import get_membership_type_fee_info
 
@@ -65,9 +65,7 @@ class TestFeeQueryConsolidation(FrappeTestCase):
 
     def test_fee_info_wrapper_returns_expected_keys(self):
         """get_membership_fee_info must return its expected response shape."""
-        mt = frappe.get_all("Membership Type", limit=1, fields=["name"])
-        if not mt:
-            self.skipTest("No Membership Type exists in the system")
+        mt = [make_owned_membership_type(self)]
 
         from verenigingen.utils.application_helpers import get_membership_fee_info
 
@@ -79,9 +77,7 @@ class TestFeeQueryConsolidation(FrappeTestCase):
 
     def test_type_details_wrapper_returns_expected_keys(self):
         """get_membership_type_details must return its expected response shape."""
-        mt = frappe.get_all("Membership Type", limit=1, fields=["name"])
-        if not mt:
-            self.skipTest("No Membership Type exists in the system")
+        mt = [make_owned_membership_type(self)]
 
         from verenigingen.utils.application_helpers import get_membership_type_details
 
@@ -94,9 +90,7 @@ class TestFeeQueryConsolidation(FrappeTestCase):
 
     def test_suggest_amounts_wrapper_returns_expected_keys(self):
         """suggest_membership_amounts must return its expected response shape."""
-        mt = frappe.get_all("Membership Type", limit=1, fields=["name"])
-        if not mt:
-            self.skipTest("No Membership Type exists in the system")
+        mt = [make_owned_membership_type(self)]
 
         from verenigingen.utils.application_helpers import suggest_membership_amounts
 
@@ -109,9 +103,7 @@ class TestFeeQueryConsolidation(FrappeTestCase):
 
     def test_all_three_agree_on_base_amount(self):
         """All three functions must agree on the base amount for the same membership type."""
-        mt = frappe.get_all("Membership Type", limit=1, fields=["name"])
-        if not mt:
-            self.skipTest("No Membership Type exists in the system")
+        mt = [make_owned_membership_type(self)]
 
         from verenigingen.utils.application_helpers import (
             get_membership_fee_info,
