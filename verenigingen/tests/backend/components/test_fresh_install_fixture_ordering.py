@@ -119,7 +119,7 @@ class TestWebhookUserWaitsForTheFixtures(_RolledBackCase):
         self.assertFalse(frappe.db.exists("Role Profile", WEBHOOK_PROFILE))
         self.addCleanup(setattr, frappe.flags, "in_install", frappe.flags.in_install)
 
-    def _import_the_role_profile_fixture(self):
+    def _import_the_webhook_profile_fixture(self):
         with open(APP_ROOT / "verenigingen" / "fixtures" / "role_profile.json", encoding="utf-8") as f:
             row = next(r for r in json.load(f) if r["name"] == WEBHOOK_PROFILE)
         frappe.get_doc(row).insert()
@@ -147,6 +147,22 @@ class TestWebhookUserWaitsForTheFixtures(_RolledBackCase):
         self._install_step()
         self.assertFalse(frappe.db.exists("User", email))
 
+    def test_during_an_install_with_the_profile_present_the_user_is_configured_at_once(self):
+        # Control: the deferral keys on the profile being absent, not on in_install alone.
+        frappe.flags.in_install = "verenigingen"
+        self._import_the_webhook_profile_fixture()
+        # Start from a site with no webhook user (the site may already carry one).
+        from verenigingen.setup.webhook_user_setup import generate_webhook_user_email
+
+        frappe.db.set_single_value("Verenigingen Payments Settings", "webhook_user", None)
+        email = generate_webhook_user_email()
+        frappe.db.delete("Has Role", {"parent": email})
+        frappe.db.delete("User", {"name": email})
+        self._install_step()
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user"), email)
+        self.assertTrue( frappe.db.get_value("User", email, "enabled"))
+        self.assertIn(WEBHOOK_PROFILE, frappe.get_roles(email))
+
     def test_outside_an_install_a_missing_profile_is_still_a_failure(self):
         # Control: the deferral must not turn every missing profile into a silent skip.
         frappe.flags.in_install = False
@@ -160,7 +176,7 @@ class TestWebhookUserWaitsForTheFixtures(_RolledBackCase):
         # named in Verenigingen Payments Settings.
         frappe.flags.in_install = "verenigingen"
         self._install_step()
-        self._import_the_role_profile_fixture()
+        self._import_the_webhook_profile_fixture()
         with contextlib.redirect_stdout(io.StringIO()):
             result = webhook_mod.ensure_webhook_user()
         self.assertTrue(result.get("success"), result)
