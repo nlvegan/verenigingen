@@ -27,6 +27,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
     get_active_membership_for_current_user,
@@ -714,7 +715,10 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
             except Exception:
-                pass  # Ignore errors during cleanup
+                # Not ignorable: a surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule_name, exc_info=True
+                )
 
     def _cleanup_membership_schedules(self):
         """Clean up any existing dues schedules for the test membership
@@ -728,7 +732,10 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
             except Exception:
-                pass  # Ignore errors during cleanup
+                # Not ignorable: a surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule_name, exc_info=True
+                )
 
     def _create_dues_schedule(self, status="Active", dues_rate=50.0, is_template=0):
         """Helper to create a test dues schedule

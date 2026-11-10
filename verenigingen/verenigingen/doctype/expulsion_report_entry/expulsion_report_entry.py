@@ -102,6 +102,7 @@ class ExpulsionReportEntry(Document):
 
         subject = f"New Expulsion Report Entry - {self.member_name}"
 
+        escape = frappe.utils.escape_html
         message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #dc3545;">
@@ -114,13 +115,13 @@ class ExpulsionReportEntry(Document):
             <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
                 <h3>Expulsion Details</h3>
                 <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{self.member_name}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Member ID:</strong></td><td style="padding: 5px;">{self.member_id}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Expulsion Type:</strong></td><td style="padding: 5px;">{self.expulsion_type}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{escape(self.member_name)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Member ID:</strong></td><td style="padding: 5px;">{escape(self.member_id)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Expulsion Type:</strong></td><td style="padding: 5px;">{escape(self.expulsion_type)}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.expulsion_date)}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Chapter:</strong></td><td style="padding: 5px;">{self.chapter_involved or 'Not specified'}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Initiated By:</strong></td><td style="padding: 5px;">{self.initiated_by}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Approved By:</strong></td><td style="padding: 5px;">{self.approved_by}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Chapter:</strong></td><td style="padding: 5px;">{escape(self.chapter_involved or 'Not specified')}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Initiated By:</strong></td><td style="padding: 5px;">{escape(self.initiated_by)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Approved By:</strong></td><td style="padding: 5px;">{escape(self.approved_by)}</td></tr>
                 </table>
             </div>
 
@@ -191,6 +192,7 @@ class ExpulsionReportEntry(Document):
 
         subject = f"Expulsion Reversed - {self.member_name}"
 
+        escape = frappe.utils.escape_html
         message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #28a745;">
@@ -203,10 +205,10 @@ class ExpulsionReportEntry(Document):
             <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
                 <h3>Reversal Details</h3>
                 <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{self.member_name}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{escape(self.member_name)}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Original Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.expulsion_date)}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Reversal Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.reversal_date)}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Reversal Reason:</strong></td><td style="padding: 5px;">{self.reversal_reason}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Reversal Reason:</strong></td><td style="padding: 5px;">{escape(self.reversal_reason)}</td></tr>
                 </table>
             </div>
 

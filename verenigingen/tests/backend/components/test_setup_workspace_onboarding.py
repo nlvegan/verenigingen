@@ -285,6 +285,81 @@ class TestSetupWorkspace(FrappeTestCase):
             "setup_workspace must never leave the site without the workspace",
         )
 
+    def test_setup_workspace_creates_the_custom_block_a_fresh_install_lacks(self):
+        # #2150: `install-app` runs after_install BEFORE the fixtures sync, so on a fresh
+        # install the Custom HTML Block the shipped workspace names does not exist yet and
+        # workspace.save() raised "Could not find Row #1: Custom Block Name: Page Links".
+        # Reproduce that state by deleting the block (the Workspace row stays), then run the step.
+        block_names = frappe.get_all(
+            "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+        )
+        self.assertTrue(block_names, "the shipped workspace must reference a Custom HTML Block")
+        for name in block_names:
+            frappe.db.delete("Custom HTML Block", {"name": name})
+            self.assertFalse(frappe.db.exists("Custom HTML Block", name), "precondition: block removed")
+        self.addCleanup(setup_mod.ensure_workspace_custom_blocks)
+
+        # A workspace link to be added only by update_workspace_links proves the later
+        # steps, which the failing save used to skip, completed.
+        label = "Termination & Appeals"
+        frappe.db.delete("Workspace Link", {"parent": "Verenigingen", "label": label})
+
+        setup_mod.setup_workspace()
+
+        shipped = self._shipped_custom_blocks()
+        for name in block_names:
+            self.assertTrue(frappe.db.exists("Custom HTML Block", name), f"{name} was not created")
+            # The recreated block must carry the shipped content, not just exist.
+            self.assertTrue(shipped[name]["html"], "fixture must carry html for this to discriminate")
+            for field in ("html", "script", "style"):
+                self.assertEqual(
+                    frappe.db.get_value("Custom HTML Block", name, field) or "",
+                    shipped[name].get(field) or "",
+                    f"{name}.{field} differs from fixtures/custom_html_block.json",
+                )
+        self.assertTrue(
+            frappe.db.exists("Workspace Link", {"parent": "Verenigingen", "label": label}),
+            "update_workspace_links did not complete",
+        )
+
+    @staticmethod
+    def _shipped_custom_blocks():
+        import json
+
+        path = frappe.get_app_path("verenigingen", "fixtures", "custom_html_block.json")
+        with open(path) as f:
+            return {row["name"]: row for row in json.load(f)}
+
+    def test_ensure_workspace_custom_blocks_refuses_a_block_that_is_not_shipped(self):
+        # A referenced block with no fixture entry cannot be created: refuse loudly rather
+        # than let workspace.save() fail later with a less specific message.
+        unshipped = "Unshipped Block 2150"
+        self.assertNotIn(unshipped, self._shipped_custom_blocks())
+        row = frappe.get_doc(
+            {
+                "doctype": "Workspace Custom Block",
+                "parent": "Verenigingen",
+                "parenttype": "Workspace",
+                "parentfield": "custom_blocks",
+                "custom_block_name": unshipped,
+                "label": unshipped,
+            }
+        ).insert(ignore_permissions=True, ignore_links=True)
+        self.addCleanup(frappe.db.delete, "Workspace Custom Block", {"name": row.name})
+        with self.assertRaisesRegex(RuntimeError, "not shipped"):
+            setup_mod.ensure_workspace_custom_blocks()
+
+    def test_ensure_workspace_custom_blocks_leaves_an_existing_block_alone(self):
+        # Only proves `ensure` does not touch an existing block; the fixtures sync
+        # overwrites the block on every migrate regardless.
+        name = frappe.get_all(
+            "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+        )[0]
+        setup_mod.ensure_workspace_custom_blocks()  # make sure it exists
+        frappe.db.set_value("Custom HTML Block", name, "html", "<p>edited</p>")
+        setup_mod.ensure_workspace_custom_blocks()
+        self.assertEqual(frappe.db.get_value("Custom HTML Block", name, "html"), "<p>edited</p>")
+
     def test_cleanup_removes_only_links_to_missing_doctypes(self):
         # After cleanup, no remaining DocType-type link may point at a
         # non-existent DocType.

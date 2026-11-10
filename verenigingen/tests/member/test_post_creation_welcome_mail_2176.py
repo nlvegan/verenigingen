@@ -5,8 +5,7 @@ welcome block, so nothing was ever built or queued. Every assertion reads the Em
 (what really went out), never the function's own log line.
 
 Production reach: ``MemberPerformanceOptimizer.create_member_optimized`` enqueues this
-function on the short queue; it is also whitelisted (Verenigingen Staff / System Manager
-via its Critical Operation Rule).
+function on the short queue. It is no longer whitelisted (#2232).
 """
 
 from unittest.mock import patch

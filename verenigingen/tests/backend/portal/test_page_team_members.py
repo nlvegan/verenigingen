@@ -85,7 +85,9 @@ class TestTeamMembersPage(EnhancedTestCase):
             finally:
                 frappe.form_dict = original
 
-    def test_user_without_member_record_raises(self):
+    def test_user_without_member_record_gets_the_not_linked_banner(self):
+        """#2207: the old behaviour (DoesNotExistError -> 404 page with a traceback) was the bug; the
+        page now renders portal_no_member_error.html with the shared sentence, for any team id."""
         nomember = f"team-nomember-{frappe.generate_hash()[:8]}@test.invalid"
         frappe.get_doc(
             {
@@ -96,8 +98,14 @@ class TestTeamMembersPage(EnhancedTestCase):
                 "send_welcome_email": 0,
             }
         ).insert()
-        with self.assertRaises(frappe.DoesNotExistError):
-            self._ctx_with_team(nomember, None)
+        from verenigingen.utils.member_utils import get_not_linked_message
+
+        for team_param in (None, self.team.name, "no-such-team"):
+            ctx = self._ctx_with_team(nomember, team_param)
+            self.assertTrue(ctx.no_member_record, team_param)
+            self.assertEqual(ctx.error_message, get_not_linked_message(), team_param)
+            self.assertFalse(ctx.get("show_team_selector"), team_param)
+            self.assertIsNone(ctx.get("team"), team_param)
 
     def test_no_team_param_shows_selector(self):
         ctx = self._ctx_with_team(self.user_email, None)

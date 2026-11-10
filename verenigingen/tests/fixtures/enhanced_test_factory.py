@@ -200,8 +200,10 @@ from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
+from verenigingen.tests.utils.throttle_guard import raise_throttle_user_limit
 from verenigingen.utils.timestamp_normalization import strip_whole_second_suffix
 
 from .field_validator import FieldValidationError, FieldValidator
@@ -2421,6 +2423,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # never touches session state.
         guard_session_variables(cls)
 
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
+
     def setUp(self):
         super().setUp()
 
@@ -2525,9 +2530,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Registered via addCleanup rather than tearDown: if setUp raises anywhere below
         # this line, unittest skips tearDown but still runs cleanups, so the override
         # cannot leak into the rest of the process.
-        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
-        self.addCleanup(self._restore_throttle_user_limit)
-        frappe.local.conf["throttle_user_limit"] = 1000000
+        raise_throttle_user_limit(self)
 
         # NOTE: do NOT set frappe.flags.in_bulk_import here as a stand-in for in_import.
         # It is not equivalent and suppresses strictly more: the event *emitters* in
@@ -2827,26 +2830,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         )
         report_leaks(rows, test_id)
 
-    def _restore_throttle_user_limit(self):
-        """Undo the setUp override of conf["throttle_user_limit"].
-
-        The key must be *deleted* rather than set back to None when it was absent to
-        begin with: throttle_user_creation() does
-        `count > conf.get("throttle_user_limit", 60)`, and a stored None would make that
-        comparison raise TypeError instead of falling back to the default of 60.
-        `is None` rather than falsiness, so a deliberate 0 survives.
-
-        This only matters for non-EnhancedTestCase tests sharing the same process — the
-        conf dict outlives an individual test. Do not delete as dead code.
-        """
-        try:
-            if self._original_throttle_limit is None:
-                frappe.local.conf.pop("throttle_user_limit", None)
-            else:
-                frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
-        except Exception:
-            pass  # Never let cleanup mask a test result
-
     def tearDown(self):
         """
         Clean up test environment with per-method transaction rollback.
@@ -2882,7 +2865,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         self._reset_financial_history_batch_queue()
 
         # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
-        # _restore_throttle_user_limit().
+        # raise_throttle_user_limit() (tests/utils/throttle_guard.py).
 
         # EMAIL / RATE-LIMIT PATCHES are deliberately NOT stopped here (#2221).
         # unittest runs tearDown BEFORE addCleanup callbacks, so stopping them here
@@ -4068,6 +4051,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             ensure_root_item_group()
             ensure_root_customer_group()
             ensure_root_supplier_group()
+
+            # Mode of Payment masters ("Manual", "Mollie", ...): Member.payment_method
+            # links to them. before_tests seeds them, but the runner only runs
+            # before_tests for the "integration" category; a module it files under
+            # "unspecified" (the case for every EnhancedTestCase subclass run with
+            # `run-tests --module` on a fresh site) never sees it, and the first
+            # create_test_member(payment_method="Manual") dies on
+            # "Could not find Payment Method: Manual". Idempotent, and Mode of
+            # Payment is in DRAIN_EXEMPT_DOCTYPES so the drain leaves the seed alone.
+            from verenigingen.services.member.approval.application_helpers import (
+                ensure_payment_modes_exist,
+            )
+
+            ensure_payment_modes_exist()
 
             # Ensure master data exists
             self._ensure_master_data()

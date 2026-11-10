@@ -218,7 +218,12 @@ def get_context(context):
         member = get_current_user_member_name()
 
         if not member and is_member:
-            frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+            # Not linked to a membership: show the banner instead of an error page (#2207)
+            from verenigingen.utils.member_portal_utils import set_no_member_context
+
+            context.title = _("Payment Dashboard")
+            set_no_member_context(context)
+            return context
         elif not member and is_admin:
             # Admin without member record - show member selection
             context.show_member_selection = True

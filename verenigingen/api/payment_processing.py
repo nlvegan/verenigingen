@@ -832,13 +832,15 @@ def generate_payment_reminder_html(member, payment_info, reminder_type, custom_m
     #     "Bulk Reminder": "info",
     # }.get(reminder_type, "info")  # Unused
 
+    # first_name, the membership type and the staff-typed custom message are free text: escape them.
+    escape = frappe.utils.escape_html
     email_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333;">Payment Reminder</h2>
 
-        <p>Dear {member.first_name},</p>
+        <p>Dear {escape(member.first_name)},</p>
 
-        <p>This is a {reminder_type.lower()} regarding your membership payment(s).</p>
+        <p>This is a {escape(reminder_type.lower())} regarding your membership payment(s).</p>
 
         <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin: 20px 0;">
             <h4>Payment Details:</h4>
@@ -846,11 +848,11 @@ def generate_payment_reminder_html(member, payment_info, reminder_type, custom_m
                 <li><strong>Number of overdue invoices:</strong> {payment_info.get('overdue_count', 0)}</li>
                 <li><strong>Total amount due:</strong> {frappe.format_value(payment_info.get('total_overdue', 0), {'fieldtype': 'Currency'})}</li>
                 <li><strong>Days overdue:</strong> {payment_info.get('days_overdue', 0)} days</li>
-                <li><strong>Membership type:</strong> {payment_info.get('membership_type', 'N/A')}</li>
+                <li><strong>Membership type:</strong> {escape(payment_info.get('membership_type', 'N/A'))}</li>
             </ul>
         </div>
 
-        {f'<p><em>{custom_message}</em></p>' if custom_message else ''}
+        {f'<p><em>{escape(custom_message)}</em></p>' if custom_message else ''}
 
         <p>Please arrange payment at your earliest convenience to avoid any disruption to your membership benefits.</p>
 
