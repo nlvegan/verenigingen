@@ -17,6 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen import setup as setup_mod
+from verenigingen.setup import webhook_user_setup as webhook_mod
 from verenigingen.tests.utils.paths import APP_ROOT
 
 MEMBER_PROFILE = "Verenigingen Member"
@@ -100,3 +101,74 @@ class TestMembershipTypesWaitForTheFixtures(_RolledBackCase):
     def test_the_hook_is_registered(self):
         hooks = frappe.get_hooks("after_sync", app_name="verenigingen")
         self.assertIn("verenigingen.setup.ensure_default_membership_types", hooks)
+
+
+WEBHOOK_PROFILE = "Verenigingen Webhook User"
+
+
+class TestWebhookUserWaitsForTheFixtures(_RolledBackCase):
+    """#2357: the webhook user's Role Profile is also fixture-only, so the after_install step
+    failed on every fresh install (and left initial setup unmarked). after_sync converges it."""
+
+    def setUp(self):
+        super().setUp()
+        # The state a fresh site is in when after_install runs: the fixture-shipped Role Profile is
+        # not imported yet.
+        frappe.db.delete("Role Profile", {"name": WEBHOOK_PROFILE})
+        frappe.clear_cache()
+        self.assertFalse(frappe.db.exists("Role Profile", WEBHOOK_PROFILE))
+        self.addCleanup(setattr, frappe.flags, "in_install", frappe.flags.in_install)
+
+    def _import_the_role_profile_fixture(self):
+        with open(APP_ROOT / "verenigingen" / "fixtures" / "role_profile.json", encoding="utf-8") as f:
+            row = next(r for r in json.load(f) if r["name"] == WEBHOOK_PROFILE)
+        frappe.get_doc(row).insert()
+
+    def _install_step(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            setup_mod._install_webhook_user()
+
+    def test_install_step_does_not_fail_while_fixtures_are_pending(self):
+        frappe.flags.in_install = "verenigingen"
+        before = frappe.db.count("Error Log")
+        self._install_step()  # RED before: RuntimeError "Role Profile Verenigingen Webhook User not found"
+        self.assertEqual(frappe.db.count("Error Log"), before)
+
+    def test_install_step_leaves_no_half_configured_user_behind(self):
+        # A user created now would have no roles; the deferral must not create it at all.
+        frappe.flags.in_install = "verenigingen"
+        from verenigingen.setup.webhook_user_setup import generate_webhook_user_email
+
+        email = generate_webhook_user_email()
+        # The site may already carry the user (a fresh install does not): start from none.
+        frappe.db.delete("Has Role", {"parent": email})
+        frappe.db.delete("User", {"name": email})
+        self.assertFalse(frappe.db.exists("User", email))
+        self._install_step()
+        self.assertFalse(frappe.db.exists("User", email))
+
+    def test_outside_an_install_a_missing_profile_is_still_a_failure(self):
+        # Control: the deferral must not turn every missing profile into a silent skip.
+        frappe.flags.in_install = False
+        with self.assertRaises(RuntimeError) as ctx:
+            self._install_step()
+        self.assertIn(WEBHOOK_PROFILE, str(ctx.exception))
+
+    def test_after_install_then_after_sync_configures_the_webhook_user(self):
+        # The whole fresh-install sequence: after_install step (profile absent), fixtures sync
+        # (profile appears), after_sync hook. The user must end up enabled, with the role, and
+        # named in Verenigingen Payments Settings.
+        frappe.flags.in_install = "verenigingen"
+        self._install_step()
+        self._import_the_role_profile_fixture()
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = webhook_mod.ensure_webhook_user()
+        self.assertTrue(result.get("success"), result)
+        email = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
+        self.assertEqual(email, result["webhook_user_email"])
+        self.assertEqual(frappe.db.get_value("User", email, "enabled"), 1)
+        self.assertIn(WEBHOOK_PROFILE, frappe.get_roles(email))
+
+    def test_the_hook_is_registered(self):
+        hooks = frappe.get_hooks("after_sync", app_name="verenigingen")
+        self.assertIn("verenigingen.setup.webhook_user_setup.ensure_webhook_user", hooks)
