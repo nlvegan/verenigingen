@@ -136,7 +136,7 @@ class TestCleanupDryRunOverHttp(_schedule_tests.TestScheduleMaintenance, Committ
     del _name
 
     def setUp(self):
-        VereningingenTestCase.setUp(self)
+        super().setUp()
         # The Administrator profile passes @high_security_api and carries Accounts Manager.
         self.user = self._create_login_users(maint="Verenigingen Administrator")["maint"]
         self._orphan_types = []
