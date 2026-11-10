@@ -73,7 +73,7 @@ def get_donor_customer_info(donor_name: str) -> OperationResult[Dict[str, Any]]:
         return OperationResult.ok(data=data, message=_("Donor-customer information retrieved successfully"))
 
     except Exception as e:
-        error_msg = _("Error getting donor-customer info: {0}").format(str(e) or type(e).__name__)
+        error_msg = _("Error getting donor-customer info: {0}").format(str(e))
         frappe.log_error(
             title=_("Donor Customer Info Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
         )
@@ -128,7 +128,7 @@ def force_donor_customer_sync(donor_name: str) -> OperationResult[Dict[str, Any]
         # sync_with_customer stopped swallowing (#666).
         raise
     except Exception as e:
-        error_msg = _("Error forcing donor-customer sync: {0}").format(str(e) or type(e).__name__)
+        error_msg = _("Error forcing donor-customer sync: {0}").format(str(e))
         frappe.log_error(
             title=_("Donor Customer Sync Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
         )
@@ -289,7 +289,7 @@ def get_donor_sync_dashboard() -> OperationResult[Dict[str, Any]]:
         return OperationResult.ok(data=data, message=_("Donor sync dashboard data retrieved successfully"))
 
     except Exception as e:
-        error_msg = _("Error getting sync dashboard: {0}").format(str(e) or type(e).__name__)
+        error_msg = _("Error getting sync dashboard: {0}").format(str(e))
         frappe.log_error(
             title=_("Donor Sync Dashboard Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
         )

@@ -8,6 +8,10 @@ a Verenigingen Administrator. Where that profile may not delete a Customer, an a
 shows up as a refusal (``DONOR_CUSTOMER_UNLINK_ERROR``, unlink rolled back); where it may, it
 really removes the Customer (the data-loss path). The test reads which applies.
 
+On a fresh install (CI) ``custom_docperm_setup.apply_custom_permissions`` writes Customer Custom
+DocPerm rows, so only Sales Master Manager can delete and CI always takes the refused branch; the
+real-delete branch runs only on a site that grants the admin Customer delete.
+
 Donors/Customers are committed because the WSGI child is another DB connection; removed afterwards.
 
 Usage:
