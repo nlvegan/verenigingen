@@ -200,6 +200,7 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
         ]
         self.addCleanup(self._restore_selector_mapping)
         settings.set("role_mapping", [])
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save()
         self.vadmin = self._selector_user(["Verenigingen Administrator"])
 
@@ -208,6 +209,7 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
         settings.set("role_mapping", [])
         for row in self._original:
             settings.append("role_mapping", row)
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save()
         frappe.cache.delete_value("mijnrood_role_mapping")
 
@@ -225,6 +227,7 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
                     "verenigingen_role": role,
                 },
             )
+            settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
             settings.save()
 
         if user:
@@ -269,6 +272,7 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
         with self.as_user(self.vadmin):
             settings = frappe.get_doc("MijnRood Sync Settings")
             settings.poll_interval_minutes = 7
+            settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
             settings.save()
 
         self.assertEqual(
@@ -314,6 +318,7 @@ class TestMijnRoodRoleMappingProfile(SelectorGuardCase):
         with self.as_user(self.vadmin):
             settings = frappe.get_doc("MijnRood Sync Settings")
             settings.poll_interval_minutes = 9
+            settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
             settings.save()
 
         self.assertEqual(frappe.get_doc("MijnRood Sync Settings").role_mapping[0].verenigingen_role, "System Manager")
