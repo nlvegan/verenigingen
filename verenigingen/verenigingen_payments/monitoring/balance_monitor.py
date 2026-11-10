@@ -462,6 +462,8 @@ class BalanceMonitor:
                 Please review immediately.
                 """,
                     notification_key="balance_monitor_alert",
+                    # Per alert type: a second kind of balance incident within the hour is not the first (#2310).
+                    cooldown_scope=str(alert["type"]),
                 )
 
             # Send realtime notification

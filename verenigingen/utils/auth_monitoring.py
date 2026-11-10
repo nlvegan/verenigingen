@@ -221,7 +221,6 @@ def alert_if_auth_issues():
                     recipients=recipients,
                     subject=subject,
                     message=message,
-                    delayed=False,
                     notification_key=AUTH_ALERT_KEY,
                 )
                 frappe.logger().error(

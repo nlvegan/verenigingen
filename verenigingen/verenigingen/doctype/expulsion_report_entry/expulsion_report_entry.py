@@ -156,6 +156,8 @@ class ExpulsionReportEntry(Document):
                 reference_name=self.name,
                 header=["New Expulsion Entry", "red"],
                 notification_key="expulsion_report_submitted",
+                # Per entry: another expulsion within the hour is a different incident (#2310).
+                cooldown_scope=f"{self.name}:submitted",
             )
 
         except Exception as e:
@@ -228,6 +230,8 @@ class ExpulsionReportEntry(Document):
                 reference_name=self.name,
                 header=["Expulsion Reversed", "green"],
                 notification_key="expulsion_report_submitted",
+                # Per entry and event: a reversal is not the submission it undoes (#2310).
+                cooldown_scope=f"{self.name}:reversed",
             )
 
         except Exception as e:
