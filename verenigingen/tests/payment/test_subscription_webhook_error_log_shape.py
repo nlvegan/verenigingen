@@ -41,9 +41,9 @@ class TestSubscriptionWebhookErrorLogShape(EnhancedTestCase):
         )
         frappe.local.request = Request(builder.get_environ())
         self._before = set(frappe.get_all("Error Log", pluck="name", limit_page_length=0))
-        self.addCleanup(self._restore)
+        self.addCleanup(self._restore_request_and_rows)
 
-    def _restore(self):
+    def _restore_request_and_rows(self):
         frappe.local.request = self._old_request
         for name in self._new_rows():
             frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
@@ -79,6 +79,8 @@ class TestSubscriptionWebhookErrorLogShape(EnhancedTestCase):
             self.assertNotIn("sentinel-secret", r.error)
         self.assertNotIn(sentinel, row.method)
 
+    # The JSON and form parse tests are green on develop too (Frappe's newline swap
+    # heuristic rescues those multi-line messages); they only pin the keyword shape.
     def test_json_parse_failure_row_has_label_title(self):
         with patch(
             "verenigingen.utils.webhook_security.authenticate_mollie_webhook",
@@ -118,11 +120,16 @@ class TestSubscriptionWebhookErrorLogShape(EnhancedTestCase):
         with auth, find, gateway, status:
             result = pg.mollie_subscription_webhook()
         self.assertIn("payment_error", result)
-        self._assert_shape(
-            self._rows(),
-            "Mollie Subscription Payment Processing",
-            "for member M-2252: " + result["payment_error"],
-        )
+        rows = self._rows()
+        # The inner handler (_process_subscription_payment) and the outer one both log: two rows.
+        self.assertEqual(len(rows), 2, [r.method for r in rows])
+        for r in rows:
+            self.assertEqual(r.method, "Mollie Subscription Payment Processing")
+            self.assertIn("for member M-2252", r.error)
+        # Every row this one failure writes (the inner handler logs too) must carry a label title.
+        for r in rows:
+            self.assertNotIn("M-2252", r.method, f"dynamic text in the title: {r.method!r}")
+            self.assertLess(len(r.method), 60, f"dynamic text in the title: {r.method!r}")
 
     def test_unknown_subscription_row_has_label_title(self):
         member, _, _ = pg._find_member_for_subscription("sub_unknown_2252")

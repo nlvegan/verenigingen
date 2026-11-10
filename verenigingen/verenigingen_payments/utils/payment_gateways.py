@@ -2554,8 +2554,8 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                     )
         except Exception as activation_error:
             frappe.log_error(
-                f"Subscription activation failed for payment {payment_id}: {str(activation_error)}",
-                "Mollie Subscription Activation Error",
+                title="Mollie Subscription Activation Error",
+                message=f"Subscription activation failed for payment {payment_id}: {str(activation_error)}",
             )
             subscription_activation_result = {"status": "error", "message": str(activation_error)}
 
@@ -2574,8 +2574,8 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
 
     except Exception as e:
         frappe.log_error(
-            f"Error processing subscription payment {payment_id} for member {member_name}: {str(e)}",
-            "Mollie Subscription Payment Processing",
+            title="Mollie Subscription Payment Processing",
+            message=f"Error processing subscription payment {payment_id} for member {member_name}: {str(e)}",
         )
         raise e
 
