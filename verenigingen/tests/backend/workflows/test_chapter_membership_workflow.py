@@ -43,9 +43,8 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         self.unique_last_name = f"TestUser{frappe.generate_hash(length=6)}"
         self.test_member_name = None
 
-        # Get test membership type
-        membership_types = frappe.get_all("Membership Type", limit=1)
-        self.test_membership_type = membership_types[0]["name"] if membership_types else "Kwartaallid"
+        # Own the membership type: an arbitrary row may be a leaked one with other fees (#2271)
+        self.test_membership_type = self.create_test_membership_type().name
 
     def _ensure_system_user_can_create_customers(self):
         """Grant the background member-creation system user the Staff role."""
