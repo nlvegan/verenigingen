@@ -235,7 +235,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
     if not frappe.has_permission("Donation", "read"):
         frappe.throw(_("Insufficient permissions to generate ANBI report"))
 
-    # Check special permission for BSN/RSIN export
+    # BSN/RSIN export needs read on the Donor doctype (doctype-level check, not a permlevel one)
     if include_bsn and not has_donor_permlevel_access("read"):
         frappe.throw(_("Insufficient permissions to export BSN/RSIN data"))
 

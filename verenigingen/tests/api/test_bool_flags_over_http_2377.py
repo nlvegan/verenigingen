@@ -34,6 +34,7 @@ from verenigingen.tests.support.wsgi_http_session import (
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 VALID_BSN = "123456782"  # eleven-proof valid
+VALID_RSIN = "12345678"
 ANBI_ENDPOINT = api_path("verenigingen.api.anbi_operations.generate_anbi_report")
 CLEANUP_ENDPOINT = api_path("verenigingen.api.schedule_maintenance.cleanup_orphaned_schedules")
 CHAPTER_ENDPOINTS = {
@@ -48,31 +49,40 @@ class TestAnbiIncludeBsnOverHttp(CommittedLoginUsersMixin, VereningingenTestCase
         super().setUp()
         self.admin = self._create_login_users(admin="Verenigingen Administrator")["admin"]
         self.addCleanup(self._cleanup_fixture)
-        self._create_donor_and_donation()
+        self._create_donors_and_donations()
 
-    def _create_donor_and_donation(self):
+    def _create_donors_and_donations(self):
         self.donation_date = "2031-03-01"  # a window no other fixture on the site uses
-        donor = self.create_test_donor(donor_type="Individual", bsn_citizen_service_number=VALID_BSN)
-        self.donor = donor.name
-        self.agreement = f"ANBI-{frappe.generate_hash(length=6)}"
-        self.donation = self.create_test_donation(
-            donor=donor.name,
-            amount=42.0,
-            anbi_agreement_number=self.agreement,
-            anbi_agreement_date=frappe.utils.today(),
-            donation_date=self.donation_date,
-            paid=1,
-        ).name
+        self.fixture = []  # (doctype, name) pairs, donations first
+        self.agreements = {}
+        for kind, field, value in (
+            ("Individual", "bsn_citizen_service_number", VALID_BSN),
+            ("Organization", "rsin_organization_tax_number", VALID_RSIN),
+        ):
+            donor = self.create_test_donor(donor_type=kind, **{field: value})
+            agreement = f"ANBI-{frappe.generate_hash(length=6)}"
+            donation = self.create_test_donation(
+                donor=donor.name,
+                amount=42.0,
+                anbi_agreement_number=agreement,
+                anbi_agreement_date=frappe.utils.today(),
+                donation_date=self.donation_date,
+                paid=1,
+            )
+            self.agreements[kind] = agreement
+            self.fixture += [("Donation", donation.name), ("Donor", donor.name)]
+        self.fixture.sort(key=lambda x: x[0] != "Donation")
         frappe.db.commit()  # the WSGI child is another DB connection
 
     def _cleanup_fixture(self):
         frappe.db.rollback()
-        for doctype, name in (("Donation", self.donation), ("Donor", self.donor)):
+        for doctype, name in self.fixture:
             if frappe.db.exists(doctype, name):
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
     def _report(self, flag):
+        """Return (data, {"Individual": row, "Organization": row}, raw response body)."""
         case = {
             "name": "r",
             "endpoint": ANBI_ENDPOINT,
@@ -80,25 +90,41 @@ class TestAnbiIncludeBsnOverHttp(CommittedLoginUsersMixin, VereningingenTestCase
             "csrf": "valid",
             "json": {"from_date": self.donation_date, "to_date": self.donation_date, "include_bsn": flag},
         }
-        result = operation_result(run_wsgi_cases(case)["r"])
+        response = run_wsgi_cases(case)["r"]
+        result = operation_result(response)
         self.assertTrue(result["success"], result)
-        ours = [d for d in result["data"]["donations"] if d["anbi_agreement_number"] == self.agreement]
-        self.assertEqual(len(ours), 1, result)  # a real row for the wrong behaviour to find
-        return result["data"], ours[0]
+        rows = {}
+        for kind, agreement in self.agreements.items():
+            ours = [d for d in result["data"]["donations"] if d["anbi_agreement_number"] == agreement]
+            self.assertEqual(len(ours), 1, result)  # a real row for the wrong behaviour to find
+            rows[kind] = ours[0]
+        return result["data"], rows, response["body"]
 
-    def test_false_flag_strings_do_not_return_the_bsn(self):
-        """"0"/"false"/0 and an unrecognised string must not decrypt the BSN."""
+    def test_false_flag_strings_do_not_return_the_bsn_or_rsin(self):
+        """"0"/"false"/0 and an unrecognised string must not decrypt either identifier."""
         for flag in ("0", "false", 0, "maybe"):
-            data, row = self._report(flag)
-            self.assertNotIn("bsn", row, flag)
-            self.assertFalse(data["summary"]["includes_tax_ids"], flag)
+            data, rows, body = self._report(flag)
+            for row in rows.values():
+                self.assertNotIn("bsn", row, flag)
+                self.assertNotIn("rsin", row, flag)
+            # The raw body: no field name or value can carry it anywhere else either.
+            self.assertNotIn(VALID_BSN, body, flag)
+            self.assertNotIn(VALID_RSIN, body, flag)
+            self.assertIs(data["summary"]["includes_tax_ids"], False, flag)
 
-    def test_true_flag_strings_still_return_the_bsn(self):
+    def test_true_flag_strings_still_return_the_bsn_and_rsin(self):
         """Control: "1" / "true" still enable the export, so the false cases above can fail."""
         for flag in ("1", "true"):
-            data, row = self._report(flag)
-            self.assertEqual(row.get("bsn"), VALID_BSN, flag)
-            self.assertTrue(data["summary"]["includes_tax_ids"], flag)
+            data, rows, body = self._report(flag)
+            self.assertEqual(rows["Individual"].get("bsn"), VALID_BSN, flag)
+            self.assertEqual(rows["Organization"].get("rsin"), VALID_RSIN, flag)
+            self.assertIn(VALID_BSN, body)
+            self.assertIn(VALID_RSIN, body)
+            self.assertIs(data["summary"]["includes_tax_ids"], True, flag)
+
+    # No refused-caller case: every role with Donation read also has Donor read (measured on
+    # test_site_5, DocPerm + Custom DocPerm, permlevel 0), so "may read donations but not donors"
+    # does not exist, and a caller without Donor read is refused earlier, by the Donation check.
 
 
 class TestCleanupDryRunOverHttp(_schedule_tests.TestScheduleMaintenance, CommittedLoginUsersMixin, VereningingenTestCase):
@@ -113,9 +139,25 @@ class TestCleanupDryRunOverHttp(_schedule_tests.TestScheduleMaintenance, Committ
         VereningingenTestCase.setUp(self)
         # The Administrator profile passes @high_security_api and carries Accounts Manager.
         self.user = self._create_login_users(maint="Verenigingen Administrator")["maint"]
+        self._orphan_types = []
+        self.addCleanup(self._cleanup_orphan_schedules)
+
+    def _cleanup_orphan_schedules(self):
+        """Remove what _create_orphan committed: each fixture's schedules (the type's auto-made
+        Template included), then the Membership Types themselves."""
+        frappe.db.rollback()
+        for mtype in self._orphan_types:
+            for name in frappe.get_all(
+                "Membership Dues Schedule", filters={"membership_type": mtype}, pluck="name"
+            ):
+                frappe.delete_doc("Membership Dues Schedule", name, force=True, ignore_permissions=True)
+            if frappe.db.exists("Membership Type", mtype):
+                frappe.delete_doc("Membership Type", mtype, force=True, ignore_permissions=True)
+        frappe.db.commit()
 
     def _create_orphan(self):
-        schedule, _m, _t = self._make_active_schedule()
+        schedule, _m, mtype = self._make_active_schedule()
+        self._orphan_types.append(mtype.name)
         self._persist_orphaned_member(schedule.name)
         frappe.db.commit()  # the WSGI child is another DB connection
         return schedule.name
