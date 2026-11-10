@@ -17,6 +17,7 @@ from pathlib import Path
 
 _WF = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "_base-server-tests.yml"
 MOD = "verenigingen.tests.test_fake"
+_CHECKER = Path(__file__).resolve().parents[1] / "check_ci_always_skips.py"
 
 
 def step_script() -> str:
@@ -29,9 +30,17 @@ def step_script() -> str:
 
 
 class ModuleStep(unittest.TestCase):
-    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD):
+    def run_step(self, bench_output: str, bench_rc: int = 0, modules: str = MOD, module_source=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
+            # The step asks the REAL checker about an all-skip module, which reads the module's
+            # source under apps/<app>/ (#2364).
+            app = ws / "apps" / "verenigingen"
+            (app / "scripts" / "testing").mkdir(parents=True)
+            (app / "scripts" / "testing" / "check_ci_always_skips.py").symlink_to(_CHECKER)
+            (app / "verenigingen" / "tests").mkdir(parents=True)
+            if module_source is not None:
+                (app / "verenigingen" / "tests" / "test_fake.py").write_text(module_source)
             (ws / "env" / "bin").mkdir(parents=True)
             fake = ws / "fakebin"
             fake.mkdir()
@@ -60,6 +69,25 @@ class ModuleStep(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("::error::", out)
         self.assertRegex(out, r"(?i)skipped")
+
+    def test_an_all_skipped_module_declaring_ci_always_skips_is_green_and_names_the_reason(self):
+        # #2364: a live-gateway module can never run in CI; its declared reason is logged.
+        rc, out = self.run_step(
+            "Ran 2 tests in 0.1s\n\nOK (skipped=2)",
+            module_source='CI_ALWAYS_SKIPS = "needs live Mollie credentials"\n',
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::notice::", out)
+        self.assertIn("needs live Mollie credentials", out)
+        self.assertNotIn("::error::", out)
+
+    def test_a_declared_always_skip_module_with_an_empty_reason_is_red(self):
+        rc, out = self.run_step("Ran 2 tests in 0.1s\n\nOK (skipped=2)", module_source='CI_ALWAYS_SKIPS = ""\n')
+        self.assertEqual(rc, 1, out)
+
+    def test_the_marker_does_not_excuse_a_failure(self):
+        src = 'CI_ALWAYS_SKIPS = "needs live Mollie credentials"\n'
+        self.assertEqual(self.run_step("Ran 3 tests\n\nFAILED (failures=1)", 1, module_source=src)[0], 1)
 
     def test_a_module_that_ran_zero_tests_is_red(self):
         rc, out = self.run_step("Ran 0 tests in 0.0s\n\nOK")
