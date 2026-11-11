@@ -171,6 +171,9 @@ def _cancelled_receive_entries_without_live_one(reference_no):
         filters={"reference_no": reference_no, "payment_type": "Receive"},
         fields=["docstatus", "paid_amount"],
     )
+    # docstatus 0 counts as live too: a draft is a pending booking staff can still submit, so a
+    # redelivery beside one is not a refusal and raises no alert. A submit that fails leaves no
+    # draft (the writers insert and submit atomically), so a draft here is staff's own (#2406).
     if any(entry.docstatus != 2 for entry in entries):
         return []
     return entries
@@ -188,11 +191,20 @@ def _report_forward_refusal(reference_no, amount, source):
         f"Action required: decide by hand whether the payment should be booked."
     )
     frappe.log_error(title=FORWARD_REFUSED_TITLE, message=details)
-    notify_administrators(
-        subject=f"Mollie payment {reference_no} was delivered again after its Payment Entry was cancelled",
-        message=f"<p>{escape_html(details)}</p>",
-        notification_key="mollie_forward_payment_staff_cancelled",  # literal: key discovery greps for it
-        event_reference=reference_no,
-        exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
-        staff_alert=True,
-    )
+    try:
+        notify_administrators(
+            subject=f"Mollie payment {reference_no} was delivered again after its Payment Entry was cancelled",
+            message=f"<p>{escape_html(details)}</p>",
+            notification_key="mollie_forward_payment_staff_cancelled",  # literal: key discovery greps for it
+            event_reference=reference_no,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+    except Exception as exc:
+        # The refusal already holds and is in the Error Log above. The subscription webhook's parse
+        # stage calls this outside any handler: raising would answer Mollie with a 5xx, and it would
+        # retry the delivery that staff already decided not to book.
+        frappe.log_error(
+            title=f"{FORWARD_REFUSED_TITLE} Alert Failed",
+            message=f"Payment {reference_no}: the staff alert could not be sent ({exc}). {details}",
+        )

@@ -260,6 +260,55 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
         self.assertIsNone(self._unified())
         refusal.assert_refused_once(self, self.payment_id, "100.00")
 
+    def test_unified_control_cancelled_row_beside_a_live_one_of_another_party_is_not_a_refusal(self):
+        """The unified writer's own-party lookup misses a cancelled row, so it reaches the refusal
+        check even when ANOTHER party's entry for the payment is live. That is a booked payment:
+        no refusal, no alert. Probe shortcut: the other party's live row is a copy of the real
+        entry, not produced by a second delivery."""
+        mine = self._unified()
+        self.assertIsNotNone(mine, "fixture problem: not booked")
+        other_customer = frappe.get_doc("Donor", self._make_donor()).get_or_create_customer()
+        theirs = frappe.copy_doc(mine)
+        theirs.party = other_customer
+        theirs.insert()
+        theirs.submit()
+        frappe.get_doc("Payment Entry", mine.name).cancel()
+        self.assertEqual(frappe.db.get_value("Payment Entry", theirs.name, "docstatus"), 1)
+        self.assertEqual(frappe.db.get_value("Payment Entry", mine.name, "docstatus"), 2)
+        refusal.prepare_refusal_fixture(self, self.payment_id)
+        self.expectErrorLog("Unified Payment Entry Creation")  # the insert then meets the cancelled row's key
+
+        self._unified()
+
+        refusal.assert_no_refusal(self, self.payment_id)
+
+    def test_a_failing_alert_does_not_turn_the_refusal_into_an_error(self):
+        """The subscription webhook calls the refusal in its parse stage, outside any handler: an
+        exception from the alert would become a 5xx and Mollie would retry forever. The refusal
+        must still hold, the Error Log row must still be written, and the notify failure is logged
+        too. Failure injection: notify_administrators is made to raise."""
+        from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+            refuse_staff_cancelled_forward_payment,
+        )
+
+        first = self._book_then_staff_cancel(self._unified)
+        self.expectErrorLog("Mollie Forward Payment Refused Alert Failed")
+        with patch(
+            "verenigingen.utils.notification_helpers.notify_administrators",
+            side_effect=RuntimeError("mail transport down"),
+        ):
+            self.assertTrue(refuse_staff_cancelled_forward_payment(self.payment_id, 100.0, "test"))
+        self.assertEqual(len(refusal.refusal_logs(self.payment_id)), 1, "the refusal itself was not logged")
+        self.assertTrue(
+            frappe.db.exists(
+                "Error Log",
+                {"method": "Mollie Forward Payment Refused Alert Failed", "error": ["like", "%mail transport down%"]},
+            ),
+            "the notify failure was swallowed without a trace",
+        )
+        self._assert_not_rebooked(first)
+        frappe.db.delete("Error Log", {"method": "Mollie Forward Payment Refused Alert Failed"})
+
     def test_factory_redelivery_after_staff_cancel_is_refused(self):
         from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import (
             PaymentContext,

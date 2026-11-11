@@ -47,6 +47,21 @@ def pin_verenigingen_settings(test_case, **fields) -> None:
     test_case.addCleanup(restore)
 
 
+def pin_payments_settings(test_case, **fields) -> None:
+    """Point ``Verenigingen Payments Settings`` fields (e.g. ``dues_income_account``) at this test's fixtures."""
+    previous = {field: frappe.db.get_single_value("Verenigingen Payments Settings", field) for field in fields}
+
+    for field, value in fields.items():
+        frappe.db.set_single_value("Verenigingen Payments Settings", field, value)
+
+    def _cleanup_restore():
+        for field, value in previous.items():
+            frappe.db.set_single_value("Verenigingen Payments Settings", field, value)
+        frappe.db.commit()
+
+    test_case.addCleanup(_cleanup_restore)
+
+
 def pin_mollie_clearing_account(test_case, clearing_account: str) -> None:
     """Point ``Mollie Settings.mollie_clearing_account`` at this test's account.
 
