@@ -109,6 +109,10 @@ def process_expired_memberships():
 
 
 def _process_expired_memberships_impl():
+    from verenigingen.verenigingen.doctype.membership.membership import (
+        cancel_dues_schedule_if_end_of_period_cancelled,
+    )
+
     batch_size = 500
 
     memberships = frappe.get_all(
@@ -122,6 +126,7 @@ def _process_expired_memberships_impl():
     for membership in memberships:
         try:
             doc = frappe.get_doc("Membership", membership.name)
+            cancel_dues_schedule_if_end_of_period_cancelled(doc)
             doc.status = "Expired"
             # `status` is not allow_on_submit, so changing it on a submitted
             # (docstatus 1) membership otherwise raises UpdateAfterSubmitError —
