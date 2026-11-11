@@ -20,12 +20,13 @@ reset_acr_dedup(); peer services call each other via their
 """
 
 import hashlib
-from typing import Optional
+from typing import Callable, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.mijnrood_sync.services.event_application import config_fault_alerts
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
@@ -35,7 +36,7 @@ from verenigingen.utils.service_logger import get_service_logger
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.related_records")
 
 MOVE_FAILED_ALERT_KEY = "mijnrood_chapter_move_failed"
-MOVE_FAILED_REALERT_SECONDS = 24 * 3600
+ALERT_REALERT_SECONDS = 24 * 3600
 
 
 def move_failed_alert_claim_key(member_name: str, chapter_name: str, reason: str) -> str:
@@ -61,10 +62,11 @@ class MijnRoodRelatedRecordsOrchestrator:
         # member and volunteer entry points log one Error Log row between them. Not "queued":
         # nothing was queued, and is_acr_queued() must stay False.
         self._acr_blocked_reported: set[tuple[str, str]] = set()
-        # Failed chapter moves seen during the current event, alerted by flush_pending_alerts() once the
-        # event is committed (#2199): the alert's rows and its once-a-day claim must not be taken inside a
-        # transaction the event may still roll back.
-        self._pending_move_alerts: list[tuple[str, str, str, str]] = []
+        # Staff alerts raised during the current event (a failed chapter move #2199, configuration faults
+        # #2309), sent by flush_pending_alerts() once the event is committed: an alert's rows and its
+        # once-a-day claim must not be taken inside a transaction the event may still roll back.
+        # Entries: (claim key, sender returning True when delivered, Error Log title if the send raises).
+        self._pending_alerts: list[tuple[str, Callable[[], bool], str]] = []
 
     def reset_acr_dedup(self) -> None:
         """Clear the per-event ACR dedup set.
@@ -216,9 +218,19 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
+            self.alert_division_unmapped(
+                division_id, "unmapped", "no Chapter has that division id", member_name, event
+            )
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
         if not frappe.db.exists("Chapter", chapter_name):
+            self.alert_division_unmapped(
+                division_id,
+                "chapter missing",
+                f"its mapped Chapter '{chapter_name}' does not exist",
+                member_name,
+                event,
+            )
             return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
 
         from verenigingen.services.chapter.chapter_assignment_service import (
@@ -252,8 +264,12 @@ class MijnRoodRelatedRecordsOrchestrator:
         return _("Chapter assignment failed: {0}").format(reason)
 
     def discard_pending_alerts(self) -> None:
-        """Forget the failed moves of an event that was rolled back: its re-apply will see them again."""
-        self._pending_move_alerts.clear()
+        """Forget the alerts of an event that was rolled back: its re-apply will raise them again."""
+        self._pending_alerts.clear()
+
+    def queue_alert(self, claim: str, send: Callable[[], bool], failure_title: str) -> None:
+        """Queue a staff alert to be sent after the event's commit, at most once a day per ``claim``."""
+        self._pending_alerts.append((claim, send, failure_title))
 
     def flush_pending_alerts(self) -> None:
         """Send the alerts queued during the event. Call only AFTER the event's commit (#2199).
@@ -263,9 +279,23 @@ class MijnRoodRelatedRecordsOrchestrator:
         suppressed every retry. Here a rollback can no longer take them back, and a rolled-back event
         never reaches this method, so its re-apply alerts instead of finding a stale claim.
         """
-        pending, self._pending_move_alerts = self._pending_move_alerts, []
-        for member_name, chapter_name, reason, event_name in pending:
-            self._alert_chapter_move_failed_now(member_name, chapter_name, reason, event_name)
+        pending, self._pending_alerts = self._pending_alerts, []
+        for claim, send, failure_title in pending:
+            self._send_alert_once_a_day(claim, send, failure_title)
+
+    def _send_alert_once_a_day(self, claim: str, send: Callable[[], bool], failure_title: str) -> None:
+        """Tell staff once a day. The alert must never undo the sync, so a failure here is logged and swallowed."""
+        try:
+            # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
+            if not frappe.cache.set(claim, "1", ex=ALERT_REALERT_SECONDS, nx=True):
+                return
+            delivered = send()
+        except Exception:
+            frappe.cache.delete(claim)  # so the next failure tries again
+            frappe.log_error(title=failure_title, message=frappe.get_traceback())
+            return
+        if not delivered:
+            frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
 
     def _alert_chapter_move_failed(self, member_name: str, chapter_name: str, reason: str, event) -> None:
         """Queue the staff alert for a chapter move that did not happen (#2199), sent after the commit.
@@ -273,26 +303,49 @@ class MijnRoodRelatedRecordsOrchestrator:
         The event is consumed either way and MijnRood does not resend, so without this the only trace is
         the applied message.
         """
-        self._pending_move_alerts.append(
-            (member_name, chapter_name, reason, getattr(event, "name", "") or "")
+        event_name = getattr(event, "name", "") or ""
+        self.queue_alert(
+            move_failed_alert_claim_key(member_name, chapter_name, reason),
+            lambda: self._send_chapter_move_failed_alert(member_name, chapter_name, reason, event_name),
+            "MijnRood chapter-move alert failed",
         )
 
-    def _alert_chapter_move_failed_now(
-        self, member_name: str, chapter_name: str, reason: str, event_name: str
+    def alert_division_unmapped(self, division_id, reason: str, detail: str, member_name: str, event) -> None:
+        """Queue the configuration-fault alert for a division id no Chapter answers (#2309)."""
+        event_name = getattr(event, "name", "") or ""
+        self.queue_alert(
+            config_fault_alerts.division_unmapped_claim(division_id, reason),
+            lambda: config_fault_alerts.send_division_unmapped_alert(
+                division_id, reason, detail, member_name, event_name
+            ),
+            "MijnRood division alert failed",
+        )
+
+    def alert_role_mapping_invalid(
+        self, object_type: str, name: str, reason: str, member_name: str, event
     ) -> None:
-        """Tell staff once a day. The alert must never undo the sync, so a failure here is logged and swallowed."""
-        claim = move_failed_alert_claim_key(member_name, chapter_name, reason)
-        try:
-            # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
-            if not frappe.cache.set(claim, "1", ex=MOVE_FAILED_REALERT_SECONDS, nx=True):
-                return
-            delivered = self._send_chapter_move_failed_alert(member_name, chapter_name, reason, event_name)
-        except Exception:
-            frappe.cache.delete(claim)  # so the next failure tries again
-            frappe.log_error(title="MijnRood chapter-move alert failed", message=frappe.get_traceback())
-            return
-        if not delivered:
-            frappe.cache.delete(claim)  # key off or nobody to tell: do not hold the alert back for a day
+        """Queue the configuration-fault alert for a role-mapping target that is missing or inactive (#2309)."""
+        event_name = getattr(event, "name", "") or ""
+        self.queue_alert(
+            config_fault_alerts.role_mapping_claim(object_type, name, reason),
+            lambda: config_fault_alerts.send_role_mapping_alert(
+                object_type, name, reason, member_name, event_name
+            ),
+            "MijnRood role-mapping alert failed",
+        )
+
+    def alert_dues_template_unresolved(
+        self, payment_period, detail: str, member_name: str, event=None
+    ) -> None:
+        """Queue the configuration-fault alert for a payment period with no dues template (#2309)."""
+        event_name = getattr(event, "name", "") or ""
+        self.queue_alert(
+            config_fault_alerts.dues_template_claim(payment_period),
+            lambda: config_fault_alerts.send_dues_template_alert(
+                payment_period, detail, member_name, event_name
+            ),
+            "MijnRood dues-template alert failed",
+        )
 
     def _send_chapter_move_failed_alert(
         self, member_name: str, chapter_name: str, reason: str, event_name: str
@@ -553,6 +606,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 row_data.get("payment_period"),
                 e,
             )
+            self.alert_dues_template_unresolved(row_data.get("payment_period"), str(e)[:200], member_doc.name)
             return _("Dues schedule backfill skipped: {0}").format(str(e)[:200])
 
         if not template_name:

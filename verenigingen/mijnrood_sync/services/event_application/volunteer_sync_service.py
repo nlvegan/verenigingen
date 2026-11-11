@@ -106,7 +106,7 @@ class MijnRoodVolunteerSyncService:
                 return acr_msg  # None if user exists or ACR already queued
             role = config.get("verenigingen_role")
             if role:
-                role_msg = self._ensure_user_role(member_name, role)
+                role_msg = self._ensure_user_role(member_name, role, event=event)
                 if role_msg:
                     return role_msg
             return None
@@ -169,7 +169,7 @@ class MijnRoodVolunteerSyncService:
             )
             return _("Volunteer creation failed: {0}").format(str(e)[:200])
 
-    def _ensure_user_role(self, member_name: str, role: str) -> Optional[str]:
+    def _ensure_user_role(self, member_name: str, role: str, event=None) -> Optional[str]:
         """Ensure a member's user account has the specified role.
 
         Returns:
@@ -181,6 +181,9 @@ class MijnRoodVolunteerSyncService:
 
         if not frappe.db.exists("Role", role):
             self.logger.warning("Role '%s' does not exist, skipping assignment", role)
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Role", role, "does not exist", member_name, event
+            )
             return _("Role '{0}' does not exist").format(role)
 
         try:
@@ -256,9 +259,19 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id, "unmapped", "no Chapter has that division id", member_name, event
+            )
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
         if not frappe.db.exists("Chapter", chapter_name):
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id,
+                "chapter missing",
+                f"its mapped Chapter '{chapter_name}' does not exist",
+                member_name,
+                event,
+            )
             return _("Chapter '{0}' does not exist").format(chapter_name)
 
         # Need a Volunteer record for the board member
@@ -272,6 +285,9 @@ class MijnRoodVolunteerSyncService:
 
         if not frappe.db.exists("Chapter Role", chapter_role):
             self.logger.warning("Chapter Role '%s' does not exist, skipping board assignment", chapter_role)
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Chapter Role", chapter_role, "does not exist", member_name, event
+            )
             return _("Chapter Role '{0}' does not exist").format(chapter_role)
 
         # Check if already on this chapter's board (active)
@@ -681,8 +697,14 @@ class MijnRoodVolunteerSyncService:
 
         team_status = frappe.db.get_value("Team", team_name, "status")
         if not team_status:
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Team", team_name, "does not exist", member_name, event
+            )
             return _("Team '{0}' does not exist").format(team_name)
         if team_status != "Active":
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Team", team_name, "is not active", member_name, event
+            )
             return _("Team '{0}' is not active (status: {1})").format(team_name, team_status)
 
         # Check if already an active team member
