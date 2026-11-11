@@ -65,6 +65,12 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
+        # #2338: `setUp` commits below, so an Account Creation Request queued by the
+        # Volunteer insert would survive the rollback (and a worker would turn it into
+        # an untracked User + Employee). Nothing here needs the account.
+        skip_account_flag = patch.dict(frappe.flags, {"skip_volunteer_account_creation": True})
+        skip_account_flag.start()
+        self.addCleanup(skip_account_flag.stop)
         self.member = self.create_test_member()
         self.volunteer = self.create_test_volunteer(member=self.member.name)
         self.chapter = self.create_test_chapter()
@@ -86,6 +92,16 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         self.addCleanup(frappe.db.commit)
 
         self.request = create_termination_request(self, self.member.name, "non-resumable swallow (#470)")
+
+    def test_setup_volunteer_queues_no_account_creation_2338(self):
+        """#2338: the fixture Volunteer must not leave an Account Creation Request behind."""
+        self.assertTrue(
+            frappe.db.get_value("Volunteer", self.volunteer.name, "email"),
+            "control: the volunteer carries an email, so account creation would have queued",
+        )
+        self.assertFalse(
+            frappe.db.exists("Account Creation Request", {"source_record": self.volunteer.name})
+        )
 
     def _exploding_chapter_save(self, error):
         """Patch the Chapter save the termination helpers make.

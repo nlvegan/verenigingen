@@ -23,6 +23,7 @@ Test Coverage:
 
 import frappe
 import unittest
+from unittest.mock import patch
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -32,6 +33,11 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
     def setUp(self):
         """Set up test data using proper factory methods"""
         super().setUp()
+        # #2338: no Account Creation Request per Volunteer (see the test named for it).
+        # patch.dict restores the flag on its own, whatever it held before.
+        skip_account_flag = patch.dict(frappe.flags, {"skip_volunteer_account_creation": True})
+        skip_account_flag.start()
+        self.addCleanup(skip_account_flag.stop)
         # Set Administrator for user creation and chapter board permissions testing
         frappe.set_user("Administrator")
         
@@ -92,6 +98,26 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
         chapter.save()
         return chapter
     
+    def test_setup_volunteers_queue_no_account_creation_2338(self):
+        """#2338: building a Volunteer must not queue an Account Creation Request.
+
+        Volunteer.after_insert queues one per volunteer; `setUp` commits it, so the
+        request survives the rollback and, on a bench with RQ workers, the worker later
+        turns it into a User + Employee that nothing tracks (9 of each per run). The
+        module builds no User through that path, so it opts out (as
+        test_member_team_events_rollback does). CI has no workers: there the request row
+        alone is what leaks.
+        """
+        for volunteer in (self.treasurer_a_volunteer, self.regular_volunteer_a):
+            self.assertTrue(
+                frappe.db.get_value("Volunteer", volunteer.name, "email"),
+                "control: the volunteer carries an email, so account creation would have queued",
+            )
+            self.assertFalse(
+                frappe.db.exists("Account Creation Request", {"source_record": volunteer.name}),
+                f"an Account Creation Request was queued for {volunteer.name}",
+            )
+
     def test_schema_fixes_validation(self):
         """Validate that schema fixes are properly applied"""
         # Test that board member queries use volunteer field correctly
