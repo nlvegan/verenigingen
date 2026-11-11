@@ -13,9 +13,10 @@ from typing import Any, Optional
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     FIELDNAME as IDEMPOTENCY_KEY_FIELD,
-    free_cancelled_payment_entry_keys,
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
@@ -86,7 +87,11 @@ def create_unified_payment_entry(
         existing_filters["docstatus"] = ["!=", 2]
         existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
         if not existing_pe:
-            free_cancelled_payment_entry_keys(reference_no, payment_type)
+            if payment_type == "Pay":
+                _free_cancelled_reversal_keys(reference_no, customer)
+            elif refuse_staff_cancelled_forward_payment(reference_no, amount, "the unified creator"):
+                # A cancelled forward entry is never re-booked, a cancelled reversal is (#2406, #2384)
+                return None
 
         if existing_pe:
             frappe.logger().info(f"⚠️ Payment Entry already exists: {existing_pe}")
@@ -193,12 +198,17 @@ def create_unified_payment_entry(
         )
 
         # Insert and submit using proper webhook user permissions
-        pe.insert()
-        try:
-            pe.submit()
-        except Exception as submit_error:
-            _discard_unposted_payment_entry(pe.name, str(submit_error))
-            raise
+        if payment_type == "Receive":
+            # One unit: a failed submit leaves no row, so no CANCELLED row either. A cancelled
+            # forward row now means "staff cancelled it" and a redelivery is refused (#2406).
+            insert_and_submit_atomically(pe)
+        else:
+            pe.insert()
+            try:
+                pe.submit()
+            except Exception as submit_error:
+                _discard_unposted_payment_entry(pe.name, str(submit_error))
+                raise
 
         frappe.logger().info(f"✅ Created {payment_type} Payment Entry: {pe.name}")
         return pe
@@ -210,6 +220,23 @@ def create_unified_payment_entry(
             message=f"Unified Payment Entry creation failed for {donation_doc.name}: {str(e)}",
         )
         return None
+
+
+def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
+    """Release the unique idempotency key held by a cancelled reversal PE (#2384).
+
+    A cancelled reversal frees its key for rebooking (``find_booked_reversal``), but
+    the cancelled row keeps ``custom_mollie_idempotency_key``, a unique index, so the
+    rebooking's insert would collide. The cancelled row stays as the audit record.
+    """
+    for name in frappe.get_all(
+        "Payment Entry",
+        # docstatus 2 only: keeps a live key safe if a future caller reaches this helper
+        # without the upstream find_booked_reversal/existing_pe guards.
+        filters={"payment_type": "Pay", "reference_no": reference_no, "party": customer, "docstatus": 2},
+        pluck="name",
+    ):
+        frappe.db.set_value("Payment Entry", name, IDEMPOTENCY_KEY_FIELD, None, update_modified=False)
 
 
 def _discard_unposted_payment_entry(payment_entry_name: str, error_message: str) -> None:

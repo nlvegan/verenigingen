@@ -47,6 +47,9 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
 )
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -2089,6 +2092,9 @@ def _authenticate_and_parse_subscription_payload():
     if payment_id and DocumentExistenceValidator.check_document_exists(
         "Payment Entry", {"reference_no": payment_id}
     ):
+        # A row that is only CANCELLED is not a booking: staff cancelled it, so the redelivery is
+        # refused loudly instead of acknowledged silently (#2406).
+        refuse_staff_cancelled_forward_payment(payment_id, None, "the Mollie subscription webhook")
         frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
         return None, {"status": "already_processed", "payment_id": payment_id}
 
@@ -2365,6 +2371,20 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                     "payment_entry": existing_payment,
                     "payment_id": payment_id,
                     "reason": "Payment already processed for this Mollie payment ID",
+                }
+
+            # Staff cancelled this payment's entry: do not book it again, staff decide (#2406).
+            # The insert below would collide with the cancelled row's key and return "duplicate"
+            # with no entry, leaving the payment unbooked and nobody told.
+            if refuse_staff_cancelled_forward_payment(
+                payment_id, payment_amount, "the Mollie subscription payment writer"
+            ):
+                frappe.db.commit()  # release the lock
+                return {
+                    "status": "refused",
+                    "payment_entry": None,
+                    "payment_id": payment_id,
+                    "reason": "Payment Entry was cancelled by staff; not booked again",
                 }
 
             # Create Payment Entry to mark invoice as paid

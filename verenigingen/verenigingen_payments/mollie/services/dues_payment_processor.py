@@ -36,7 +36,7 @@ from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_
     payment_entry_service,
 )
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
-    free_cancelled_payment_entry_keys,
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -1067,9 +1067,10 @@ class DuesPaymentProcessor:
             )
             return existing_pe
 
-        # A staff-cancelled entry is not a booking but still holds the unique key; free
-        # it so the new insert (allocated or unallocated) cannot collide (#2406).
-        free_cancelled_payment_entry_keys(payment_id, "Receive")
+        # Staff cancelled this payment's entry: do not book it again, staff decide (#2406).
+        # None, not an exception: the webhook is acknowledged and Mollie stops retrying.
+        if refuse_staff_cancelled_forward_payment(payment_id, amount, "the dues processor"):
+            return None
 
         # Determine company - prioritize invoice's company if available
         # This prevents company/account mismatches

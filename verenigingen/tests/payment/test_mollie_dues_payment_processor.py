@@ -390,32 +390,32 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
         )
         self.assertEqual(second, first)
 
-    def test_redelivery_after_staff_cancel_books_one_new_submitted_pe(self):
-        """#2406: a staff-cancelled PE is not a booking, but it keeps the unique
-        idempotency key, so the redelivery's insert used to collide (IntegrityError)."""
+    def test_redelivery_after_staff_cancel_is_refused_not_rebooked(self):
+        """#2406 ruling: a staff-cancelled forward PE is not booked again. The writer returns None
+        (no exception, so the webhook is acknowledged), logs once and alerts staff once."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
         payment = _payment(amount={"value": "25.00", "currency": "EUR"})
         first = self.proc._create_payment_entry_for_dues(
             self.member.name, payment, invoice_name=self.invoice_name
         )
         self.assertIsNotNone(first, "fixture problem: dues PE not booked")
+        refusal.assert_no_refusal(self, payment.id)  # control: the first delivery raised nothing
         frappe.get_doc("Payment Entry", first).cancel()
+        refusal.prepare_refusal_fixture(self, payment.id)
 
-        second = self.proc._create_payment_entry_for_dues(
-            self.member.name, payment, invoice_name=self.invoice_name
-        )
-        self.assertIsNotNone(second)
-        self.assertNotEqual(second, first)
-        self.assertEqual(frappe.db.get_value("Payment Entry", second, "docstatus"), 1)
-        live = frappe.get_all(
-            "Payment Entry", filters={"reference_no": payment.id, "docstatus": 1}, pluck="name"
-        )
-        self.assertEqual(live, [second], "expected exactly one live PE for the payment")
-        self.assertGreater(
-            frappe.db.count(
-                "GL Entry", {"voucher_type": "Payment Entry", "voucher_no": second, "is_cancelled": 0}
-            ),
-            0,
-        )
+        for _ in range(2):  # the second redelivery must not alert staff again
+            again = self.proc._create_payment_entry_for_dues(
+                self.member.name, payment, invoice_name=self.invoice_name
+            )
+            self.assertIsNone(again)
+            rows = frappe.get_all(
+                "Payment Entry",
+                filters={"reference_no": payment.id, "payment_type": "Receive"},
+                fields=["name", "docstatus"],
+            )
+            self.assertEqual([(r.name, r.docstatus) for r in rows], [(first, 2)])
+            refusal.assert_refused_once(self, payment.id, "25.00")
 
 
 class TestCreatePaymentEntryForDuesCompanyMismatchAmbiguity(EnhancedTestCase):
