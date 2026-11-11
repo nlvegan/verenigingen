@@ -130,9 +130,30 @@ class TestBoardToldOfEveryJoin(ApprovalCase):
     def test_setting_off_sends_nothing_through_approval(self):
         frappe.db.set_single_value("Verenigingen Settings", SETTING, 0)
         member = self._approved_member()
-        joins = self._joins(member)
-        self.assertEqual(len(joins), 1, "the trigger still runs; the existing gate decides")
-        self.assertFalse(joins[0][2], "setting off: nothing is dispatched")
+        self.assertEqual(self._joins(member), [], "setting off: the board is never even resolved")
+
+    def test_setting_off_costs_no_member_query_and_builds_no_communication_manager(self):
+        """Default-off must be free on every chapter save (#1843 review round 2)."""
+        frappe.db.set_single_value("Verenigingen Settings", SETTING, 0)
+        member = self.create_test_member(email=f"off.{frappe.generate_hash(length=6)}@example.org").name
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter.append("members", {"member": member, "enabled": 1, "status": "Active", "chapter_join_date": today()})
+        old_doc = frappe.get_doc("Chapter", self.chapter.name)
+        manager = MemberManager(chapter)
+        with self.assertQueryCount(1):  # the setting read, nothing else
+            manager.notify_board_of_joins(old_doc)
+        self.assertNotIn("communication", chapter._managers)
+        self.assertEqual(self._joins(member), [])
+
+    def test_setting_on_still_builds_the_manager_for_a_join(self):
+        """Control: with the setting ON the same call reaches the communication manager."""
+        member = self.create_test_member(email=f"on.{frappe.generate_hash(length=6)}@example.org").name
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter.append("members", {"member": member, "enabled": 1, "status": "Active", "chapter_join_date": today()})
+        old_doc = frappe.get_doc("Chapter", self.chapter.name)
+        MemberManager(chapter).notify_board_of_joins(old_doc)
+        self.assertIn("communication", chapter._managers)
+        self.assertEqual(len(self._joins(member)), 1)
 
     def test_seating_a_board_member_is_not_a_join(self):
         """Seating auto-adds the volunteer's Member row (board_manager); that is not announced."""
@@ -172,7 +193,7 @@ class TestBoardToldOfEveryJoin(ApprovalCase):
 
     def test_import_and_patch_flags_suppress_the_mail(self):
         """A Data Import / bulk import / patch saving chapters must not mail every board."""
-        for flag in ("in_import", "in_bulk_import", "in_patch"):
+        for flag in ("in_import", "in_bulk_import", "is_bulk_import", "in_patch"):
             member = self.create_test_member(email=f"{flag}.{frappe.generate_hash(length=6)}@example.org").name
             setattr(frappe.flags, flag, True)
             try:

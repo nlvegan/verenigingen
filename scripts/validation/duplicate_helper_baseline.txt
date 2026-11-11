@@ -38,15 +38,20 @@ _add_chapter_with_documents::2  # clone family, 1 near-identical pair(s)
 _add_member_to_chapter::5
 _add_team_member::4  # clone family, 1 near-identical pair(s)
 _add_team_membership::2  # clone family, 1 near-identical pair(s)
+_alert::3
+_alert_recipients::2
+_alerts::3
 _align_membership_type_amount::2
 _append_member::2
+_application::4
+_approved_member::2
 _as_admin::9  # clone family, 36 near-identical pair(s)
 _as_user::3
 _assert_board_access_withdrawn::2
+_assert_escaped::2
 _assert_refused::2
 _assign_member_to_chapter::2
 _assigned_profiles::4  # clone family, 1 near-identical pair(s)
-_authenticate_session::2
 _backfill::2
 _balanced::2  # clone family, 1 near-identical pair(s)
 _bank_account::7  # clone family, 1 near-identical pair(s)
@@ -58,7 +63,7 @@ _base_row::2
 _batch_fetch_with_chunking::2  # clone family, 1 near-identical pair(s)
 _batch_with_one_invoice::2  # clone family, 1 near-identical pair(s)
 _bind_request::4
-_board_lifecycle_notifications_enabled::2  # clone family, 1 near-identical pair(s)
+_board_lifecycle_notifications_enabled::2
 _build::3
 _build_caches::2
 _build_chapter_info::2  # clone family, 1 near-identical pair(s)
@@ -71,12 +76,15 @@ _calculate_checksum::2
 _calculate_delay::5  # clone family, 4 near-identical pair(s)
 _calculate_security_score::2
 _calculate_totals_python::2
+_call::5
 _cancel_auto_schedules::9  # clone family, 33 near-identical pair(s)
 _chapter_member::2  # clone family, 1 near-identical pair(s)
+_chapter_member_rows::2
 _chapter_role::2  # clone family, 1 near-identical pair(s)
 _charge::2
+_check::4
 _clean_value::2
-_cleanup::3
+_cleanup::4
 _cleanup_bank_transactions::5  # clone family, 6 near-identical pair(s)
 _cleanup_chapter::3  # clone family, 1 near-identical pair(s)
 _cleanup_chapter_role::2
@@ -92,14 +100,19 @@ _cleanup_thread_context::2  # clone family, 1 near-identical pair(s)
 _cleanup_upload_logs::3
 _cleanup_user::3
 _cleanup_volunteer::4  # clone family, 6 near-identical pair(s)
+_clear::2
 _clear_assignment_cache::3  # clone family, 3 near-identical pair(s)
 _clear_children::2  # clone family, 1 near-identical pair(s)
 _clear_rate_limit::5  # clone family, 3 near-identical pair(s)
+_client::2
 _client_with_stub::2
+_comments::4
 _company::13  # clone family, 17 near-identical pair(s)
 _compute_file_hash::2
+_count::2
 _count_queries::2
 _coverage_invoice::3
+_create::2
 _create_active_membership::3
 _create_active_test_membership::2
 _create_address::2
@@ -158,20 +171,25 @@ _create_upload_log::2
 _create_valid_test_account::4  # clone family, 6 near-identical pair(s)
 _create_volunteer_for_member::2
 _customer::2
+_dashboard_context::2
 _data::4  # clone family, 2 near-identical pair(s)
 _db_insert_draft::2
 _deactivate_auto_schedules::2  # clone family, 1 near-identical pair(s)
+_decorator_name::2
 _deduplicate_error_message::2
 _delete_managed_templates::2  # clone family, 1 near-identical pair(s)
+_deliver::2
 _detect_and_emit_membership_changes::2
 _detect_and_emit_settings_changes::2
 _detect_execution_context::2
 _detect_namespace::2
 _determine_party_type::2
 _determine_recurring_status::2  # clone family, 1 near-identical pair(s)
+_disable::2
 _discard_probe::2  # clone family, 1 near-identical pair(s)
 _dispatch::2
 _donation::8  # clone family, 2 near-identical pair(s)
+_donor::2
 _drop::2  # clone family, 1 near-identical pair(s)
 _duplicate_key_result::2
 _enable_notifications::3
@@ -209,18 +227,25 @@ _ensure_role::5  # clone family, 2 near-identical pair(s)
 _ensure_role_profile::2  # clone family, 1 near-identical pair(s)
 _ensure_selling_price_list::2  # clone family, 1 near-identical pair(s)
 _ensure_team_role::2  # clone family, 1 near-identical pair(s)
+_ensure_template::2
 _ensure_territory::3  # clone family, 3 near-identical pair(s)
 _ensure_test_company::7  # clone family, 1 near-identical pair(s)
 _ensure_test_item::3  # clone family, 1 near-identical pair(s)
 _ensure_test_uom::2
 _ensure_user::8  # clone family, 15 near-identical pair(s)
+_entry::2
 _err::2
+_error_logs::2
+_existing::2
 _export_member_data::2
 _extract_and_save_consumer_bank_data::3
+_fail::2
 _fail_errors::3  # clone family, 1 near-identical pair(s)
 _fail_msg::3  # clone family, 3 near-identical pair(s)
 _fake_service::2
 _fallback_classification::2
+_fetch::2
+_field::2
 _filter_by_date::2
 _finalize::2
 _finalize_import_results::4
@@ -230,7 +255,7 @@ _find_duplicates::2
 _find_subscription_for_payment::2
 _future_date::2
 _gateway_mutation::2
-_generate::3
+_generate::4
 _generate_performance_recommendations::2
 _generate_performance_report::3
 _generate_recommendations::9
@@ -238,6 +263,7 @@ _generate_remarks::2
 _generate_report::2
 _generate_summary::4
 _generate_user_message::2
+_get::2
 _get_account_from_pattern::2
 _get_audit_logger::3  # clone family, 3 near-identical pair(s)
 _get_bulk_members_data::3
@@ -285,8 +311,10 @@ _handle_file_not_found::2
 _handler::5  # clone family, 4 near-identical pair(s)
 _has_board_role::2
 _has_multi_profile_support::2
-_history_rows::2
+_history::2
+_history_rows::3
 _idem::2
+_import::3
 _index_exists::2
 _insert::2
 _insert_acr::4  # clone family, 2 near-identical pair(s)
@@ -294,6 +322,7 @@ _insert_amendment::2
 _insert_doc::4  # clone family, 5 near-identical pair(s)
 _insert_donation::2  # clone family, 1 near-identical pair(s)
 _insert_test_doc::6  # clone family, 15 near-identical pair(s)
+_insert_user::2
 _install_request::2
 _inv::2
 _invoice::5  # clone family, 1 near-identical pair(s)
@@ -305,6 +334,8 @@ _is_movement_member::2
 _is_retryable_error::2
 _is_team_member::3  # clone family, 1 near-identical pair(s)
 _isolate_mollie_client::2  # clone family, 1 near-identical pair(s)
+_je::2
+_key::2
 _leaf_account::2  # clone family, 1 near-identical pair(s)
 _link_bank_transaction_to_payment::2
 _link_member_to_user::3  # clone family, 1 near-identical pair(s)
@@ -325,7 +356,7 @@ _make_amendment::2
 _make_audit_row::2
 _make_bad_xlsx_import_doc::2  # clone family, 1 near-identical pair(s)
 _make_balance_transaction::2  # clone family, 1 near-identical pair(s)
-_make_bank_account::3
+_make_bank_account::2
 _make_bank_transaction::10  # clone family, 1 near-identical pair(s)
 _make_batch::6  # clone family, 1 near-identical pair(s)
 _make_board_admin_member::2
@@ -359,7 +390,6 @@ _make_expense_claim::4
 _make_failed_acr::2
 _make_forward_payment_entry::2
 _make_gateway::2
-_make_gl_account::2
 _make_goal::2
 _make_import::3
 _make_import_doc::6
@@ -407,7 +437,7 @@ _make_request::8  # clone family, 1 near-identical pair(s)
 _make_role::9  # clone family, 10 near-identical pair(s)
 _make_role_profile::6  # clone family, 12 near-identical pair(s)
 _make_root::8  # clone family, 28 near-identical pair(s)
-_make_rule::2
+_make_rule::3
 _make_sales_invoice::4
 _make_schedule::5
 _make_service::5  # clone family, 1 near-identical pair(s)
@@ -417,6 +447,7 @@ _make_staff_user::2
 _make_submitted_donation::3  # clone family, 1 near-identical pair(s)
 _make_submitted_invoice::7  # clone family, 1 near-identical pair(s)
 _make_submitted_je::3  # clone family, 1 near-identical pair(s)
+_make_submitted_link::2
 _make_submitted_payment_entry::4
 _make_supplier::5  # clone family, 3 near-identical pair(s)
 _make_system_user::2  # clone family, 1 near-identical pair(s)
@@ -428,6 +459,7 @@ _make_tracker::4
 _make_transaction::2
 _make_type::2
 _make_unpaid_invoice::3
+_make_unpaid_mollie_donation::2
 _make_unprivileged_user::3
 _make_unsubmitted_donation::2  # clone family, 1 near-identical pair(s)
 _make_user::19  # clone family, 7 near-identical pair(s)
@@ -437,9 +469,11 @@ _make_user_without_member::4  # clone family, 3 near-identical pair(s)
 _make_volunteer::26  # clone family, 21 near-identical pair(s)
 _make_volunteer_claim::2  # clone family, 1 near-identical pair(s)
 _make_volunteer_member_employee::3  # clone family, 1 near-identical pair(s)
+_manager::4
 _mandate::4
 _map_ledger::3  # clone family, 1 near-identical pair(s)
 _mapper::2  # clone family, 1 near-identical pair(s)
+_marker::2
 _mask_iban::2
 _matched_member::2
 _measure_memory_usage::2  # clone family, 1 near-identical pair(s)
@@ -455,7 +489,7 @@ _member_with_membership::6  # clone family, 3 near-identical pair(s)
 _member_with_mollie::2  # clone family, 1 near-identical pair(s)
 _member_with_schedule::5
 _member_with_subscription::2
-_member_with_user::4
+_member_with_user::5
 _membership_type::2
 _memorial_mutation::3
 _migration::2
@@ -472,6 +506,7 @@ _next_id::2  # clone family, 1 near-identical pair(s)
 _next_weekday::3  # clone family, 1 near-identical pair(s)
 _no_import_flags::2
 _non_group::2  # clone family, 1 near-identical pair(s)
+_notification_logs::2
 _ok::10  # clone family, 6 near-identical pair(s)
 _original_outstanding::2
 _ours::2  # clone family, 1 near-identical pair(s)
@@ -486,7 +521,7 @@ _patch_orchestrator::2
 _patch_sdk::5  # clone family, 10 near-identical pair(s)
 _patch_service::4  # clone family, 3 near-identical pair(s)
 _pay_invoice::4  # clone family, 1 near-identical pair(s)
-_payload::2
+_payload::3
 _payment::19  # clone family, 1 near-identical pair(s)
 _pdf::3  # clone family, 3 near-identical pair(s)
 _percentile::4  # clone family, 2 near-identical pair(s)
@@ -502,26 +537,38 @@ _persist_settings::3  # clone family, 1 near-identical pair(s)
 _persist_supplier::2
 _pin_customer_price_list::2  # clone family, 1 near-identical pair(s)
 _ponto_account::2
+_post::2
 _post_init::11  # clone family, 2 near-identical pair(s)
+_prepare::2
+_probe::4
+_process::2
 _process_batch::2
 _process_single_member::3
 _process_single_row::2
 _processor::12  # clone family, 21 near-identical pair(s)
 _profile_names::2  # clone family, 1 near-identical pair(s)
 _publish_progress::2
+_put_site_back::2
+_queued::2
+_quit_member::2
 _raw::2
 _read_csv_file::2  # clone family, 1 near-identical pair(s)
 _read_file_from_content::2
 _read_file_from_path::2
 _read_row::2
 _record::2
-_refund::2
+_refund::3
+_refusal::2
 _release_idempotency_lock::2
 _release_redis_lock::2
 _reload::5  # clone family, 10 near-identical pair(s)
 _reload_chapter::4  # clone family, 6 near-identical pair(s)
+_render::3
+_render_page::2
 _render_with_user::2
+_report::2
 _report_progress::2  # clone family, 1 near-identical pair(s)
+_reset_caches::2
 _resolve::3
 _resolve_company::2  # clone family, 1 near-identical pair(s)
 _resolve_file_location::2
@@ -535,27 +582,30 @@ _restore_settings::6
 _restore_site_state::2
 _results::2
 _root::4  # clone family, 3 near-identical pair(s)
-_root_account::2
-_row::7
+_root_account::3
+_row::11
 _row_for::4  # clone family, 3 near-identical pair(s)
-_rows::2
+_rows::13
 _rows_for::3
-_run::10
+_run::20
 _run_case::2
 _run_import::2
+_run_probe::3
 _run_webhook::2
 _safe_log_error::2
 _sanitize_error_message::5  # clone family, 2 near-identical pair(s)
 _sanitize_filename::2
+_save::3
 _sched_stub::3
 _schedule::2
 _sdk_payment::2
 _seat::5  # clone family, 1 near-identical pair(s)
 _seat_board_member::2
 _seat_on_board::3
-_seed::4
+_seed::6
 _seed_collected_usage::2
 _seed_pending_write::2  # clone family, 1 near-identical pair(s)
+_send::2
 _send_email::3
 _send_kwargs::2  # clone family, 1 near-identical pair(s)
 _send_member_status_notification::2
@@ -563,7 +613,11 @@ _sepa::2
 _service::9
 _set::3
 _set_anbi::2
+_set_key_enabled::3
+_set_key_row::2
 _set_request::2
+_set_row::2
+_set_state::2
 _settings::4
 _setup_board_member::2
 _setup_chapter_member::3
@@ -581,6 +635,8 @@ _setup_settings::4
 _setup_settings_default_company::2
 _setup_test_settings::3
 _sign::2  # clone family, 1 near-identical pair(s)
+_stable::2
+_staff_user::2
 _stage_10_termination::2
 _stage_1_submit_application::2
 _stage_2_review_approve::2
@@ -589,10 +645,13 @@ _stage_6_create_volunteer::2
 _stage_7_member_activities::2
 _stage_8_membership_renewal::2
 _stage_9_suspension_reactivation::2
-_status::2
+_state::2
+_status::3
 _stub_client::2
+_submit::3
 _submitted_batch::2  # clone family, 1 near-identical pair(s)
 _submitted_invoice::2
+_svc::2
 _system_ref::2
 _territory::3
 _track::8  # clone family, 6 near-identical pair(s)
@@ -602,6 +661,7 @@ _track_schedule::2  # clone family, 1 near-identical pair(s)
 _track_user::6  # clone family, 15 near-identical pair(s)
 _try_direct_path_construction::2
 _try_file_document_lookup::2
+_tx::2
 _txn::5  # clone family, 3 near-identical pair(s)
 _txn_dict::2  # clone family, 1 near-identical pair(s)
 _uid::4
@@ -613,7 +673,8 @@ _unwrap::2
 _update_member_tracking_fields::2
 _update_progress::3
 _update_subscription_status::2
-_user::2
+_user::3
+_user_and_member::2
 _user_still_in_other_entities::3
 _valid_params::2  # clone family, 1 near-identical pair(s)
 _validate_and_map_data::2  # clone family, 1 near-identical pair(s)
@@ -637,6 +698,8 @@ _validate_volunteer_created::2  # clone family, 1 near-identical pair(s)
 _validator::5  # clone family, 1 near-identical pair(s)
 _verify::2
 _volunteer::2
+_webhook_user::2
+_welcome_mails::2
 _with_admin_user::2  # clone family, 1 near-identical pair(s)
 _with_user::4  # clone family, 6 near-identical pair(s)
 _write::3

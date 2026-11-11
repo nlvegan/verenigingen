@@ -1545,7 +1545,10 @@ class MemberManager(BaseManager):
         if not old_doc:
             return
         seated = self.chapter_doc.flags.pop("board_seated_member_ids", None) or set()
-        if self._join_notifications_suppressed():
+        # Gate first: with the (default-off) setting off, a chapter save pays only the
+        # setting read -- no Member query, no communication manager (its construction
+        # selects from Email Account).
+        if self._join_notifications_suppressed() or not self._board_join_mail_enabled():
             return
         old_live = {m.name for m in old_doc.members or [] if m.name and self._is_live_row(m)}
         candidates = [
@@ -1580,7 +1583,14 @@ class MemberManager(BaseManager):
     def _join_notifications_suppressed():
         """Imports and patches save many chapters; they must not mail every board (#1843)."""
         flags = frappe.flags
-        return bool(flags.in_import or flags.in_bulk_import or flags.in_patch)
+        return bool(flags.in_import or flags.in_bulk_import or flags.is_bulk_import or flags.in_patch)
+
+    @staticmethod
+    def _board_join_mail_enabled():
+        """The existing board lifecycle gate, read without building the communication manager."""
+        from .communication_manager import CommunicationManager
+
+        return CommunicationManager._board_lifecycle_notifications_enabled()
 
     @staticmethod
     def _is_live_row(row):
