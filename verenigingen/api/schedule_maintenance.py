@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -94,6 +95,19 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
         )
 
 
+_FALSE_STRINGS = ("false", "no", "off", "0", "0.0")
+
+
+def _is_dry_run(value):
+    """True unless the caller explicitly says no (#2377).
+
+    This flag guards a destructive run, so it must fail closed: ``cbool`` alone maps an
+    unrecognised string, "" or None to 0 and would turn it into a real run. Over HTTP the
+    flag is a string, so "false" must also be able to request the real run.
+    """
+    return str(value).strip().lower() not in _FALSE_STRINGS
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", Roles.SYSTEM_MANAGER])
@@ -109,6 +123,7 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
     Returns:
         OperationResult: Cleanup results
     """
+    dry_run = _is_dry_run(dry_run)
     try:
         # Log this sensitive operation
         log_sensitive_operation(

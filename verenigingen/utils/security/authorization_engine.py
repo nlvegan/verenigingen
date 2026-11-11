@@ -19,6 +19,7 @@ from verenigingen.utils.security.authorization_policy import (
     get_authorization_policy,
 )
 from verenigingen.utils.security.types import AuthResult, SecurityLevel
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class AuthorizationEngine:
@@ -184,9 +185,14 @@ class AuthorizationEngine:
 
             return role_profiles
 
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(
-                f"Error getting role profiles for {user}: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # Fail CLOSED (no profiles, so no profile-based access). Recorded via
+            # log_error (#2283): frappe.logger() output is not captured anywhere readable.
+            frappe.log_error(
+                title="Authorization engine: role profile lookup failed",
+                message=f"user={user}\n{frappe.get_traceback()}",
             )
             return []
 

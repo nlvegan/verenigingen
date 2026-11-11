@@ -1001,7 +1001,7 @@ def create_application_email_templates():
             "response": """
                 <h3>Thank you for your membership application!</h3>
 
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>We have received your membership application for {{ membership_type }}.</p>
 
@@ -1021,7 +1021,7 @@ def create_application_email_templates():
             "name": "membership_welcome",
             "subject": "Welcome to {{ frappe.db.get_value('Company', company, 'company_name') }}!",
             "response": """
-                <h2>Welcome to our Association, {{ member.first_name }}!</h2>
+                <h2>Welcome to our Association, {{ member.first_name | e }}!</h2>
 
                 <p>Your membership is now active and you have full access to all member benefits.</p>
 
@@ -1046,7 +1046,7 @@ def create_application_email_templates():
                     {% if member.current_chapter %}
                     <tr>
                         <td><strong>Chapter:</strong></td>
-                        <td>{{ member.current_chapter }}</td>
+                        <td>{{ member.current_chapter | e }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -1077,7 +1077,7 @@ def create_application_email_templates():
             "name": "volunteer_welcome",
             "subject": "Welcome to our Volunteer Team!",
             "response": """
-                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name }}!</h2>
+                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name | e }}!</h2>
 
                 <p>Thank you for your interest in volunteering with us. We're excited to have you join our team!</p>
 
@@ -1089,7 +1089,7 @@ def create_application_email_templates():
                     <li><strong>Areas of Interest:</strong>
                         <ul>
                         {% for interest in volunteer.interests %}
-                            <li>{{ interest.interest_area }}</li>
+                            <li>{{ interest.interest_area | e }}</li>
                         {% endfor %}
                         </ul>
                     </li>
@@ -1105,7 +1105,7 @@ def create_application_email_templates():
 
                 <p>Your volunteer coordinator will contact you within the next few days to discuss specific opportunities.</p>
 
-                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email }}</strong></p>
+                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email | e }}</strong></p>
 
                 <p>Thank you for making a difference!</p>
 
@@ -1116,7 +1116,7 @@ def create_application_email_templates():
             "name": "membership_payment_failed",
             "subject": "Payment Failed - Membership Application",
             "response": """
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>Unfortunately, your payment for the membership application could not be processed.</p>
 

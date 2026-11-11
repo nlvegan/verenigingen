@@ -33,6 +33,8 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, escape_html, flt
 
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move
+
 SYSTEM_UPDATE_FLAG = "ponto_system_update"
 
 REQUEST_GUARDED_FIELDS = ("status", "payment_entry")
@@ -79,6 +81,20 @@ def refuse_unless_system_update(doc, guarded_fields):
             ),
             frappe.PermissionError,
         )
+
+
+def persist_cancelled_status(doc):
+    """Write "Cancelled" to a row from its ``on_cancel`` (#1918).
+
+    Frappe has already written docstatus 2 by the time ``on_cancel`` runs, so assigning
+    ``doc.status`` there only changed the in-memory document and the table kept the open status
+    (the row then still read as payable/pending). ``db_set`` is the fix, as for DirectDebitBatch
+    (#1230); ``update_modified=False`` keeps ``modified`` as the cancel time, which the #1931 poll
+    window counts from. Executed is final (#1835): it stays Executed.
+    """
+    if is_refused_move(doc.status, "Cancelled"):
+        return
+    doc.db_set("status", "Cancelled", update_modified=False)
 
 
 @contextmanager

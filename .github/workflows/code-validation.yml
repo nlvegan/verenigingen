@@ -74,19 +74,21 @@ jobs:
         python enhanced_field_reference_validator.py --pre-commit
       continue-on-error: true
 
+    # #2329: same shape as the field step above (#2190): exit code not swallowed, advisory via
+    # continue-on-error, so each step's `outcome` is real.
     - name: Run Template Variable Validation
       id: template-validation
       if: success() || failure()
       run: |
         cd scripts/validation
-        python template_variable_validator.py || echo "Template validation completed with issues"
+        python template_variable_validator.py
       continue-on-error: true
 
     - name: Run Child Table Validation
       if: success() || failure()
       run: |
         cd scripts/validation
-        python child_table_creation_validator.py || echo "Child table validation completed with issues"
+        python child_table_creation_validator.py
       continue-on-error: true
 
     # Catch-all for scripts/validation/tests (#1068): every step below this one in

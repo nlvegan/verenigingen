@@ -107,7 +107,7 @@ class TestMembershipEmailTemplates(VereningingenTestCase):
 
         rejected = frappe.get_doc("Email Template", "membership_application_rejected")
         self.assertIn("{{ application_id }}", rejected.response)
-        self.assertIn("{{ reason }}", rejected.response)
+        self.assertIn("{{ reason | e }}", rejected.response)
         self.assertIn("regret to inform", rejected.response)
 
         incomplete = frappe.get_doc("Email Template", "membership_rejection_incomplete")

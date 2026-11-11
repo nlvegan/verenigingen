@@ -382,6 +382,9 @@ class ModernTemplateValidator:
                         context_data['variables'].update(
                             self._extract_context_from_function(node)
                         )
+                        context_data['variables'].update(
+                            self._extract_context_from_helpers(node, tree)
+                        )
                     elif node.name.startswith('get_'):
                         context_data['methods'].add(node.name)
             
@@ -391,20 +394,72 @@ class ModernTemplateValidator:
         
         return context_data
     
-    def _extract_context_from_function(self, func_node: ast.FunctionDef) -> Set[str]:
+    def _extract_context_from_helpers(self, func_node: ast.FunctionDef, tree: ast.Module,
+                                      context_name: str = 'context',
+                                      seen: Optional[Set[str]] = None) -> Set[str]:
+        """Follow same-module helpers that RECEIVE the context object.
+
+        get_context() often delegates, e.g. ``_add_bank_details_context(context)``
+        which then does ``context.member_doc = ...`` (#2395). A helper only counts
+        when the context is actually passed to it (positionally or by keyword);
+        the helper's own parameter name is used to read its assignments. Followed
+        transitively (helpers of helpers) with a visited set, so cycles stop.
+
+        Known blind spot, inherited from _extract_context_from_function and now
+        widened to helpers (#2408): any ``ctx.attr`` / ``ctx['k']`` counts as
+        provided, including reads, ``ctx.get(...)``, dead or conditional
+        assignments and a reassigned parameter. Also not handled: keyword-only
+        and positional-only parameters, and a helper called twice with the
+        context bound differently (``seen`` is keyed by helper name).
+        """
+        seen = set() if seen is None else seen
+        module_funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        variables = set()
+
+        for call in ast.walk(func_node):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)):
+                continue
+            helper = module_funcs.get(call.func.id)
+            if helper is None or helper is func_node or helper.name in seen:
+                continue
+            param = self._context_param_name(helper, call, context_name)
+            if param is None:
+                continue
+            seen.add(helper.name)
+            variables.update(self._extract_context_from_function(helper, param))
+            variables.update(self._extract_context_from_helpers(helper, tree, param, seen))
+
+        return variables
+
+    @staticmethod
+    def _context_param_name(helper: ast.FunctionDef, call: ast.Call,
+                            context_name: str) -> Optional[str]:
+        """Name the helper binds the context to, or None if the call passes none."""
+        params = [a.arg for a in helper.args.args]
+        for index, arg in enumerate(call.args):
+            if isinstance(arg, ast.Name) and arg.id == context_name and index < len(params):
+                return params[index]
+        for kw in call.keywords:
+            if (kw.arg in params and isinstance(kw.value, ast.Name)
+                    and kw.value.id == context_name):
+                return kw.arg
+        return None
+
+    def _extract_context_from_function(self, func_node: ast.FunctionDef,
+                                       context_name: str = 'context') -> Set[str]:
         """Extract context variables from a function AST node"""
         variables = set()
         
         for node in ast.walk(func_node):
             # context["key"] = value
             if isinstance(node, ast.Subscript):
-                if isinstance(node.value, ast.Name) and node.value.id == 'context':
+                if isinstance(node.value, ast.Name) and node.value.id == context_name:
                     if isinstance(node.slice, ast.Constant):
                         variables.add(node.slice.value)
             
             # context.key = value
             elif isinstance(node, ast.Attribute):
-                if isinstance(node.value, ast.Name) and node.value.id == 'context':
+                if isinstance(node.value, ast.Name) and node.value.id == context_name:
                     variables.add(node.attr)
             
             # context.update({...})
@@ -412,7 +467,7 @@ class ModernTemplateValidator:
                 if (hasattr(node.func, 'attr') and node.func.attr == 'update' and
                     hasattr(node.func, 'value') and 
                     isinstance(node.func.value, ast.Name) and 
-                    node.func.value.id == 'context'):
+                    node.func.value.id == context_name):
                     
                     for arg in node.args:
                         if isinstance(arg, ast.Dict):
