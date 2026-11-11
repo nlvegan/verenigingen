@@ -209,6 +209,24 @@ class TestApprovalRequestsMandate(PortalSelfServiceTestMixin, ApprovalCase):
         self.create_test_sepa_mandate(member=member.name, iban=IBAN)
         self.assertFalse(member_needs_mandate_signature(member.name))
 
+    def test_a_donation_only_mandate_does_not_cover_dues(self):
+        """The mandate must be a MEMBERSHIP one: a member whose only Active mandate is donation-only still
+        has to sign for dues (a helper counting any Active mandate would say 'no signature needed')."""
+        member = self.create_test_member(
+            email=self.email, iban=IBAN, payment_method="SEPA Direct Debit", bank_account_name="A. Applicant"
+        )
+        donation = self.create_test_sepa_mandate(
+            member=member.name, iban=IBAN, used_for_memberships=0, used_for_donations=1
+        )
+        self.assertEqual(
+            [(r.name, r.status) for r in self._mandates(member.name, status="Active")],
+            [(donation.name, "Active")],
+            "control: the donation mandate is Active",
+        )
+
+        self.assertTrue(member_needs_mandate_signature(member.name))
+        self.assertTrue(self._dashboard_context(member.name).mandate_to_sign)
+
     def test_two_active_mandates_are_not_a_request_for_a_signature(self):
         """#607: a member with two Active same-purpose mandates is 'needs attention', not 'sign'. The state is
         legacy-only (a doctype guard refuses a second Active row), so the second row skips the guard with a raw
@@ -227,3 +245,33 @@ class TestApprovalRequestsMandate(PortalSelfServiceTestMixin, ApprovalCase):
         context = self._dashboard_context(member.name)
         self.assertTrue(context.mandate_ambiguous)
         self.assertFalse(context.mandate_to_sign)
+
+    # -- the pages render the state -----------------------------------------------------------------
+
+    def _render_page(self, page, member_name):
+        """get_context as the member, then the real template's page_content block. `current_schedule` is set on the dues page when
+        approval left no Membership Dues Schedule (its notice sits inside `{% if current_schedule %}`)."""
+        from verenigingen.templates.pages import my_dues_schedule
+
+        module = {"payment_dashboard": payment_dashboard, "my_dues_schedule": my_dues_schedule}[page]
+        user = self._link_member_to_user(frappe.get_doc("Member", member_name))
+        with self._as_user(user.name):
+            context = module.get_context(frappe._dict())
+            if page == "my_dues_schedule" and not context.get("current_schedule"):
+                context["current_schedule"] = frappe._dict(name="stand-in", billing_frequency="Monthly")
+            path = frappe.get_app_path("verenigingen", "templates", "pages", f"{page}.html")
+            with open(path) as handle:
+                source = handle.read()
+            # Only the page's own block: the portal base layout needs the website router's boot context.
+            body = source.split("{% block page_content %}", 1)[1].split("{% block script %}")[0]
+            return frappe.render_template(body[: body.rindex("{% endblock %}")], context)
+
+    def test_pages_render_the_signature_state_until_signed(self):
+        member, _ = self._apply_for_sepa_and_approve()
+        for page in ("payment_dashboard", "my_dues_schedule"):
+            self.assertIn('id="sepa-sign-notice"', self._render_page(page, member), page)
+
+        self._sign_as_member(member, IBAN)
+
+        for page in ("payment_dashboard", "my_dues_schedule"):
+            self.assertNotIn('id="sepa-sign-notice"', self._render_page(page, member), f"{page} after signing")

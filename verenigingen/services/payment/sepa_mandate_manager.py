@@ -1576,6 +1576,11 @@ def member_needs_mandate_signature(member_name: str) -> bool:
     maintainer ruling on #1836): it asks the member to sign one. This is the state that request, the
     payment dashboard and the dues page all read, so they cannot disagree. Several Active mandates is
     NOT "needs a signature" (#607): that member is being collected from and the office must sort it out.
+
+    Assumption, stated (#1836 review): ANY Active membership mandate means "no signature needed",
+    whatever its IBAN. A mandate for an older IBAN is not reached through a real flow today (termination
+    cancels the member's mandates, and an applicant who was never terminated has none unless imported),
+    so a mismatch is not treated here; it is the IBAN-change gap of #1213.
     """
     payment_method, iban = frappe.db.get_value("Member", member_name, ["payment_method", "iban"]) or (
         None,
