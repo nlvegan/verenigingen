@@ -10,7 +10,10 @@ What Frappe writes on a failed login was measured on test_site_8 by a real POST 
 ``operation='Login', status='Failed', subject='Invalid login credentials'`` (also 'Incorrect password',
 'User disabled or missing'), ``user`` = the typed name even when no such User exists, and ``creation`` on the
 SITE clock (Asia/Kolkata there) while the database's ``NOW()`` is UTC. The window is therefore cut from
-``now_datetime()``, never from SQL ``NOW()``. Rows here come from Frappe's own writer
+``now_datetime()``, never from SQL ``NOW()``. (``test_the_window_edge`` catches a ``NOW()`` cutoff ONLY on a
+site whose zone differs from the database's, like test_site_8; CI is UTC/UTC, so there it cannot tell the two
+apart.) The ``operation == "Login"`` filter is equivalent today: ``LoginManager.fail`` is the only writer of
+``status='Failed'`` Activity Log rows, so no test can pin it with a real non-Login row. Rows here come from Frappe's own writer
 (``add_authentication_log``); window-edge rows are then moved with ``db.set_value`` on ``creation``
 (probe shortcut: no real login can be made at a past instant).
 

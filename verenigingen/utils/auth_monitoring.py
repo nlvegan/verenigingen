@@ -149,8 +149,9 @@ def get_auth_health_status():
 AUTH_ALERT_KEY = "auth_monitoring_alert"
 
 # The critical alert is a failed-login RATE across all users (maintainer ruling on #2285). The check runs
-# daily, so the window is a day; Frappe itself locks one user out after a handful of failures, so a
-# site-wide count this high is a spray across users or addresses, not one person's typos.
+# daily, so the window is a day. This is a RAW failed-attempt count across all users: Frappe keeps writing
+# a Failed row for every attempt even after it locks an account (measured: 8 wrong passwords for one user
+# wrote 8 rows), so reaching the threshold can be one account or one bot, not necessarily a spray.
 FAILED_LOGIN_WINDOW_HOURS = 24
 FAILED_LOGIN_ALERT_THRESHOLD = 25
 AUTH_ALERT_PROFILE = "Verenigingen System Administrator"
