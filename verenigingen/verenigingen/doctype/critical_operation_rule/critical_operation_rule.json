@@ -192,7 +192,7 @@
       "fieldname": "batch_rate_limit_calls",
       "fieldtype": "Int",
       "label": "Batch Rate Limit - Max Calls",
-      "description": "Rate limit for background batch operations (higher than interactive)",
+      "description": "Rate limit for background batch operations (higher than interactive). 0 means no batch limit",
       "default": "5000"
     },
     {
