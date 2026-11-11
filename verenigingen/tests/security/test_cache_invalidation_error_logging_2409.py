@@ -82,7 +82,17 @@ class TestCacheInvalidationErrorLogging2409(EnhancedTestCase):
         ci.invalidate_user_cache_on_user_role_update(frappe._dict(parent="u", parenttype="User"), "on_update")
         self.assertEqual({t: len(self._rows(t)) for t in titles}, before)
 
+    def test_hooks_survive_log_error_itself_raising(self):
+        """Recording is best-effort: if Error Log cannot be written (e.g. a Redis TimeoutError inside
+        log_error's own cache access), the hook must still not fail the save."""
+        # Mock justified: infrastructure failure inside frappe.log_error cannot be produced for real.
+        with _redis_down(RuntimeError(BOOM)), mock.patch.object(frappe, "log_error", side_effect=OSError("log-2409")):
+            ci.invalidate_user_role_cache_on_user_update(frappe._dict(name="u"), "on_update")
+            ci.invalidate_all_user_caches_on_role_profile_update(frappe._dict(name="RP"), "on_update")
+            ci.invalidate_user_cache_on_user_role_update(frappe._dict(parent="u", parenttype="User"), "on_update")
+
     def test_deadlock_is_reraised_not_swallowed(self):
+        """Defensive, not reachable today: the live handlers do Redis-only work, no frappe.db."""
         with _redis_down(QueryDeadlockError()):
             with self.assertRaises(QueryDeadlockError):
                 ci.invalidate_user_role_cache_on_user_update(frappe._dict(name="u"), "on_update")
