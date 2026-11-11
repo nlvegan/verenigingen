@@ -23,7 +23,6 @@ Test Coverage:
 
 import frappe
 import unittest
-from unittest.mock import patch
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -34,10 +33,19 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
         """Set up test data using proper factory methods"""
         super().setUp()
         # #2338: no Account Creation Request per Volunteer (see the test named for it).
-        # patch.dict restores the flag on its own, whatever it held before.
-        skip_account_flag = patch.dict(frappe.flags, {"skip_volunteer_account_creation": True})
-        skip_account_flag.start()
-        self.addCleanup(skip_account_flag.stop)
+        # Only this one flag is saved and restored; patch.dict would restore the whole dict.
+        self._skip_flag_was_set = "skip_volunteer_account_creation" in frappe.flags
+        self._skip_flag_before = frappe.flags.get("skip_volunteer_account_creation")
+        frappe.flags.update({"skip_volunteer_account_creation": True})
+
+        def restore_flag():
+            if self._skip_flag_was_set:
+                frappe.flags.update({"skip_volunteer_account_creation": self._skip_flag_before})
+            else:
+                frappe.flags.pop("skip_volunteer_account_creation", None)
+
+        self._restore_skip_account_flag = restore_flag
+        self.addCleanup(restore_flag)
         # Set Administrator for user creation and chapter board permissions testing
         frappe.set_user("Administrator")
         
@@ -101,12 +109,10 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
     def test_setup_volunteers_queue_no_account_creation_2338(self):
         """#2338: building a Volunteer must not queue an Account Creation Request.
 
-        Volunteer.after_insert queues one per volunteer; `setUp` commits it, so the
-        request survives the rollback and, on a bench with RQ workers, the worker later
-        turns it into a User + Employee that nothing tracks (9 of each per run). The
-        module builds no User through that path, so it opts out (as
-        test_member_team_events_rollback does). CI has no workers: there the request row
-        alone is what leaks.
+        Volunteer.after_insert queues one ACR per Volunteer. `setUp` commits, so each
+        survives the rollback; on a bench with RQ workers the worker later turns it into
+        a User + Employee that nothing tracks. The module builds no User through that
+        path, so it opts out (as test_member_team_events_rollback does).
         """
         for volunteer in (self.treasurer_a_volunteer, self.regular_volunteer_a):
             self.assertTrue(
@@ -117,6 +123,20 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
                 frappe.db.exists("Account Creation Request", {"source_record": volunteer.name}),
                 f"an Account Creation Request was queued for {volunteer.name}",
             )
+
+        # The cleanup must put the flag back. Drive it from a known starting state so the
+        # check does not depend on what an earlier test left in the flag.
+        was_set, before = self._skip_flag_was_set, self._skip_flag_before
+        self._skip_flag_was_set, self._skip_flag_before = False, None
+        frappe.flags.update({"skip_volunteer_account_creation": True})
+        self._restore_skip_account_flag()
+        self.assertNotIn("skip_volunteer_account_creation", frappe.flags)
+        self._skip_flag_was_set, self._skip_flag_before = True, "sentinel"
+        self._restore_skip_account_flag()
+        self.assertEqual(frappe.flags.get("skip_volunteer_account_creation"), "sentinel")
+        # Put the real state back; the registered cleanup then runs against it.
+        self._skip_flag_was_set, self._skip_flag_before = was_set, before
+        frappe.flags.update({"skip_volunteer_account_creation": True})
 
     def test_schema_fixes_validation(self):
         """Validate that schema fixes are properly applied"""

@@ -65,12 +65,21 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        # #2338: `setUp` commits below, so an Account Creation Request queued by the
-        # Volunteer insert would survive the rollback (and a worker would turn it into
-        # an untracked User + Employee). Nothing here needs the account.
-        skip_account_flag = patch.dict(frappe.flags, {"skip_volunteer_account_creation": True})
-        skip_account_flag.start()
-        self.addCleanup(skip_account_flag.stop)
+        # #2338: `setUp` commits below, so the one Account Creation Request the Volunteer
+        # insert queues would survive the rollback. Nothing here needs the account. Only
+        # this one flag is saved and restored (patch.dict would restore the whole dict).
+        self._skip_flag_was_set = "skip_volunteer_account_creation" in frappe.flags
+        self._skip_flag_before = frappe.flags.get("skip_volunteer_account_creation")
+        frappe.flags.update({"skip_volunteer_account_creation": True})
+
+        def restore_flag():
+            if self._skip_flag_was_set:
+                frappe.flags.update({"skip_volunteer_account_creation": self._skip_flag_before})
+            else:
+                frappe.flags.pop("skip_volunteer_account_creation", None)
+
+        self._restore_skip_account_flag = restore_flag
+        self.addCleanup(restore_flag)
         self.member = self.create_test_member()
         self.volunteer = self.create_test_volunteer(member=self.member.name)
         self.chapter = self.create_test_chapter()
@@ -102,6 +111,20 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         self.assertFalse(
             frappe.db.exists("Account Creation Request", {"source_record": self.volunteer.name})
         )
+
+        # The cleanup must put the flag back. Drive it from a known starting state so the
+        # check does not depend on what an earlier test left in the flag.
+        was_set, before = self._skip_flag_was_set, self._skip_flag_before
+        self._skip_flag_was_set, self._skip_flag_before = False, None
+        frappe.flags.update({"skip_volunteer_account_creation": True})
+        self._restore_skip_account_flag()
+        self.assertNotIn("skip_volunteer_account_creation", frappe.flags)
+        self._skip_flag_was_set, self._skip_flag_before = True, "sentinel"
+        self._restore_skip_account_flag()
+        self.assertEqual(frappe.flags.get("skip_volunteer_account_creation"), "sentinel")
+        # Put the real state back; the registered cleanup then runs against it.
+        self._skip_flag_was_set, self._skip_flag_before = was_set, before
+        frappe.flags.update({"skip_volunteer_account_creation": True})
 
     def _exploding_chapter_save(self, error):
         """Patch the Chapter save the termination helpers make.
