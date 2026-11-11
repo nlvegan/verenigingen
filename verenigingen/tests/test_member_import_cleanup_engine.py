@@ -315,3 +315,89 @@ class TestCleanupEngineInvariants(EnhancedTestCase):
         self.assertEqual(
             regressions, {}, f"cleanup created new broken links: {regressions} (target: (before, after))"
         )
+
+
+class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
+    """#2469: `orphaned_removed` must count rows that really left the chapter."""
+
+    ORPHAN_SQL = """SELECT COUNT(*) FROM `tabChapter Member` cm
+        LEFT JOIN `tabMember` m ON cm.member = m.name
+        WHERE cm.parenttype = 'Chapter' AND m.name IS NULL"""
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.rollback()
+
+    def tearDown(self):
+        frappe.db.rollback()
+        super().tearDown()
+
+    def _chapter_with_orphan(self, with_dangling_board_link=False):
+        chapter = self.create_chapter(chapter_name=f"TEST-Orphan-{frappe.generate_hash()[:8]}")
+        ghost = f"Assoc-Member-GHOST-{frappe.generate_hash()[:6]}"
+        # db_insert: the row has to exist the way legacy debris does, which
+        # Chapter validation would refuse to create.
+        frappe.get_doc(
+            {
+                "doctype": "Chapter Member",
+                "parent": chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "members",
+                "idx": 1,
+                "member": ghost,
+                "status": "Active",
+            }
+        ).db_insert()
+        if with_dangling_board_link:
+            role = frappe.get_all("Chapter Role", pluck="name", limit=1)
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Board Member",
+                    "parent": chapter.name,
+                    "parenttype": "Chapter",
+                    "parentfield": "board_members",
+                    "idx": 1,
+                    "volunteer": f"GHOST-VOL-{frappe.generate_hash()[:6]}",
+                    "chapter_role": role[0] if role else "GHOST-ROLE",
+                    "from_date": frappe.utils.today(),
+                }
+            ).db_insert()
+        return chapter.name, ghost
+
+    def _run_live(self):
+        # Mock justified: the function under test commits at the end of a live
+        # run, which would persist this test's rows (and the cleanup of every
+        # other chapter on the site). The commit is not what is under test.
+        from unittest.mock import patch
+
+        before = frappe.db.sql(self.ORPHAN_SQL)[0][0]
+        with patch.object(frappe.db, "commit"):
+            results = cleanup.cleanup_orphaned_chapter_members(dry_run=False)
+        after = frappe.db.sql(self.ORPHAN_SQL)[0][0]
+        return results, before - after
+
+    def _row_exists(self, chapter_name, ghost):
+        return bool(frappe.db.exists("Chapter Member", {"parent": chapter_name, "member": ghost}))
+
+    def test_a_removed_orphan_is_counted(self):
+        chapter_name, ghost = self._chapter_with_orphan()
+        results, really_removed = self._run_live()
+
+        self.assertFalse(self._row_exists(chapter_name, ghost))
+        self.assertEqual(results["orphaned_removed"], really_removed)
+        self.assertGreaterEqual(results["orphaned_removed"], 1)
+        self.assertNotIn(chapter_name, [e.split(":")[0] for e in results["errors"]])
+
+    def test_a_failed_chapter_save_is_not_counted_as_removed(self):
+        chapter_name, ghost = self._chapter_with_orphan(with_dangling_board_link=True)
+        results, really_removed = self._run_live()
+
+        # Control: the save really failed and the row really stayed.
+        self.assertTrue(self._row_exists(chapter_name, ghost))
+        self.assertIn(chapter_name, [e.split(":")[0] for e in results["errors"]])
+        # The claim: the count equals rows that actually left, here none from this chapter.
+        self.assertEqual(results["orphaned_removed"], really_removed)
+        self.assertIn(chapter_name, results["chapters_failed"])
+        self.assertIn("failed", results["summary"].lower())
+        affected = [c["chapter"] for c in results["chapters_affected"]]
+        self.assertIn(chapter_name, affected)

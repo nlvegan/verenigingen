@@ -355,6 +355,7 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         "orphaned_found": 0,
         "orphaned_removed": 0,
         "chapters_affected": [],
+        "chapters_failed": [],
         "errors": [],
     }
 
@@ -363,9 +364,9 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         results["chapters_checked"] = len(chapters)
 
         for chapter in chapters:
+            orphaned_indices = []
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter.name)
-                orphaned_indices = []
 
                 # Find orphaned members in this chapter
                 for i, member_row in enumerate(chapter_doc.members or []):
@@ -386,22 +387,30 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                         # Remove orphaned entries (in reverse order to preserve indices)
                         for idx, member_name in reversed(orphaned_indices):
                             chapter_doc.remove(chapter_doc.members[idx])
-                            results["orphaned_removed"] += 1
 
                         # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
                         chapter_doc.save(ignore_permissions=True)
+                        # Count only once the save has landed: a refused save (e.g. an
+                        # unrelated dangling board link) leaves every row in place.
+                        results["orphaned_removed"] += len(orphaned_indices)
 
             except Exception as e:
                 results["errors"].append(f"{chapter.name}: {str(e)}")
+                if orphaned_indices and not dry_run:
+                    results["chapters_failed"].append(chapter.name)
 
         if dry_run:
             results["summary"] = (
                 f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
             )
         else:
-            results["summary"] = (
-                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
-            )
+            cleaned = len(results["chapters_affected"]) - len(results["chapters_failed"])
+            results["summary"] = f"Removed {results['orphaned_removed']} orphaned members from {cleaned} chapters"
+            if results["chapters_failed"]:
+                results["summary"] += (
+                    f"; {len(results['chapters_failed'])} chapters failed and kept their orphans: "
+                    + ", ".join(results["chapters_failed"][:5])
+                )
             frappe.db.commit()
 
     except Exception as e:
