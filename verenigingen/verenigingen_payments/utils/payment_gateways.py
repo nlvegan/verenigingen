@@ -199,11 +199,9 @@ class MollieGateway(PaymentGateway):
             # webhook resolver cannot map the payment to the invoice, so the money is never
             # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
             # mollie_checkout so it covers every caller of process_payment.
-            if getattr(donation, "doctype", None) == "Sales Invoice":
-                return {
-                    "status": "error",
-                    "message": _("Paying an invoice through this page is not available yet."),
-                }
+            refusal = _refuse_sales_invoice(donation)
+            if refusal:
+                return refusal
 
             amount = self._amount_to_charge(donation)
             if amount is None:

@@ -66,7 +66,7 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
         frappe.set_user(self._user)
         super().tearDown()
 
-    def _invoice(self):
+    def _gate_invoice(self):
         member = self.create_test_member(first_name="Gate", last_name=f"Inv{frappe.generate_hash()[:6]}")
         invoice = self.create_test_sales_invoice(customer=member.name, grand_total=100.0)
         email = f"gate-owner-{frappe.generate_hash()[:8]}@example.com"
@@ -75,20 +75,20 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
         self.assertEqual(invoice.docstatus, 1)
         return invoice, email
 
-    def _donation(self):
+    def _gate_donation(self):
         donor = self.create_test_donor(donor_name="Gate Control Donor")
         return self.create_test_donation(
             amount=18.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0
         )
 
-    def _counts(self):
+    def _gate_counts(self):
         return {
             "mandates": frappe.db.count("SEPA Mandate"),
             "ponto": frappe.db.count("Ponto Payment Link"),
             "errors": frappe.db.count("Error Log"),
         }
 
-    def _pay(self, method, doctype, name, email="x@example.com"):
+    def _gate_pay(self, method, doctype, name, email="x@example.com"):
         return PaymentHook.initiate_payment(
             method=method,
             amount=10.0,
@@ -98,18 +98,18 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
         )
 
     def _assert_refused_cleanly(self, method):
-        invoice, email = self._invoice()
-        before = self._counts()
+        invoice, email = self._gate_invoice()
+        before = self._gate_counts()
         client = _FakePontoClient()
         with patch.object(
             frappe.model.document.Document, "db_set", side_effect=AssertionError("db_set attempted")
         ), patch(_PONTO_CLIENT, return_value=client):
-            result = self._pay(method, "Sales Invoice", invoice.name, email)
+            result = self._gate_pay(method, "Sales Invoice", invoice.name, email)
         self.assertFalse(result["success"], result)
         self.assertEqual(result["message"], GATE_MESSAGE, result)
         self.assertNotIn("AttributeError", str(result))
         self.assertNotIn("SalesInvoice", str(result))
-        self.assertEqual(self._counts(), before, "refusal must not create rows or log errors")
+        self.assertEqual(self._gate_counts(), before, "refusal must not create rows or log errors")
         self.assertEqual(client.calls, 0)
 
     def test_bank_transfer_refuses_sales_invoice(self):
@@ -124,16 +124,16 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
     def test_sepa_gateway_refuses_sales_invoice_even_with_a_valid_iban(self):
         """Direct call with the key the gateway reads (the hook never sends it, #2423): the
         refusal comes before IBAN handling and before any mandate."""
-        invoice, _email = self._invoice()
-        before = self._counts()
+        invoice, _email = self._gate_invoice()
+        before = self._gate_counts()
         result = pg.SEPAGateway().process_payment(invoice, {"donor_iban": IBAN, "donor_name": "X"})
         self.assertEqual(result, {"status": "error", "message": GATE_MESSAGE})
-        self.assertEqual(self._counts(), before)
+        self.assertEqual(self._gate_counts(), before)
 
     def test_guest_endpoint_surfaces_the_refusal(self):
         from verenigingen.verenigingen_payments.hooks.api import initiate_payment
 
-        invoice, email = self._invoice()
+        invoice, email = self._gate_invoice()
         result = initiate_payment(
             method="ponto",
             amount=1.0,
@@ -148,16 +148,16 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
     # --- controls: a Donation still works through each gateway -----------------------------
 
     def test_control_bank_transfer_still_serves_a_donation(self):
-        donation = self._donation()
-        result = self._pay("bank_transfer", "Donation", donation.name)
+        donation = self._gate_donation()
+        result = self._gate_pay("bank_transfer", "Donation", donation.name)
         self.assertTrue(result["success"], result)
         self.assertTrue(frappe.db.get_value("Donation", donation.name, "payment_id"))
 
     def test_control_ponto_still_serves_a_donation(self):
-        donation = self._donation()
+        donation = self._gate_donation()
         client = _FakePontoClient()
         with patch(_PONTO_CLIENT, return_value=client):
-            result = self._pay("ponto", "Donation", donation.name)
+            result = self._gate_pay("ponto", "Donation", donation.name)
         self.assertTrue(result["success"], result)
         self.assertEqual(client.calls, 1)
         link = frappe.db.get_value("Donation", donation.name, "payment_id")
@@ -165,6 +165,17 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Ponto Payment Link", link, "reference_name"), donation.name)
 
     def test_control_sepa_still_creates_a_mandate_for_a_donation(self):
-        donation = self._donation()
+        donation = self._gate_donation()
         result = pg.SEPAGateway().process_payment(donation, {"donor_iban": IBAN, "donor_name": "X"})
         self.assertEqual(result["status"], "mandate_created", result)
+
+    def test_control_only_a_sales_invoice_is_refused(self):
+        """Guards against an over-broad gate (e.g. "anything but a Donation"): a Payment Plan
+        Payment, which has amount and payment_id, must not be refused. Stated shortcut: the
+        helper is called with a stand-in carrying only the doctype, since the helper reads
+        nothing else; the Donation controls above cover the real gateways."""
+        self.assertIsNone(pg._refuse_sales_invoice(frappe._dict(doctype="Payment Plan Payment")))
+        self.assertIsNone(pg._refuse_sales_invoice(frappe._dict(doctype="Donation")))
+        self.assertEqual(
+            pg._refuse_sales_invoice(frappe._dict(doctype="Sales Invoice"))["message"], GATE_MESSAGE
+        )
