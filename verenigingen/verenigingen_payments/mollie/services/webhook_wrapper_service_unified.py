@@ -2646,18 +2646,13 @@ class UnifiedWebhookWrapperService:
             payment_amount = extractor.extract_amount(
                 payment_data, allow_zero=True
             )  # payment_data is dict format
-            paid_date = payment_data.get("paid_at") or payment_data.get("created_at")
+            # The site-local day of the UTC timestamp, not the UTC day (#2378)
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
 
-            # Parse ISO datetime to date
-            if isinstance(paid_date, str):
-                try:
-                    from dateutil import parser
-
-                    paid_date = parser.parse(paid_date).date()
-                except (ValueError, TypeError, ImportError):
-                    paid_date = frappe.utils.getdate()
-            elif not paid_date:
-                paid_date = frappe.utils.getdate()
+            paid_date = (
+                mollie_timestamp_to_local_date(payment_data.get("paid_at") or payment_data.get("created_at"))
+                or frappe.utils.getdate()
+            )
 
             donation.append(
                 "payments",

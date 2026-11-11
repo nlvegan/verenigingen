@@ -18,6 +18,7 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.models.settlement import Settlement, SettlementCapture, SettlementLine
 from ..core.mollie_base_client import MollieBaseClient
+from ..utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 class SettlementsClient(MollieBaseClient):
@@ -174,14 +175,11 @@ class SettlementsClient(MollieBaseClient):
             for settlement in all_settlements:
                 settlement_date_str = settlement.get("settledAt")
                 if settlement_date_str:
-                    # Parse ISO date format (2024-08-15T10:30:00+00:00)
-                    import datetime
+                    # settledAt is UTC (2024-08-15T10:30:00+00:00) while the caller's window
+                    # is in local days, so compare the settlement's local day (#2378)
+                    settlement_date = mollie_timestamp_to_local_date(settlement_date_str)
 
-                    settlement_date = datetime.datetime.fromisoformat(
-                        settlement_date_str.replace("Z", "+00:00")
-                    ).date()
-
-                    if from_date_obj <= settlement_date <= to_date_obj:
+                    if settlement_date and from_date_obj <= settlement_date <= to_date_obj:
                         filtered_settlements.append(settlement)
 
             return filtered_settlements

@@ -12,8 +12,8 @@ Tests create real Members and Chapters via the test factory (no business-logic
 mocking) and run as Administrator. Notification helpers send through the unified
 EmailService and are wrapped in try/except in production, so they are exercised
 indirectly via approve/reject/join and asserted only on their observable side
-effects (status, history, comments) -- the email send itself is a no-op in the
-test environment.
+effects (status, history, comments). The join-request tests are the exception: they
+own an outgoing Email Account and the key row, and assert on the queued mail itself.
 """
 
 import json
@@ -22,6 +22,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestMemberManager(VereningingenTestCase):
@@ -496,6 +497,9 @@ class TestMemberManager(VereningingenTestCase):
         from verenigingen.setup.notification_registry_setup import _registry_row
         from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the board got 0 mails (#2361).
+        ensure_outgoing_email_account(self)
         key = "chapter_join_request_submitted"
         backup = SingletonBackup("Verenigingen Email Configuration")
         backup.backup()

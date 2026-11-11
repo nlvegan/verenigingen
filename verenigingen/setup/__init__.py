@@ -369,7 +369,6 @@ def execute_after_install():
     run("set up tax exemption templates", setup_tax_exemption_on_install)
     run("set up termination system", setup_termination_system_integration)
     run("set up workspace", setup_workspace)
-    run("load fixtures", load_application_fixtures)
     run("set up security", _install_security)
     run("set up webhook user", _install_webhook_user)
     run("set up public document creator", _install_public_document_creator)
@@ -1001,7 +1000,7 @@ def create_application_email_templates():
             "response": """
                 <h3>Thank you for your membership application!</h3>
 
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>We have received your membership application for {{ membership_type }}.</p>
 
@@ -1021,7 +1020,7 @@ def create_application_email_templates():
             "name": "membership_welcome",
             "subject": "Welcome to {{ frappe.db.get_value('Company', company, 'company_name') }}!",
             "response": """
-                <h2>Welcome to our Association, {{ member.first_name }}!</h2>
+                <h2>Welcome to our Association, {{ member.first_name | e }}!</h2>
 
                 <p>Your membership is now active and you have full access to all member benefits.</p>
 
@@ -1046,7 +1045,7 @@ def create_application_email_templates():
                     {% if member.current_chapter %}
                     <tr>
                         <td><strong>Chapter:</strong></td>
-                        <td>{{ member.current_chapter }}</td>
+                        <td>{{ member.current_chapter | e }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -1077,7 +1076,7 @@ def create_application_email_templates():
             "name": "volunteer_welcome",
             "subject": "Welcome to our Volunteer Team!",
             "response": """
-                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name }}!</h2>
+                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name | e }}!</h2>
 
                 <p>Thank you for your interest in volunteering with us. We're excited to have you join our team!</p>
 
@@ -1089,7 +1088,7 @@ def create_application_email_templates():
                     <li><strong>Areas of Interest:</strong>
                         <ul>
                         {% for interest in volunteer.interests %}
-                            <li>{{ interest.interest_area }}</li>
+                            <li>{{ interest.interest_area | e }}</li>
                         {% endfor %}
                         </ul>
                     </li>
@@ -1105,7 +1104,7 @@ def create_application_email_templates():
 
                 <p>Your volunteer coordinator will contact you within the next few days to discuss specific opportunities.</p>
 
-                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email }}</strong></p>
+                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email | e }}</strong></p>
 
                 <p>Thank you for making a difference!</p>
 
@@ -1116,7 +1115,7 @@ def create_application_email_templates():
             "name": "membership_payment_failed",
             "subject": "Payment Failed - Membership Application",
             "response": """
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>Unfortunately, your payment for the membership application could not be processed.</p>
 
@@ -1395,61 +1394,6 @@ def update_workspace_links():
     except Exception as e:
         print(f"   ⚠️ Workspace update failed: {str(e)}")
         raise
-
-
-def load_application_fixtures():
-    """Load necessary fixtures for the application.
-
-    A fixture that cannot be read or inserted does not stop the other files, but the run
-    then raises ONE summary error so the install runner sees it (#1880). A missing file is
-    not a failure (the files are optional).
-    """
-    print("📦 Loading application fixtures...")
-
-    import os
-
-    # Get fixtures directory
-    app_path = frappe.get_app_path("verenigingen")
-    fixtures_path = os.path.join(app_path, "..", "fixtures")
-
-    # Load workflow fixtures if they exist
-    fixture_files = ["workflow.json", "membership_workflow.json"]
-
-    loaded_count = 0
-    failures = []
-    for fixture_file in fixture_files:
-        fixture_path = os.path.join(fixtures_path, fixture_file)
-        if os.path.exists(fixture_path):
-            try:
-                # Use frappe.get_doc approach instead of install_fixtures
-                import json
-
-                with open(fixture_path, "r") as f:
-                    fixture_data = json.load(f)
-
-                if isinstance(fixture_data, list):
-                    for doc_data in fixture_data:
-                        if "doctype" in doc_data:
-                            doc = frappe.get_doc(doc_data)
-                            doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                else:
-                    if "doctype" in fixture_data:
-                        doc = frappe.get_doc(fixture_data)
-                        doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                loaded_count += 1
-                print(f"   ✓ Loaded fixture: {fixture_file}")
-            except Exception as e:
-                print(f"   ⚠️ Could not load fixture {fixture_file}: {str(e)}")
-                failures.append(f"{fixture_file}: {str(e)}")
-        else:
-            print(f"   ℹ️  Fixture not found: {fixture_file}")
-
-    if loaded_count > 0:
-        print(f"   📦 Loaded {loaded_count} fixtures")
-    else:
-        print("   ℹ️  No fixtures loaded")
-
-    _raise_if_any_failed("Loading fixtures", failures)
 
 
 # Consolidated API endpoints for all setup functions
