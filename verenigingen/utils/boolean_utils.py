@@ -48,6 +48,19 @@ def cbool(value):
     return frappe.utils.cint(value)
 
 
+_FALSE_STRINGS = ("false", "no", "off", "0", "0.0")
+
+
+def is_dry_run(value):
+    """True unless the caller explicitly says no (#2377, #2385).
+
+    A ``dry_run`` flag guards a destructive run, so it must fail closed: ``cbool`` alone maps an
+    unrecognised string, "" or None to 0 and would turn it into a real run. Over HTTP the flag
+    is a string, so "false" must also be able to request the real run.
+    """
+    return str(value).strip().lower() not in _FALSE_STRINGS
+
+
 def safe_int(value):
     """
     Safely convert value to integer, handling boolean strings
