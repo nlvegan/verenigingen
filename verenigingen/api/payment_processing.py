@@ -61,6 +61,7 @@ License: MIT
 """
 
 import functools
+import html
 import os
 import tempfile
 import traceback
@@ -335,8 +336,13 @@ def send_overdue_payment_reminders(
         validate_required_fields({"reminder_type": reminder_type}, ["reminder_type"])
 
         reminder_type = APIValidator.sanitize_text(reminder_type, max_length=50)
+        # #2425: kept RAW and escaped once, where it is rendered (stock templates `|e`, fallback
+        # escape_html). @critical_api has already HTML-escaped the argument (it decodes entities first), so
+        # decode here; escaping again would show the member "&amp;#x27;" for an apostrophe.
         custom_message = (
-            APIValidator.sanitize_text(custom_message, max_length=1000) if custom_message else None
+            APIValidator.sanitize_text(html.unescape(str(custom_message)), max_length=1000, allow_html=True)
+            if custom_message
+            else None
         )
 
         # Get overdue payments based on filters
