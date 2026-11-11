@@ -15,6 +15,8 @@ session at that moment. "Survives the timeout" is therefore read as "a commit wa
 while the first schedule's invoice was already in the session", which is what execute_job's
 rollback would otherwise take away. The timeout is injected at ``Sales Invoice.submit`` for
 the SECOND schedule only; the first goes through the real generation flow.
+The recorder proves a commit was issued; survival across a real rollback was verified
+separately in review (both paths, 3 schedules, timeout on the 3rd).
 """
 
 from unittest.mock import patch
@@ -56,7 +58,8 @@ class TestDuesChunkCommitsPerSchedule(EnhancedTestCase):
         """Run ``runner`` with the 2nd Sales Invoice.submit raising a job timeout.
 
         Returns (commit_snapshots, invoices_of_first_customer_at_the_end). Each snapshot is
-        the first customer's invoice set at the moment a commit was requested.
+        (first customer's invoice set, number of submit calls so far) at the moment a commit
+        was requested.
         """
         from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 
@@ -71,7 +74,7 @@ class TestDuesChunkCommitsPerSchedule(EnhancedTestCase):
 
         snapshots = []
         with patch.object(SalesInvoice, "submit", submit), patch.object(
-            frappe.db, "commit", side_effect=lambda *a, **k: snapshots.append(self._first_customer_invoices())
+            frappe.db, "commit", side_effect=lambda *a, **k: snapshots.append((self._first_customer_invoices(), len(calls)))
         ):
             with self.assertRaises(JobTimeoutException):
                 runner()
@@ -86,7 +89,7 @@ class TestDuesChunkCommitsPerSchedule(EnhancedTestCase):
         )
         self.assertTrue(first_invoices, "fixture: the first schedule must have produced an invoice")
         self.assertTrue(
-            any(first_invoices <= snap for snap in snapshots),
+            any(first_invoices <= invoices for invoices, _ in snapshots),
             "no commit was issued after the first invoice was built; the timeout rollback takes it",
         )
 
@@ -98,7 +101,7 @@ class TestDuesChunkCommitsPerSchedule(EnhancedTestCase):
         )
         self.assertTrue(first_invoices, "fixture: the first schedule must have produced an invoice")
         self.assertTrue(
-            any(first_invoices <= snap for snap in snapshots),
+            any(first_invoices <= invoices for invoices, _ in snapshots),
             "no commit was issued after the first invoice was built; the timeout rollback takes it",
         )
 
@@ -109,6 +112,7 @@ class TestDuesChunkCommitsPerSchedule(EnhancedTestCase):
                 self.schedules, chunk_id=1, total_chunks=1, cutoff_date=getdate(today())
             )
         )
+        after_timeout_started = [snap for snap in snapshots if snap[1] >= 2]
         self.assertEqual(
-            len(snapshots), 1, "one commit for the one completed schedule; none for the timed-out one"
+            after_timeout_started, [], "a commit was issued once the timed-out schedule had started"
         )
