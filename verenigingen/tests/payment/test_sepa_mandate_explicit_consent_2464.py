@@ -183,11 +183,13 @@ class TestSepaMandateExplicitConsent(PortalSelfServiceTestMixin, EnhancedTestCas
                 ).insert()
         self.assertEqual(self._member_mandate_rows_2464(), [])
 
-    def test_donation_hook_mandate_for_a_non_staff_caller_is_refused(self):
-        """Writer: SEPAGateway._create_sepa_mandate (donor/guest-facing, shows no mandate text).
+    def test_donation_hook_current_refusal_for_a_non_staff_caller_documents_status_quo(self):
+        """Documents the CURRENT refusal of SEPAGateway._create_sepa_mandate for a non-staff caller.
 
-        Real gateway method, real Donor, real (non-staff) session user. A refusal here must
-        create nothing, whatever fallback secure_document_operation applies to the caller.
+        NOT guard coverage: secure_document_operation refuses this caller before the consent
+        guard is reached, so this stays green with the guard removed. It becomes coverage of
+        enforce_consent_provenance only once #2423 is fixed. Real gateway method, real Donor,
+        real (non-staff) session user; a refusal must create nothing.
         """
         from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
@@ -238,3 +240,78 @@ class TestSepaMandateExplicitConsent(PortalSelfServiceTestMixin, EnhancedTestCas
         legacy.reload()
         self.assertEqual((legacy.status, legacy.is_active), ("Active", 1))
         self.assertFalse(legacy.consent_source)
+
+    # --- the consent record is evidence: immutable after insert, for everyone (F1) ---
+
+    def _member_signed_mandate(self):
+        self._text_is("Original wording")
+        self.assertTrue(self._sign_via_endpoint_2464(**self._consenting_args()).get("success"))
+        (row,) = self._member_mandate_rows_2464()
+        return row
+
+    def _assert_consent_row_unchanged(self, before):
+        after = frappe.db.get_value("SEPA Mandate", before.name, CONSENT_FIELDS, as_dict=True)
+        for f in CONSENT_FIELDS:
+            self.assertEqual(after[f], before[f], msg=f)
+
+    def test_member_cannot_edit_consent_fields_via_client_set_value(self):
+        from frappe.client import set_value
+
+        before = self._member_signed_mandate()
+        with self._as_user(self.user.name):
+            with self.assertRaises(frappe.PermissionError):
+                set_value("SEPA Mandate", before.name, "consent_text", "FORGED")
+            with self.assertRaises(frappe.PermissionError):
+                set_value(
+                    "SEPA Mandate",
+                    before.name,
+                    {"consent_source": "Member consent", "consent_ip": "1.2.3.4"},
+                )
+        self._assert_consent_row_unchanged(before)
+
+    def test_member_cannot_edit_consent_fields_via_whole_doc_save(self):
+        """frappe.client.save is what a REST PUT of the whole document runs."""
+        from frappe.client import save
+
+        before = self._member_signed_mandate()
+        for field, value in (
+            ("consent_text", "FORGED"),
+            ("consent_ip", "1.2.3.4"),
+            ("consent_source", "Staff entered"),
+            ("consent_timestamp", "2001-01-01 00:00:00"),
+        ):
+            doc = frappe.get_doc("SEPA Mandate", before.name).as_dict()
+            doc[field] = value
+            with self._as_user(self.user.name):
+                with self.assertRaises(frappe.PermissionError, msg=field):
+                    save(frappe.as_json(doc))
+        self._assert_consent_row_unchanged(before)
+
+    def test_staff_cannot_edit_consent_fields_after_insert_either(self):
+        from frappe.client import set_value
+
+        before = self._member_signed_mandate()
+        with self.assertRaises(frappe.PermissionError):
+            set_value("SEPA Mandate", before.name, "consent_text", "FORGED")
+        with self.assertRaises(frappe.PermissionError):
+            set_value("SEPA Mandate", before.name, "consent_ip", "1.2.3.4")
+        self._assert_consent_row_unchanged(before)
+
+    def test_staff_marker_row_cannot_be_upgraded_to_member_consent(self):
+        doc = self._staff_mandate()
+        doc.consent_source = "Member consent"
+        doc.consent_text = "fabricated"
+        with self.assertRaises(frappe.PermissionError):
+            doc.save()
+
+    def test_ordinary_lifecycle_saves_still_work_after_consent(self):
+        """Control: the guard must not refuse writers that leave the consent fields alone."""
+        before = self._member_signed_mandate()
+        mandate = frappe.get_doc("SEPA Mandate", before.name)
+        mandate.notes = "touched"
+        mandate.save()
+        mandate.status = "Cancelled"
+        mandate.save()
+        mandate.reload()
+        self.assertEqual(mandate.status, "Cancelled")
+        self._assert_consent_row_unchanged(before)

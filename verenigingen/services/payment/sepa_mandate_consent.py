@@ -21,11 +21,12 @@ import hashlib
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 
+CONSENT_FIELDS = ("consent_source", "consent_timestamp", "consent_text", "consent_ip")
 SOURCE_MEMBER = "Member consent"
 SOURCE_STAFF = "Staff entered"
 
@@ -105,7 +106,10 @@ def enforce_consent_provenance(mandate) -> None:
     on SEPA Mandate, so without this a member (or a donor reaching the payment hook) could
     insert a mandate over REST that never showed any text.
     """
-    if not mandate.is_new() or mandate.flags.get("member_consent_verified"):
+    if not mandate.is_new():
+        refuse_consent_record_change(mandate)
+        return
+    if mandate.flags.get("member_consent_verified"):
         return
     if not user_is_staff():
         frappe.throw(
@@ -116,3 +120,30 @@ def enforce_consent_provenance(mandate) -> None:
     mandate.consent_timestamp = None
     mandate.consent_text = None
     mandate.consent_ip = None
+
+
+def _normalised(fieldname: str, value):
+    """Compare NULL and "" as equal, and a datetime however it was serialised."""
+    if value in (None, ""):
+        return None
+    return get_datetime(value) if fieldname == "consent_timestamp" else value
+
+
+def refuse_consent_record_change(mandate) -> None:
+    """After insert: refuse ANY change to the consent record, for every caller, staff included.
+
+    The record is evidence of what the member agreed to. ``read_only`` only hides the fields in
+    the form; a member holds write on SEPA Mandate and could rewrite them with
+    ``frappe.client.set_value`` or a REST PUT. Compared against the stored row (not the
+    in-memory doc, which already carries the edit). Writers that leave these fields alone
+    (status changes, cancel, re-import, ``db_set``) are unaffected.
+    """
+    stored = frappe.db.get_value("SEPA Mandate", mandate.name, list(CONSENT_FIELDS), as_dict=True)
+    if not stored:
+        return
+    for fieldname in CONSENT_FIELDS:
+        if _normalised(fieldname, mandate.get(fieldname)) != _normalised(fieldname, stored[fieldname]):
+            frappe.throw(
+                _("The consent record of a SEPA mandate cannot be changed."),
+                frappe.PermissionError,
+            )
