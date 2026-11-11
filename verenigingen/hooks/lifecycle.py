@@ -46,6 +46,16 @@ after_sync = [
 # admin's grant (#1629).
 before_migrate = [
     "verenigingen.setup.custom_docperm_setup.snapshot_own_declared_permissions",
+    # New post_model_sync patches are fragment files, not patches.txt lines (#2407). Frappe builds its
+    # patch list after these hooks run, from get_patches_from_app, which this wraps.
+    "verenigingen.setup.patch_fragments.install",
+]
+
+# Run at the start of `install-app`, before set_all_patches_as_completed() marks every patch done
+# without running it: the patch fragments (#2407) must be in that list, or a fresh site would run
+# them all on its first migrate.
+before_install = [
+    "verenigingen.setup.patch_fragments.install",
 ]
 
 # Run after database migrations complete
