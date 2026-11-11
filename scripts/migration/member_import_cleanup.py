@@ -356,6 +356,7 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         "orphaned_removed": 0,
         "chapters_affected": [],
         "chapters_failed": [],
+        "chapters_cleaned": 0,
         "errors": [],
     }
 
@@ -384,15 +385,11 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                     )
 
                     if not dry_run:
-                        # Remove orphaned entries (in reverse order to preserve indices)
-                        for idx, member_name in reversed(orphaned_indices):
-                            chapter_doc.remove(chapter_doc.members[idx])
-
-                        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-                        chapter_doc.save(ignore_permissions=True)
+                        _remove_orphans_atomically(chapter_doc, orphaned_indices)
                         # Count only once the save has landed: a refused save (e.g. an
                         # unrelated dangling board link) leaves every row in place.
                         results["orphaned_removed"] += len(orphaned_indices)
+                        results["chapters_cleaned"] += 1
 
             except Exception as e:
                 results["errors"].append(f"{chapter.name}: {str(e)}")
@@ -404,11 +401,13 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
             )
         else:
-            cleaned = len(results["chapters_affected"]) - len(results["chapters_failed"])
-            results["summary"] = f"Removed {results['orphaned_removed']} orphaned members from {cleaned} chapters"
+            results["summary"] = (
+                f"Removed {results['orphaned_removed']} orphaned members from "
+                f"{results['chapters_cleaned']} chapter(s)"
+            )
             if results["chapters_failed"]:
                 results["summary"] += (
-                    f"; {len(results['chapters_failed'])} chapters failed and kept their orphans: "
+                    f"; {len(results['chapters_failed'])} chapter(s) failed and kept their orphans: "
                     + ", ".join(results["chapters_failed"][:5])
                 )
             frappe.db.commit()
@@ -418,6 +417,29 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _remove_orphans_atomically(chapter_doc, orphaned_indices):
+    """Remove the orphan rows and save, rolling back to the pre-state if anything fails.
+
+    A save can fail after it has already written (e.g. an `on_update` handler raising),
+    and the caller's final commit would then persist the half-saved chapter. frappe's
+    `savepoint()` context manager swallows the exception, so the savepoint is explicit
+    and the error is re-raised for the caller to report.
+    """
+    savepoint_name = "orphan_chapter_cleanup"
+    frappe.db.savepoint(savepoint_name)
+    try:
+        # Remove orphaned entries (in reverse order to preserve indices)
+        for idx, _member_name in reversed(orphaned_indices):
+            chapter_doc.remove(chapter_doc.members[idx])
+
+        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
+        chapter_doc.save(ignore_permissions=True)
+    except Exception:
+        frappe.db.rollback(save_point=savepoint_name)
+        raise
+    frappe.db.release_savepoint(savepoint_name)
 
 
 @frappe.whitelist()

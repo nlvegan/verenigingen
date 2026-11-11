@@ -332,24 +332,27 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         frappe.db.rollback()
         super().tearDown()
 
-    def _chapter_with_orphan(self, with_dangling_board_link=False):
+    def _chapter_with_orphan(self, with_dangling_board_link=False, orphans=1):
         chapter = self.create_chapter(chapter_name=f"TEST-Orphan-{frappe.generate_hash()[:8]}")
-        ghost = f"Assoc-Member-GHOST-{frappe.generate_hash()[:6]}"
+        ghosts = [f"Assoc-Member-GHOST-{frappe.generate_hash()[:6]}" for _ in range(orphans)]
         # db_insert: the row has to exist the way legacy debris does, which
         # Chapter validation would refuse to create.
-        frappe.get_doc(
-            {
-                "doctype": "Chapter Member",
-                "parent": chapter.name,
-                "parenttype": "Chapter",
-                "parentfield": "members",
-                "idx": 1,
-                "member": ghost,
-                "status": "Active",
-            }
-        ).db_insert()
+        for idx, ghost in enumerate(ghosts, start=1):
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Member",
+                    "parent": chapter.name,
+                    "parenttype": "Chapter",
+                    "parentfield": "members",
+                    "idx": idx,
+                    "member": ghost,
+                    "status": "Active",
+                }
+            ).db_insert()
+        ghost = ghosts[0]
         if with_dangling_board_link:
-            role = frappe.get_all("Chapter Role", pluck="name", limit=1)
+            # A real role of our own, so the ONLY dangling link is the volunteer.
+            role = self.factory.ensure_chapter_role("Orphan Cleanup Test Role")
             frappe.get_doc(
                 {
                     "doctype": "Chapter Board Member",
@@ -358,7 +361,7 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
                     "parentfield": "board_members",
                     "idx": 1,
                     "volunteer": f"GHOST-VOL-{frappe.generate_hash()[:6]}",
-                    "chapter_role": role[0] if role else "GHOST-ROLE",
+                    "chapter_role": role.name,
                     "from_date": frappe.utils.today(),
                 }
             ).db_insert()
@@ -394,10 +397,77 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
 
         # Control: the save really failed and the row really stayed.
         self.assertTrue(self._row_exists(chapter_name, ghost))
-        self.assertIn(chapter_name, [e.split(":")[0] for e in results["errors"]])
+        errors = [e for e in results["errors"] if e.split(":")[0] == chapter_name]
+        self.assertEqual(len(errors), 1)
+        # Cause: the dangling board-member volunteer link, not something else.
+        self.assertIn("Volunteer", errors[0])
         # The claim: the count equals rows that actually left, here none from this chapter.
         self.assertEqual(results["orphaned_removed"], really_removed)
         self.assertIn(chapter_name, results["chapters_failed"])
         self.assertIn("failed", results["summary"].lower())
         affected = [c["chapter"] for c in results["chapters_affected"]]
         self.assertIn(chapter_name, affected)
+
+    def test_removed_count_is_orphan_rows_not_chapters(self):
+        chapter_name, ghost = self._chapter_with_orphan(orphans=3)
+        results, really_removed = self._run_live()
+
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": chapter_name, "member": ["like", "Assoc-Member-GHOST-%"]})
+        )
+        self.assertEqual(results["orphaned_removed"], really_removed)
+        self.assertGreaterEqual(results["orphaned_removed"], 3)
+        mine = [c for c in results["chapters_affected"] if c["chapter"] == chapter_name][0]
+        self.assertEqual(mine["orphaned_count"], 3)
+        # Rows, not chapters: this chapter adds 3 rows but only 1 chapter.
+        self.assertGreater(results["orphaned_removed"], results["chapters_cleaned"])
+
+    def test_a_chapter_that_cannot_be_loaded_inherits_no_failure_from_its_predecessor(self):
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        # Created first, so the default newest-first listing visits the orphan chapter
+        # BEFORE it; asserted below so the ordering premise cannot silently drift.
+        unloadable = self.create_chapter(chapter_name=f"TEST-Unloadable-{frappe.generate_hash()[:8]}").name
+        with_orphans, ghost = self._chapter_with_orphan(orphans=2)
+        listed = [c.name for c in frappe.get_all("Chapter", fields=["name"])]
+        self.assertLess(listed.index(with_orphans), listed.index(unloadable))
+
+        real_load = Chapter.load_from_db
+
+        def load_from_db(doc, *args, **kwargs):
+            if doc.name == unloadable:
+                raise frappe.ValidationError("cannot load")
+            return real_load(doc, *args, **kwargs)
+
+        # Mock justified: forces a load failure for one chapter; the cleanup runs for real.
+        with patch.object(Chapter, "load_from_db", load_from_db), patch.object(frappe.db, "commit"):
+            results = cleanup.cleanup_orphaned_chapter_members(dry_run=False)
+
+        self.assertEqual(results["orphaned_removed"], 2)
+        self.assertEqual(results["chapters_cleaned"], 1)
+        self.assertEqual(results["chapters_failed"], [])
+        self.assertEqual([e.split(":")[0] for e in results["errors"]], [unloadable])
+        self.assertNotIn("kept their orphans", results["summary"])
+
+    def test_a_failure_after_the_write_rolls_the_chapter_back(self):
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        chapter_name, ghost = self._chapter_with_orphan()
+
+        def on_update(doc, *args, **kwargs):
+            if doc.name == chapter_name:
+                raise frappe.ValidationError("boom after write")
+
+        # Mock justified: injects a failure at a real Frappe event, after the child
+        # rows have been written; everything else runs for real.
+        with patch.object(Chapter, "on_update", on_update, create=True):
+            results, really_removed = self._run_live()
+
+        self.assertTrue(self._row_exists(chapter_name, ghost), "failed chapter must roll back")
+        self.assertIn(chapter_name, results["chapters_failed"])
+        self.assertEqual(results["orphaned_removed"], really_removed)
+        self.assertIn("boom after write", " ".join(results["errors"]))
