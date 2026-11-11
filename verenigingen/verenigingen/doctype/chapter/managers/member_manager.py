@@ -554,18 +554,7 @@ class MemberManager(BaseManager):
 
             self.chapter_doc.save()
 
-            # Update membership history
-            ChapterMembershipHistoryManager.add_membership_history(
-                member_id=member_id,
-                chapter_name=self.chapter_name,
-                assignment_type="Member",
-                start_date=today(),
-                reason=f"Membership approved by {approved_by or frappe.session.user}",
-                # WHY: add_membership_history accepts `status=`, not `new_status=`.
-                # The wrong kwarg raised a swallowed TypeError, so approvals never
-                # recorded history and returned a failure result.
-                status="Active",
-            )
+            self._activate_history_entry(member_id, approved_by)
 
             # Create audit comment
             member_doc = frappe.get_doc("Member", member_id)
@@ -584,6 +573,37 @@ class MemberManager(BaseManager):
         except Exception as e:
             frappe.log_error(f"Error approving member request: {str(e)}")
             return {"success": False, "message": str(e)}
+
+    def _activate_history_entry(self, member_id: str, approved_by: str = None):
+        """Move the member's Pending history entry for this chapter to Active (#2430).
+
+        request_to_join / a rejoin leave a Pending entry, and add_membership_history refuses to add an
+        Active one beside it (returning False, which used to be ignored), so the entry stayed Pending for
+        an Active member. Update the Pending entry; only when there is none (history never written) add an
+        Active one. A failure of both is logged, not raised: the row is already Active and saved.
+        """
+        reason = f"Membership approved by {approved_by or frappe.session.user}"
+        if ChapterMembershipHistoryManager.update_membership_status(
+            member_id=member_id,
+            chapter_name=self.chapter_name,
+            assignment_type="Member",
+            new_status="Active",
+            reason=reason,
+        ):
+            return
+        added = ChapterMembershipHistoryManager.add_membership_history(
+            member_id=member_id,
+            chapter_name=self.chapter_name,
+            assignment_type="Member",
+            start_date=today(),
+            reason=reason,
+            status="Active",
+        )
+        if not added:
+            frappe.log_error(
+                title="Chapter join approval: history not activated",
+                message=f"Approved {member_id} in {self.chapter_name} but no history entry became Active",
+            )
 
     def reject_member_request(self, member_id: str, reason: str = None, rejected_by: str = None) -> Dict:
         """
