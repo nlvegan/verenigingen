@@ -499,7 +499,7 @@ class MollieSubscriptionSyncService:
 
         Handles three amendment types with different parameter sources:
         1. Fee Change: New amount from amendment, interval from current dues schedule
-        2. Membership Type Change: Amount and interval from requested membership type's template
+        2. Membership Type Change: New amount from amendment, interval from the member's applied dues schedule (template only if none)
         3. Billing Interval Change: Interval from amendment, amount from current dues schedule
 
         Args:
@@ -534,8 +534,13 @@ class MollieSubscriptionSyncService:
             # Membership Type Change: Get interval from new membership type, use requested_amount
             amount = amendment_doc.requested_amount
 
-            # Get interval from the requested membership type's dues schedule template
-            if amendment_doc.requested_membership_type:
+            # The amendment has already been applied, so the member's schedule carries the
+            # frequency that bills: the kept one, or the amendment's replacement frequency
+            # (#1937). The Type's template only answers when there is no schedule.
+            dues_schedule = self._get_membership_dues_schedule(membership.member)
+            if dues_schedule:
+                interval = BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
+            elif amendment_doc.requested_membership_type:
                 new_type_doc = frappe.get_doc("Membership Type", amendment_doc.requested_membership_type)
 
                 if new_type_doc.dues_schedule_template:

@@ -49,7 +49,7 @@ def format_error_for_logging(error, context=""):
 class ContributionAmendmentRequest(Document):
     def validate(self):
         """Validate amendment request"""
-        self.validate_requested_billing_frequency()
+        self.validate_replacement_billing_frequency()
         # For existing documents, only run essential validations
         # New documents get full validation in before_insert()
         if not self.is_new():
@@ -60,13 +60,13 @@ class ContributionAmendmentRequest(Document):
             self.set_default_effective_date()
             self.set_requested_by()
 
-    def validate_requested_billing_frequency(self):
+    def validate_replacement_billing_frequency(self):
         """A requested frequency only applies where the schedule is replaced or re-typed.
 
         A pure fee change updates the schedule in place and never changes its cadence, so a
         requested frequency there would be silently ignored (#1937).
         """
-        if not self.requested_billing_frequency:
+        if not self.replacement_billing_frequency:
             return
         is_type_change = self.amendment_type == "Membership Type Change"
         is_non_pure_fee_change = (
@@ -77,7 +77,8 @@ class ContributionAmendmentRequest(Document):
         if not (is_type_change or is_non_pure_fee_change):
             frappe.throw(
                 _(
-                    "A requested billing frequency only applies to a membership type change. "
+                    "A replacement billing frequency only applies to a membership type change, "
+                    "or a fee change that also changes the type. "
                     "Clear it to keep the current billing frequency."
                 )
             )

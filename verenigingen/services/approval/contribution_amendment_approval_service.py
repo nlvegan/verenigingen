@@ -401,7 +401,7 @@ class ContributionAmendmentApprovalService(StatefulService):
                     new_membership_type=self.request.requested_membership_type,
                     new_dues_rate=new_dues_rate,
                     # None keeps the schedule's own frequency (#1937)
-                    new_billing_frequency=self.request.requested_billing_frequency or None,
+                    new_billing_frequency=self.request.replacement_billing_frequency or None,
                     reason=f"Amendment {self.request.name}: {self.request.reason}",
                 )
                 if not update_result.success:
@@ -570,7 +570,7 @@ class ContributionAmendmentApprovalService(StatefulService):
         Type's template only decides when there is no schedule being replaced.
         """
         return (
-            self.request.requested_billing_frequency
+            self.request.replacement_billing_frequency
             or (replaced_schedule and replaced_schedule.billing_frequency)
             or self._get_billing_frequency(membership_type_name)
         )
