@@ -465,3 +465,11 @@ class TestCallerBucket(EnhancedTestCase):
         self.assertNotEqual(caller_bucket("2001:db8:1:2::1"), caller_bucket("2001:db8:1:3::1"))
         self.assertEqual(caller_bucket("203.0.113.7"), "203.0.113.7")
         self.assertNotEqual(caller_bucket("203.0.113.7"), caller_bucket("203.0.113.8"))
+
+    def test_ipv4_mapped_ipv6_callers_bucket_as_their_ipv4_address(self):
+        """``::ffff:a.b.c.d`` is IPv4 traffic seen through a dual-stack socket; it must not
+        collapse into the shared ``::/64`` bucket."""
+        from verenigingen.verenigingen_payments.mollie.services.unknown_payment_ack import caller_bucket
+
+        self.assertEqual(caller_bucket("::ffff:1.2.3.4"), caller_bucket("1.2.3.4"))
+        self.assertNotEqual(caller_bucket("::ffff:1.2.3.4"), caller_bucket("::ffff:9.9.9.9"))

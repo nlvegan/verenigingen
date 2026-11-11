@@ -44,12 +44,17 @@ def caller_bucket(ip: str) -> str:
         address = ipaddress.ip_address(str(ip).strip())
     except ValueError:
         return str(ip)[:64]
+    if address.version == 6 and address.ipv4_mapped:
+        # IPv4 seen through a dual-stack socket: without this every IPv4 caller lands in ::/64.
+        address = address.ipv4_mapped
     if address.version == 6:
         return str(ipaddress.ip_network(f"{address}/64", strict=False))
     return str(address)
 
 
 def _window_key(ip: str) -> str:
+    # Key shape must match ``log_error_once`` (utils/webhook_ack.py): the same
+    # "webhook_error_log_once:" + sha256("|".join([title, *key_parts])), so both share one window.
     fingerprint = f"{ALERT_TITLE}|{caller_bucket(ip)}"
     return "webhook_error_log_once:" + hashlib.sha256(fingerprint.encode()).hexdigest()
 

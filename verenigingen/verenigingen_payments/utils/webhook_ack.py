@@ -62,6 +62,7 @@ def log_error_once(title: str, message: str, *key_parts) -> bool:
     because this app's positional (title, message) order is routinely swapped.
     """
     fingerprint = "|".join([title, *(str(p) for p in key_parts)])
+    # Key shape must match ``_window_key`` in mollie/services/unknown_payment_ack.py.
     key = "webhook_error_log_once:" + hashlib.sha256(fingerprint.encode()).hexdigest()
     if not first_in_window(key):
         return False
