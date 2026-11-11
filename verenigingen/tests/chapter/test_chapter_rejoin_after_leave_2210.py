@@ -99,6 +99,13 @@ class TestChapterRejoinAfterLeave2210(EnhancedTestCase):
         self.assertEqual(ended[0].reason, "moving")
 
         self.assertTrue(self._rejoin()["success"])
+        requested = self._history()
+        self.assertEqual(len(requested), len(before) + 1, requested)
+        # The entry is written by Chapter.handle_member_changes when the row flips enabled 0 -> 1.
+        self.assertEqual(
+            (requested[-1].status, requested[-1].reason, requested[-1].end_date),
+            ("Pending", "Membership re-enabled", None),
+        )
         self.assertTrue(self._approve()["success"])
 
         after = self._history()
@@ -108,7 +115,7 @@ class TestChapterRejoinAfterLeave2210(EnhancedTestCase):
             [(ended[0].start_date, ended[0].end_date, "moving")],
             "the earlier period must stay recorded untouched",
         )
-        self.assertGreater(len(after), len(before), "the rejoin must add its own history entry")
+        self.assertEqual(len(after), len(requested), "approval adds no entry (see #2430)")
         # Not asserted to be "Active": approve_member_request leaves the history entry Pending
         # for a first-time join too (add_membership_history refuses Active beside a Pending
         # entry); a separate defect, not this rejoin's.

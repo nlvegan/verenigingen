@@ -91,7 +91,7 @@ class MemberManager(BaseManager):
                     # opposite-harm guarantee must hold for Pending rows too).
                     member_doc = frappe.get_doc("Member", member_id)
                     if existing_member.status == "Pending" and member_doc.status in ("Pending", "Active"):
-                        pass
+                        existing_member.enabled = 1
                     else:
                         existing_member.enabled, existing_member.status = self._derive_membership_status(
                             member_doc, enabled
@@ -364,9 +364,10 @@ class MemberManager(BaseManager):
                 # #2210: the member's row is still there but they are not in the chapter: they left
                 # (remove_member leaves status Active, enabled=0), were terminated and reinstated
                 # (Inactive), or withdrew a request (Pending, enabled=0). A rejoin REACTIVATES that
-                # row, never a second one (maintainer ruling 2026-11-11). The earlier period and the
-                # leave stay recorded in Member.chapter_membership_history (the Quit entry), and the
-                # leave in the chapter's audit comments; the row only carries the current period.
+                # row, never a second one (maintainer ruling 2026-11-11). The earlier period stays recorded
+                # in Member.chapter_membership_history (its Quit entry, with the leave reason); the
+                # row only carries the current period. The new period's history entry is written by
+                # Chapter.handle_member_changes when the save flips enabled 0 -> 1.
                 existing_member.status = "Pending"
                 existing_member.enabled = 1
                 existing_member.chapter_join_date = None
@@ -382,16 +383,6 @@ class MemberManager(BaseManager):
 
                 if not save_result.success:
                     frappe.throw(_("Unable to reactivate membership request. Please check permissions."))
-
-                # A new history entry for the new period; the ended one is left as it is.
-                ChapterMembershipHistoryManager.add_membership_history(
-                    member_id=member_id,
-                    chapter_name=self.chapter_name,
-                    assignment_type="Member",
-                    start_date=today(),
-                    reason=f"Requested to rejoin {self.chapter_name} chapter",
-                    status="Pending",
-                )
 
                 self.create_comment(
                     "Info",
