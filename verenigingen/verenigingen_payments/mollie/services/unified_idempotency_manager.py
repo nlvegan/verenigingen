@@ -16,6 +16,7 @@ import frappe
 
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
+from ..exceptions import is_payment_not_found
 from ..utils.logging import MollieLogger
 from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
 
@@ -42,6 +43,10 @@ class PaymentIdempotencyCheckResult:
         self.chargebacks_processed = []
         self.pending_chargebacks = []
         self.chargeback_check_failed = False  # True if Mollie API call failed
+
+        # True when Mollie answered 404 for the payment id (#1805). NOT a failed check: a 404 is
+        # permanent, so the webhook acks it instead of asking Mollie to retry.
+        self.payment_not_found = False
 
     def is_fully_processed(self) -> bool:
         """Check if payment is completely processed (all components updated)."""
@@ -266,6 +271,9 @@ class UnifiedIdempotencyManager:
             mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
             self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
         except Exception as e:
+            if is_payment_not_found(e):
+                result.payment_not_found = True
+                return
             self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
             # CRITICAL FIX: Mark check as failed instead of silent return
             result.refund_check_failed = True
@@ -427,6 +435,9 @@ class UnifiedIdempotencyManager:
                         self.logger.error(f"Failed to process chargeback data: {e}, chargeback: {chargeback}")
 
             except Exception as e:
+                if is_payment_not_found(e):
+                    result.payment_not_found = True
+                    return
                 self.logger.error(f"Failed to fetch Mollie chargebacks for {payment_id}: {e}")
                 # CRITICAL FIX: Mark check as failed instead of silent return
                 result.chargeback_check_failed = True
