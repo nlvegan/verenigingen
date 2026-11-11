@@ -71,6 +71,7 @@ from frappe import _
 from frappe.utils import flt, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
@@ -301,6 +302,9 @@ def send_overdue_payment_reminders(
         - Chapter management for administrative notifications
         - Communication tracking for audit purposes
     """
+    # Over HTTP these flags are strings and "0" is truthy (#2377).
+    include_payment_link = cbool(include_payment_link)
+    send_to_chapters = cbool(send_to_chapters)
     try:
         # Critical Security Fix: Add explicit permission validation
         if not frappe.has_permission("Sales Invoice", "read"):

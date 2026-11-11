@@ -32,6 +32,7 @@ from verenigingen.verenigingen_payments.doctype.mollie_bulk_run.mollie_bulk_run 
     ACTIVE_STATUSES,
     MAX_ATTEMPTS_PER_PAYMENT,
 )
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 PROGRESS_EVENT = "mollie_bulk_run_progress"
 PROGRESS_CHECKPOINT_INTERVAL = 10
@@ -152,9 +153,10 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
             seen.add(payment.id)
 
             created_at = getattr(payment, "created_at", "") or ""
-            created_date = created_at[:10]
+            # Site-local day of the event, not the UTC day of the timestamp (#2192)
+            created_date = str(mollie_timestamp_to_local_date(created_at) or "")
             paid_at = getattr(payment, "paid_at", None)
-            paid_date = str(paid_at)[:10] if paid_at else created_date
+            paid_date = str(mollie_timestamp_to_local_date(paid_at) or "") if paid_at else created_date
 
             if created_date and created_date < date_from_str:
                 consecutive_older += 1

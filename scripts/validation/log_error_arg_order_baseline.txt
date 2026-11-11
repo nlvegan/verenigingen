@@ -438,7 +438,6 @@ verenigingen/verenigingen/doctype/donor/donor.py::Donor.validate_bsn_eleven_proo
 verenigingen/verenigingen/doctype/donor/donor.py::Donor.validate_rsin_eleven_proof::1
 verenigingen/verenigingen/doctype/expulsion_report_entry/expulsion_report_entry.py::ExpulsionReportEntry.notify_governance_team::1
 verenigingen/verenigingen/doctype/expulsion_report_entry/expulsion_report_entry.py::ExpulsionReportEntry.send_reversal_notification::1
-verenigingen/verenigingen/doctype/member/member_id_manager.py::MemberIDManager.get_next_member_id::1
 verenigingen/verenigingen/doctype/member/member_utils.py::_chapter_management_enabled::2
 verenigingen/verenigingen/doctype/member/member_utils.py::add_manual_payment_record::3
 verenigingen/verenigingen/doctype/member/member_utils.py::create_sepa_mandate_from_bank_details::3

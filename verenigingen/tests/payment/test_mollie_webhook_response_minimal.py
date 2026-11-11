@@ -207,7 +207,7 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         booked = {"status": "success", "member": self.member.name, "amount": 12.5, "payment_entry": "PE-1"}
         failed = {"status": "error", "message": f"cannot book for {self.member.name}"}
         cases = (
-            ("handle_refund_webhook", "process_reversal_webhook", {"payment_id": "tr_x", "refund": {"id": "re_x"}}),
+            ("handle_refund_webhook", "process_reversal_webhook", {"payment_id": "tr_x", "refund": {"id": "re_x", "status": "refunded"}}),
             ("handle_chargeback_webhook", "process_chargeback_webhook", {"id": "tr_x"}),
         )
         for endpoint, method, payload in cases:

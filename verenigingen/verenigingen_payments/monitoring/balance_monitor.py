@@ -22,6 +22,7 @@ from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..services.mollie_configuration_service import get_mollie_config
 from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_extractor
+from ..utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 class AlertSeverity(Enum):
@@ -350,7 +351,9 @@ class BalanceMonitor:
                 # Calculate average daily change using PaymentDataExtractor
                 daily_changes = {}
                 for transaction in transactions:
-                    date = transaction.created_at[:10] if transaction.created_at else None
+                    # Site-local day (#2192); a UTC cut would split one local day in two
+                    local_day = mollie_timestamp_to_local_date(transaction.created_at)
+                    date = str(local_day) if local_day else None
                     if date:
                         if date not in daily_changes:
                             daily_changes[date] = Decimal("0")

@@ -396,7 +396,7 @@ class SecureOperationResult:
 
         The canonical attribute is `.document`. Several callers historically
         wrote `.doc`, which silently raised AttributeError that broad
-        except-blocks swallowed (notably in web_form/donation_form and the
+        except-blocks swallowed (notably in the former web_form/donation_form and the
         Mollie chargeback webhook handler). Surfaces the typo at the call
         site so future regressions can't hide.
         """

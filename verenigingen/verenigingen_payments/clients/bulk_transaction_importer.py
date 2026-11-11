@@ -16,6 +16,7 @@ from verenigingen.utils.validation.iban_validator import validate_iban
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..core.mollie_base_client import MollieBaseClient
+from ..utils.timezone_utils import ensure_timezone_aware, mollie_timestamp_to_local_date
 from .balances_client import BalancesClient
 from .payments_client import PaymentsClient
 from .settlements_client import SettlementsClient
@@ -275,12 +276,18 @@ class BulkTransactionImporter(MollieBaseClient):
 
                 for payment in batch_payments:
                     try:
-                        # Create transaction data for duplicate checking
+                        # Create transaction data for duplicate checking. "date" must be the
+                        # day _create_bank_transaction_from_payment stores (site-local, #2192).
+                        created_at = datetime.fromisoformat(
+                            payment.get("createdAt", "").replace("Z", "+00:00")
+                        )
                         transaction_data = {
                             "custom_mollie_payment_id": payment.get("id"),
-                            "date": datetime.fromisoformat(
-                                payment.get("createdAt", "").replace("Z", "+00:00")
-                            ).date(),
+                            "date": mollie_timestamp_to_local_date(created_at),
+                            # Rows imported before #2192 carry the UTC day.
+                            "legacy_utc_date": ensure_timezone_aware(created_at)
+                            .astimezone(timezone.utc)
+                            .date(),
                             "deposit": (
                                 float(payment.get("amount", {}).get("value", "0"))
                                 if float(payment.get("amount", {}).get("value", "0")) > 0
@@ -486,7 +493,7 @@ class BulkTransactionImporter(MollieBaseClient):
             creator = get_bank_transaction_creator()
             bank_transaction_name = creator.create_from_dict(
                 transaction_data={
-                    "date": settlement_date.date(),
+                    "date": mollie_timestamp_to_local_date(settlement_date),
                     "amount": float(settlement.get("amount", {}).get("value", "0")),
                     "currency": settlement.get("amount", {}).get("currency", "EUR"),
                     "description": f"Mollie Settlement {settlement.get('reference', settlement.get('id', ''))}",
@@ -618,7 +625,7 @@ class BulkTransactionImporter(MollieBaseClient):
             creator = get_bank_transaction_creator()
             bank_transaction_name = creator.create_from_dict(
                 transaction_data={
-                    "date": payment_date.date(),
+                    "date": mollie_timestamp_to_local_date(payment_date),
                     "amount": amount,  # Positive=deposit, negative=withdrawal
                     "currency": payment.get("amount", {}).get("currency", "EUR"),
                     "description": payment.get("description", f"Mollie Payment {payment.get('id', '')}"),
@@ -756,7 +763,8 @@ class BulkTransactionImporter(MollieBaseClient):
                 filters.append(
                     {
                         **amount_filter,
-                        "date": transaction_data["date"],
+                        # The site-local day, plus the UTC day rows imported before #2192 carry
+                        "date": ["in", self._candidate_days(transaction_data)],
                         "reference_number": transaction_data["reference_number"],
                         "docstatus": ["!=", 2],  # Not cancelled
                     }
@@ -775,6 +783,11 @@ class BulkTransactionImporter(MollieBaseClient):
             frappe.log_error(f"Error in duplicate validation: {str(e)}", "Duplicate Detection")
             # If validation fails, assume no duplicate to avoid blocking imports
             return False
+
+    @staticmethod
+    def _candidate_days(transaction_data: Dict) -> list:
+        """The days an already-imported row for this transaction may carry (#2192)."""
+        return [d for d in (transaction_data["date"], transaction_data.get("legacy_utc_date")) if d]
 
     def _map_strategy_for_doctype(self, strategy: str) -> str:
         """
