@@ -127,6 +127,16 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_DOCUMENT_FIELD,
         "cooldown_minutes": 0,
     },
+    "member_sepa_mandate_signature_requested": {
+        "label": "SEPA Mandate Signature Requested",
+        "category": CATEGORY_MEMBER,
+        "description": (
+            "Sent to a new member who chose SEPA Direct Debit when their application is approved: "
+            "they must sign the direct debit authorisation in the payment dashboard."
+        ),
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     "member_application_overdue": {
         "label": "Application Overdue Alert",
         "category": CATEGORY_ADMIN,
@@ -175,6 +185,16 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 1440,
+    },
+    "termination_weekly_report": {
+        "label": "Weekly Termination Report",
+        "category": CATEGORY_ADMIN,
+        "description": "Weekly summary of termination requests, mailed to Verenigingen Administrators.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Its own key: termination_overdue's audience is the admin pair, this report never included
+        # System Managers (#2240, #2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
@@ -436,9 +456,12 @@ NOTIFICATION_KEYS = {
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
-        "description": "Notification when a dues schedule is manually created for a member.",
+        "description": "Staff summary when dues schedules are created in bulk from the admin interface "
+        "or after a scheduled run with errors.",
         "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the summary always went to Verenigingen Administrators only (#2169, #2095).
+        "recipient_roles": "Verenigingen Administrator",
         "cooldown_minutes": 0,
     },
     "dues_amendment_approved": {

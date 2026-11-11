@@ -30,6 +30,7 @@ from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_ex
 from ..utils.timezone_utils import (
     filter_items_by_date_range,
     get_period_date_range,
+    mollie_timestamp_to_local_date,
     parse_mollie_datetime,
     parse_period_key_to_date_range,
     safe_datetime_to_isoformat,
@@ -351,7 +352,7 @@ class FinancialDashboard:
                 if len(metrics["recent_settlements"]) < 5:
                     metrics["recent_settlements"].append(
                         {
-                            "date": settlement_date.strftime("%Y-%m-%d"),
+                            "date": mollie_timestamp_to_local_date(settlement_date).isoformat(),
                             "reference": item.get("reference", item.get("id", "")),
                             "amount": f"{amount_value:.2f}",
                             "status": item.get("status", "unknown"),

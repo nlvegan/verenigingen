@@ -115,15 +115,11 @@ class DonationJournalEntryCreator:
             return None
 
         # Get posting date from payment or donation
-        posting_date = None
-        paid_at = payment_data.get("paid_at") or payment_data.get("created_at")
-        if paid_at:
-            try:
-                from dateutil import parser
+        # The site-local day of the event, not the UTC day (#2378)
+        from ..utils.timezone_utils import mollie_timestamp_to_local_date
 
-                posting_date = parser.parse(paid_at).date()
-            except (ValueError, TypeError, ImportError):
-                pass
+        paid_at = payment_data.get("paid_at") or payment_data.get("created_at")
+        posting_date = mollie_timestamp_to_local_date(paid_at)
         if not posting_date:
             posting_date = donation_doc.donation_date or nowdate()
 

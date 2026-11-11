@@ -404,7 +404,8 @@ class PaymentEntryFactory:
         """
         Get the reference date for the Payment Entry.
 
-        Prefers Mollie's paid_at timestamp if available, otherwise uses today.
+        Prefers Mollie's paid_at timestamp if available, otherwise uses today. The
+        timestamp is UTC; the reference date is the SITE-local day of it (#2378).
 
         Args:
             mollie_data: Dictionary containing Mollie payment data
@@ -414,12 +415,12 @@ class PaymentEntryFactory:
         """
         paid_at = mollie_data.get("paid_at")
         if paid_at:
-            try:
-                from dateutil import parser
+            from ....utils.timezone_utils import mollie_timestamp_to_local_date
 
-                return parser.parse(paid_at).date()
-            except Exception as e:
-                self.logger.warning(f"Could not parse paid_at '{paid_at}': {e}. Using today's date.")
+            local_date = mollie_timestamp_to_local_date(paid_at)
+            if local_date:
+                return local_date
+            self.logger.warning(f"Could not parse paid_at '{paid_at}'. Using today's date.")
 
         return frappe.utils.getdate()
 

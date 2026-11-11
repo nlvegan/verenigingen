@@ -487,6 +487,12 @@
                             {% endif %}
                         </span>
                     </div>
+                    {% if mandate_to_sign %}
+                    <div id="sepa-sign-notice" class="text-sm text-warning-800">
+                        {{ _("Your direct debit authorisation is waiting for your signature. Until you sign it, pay by bank transfer.") }}
+                        <a href="/payment_dashboard" class="font-medium underline">{{ _("Sign it in the payment dashboard") }}</a>
+                    </div>
+                    {% endif %}
                     <div class="flex justify-between items-center">
                         <span class="text-sm text-gray-500">{{ _("Auto-Renewal") }}</span>
                         <span class="text-sm font-medium text-gray-800">
