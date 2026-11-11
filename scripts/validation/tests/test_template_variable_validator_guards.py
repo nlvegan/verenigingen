@@ -11,6 +11,11 @@ import template_variable_validator as v  # noqa: E402
 
 APP = Path(__file__).resolve().parents[3]
 
+# extract_python_context refuses any path with a dot component (_is_safe_path), so
+# under a dot-directory worktree (rule 39) it returns {} and these tests cannot run.
+DOTTED = any(part.startswith(".") for part in Path(__file__).resolve().parts)
+needs_plain_path = unittest.skipIf(DOTTED, "extract_python_context skips dot-directory paths")
+
 
 def provided(source):
     """Variables the validator believes get_context provides for `source`."""
@@ -30,6 +35,7 @@ def null_risks(template):
         return {i.variable_name for i in validator.check_null_reference_risks(html)}
 
 
+@needs_plain_path
 class TestOnlyWritesAreProvided(unittest.TestCase):
     def test_a_read_provides_nothing(self):
         self.assertNotIn("missing", provided("def get_context(context):\n    x = context.missing\n"))
@@ -89,6 +95,23 @@ class TestOnlyWritesAreProvided(unittest.TestCase):
         self.assertFalse(provided("def get_context(context):\n    context[some_var] = 1\n") & {"some_var"})
 
 
+@needs_plain_path
+@needs_plain_path
+class TestRebindScope(unittest.TestCase):
+    def test_a_rebind_inside_a_nested_function_does_not_hide_outer_writes(self):
+        src = "def get_context(context):\n    def f():\n        context = {}\n    context.nd = 1\n"
+        self.assertIn("nd", provided(src))
+
+    def test_a_conditional_rebind_does_not_hide_later_writes(self):
+        src = "def get_context(context):\n    if x:\n        context = {}\n    context.cond = 1\n"
+        self.assertIn("cond", provided(src))
+
+    def test_an_unconditional_top_level_rebind_still_hides_later_writes(self):
+        src = "def get_context(context):\n    context = {}\n    context.local = 1\n"
+        self.assertNotIn("local", provided(src))
+
+
+@needs_plain_path
 class TestHelperParameters(unittest.TestCase):
     def test_a_keyword_only_parameter_is_followed(self):
         src = "def get_context(context):\n    _h(ctx=context)\n\ndef _h(*, ctx):\n    ctx.kwonly = 1\n"
@@ -129,7 +152,37 @@ class TestIfGuards(unittest.TestCase):
         tpl = "{% if x %}\n{% elif ws and ws.a %}\n<p></p>\n{{ ws.a.b.c }}\n{% endif %}\n"
         self.assertNotIn("ws", null_risks(tpl))
 
+    def test_whitespace_control_tags_are_read(self):
+        tpl = "{%- if ws and ws.a -%}\n<p></p>\n{{ ws.a.b.c }}\n{%- endif -%}\n"
+        self.assertNotIn("ws", null_risks(tpl))
+
     # Controls: each of these must still be flagged.
+    def test_a_commented_out_guard_does_not_protect(self):
+        tpl = "{# {% if ws and ws.a %} #}\n<p></p>\n{{ ws.a.b.c }}\n"
+        self.assertIn("ws", null_risks(tpl))
+
+    def test_a_raw_block_guard_does_not_protect(self):
+        tpl = "{% raw %}{% if ws and ws.a %}{% endraw %}\n<p></p>\n{{ ws.a.b.c }}\n"
+        self.assertIn("ws", null_risks(tpl))
+
+    def test_a_rebinding_tag_ends_the_guard(self):
+        for rebind in ("{% set ws = other %}", "{% with ws = other %}", "{% macro m(ws) %}"):
+            with self.subTest(rebind=rebind):
+                tpl = "{% if ws and ws.a %}\n" + rebind + "\n<p></p>\n{{ ws.a.b.c }}\n"
+                self.assertIn("ws", null_risks(tpl))
+
+    def test_setting_another_variable_from_the_guarded_one_keeps_the_guard(self):
+        tpl = "{% if ws and ws.a %}\n{% set x = ws.a %}\n<p></p>\n{{ ws.a.b.c }}\n{% endif %}\n"
+        self.assertNotIn("ws", null_risks(tpl))
+
+    def test_comparing_the_bare_variable_does_not_protect_deeper_paths(self):
+        tpl = "{% if flag and ws == other %}\n<p></p>\n{{ ws.a.b.c }}\n{% endif %}\n"
+        self.assertIn("ws", null_risks(tpl))
+
+    def test_a_guard_on_a_same_prefix_variable_does_not_protect(self):
+        tpl = "{% if ws_old and ws_old.a %}\n<p></p>\n{{ ws.a.b.c }}\n{% endif %}\n"
+        self.assertIn("ws", null_risks(tpl))
+
     def test_an_unguarded_deep_access_is_flagged(self):
         self.assertIn("ws", null_risks("{{ ws.a.b.c }}\n"))
 

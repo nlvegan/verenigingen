@@ -514,25 +514,25 @@ class ModernTemplateValidator:
         return (getattr(node, 'lineno', 0), getattr(node, 'col_offset', 0))
 
     def _first_rebind(self, func_node: ast.FunctionDef, name: str) -> Optional[tuple]:
-        """Position of the first rebinding of ``name`` to something unrelated to
-        it (``name = {}``, a ``for``/``with`` target, ...), or None. Writes after
-        that point do not reach the object the caller handed in. A rebinding that
-        wraps or copies the parameter (``name = frappe._dict(name)``) is NOT one:
-        get_context returns it, and Frappe uses the returned dict."""
-        positions = []
-        for n in ast.walk(func_node):
-            if not (isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store)):
+        """Position of the first UNCONDITIONAL rebinding of ``name`` in the
+        function's own body (``name = {}``), or None. Writes after it do not
+        reach the object the caller handed in. Not counted: a rebind nested in
+        an ``if``/loop/``try`` (it may not run), one inside a nested function
+        (its own scope), and a wrapper such as ``name = frappe._dict(name)``
+        (get_context returns it, and Frappe uses the returned dict)."""
+        for stmt in func_node.body:
+            if isinstance(stmt, ast.Assign):
+                targets, value = stmt.targets, stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+                targets, value = [stmt.target], stmt.value
+            else:
                 continue
-            positions.append(self._position(n))
-        wrappers = set()
-        for n in ast.walk(func_node):
-            if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None:
-                reads_it = any(isinstance(x, ast.Name) and x.id == name for x in ast.walk(n.value))
-                targets = n.targets if isinstance(n, ast.Assign) else [n.target]
-                if reads_it and any(isinstance(t, ast.Name) and t.id == name for t in targets):
-                    wrappers.update(self._position(t) for t in targets if isinstance(t, ast.Name))
-        positions = [p for p in positions if p not in wrappers]
-        return min(positions) if positions else None
+            if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+                continue
+            if any(isinstance(x, ast.Name) and x.id == name for x in ast.walk(value)):
+                continue
+            return self._position(stmt)
+        return None
 
     def _loop_key_names(self, func_node: ast.FunctionDef) -> Dict[str, Set[str]]:
         """``for key in ("a", "b")`` / ``for key in MODULE_TUPLE``: the string
@@ -750,23 +750,12 @@ class ModernTemplateValidator:
             if re.search(f'{var_name}\\.[a-zA-Z_][a-zA-Z0-9_]*', check_line) and 'if' in check_line:
                 return True
         
-        # Look for broader context - search backwards for protective blocks
-        search_start = max(0, line_num - 50)  # Look back up to 50 lines
+        # {% if %} guards at any distance are handled by _is_inside_if_guard above,
+        # which replaces the 50-line regex window that accepted closed and commented-out ifs.
+
+        search_start = max(0, line_num - 50)  # loop checks look back up to 50 lines
         context_section = '\n'.join(lines[search_start:line_num])
-        
-        # Check for conditional blocks that protect this variable
-        if_patterns = [
-            f'{{% if {var_name} %}}',
-            f'{{% if {var_name} and not {var_name}\\.error %}}',
-            f'{{% if {var_name} and {var_name}\\.[a-zA-Z_][a-zA-Z0-9_]* %}}'
-        ]
-        
-        for pattern in if_patterns:
-            if re.search(pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-                # Found opening if, check if we haven't hit an endif yet
-                if not self._has_matching_endif_before_line(context_section, line_num - search_start):
-                    return True
-        
+
         # Check for loop context protection
         for_pattern = f'{{% for [a-zA-Z_][a-zA-Z0-9_]* in {var_name} %}}'
         if re.search(for_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
@@ -779,18 +768,22 @@ class ModernTemplateValidator:
         
         return False
     
-    _JINJA_BLOCK_TAG = re.compile(r'\{%-?\s*(if|elif|else|endif)\b(.*?)-?%\}', re.DOTALL)
+    _JINJA_BLOCK_TAG = re.compile(
+        r'\{%-?\s*(if|elif|else|endif|set|with|macro)\b(.*?)-?%\}', re.DOTALL)
+    _JINJA_INERT = re.compile(r'\{#.*?#\}|\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}', re.DOTALL)
 
     def _is_inside_if_guard(self, var_name: str, line_num: int, lines: List[str]) -> bool:
         """True if an OPEN enclosing ``{% if %}`` arm requires ``var_name`` to be truthy.
 
         Replays every if/elif/else/endif above the line as a stack, so nesting,
-        distance and ``{% else %}`` arms are handled (#2404). An arm guards the
-        variable when its condition is an ``and`` chain (no ``or``) with a
-        conjunct that is ``var_name`` or a path below it, e.g.
-        ``a and a.b and a.b.n > 0``: if that holds, ``a`` is truthy.
+        distance and ``{% else %}`` arms are handled (#2404). Comments and
+        ``{% raw %}`` blocks are ignored. An arm guards the variable when its
+        condition is an ``and`` chain (no ``or``) with a conjunct that is
+        ``var_name``, a path below it, or such a path compared with a constant,
+        e.g. ``a and a.b and a.b.n > 0``. A tag that rebinds the name
+        (``set``/``with``/``macro``) ends every open guard on it.
         """
-        source = '\n'.join(lines[:line_num - 1])
+        source = self._JINJA_INERT.sub('', '\n'.join(lines[:line_num - 1]))
         arms: List[Optional[str]] = []
         for tag in self._JINJA_BLOCK_TAG.finditer(source):
             kind, condition = tag.group(1), tag.group(2).strip()
@@ -802,7 +795,16 @@ class ModernTemplateValidator:
                 arms[-1] = None
             elif kind == 'endif' and arms:
                 arms.pop()
+            elif kind in ('set', 'with', 'macro') and self._tag_rebinds(kind, condition, var_name):
+                arms = [None] * len(arms)
         return any(c is not None and self._condition_requires(c, var_name) for c in arms)
+
+    @staticmethod
+    def _tag_rebinds(kind: str, body: str, var_name: str) -> bool:
+        name = re.escape(var_name)
+        if kind in ('set', 'with'):
+            return bool(re.search(rf'(?:^|[\s,(]){name}\s*=(?!=)', body))
+        return bool(re.search(rf'\([^)]*\b{name}\b', body))  # macro parameters
 
     @staticmethod
     def _condition_requires(condition: str, var_name: str) -> bool:
@@ -810,7 +812,12 @@ class ModernTemplateValidator:
             return False
         for conjunct in re.split(r'\band\b', condition):
             conjunct = conjunct.strip().strip('()').strip()
-            if re.match(rf'{re.escape(var_name)}(?:\.\w+|\[[^\]]*\])*(?:\s*(?:[<>]=?|==)[^=].*)?$', conjunct):
+            name = re.escape(var_name)
+            path = r'(?:\.\w+|\[[^\]]*\])'
+            # truthiness of the variable or a path below it, or a path below it
+            # compared with something (a bare ``var == x`` says nothing about var.a.b)
+            if re.match(rf'{name}{path}*$', conjunct) or re.match(
+                    rf'{name}{path}+\s*(?:[<>]=?|==)[^=].*$', conjunct):
                 return True
         return False
 
