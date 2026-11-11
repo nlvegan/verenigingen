@@ -61,6 +61,18 @@ def is_dry_run(value):
     return str(value).strip().lower() not in _FALSE_STRINGS
 
 
+_TRUE_STRINGS = ("1", "true", "yes", "on")
+
+
+def is_confirmed(value):
+    """True only for an explicit yes: True, or "1"/"true"/"yes"/"on" (#2385).
+
+    For confirmation flags guarding a destructive run. ``cbool`` fails OPEN here: it parses any
+    other string as a float, so "nan", "inf", "0.5" and "1e-5" all become 1.
+    """
+    return str(value).strip().lower() in _TRUE_STRINGS
+
+
 def safe_int(value):
     """
     Safely convert value to integer, handling boolean strings

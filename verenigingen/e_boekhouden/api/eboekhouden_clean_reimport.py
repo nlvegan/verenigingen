@@ -5,7 +5,7 @@ API for clean re-import of E-Boekhouden data with enhanced features
 import frappe
 from frappe.utils import add_days, getdate
 
-from verenigingen.utils.boolean_utils import cbool
+from verenigingen.utils.boolean_utils import is_confirmed
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -54,7 +54,7 @@ def preview_clean_import(from_date=None, to_date=None):
 def execute_clean_import(confirm=False, from_date=None, to_date=None):
     """Execute the clean import with enhanced features"""
     # Over HTTP the flag is a string and "0" is truthy, which would DELETE ALL financial data (#2385).
-    confirm = cbool(confirm)
+    confirm = is_confirmed(confirm)
 
     if not confirm:
         return {

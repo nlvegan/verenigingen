@@ -37,9 +37,15 @@ from verenigingen.tests.support.wsgi_http_session import (
     run_wsgi_cases,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils.boolean_utils import is_dry_run
+from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 
-FALSE_FLAGS = ("0", "false", 0, False, "maybe", "")
+# Not-a-yes values. "nan"/"inf"/"0.5"/"1e-5" and an Arabic-Indic digit parse as a non-zero float, so
+# ``cbool`` would have let them through a confirmation guard.
+FALSE_FLAGS = ("0", "false", 0, False, "maybe", "", "nan", "inf", "0.5", "1e-5", "\u0661")
+
+# critical_api rate limits are tight (the truncate endpoints allow 2 per user per hour, others 5):
+# each test user makes at most that many calls to one endpoint, so adding a case to a loop over
+# HTTP here can trip the limit. Put extra values in the direct-call tests instead.
 
 ENDPOINTS = {
     "stuck": api_path("verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule"),
@@ -71,6 +77,14 @@ class TestIsDryRun(VereningingenTestCase):
             self.assertFalse(is_dry_run(value), repr(value))
 
 
+class TestIsConfirmed(VereningingenTestCase):
+    def test_only_an_explicit_yes_confirms(self):
+        for value in (True, "1", "true", "TRUE", "yes", "on", " true ", 1):
+            self.assertTrue(is_confirmed(value), repr(value))
+        for value in FALSE_FLAGS + (None, "2", "-1", "truee"):
+            self.assertFalse(is_confirmed(value), repr(value))
+
+
 class TestGuardFlagsOverHttp(CommittedLoginUsersMixin, VereningingenTestCase):
     def setUp(self):
         super().setUp()
@@ -90,7 +104,7 @@ class TestGuardFlagsOverHttp(CommittedLoginUsersMixin, VereningingenTestCase):
         Dry run only, so the red run (which lets "0" through) truncates nothing.
         """
         for key in ("truncate_members", "truncate_versions"):
-            response = self._run(key, {"confirm_nuclear_truncate": "0", "dry_run": True})
+            response = self._run(key, {"confirm_nuclear_truncate": "nan", "dry_run": True})
             self.assertNotEqual(response["status"], 200, (key, response["body"][:300]))
             self.assertIn("confirm_nuclear_truncate=True", response["body"], key)
             result = self._message(self._run(key, {"confirm_nuclear_truncate": "true", "dry_run": True}))
@@ -133,17 +147,18 @@ class TestGuardFlagsOverHttp(CommittedLoginUsersMixin, VereningingenTestCase):
                 self.assertIs(data["dry_run"], True, (key, flag, data))
 
     def test_false_dry_run_strings_can_ask_for_the_real_run(self):
-        """Control for the above: a recognised "no" is a real run (narrow selection, nothing to delete)."""
-        for key, extra in {
-            "scan": {"target_doctypes": ["Chapter Role"]},
-            "test_members": {"email_patterns": ["zz-no-such-member-%@nowhere.invalid"]},
-        }.items():
-            for flag in ("false", "0", False):
-                response = self._run(key, {**extra, "dry_run": flag})
-                self.assertEqual(response["status"], 200, (key, flag, response["body"][:300]))
-                body = json.loads(response["body"])["message"]
-                data = body.get("data", body) if isinstance(body, dict) else body
-                self.assertIs(data["dry_run"], False, (key, flag, data))
+        """Control for the above: a recognised "no" is a real run.
+
+        Only ``cleanup_test_members_only`` with a pattern that matches no Member: every other
+        endpoint here acts site-wide, so a real-run control would strip other tests' rows.
+        """
+        extra = {"email_patterns": ["zz-no-such-member-%@nowhere.invalid"]}
+        for flag in ("false", "0", False):
+            response = self._run("test_members", {**extra, "dry_run": flag})
+            self.assertEqual(response["status"], 200, (flag, response["body"][:300]))
+            body = json.loads(response["body"])["message"]
+            data = body.get("data", body) if isinstance(body, dict) else body
+            self.assertIs(data["dry_run"], False, (flag, data))
 
 
 class TestFixStuckScheduleForceOverHttp(
@@ -239,20 +254,97 @@ class TestStringFlagsCalledDirectly(VereningingenTestCase):
                 result = module.cleanup_invalid_schedules(dry_run=flag)
                 self.assertFalse(result["success"], (flag, result))
 
-    def test_orphan_cleanups_dry_run_strings(self):
-        """A recognised "no" asks for the real run; anything else stays a dry run.
+    def _cleanup_chapter(self, name):
+        frappe.db.rollback()
+        if frappe.db.exists("Chapter", name):
+            frappe.delete_doc("Chapter", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
 
-        Called directly (an HTTP real run would commit deletions from the child). The real run only
-        removes orphaned rows, which is what these endpoints are for.
+    def _seed_orphans(self):
+        """One Chapter with an orphan Chapter Member row and a dangling Chapter Role reference.
+
+        Inserted with db_insert (link validation would refuse them); rolled back at teardown.
+        """
+        chapter = self.create_test_chapter()
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        member_row = frappe.get_doc(
+            {
+                "doctype": "Chapter Member",
+                "parent": chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "members",
+                "name": f"orphan-{frappe.generate_hash(length=8)}",
+                "member": "NO-SUCH-MEMBER-2385",
+            }
+        )
+        member_row.db_insert()
+        board_row = frappe.get_doc(
+            {
+                "doctype": "Chapter Board Member",
+                "parent": chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "board_members",
+                "name": f"dangling-{frappe.generate_hash(length=8)}",
+                "volunteer": "NO-SUCH-VOLUNTEER-2385",
+                "chapter_role": "NO-SUCH-ROLE-2385",
+            }
+        )
+        board_row.db_insert()
+        return chapter.name, member_row.name, board_row.name
+
+    def test_unrecognised_dry_run_leaves_seeded_orphans_alone(self):
+        """A real row for the wrong behaviour to find: the dry run sees it and must not touch it.
+
+        No real-run control: both endpoints act on every Chapter on the site (and commit), which
+        cannot be scoped to this fixture.
         """
         from scripts.migration import member_import_cleanup as module
 
-        for func in (
-            module.cleanup_orphaned_chapter_members,
-            module.cleanup_orphaned_addresses_and_contacts,
-            module.force_cleanup_orphaned_schedules_and_invoices,
-        ):
-            for flag in ("maybe", "", "true", "1"):
-                self.assertIs(func(dry_run=flag)["dry_run"], True, (func.__name__, flag))
-            for flag in ("false", "0"):
-                self.assertIs(func(dry_run=flag)["dry_run"], False, (func.__name__, flag))
+        chapter, member_row, board_row = self._seed_orphans()
+        for flag in ("maybe", "", "true", "1"):
+            found = module.cleanup_orphaned_chapter_members(dry_run=flag)
+            self.assertIs(found["dry_run"], True, flag)
+            self.assertIn(chapter, [c["chapter"] for c in found["chapters_affected"]], flag)  # seen
+            self.assertEqual(found["orphaned_removed"], 0, flag)
+            self.assertTrue(frappe.db.exists("Chapter Member", member_row), flag)  # not removed
+            scan = module.scan_and_clear_broken_links(target_doctypes=["Chapter Role"], dry_run=flag)
+            scan = scan.get("data", scan)
+            self.assertIs(scan["dry_run"], True, flag)
+            self.assertGreaterEqual(scan["total_broken"], 1, flag)  # seen
+            self.assertEqual(
+                frappe.db.get_value("Chapter Board Member", board_row, "chapter_role"),
+                "NO-SUCH-ROLE-2385",
+                flag,
+            )  # not cleared
+
+    def test_other_dry_run_endpoints_fail_closed(self):
+        """No side effects: the deleting helper is stubbed and the inputs name nothing real."""
+        from verenigingen.utils import orphaned_child_table_cleanup as orphans
+
+        with patch.object(orphans, "_batch_delete_orphans", return_value=0) as delete:
+            for func in (
+                orphans.cleanup_orphaned_child_tables,
+                orphans.cleanup_member_child_tables_only,
+                orphans.cleanup_volunteer_child_tables_only,
+            ):
+                for flag in ("maybe", "", "true"):
+                    result = func(dry_run=flag)
+                    data = result.get("data", result) if isinstance(result, dict) else result.data
+                    self.assertIs(data["dry_run"], True, (func.__name__, flag, data))
+            delete.assert_not_called()
+
+    def test_mollie_debug_dry_run_fails_closed(self):
+        """process_discovered_payments creates Payment Entries: the checker is stubbed."""
+        from verenigingen.templates.pages import mollie_payments_debug as page
+
+        checker = "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.BulkPaymentChecker"
+        service = "verenigingen.templates.pages.mollie_payments_debug.MollieDebugService"
+        with patch.object(page, "has_mollie_debug_access", return_value=True), patch(
+            checker + ".process_discovered_payments", return_value={}
+        ) as process, patch(service + ".sync_membership_end_dates_from_mollie", return_value={}) as sync:
+            for flag in ("maybe", "", "true"):
+                frappe.cache().delete(f"bulk_payment_process_limit:{frappe.session.user}")
+                page.process_discovered_payments(["tr_7UhSN1zuXS"], dry_run=flag)
+                self.assertIs(process.call_args.kwargs["dry_run"], True, flag)
+                page.sync_membership_end_dates_from_mollie(dry_run=flag)
+                self.assertIs(sync.call_args.kwargs["dry_run"], True, flag)

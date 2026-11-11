@@ -11,7 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
-from verenigingen.utils.boolean_utils import cbool, is_dry_run
+from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -104,8 +104,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     Returns:
         dict: Results of the cleanup operation
     """
-    # Over HTTP these flags are strings and "0" is truthy; an unrecognised confirm is False (#2385).
-    confirm_nuclear_cleanup = cbool(confirm_nuclear_cleanup)
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_cleanup = is_confirmed(confirm_nuclear_cleanup)
     dry_run = is_dry_run(dry_run)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
@@ -1731,8 +1731,8 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         - Requires Verenigingen Administrator role
         - Rate limited to 2 uses per hour per user (via COR)
     """
-    # Over HTTP these flags are strings and "0" is truthy; an unrecognised confirm is False (#2385).
-    confirm_nuclear_truncate = cbool(confirm_nuclear_truncate)
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_truncate = is_confirmed(confirm_nuclear_truncate)
     dry_run = is_dry_run(dry_run)
     # Security validation - Verenigingen Administrator only
     _validate_verenigingen_admin_permissions()

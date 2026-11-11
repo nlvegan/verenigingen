@@ -6,7 +6,7 @@ preventing invoice generation despite no actual invoice existing.
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.utils.boolean_utils import cbool
+from verenigingen.utils.boolean_utils import is_confirmed
 from verenigingen.utils.constants import Roles
 
 # Import security framework
@@ -104,8 +104,8 @@ def fix_stuck_schedule(schedule_name: str, force=False):
     """
     Fix a stuck dues schedule by resetting the dates appropriately
     """
-    # Over HTTP the flag is a string and "0" is truthy; an unrecognised value is False (#2385).
-    force = cbool(force)
+    # Over HTTP the flag is a string and "0" is truthy; only an explicit yes counts (#2385).
+    force = is_confirmed(force)
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
 
     # Diagnose first

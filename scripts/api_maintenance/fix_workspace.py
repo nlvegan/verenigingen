@@ -7,7 +7,7 @@ import os
 
 import frappe
 
-from verenigingen.utils.boolean_utils import cbool
+from verenigingen.utils.boolean_utils import is_confirmed
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -15,8 +15,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 @critical_api(operation_type=OperationType.ADMIN)
 def install_eboekhouden_workspace(force_enable=False):
     """Install or update the E-Boekhouden workspace"""
-    # Over HTTP the flag is a string and "0" is truthy; an unrecognised value is False (#2385).
-    force_enable = cbool(force_enable)
+    # Over HTTP the flag is a string and "0" is truthy; only an explicit yes counts (#2385).
+    force_enable = is_confirmed(force_enable)
     
     # SAFETY GUARD: Prevent accidental workspace installation
     if not force_enable:
