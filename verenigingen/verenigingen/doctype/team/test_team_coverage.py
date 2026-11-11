@@ -12,7 +12,6 @@ controller's OWN logic (not the parts delegated wholesale to TeamService):
   * handle_team_member_changes -> Volunteer Assignment history rows created/completed on
                                   add / remove / role-change / deactivate / reactivate
   * _validate_assignment_history_consistency (auto-fix path)
-  * _get_member_snapshot
   * _emit_team_change_events + _detect_and_emit_* (membership/settings/leadership)
   * get_team_permission_query_conditions (admin vs member with/without volunteer/team)
 
@@ -344,49 +343,6 @@ class TestTeamCoverage(EnhancedTestCase):
         self.assertTrue(
             any(c.role == "Team Member - Helper" for c in completed), "old role assignment was completed"
         )
-
-    # -------------------------------------------------- _get_member_snapshot
-
-    def test_get_member_snapshot_keys_and_values(self):
-        """_get_member_snapshot builds a dict keyed by the Team Member row's name (#2265;
-        it was (volunteer, from_date), which collapses same-day rows of one volunteer)
-        carrying role/team_role/role_type/is_active/volunteer_name."""
-        _, leader_vol = self._make_volunteer()
-        team = self._new_team()
-        self._append_member(team, leader_vol, team_role="Team Leader", role="Chair")
-        team.insert()
-        self.track_doc("Team", team.name)
-        team.reload()
-
-        snap = team._get_member_snapshot()
-        key = team.team_members[0].name
-        self.assertIn(key, snap, "snapshot keyed by the row name")
-        self.assertEqual(snap[key]["team_role"], "Team Leader")
-        self.assertEqual(snap[key]["role"], "Chair")
-        self.assertEqual(snap[key]["is_active"], 1)
-
-    def test_get_member_snapshot_keeps_two_same_day_rows_of_one_volunteer(self):
-        """Control for the key change: both rows survive, which (volunteer, from_date) could not."""
-        _, vol = self._make_volunteer()
-        team = self._new_team()
-        self._append_member(team, vol, team_role="Team Leader", role="Chair")
-        self._append_member(team, vol, team_role="Team Member", role="Helper")
-        team.insert()
-        self.track_doc("Team", team.name)
-        team.reload()
-
-        snap = team._get_member_snapshot()
-        self.assertEqual(len(team.team_members), 2)
-        self.assertEqual(
-            sorted(v["role"] for v in snap.values()), ["Chair", "Helper"], "one snapshot entry per row"
-        )
-
-    def test_get_member_snapshot_empty_for_no_members(self):
-        team = self._new_team()
-        team.insert()
-        self.track_doc("Team", team.name)
-        team.reload()
-        self.assertEqual(team._get_member_snapshot(), {}, "no members -> empty snapshot")
 
     # ------------------------ _validate_assignment_history_consistency auto-fix
 

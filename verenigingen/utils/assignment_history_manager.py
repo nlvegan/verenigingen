@@ -108,6 +108,7 @@ class AssignmentHistoryManager(BaseHistoryManager):
         role: str,
         start_date: str,
         reference_row: str = None,
+        claim_legacy: bool = True,
     ) -> bool:
         """
         Add active assignment to volunteer history when starting a role
@@ -122,6 +123,8 @@ class AssignmentHistoryManager(BaseHistoryManager):
             reference_row: Name of the referenced document's child row this entry describes
                 (a Team Member row, #2265). Several rows of one volunteer can share a start
                 date and even a role, so the entry is identified by the row, not by them.
+            claim_legacy: Whether an entry that carries no row may be taken over for this row.
+                False when another row holds the same role: the entry may be that row's.
 
         Returns:
             bool: Success status
@@ -153,7 +156,11 @@ class AssignmentHistoryManager(BaseHistoryManager):
                 "role": role,
             }
             existing_active = AssignmentHistoryManager._find_for_row(
-                volunteer.assignment_history, active_criteria, "Active", reference_row
+                volunteer.assignment_history,
+                active_criteria,
+                "Active",
+                reference_row,
+                exact_only=not claim_legacy,
             )
             if existing_active and reference_row and not existing_active.reference_row:
                 # An entry written before rows were recorded: claim it for this row.
@@ -176,7 +183,11 @@ class AssignmentHistoryManager(BaseHistoryManager):
                 "start_date": start_date,
             }
             existing_completed = AssignmentHistoryManager._find_for_row(
-                volunteer.assignment_history, completed_criteria, "Completed", reference_row
+                volunteer.assignment_history,
+                completed_criteria,
+                "Completed",
+                reference_row,
+                exact_only=not claim_legacy,
             )
             if existing_completed:
                 frappe.logger().warning(
@@ -263,12 +274,15 @@ class AssignmentHistoryManager(BaseHistoryManager):
                     exact_only=True,
                 )
 
-            # Try to find by reference + start_date first (most specific)
+            # Try to find by reference + start_date first (most specific). For a row, only an
+            # entry of the SAME ROLE counts: start date alone picks any same-day row's entry.
             criteria = {
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
                 "start_date": start_date,
             }
+            if reference_row:
+                criteria["role"] = role
             if not target:
                 target = AssignmentHistoryManager._find_for_row(
                     volunteer.assignment_history, criteria, "Active", reference_row

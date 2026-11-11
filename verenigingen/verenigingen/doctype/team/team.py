@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
+from frappe.utils import getdate
 
 from verenigingen.events.team_events import (
     emit_team_leadership_changed,
@@ -46,8 +47,6 @@ class Team(Document):
         if not self.is_new():
             # Store full document state for proper change tracking
             self._doc_before_save = frappe.get_doc("Team", self.name)
-            # Also store snapshot for memory efficiency in simple cases
-            self._original_members = self._get_member_snapshot()
 
     def on_update(self):
         """Handle team member changes with event emission for background processing"""
@@ -67,29 +66,10 @@ class Team(Document):
             # NOTE: Do NOT delete _doc_before_save here. Frappe manages this attribute,
             # and doc_event hooks (on_team_lead_change, on_team_members_change) run AFTER
             # the controller's on_update() and need it for has_value_changed().
-            if hasattr(self, "_original_members"):
-                delattr(self, "_original_members")
 
     def after_insert(self):
         """Handle initial team member assignments"""
         self.handle_team_member_changes()
-
-    def _get_member_snapshot(self):
-        """Get lightweight snapshot of current members"""
-        if not self.team_members:
-            return {}
-
-        snapshot = {}
-        for member in self.team_members:
-            if member.volunteer:
-                snapshot[self._membership_key(member)] = {
-                    "role": member.role,
-                    "team_role": member.team_role,
-                    "role_type": member.role_type,
-                    "is_active": member.is_active,
-                    "volunteer_name": member.volunteer_name,
-                }
-        return snapshot
 
     def _validate_unique_roles(self):
         """Validate unique role constraints"""
@@ -131,67 +111,61 @@ class Team(Document):
 
         # Rows are identified by their own name (#2265): a volunteer can hold several rows
         # with the same from_date, and (volunteer, from_date) collapses them into one.
-        old_members_by_row = {
-            self._membership_key(m): m for m in self._doc_before_save.team_members or [] if m.volunteer
-        }
-        current_members_by_row = {self._membership_key(m): m for m in self.team_members or [] if m.volunteer}
+        pairs, added, removed = self._pair_member_rows(self._doc_before_save)
+        self._relink_renamed_rows(pairs)
 
-        # Process each current member
-        for key, member in current_members_by_row.items():
-            if key not in old_members_by_row:
-                # New member assignment
-                if member.is_active:
-                    self.add_team_assignment_history(
-                        member.volunteer, member.team_role, member.from_date, row_name=member.name
-                    )
-            else:
-                old_member = old_members_by_row[key]
-
-                # Check for role changes (same row, different team_role or role)
-                role_changed = (
-                    old_member.role != member.role
-                    or old_member.team_role != member.team_role
-                    or old_member.role_type != member.role_type
+        for member in added:
+            if member.is_active:
+                self.add_team_assignment_history(
+                    member.volunteer, member.team_role, member.from_date, row_name=member.name
                 )
 
-                if role_changed and old_member.is_active and member.is_active:
-                    # Role changed - complete old assignment and create new one
-                    change_date = frappe.utils.today()
-                    self.complete_team_assignment_history(
-                        old_member.volunteer,
-                        old_member.team_role,
-                        old_member.from_date,
-                        change_date,
-                        row_name=old_member.name,
-                    )
-                    # Start new assignment with new role using today's date
-                    self.add_team_assignment_history(
-                        member.volunteer,
-                        member.team_role,
-                        change_date,  # Use change date, not original from_date
-                        row_from_date=member.from_date,
-                        row_name=member.name,
-                    )
+        for old_member, member in pairs:
+            # Check for role changes (same row, different team_role or role)
+            role_changed = (
+                old_member.role != member.role
+                or old_member.team_role != member.team_role
+                or old_member.role_type != member.role_type
+            )
 
-                # Check if member was reactivated
-                elif not old_member.is_active and member.is_active:
-                    self.add_team_assignment_history(
-                        member.volunteer, member.team_role, member.from_date, row_name=member.name
-                    )
-                # Check if member was deactivated
-                elif old_member.is_active and not member.is_active:
-                    end_date = member.to_date or frappe.utils.today()
-                    self.complete_team_assignment_history(
-                        member.volunteer,
-                        member.team_role,
-                        member.from_date,
-                        end_date,
-                        row_name=member.name,
-                    )
+            if role_changed and old_member.is_active and member.is_active:
+                # Role changed - complete old assignment and create new one
+                change_date = frappe.utils.today()
+                self.complete_team_assignment_history(
+                    old_member.volunteer,
+                    old_member.team_role,
+                    old_member.from_date,
+                    change_date,
+                    row_name=member.name,
+                )
+                # Start new assignment with new role using today's date
+                self.add_team_assignment_history(
+                    member.volunteer,
+                    member.team_role,
+                    change_date,  # Use change date, not original from_date
+                    row_from_date=member.from_date,
+                    row_name=member.name,
+                )
+
+            # Check if member was reactivated
+            elif not old_member.is_active and member.is_active:
+                self.add_team_assignment_history(
+                    member.volunteer, member.team_role, member.from_date, row_name=member.name
+                )
+            # Check if member was deactivated
+            elif old_member.is_active and not member.is_active:
+                end_date = member.to_date or frappe.utils.today()
+                self.complete_team_assignment_history(
+                    member.volunteer,
+                    member.team_role,
+                    member.from_date,
+                    end_date,
+                    row_name=member.name,
+                )
 
         # Find removed assignments
-        for key, old_member in old_members_by_row.items():
-            if key not in current_members_by_row and old_member.is_active:
+        for old_member in removed:
+            if old_member.is_active:
                 # Member was removed entirely
                 end_date = frappe.utils.today()
                 self.complete_team_assignment_history(
@@ -323,25 +297,72 @@ class Team(Document):
                 f"Failed to emit team change events for {self.name}: {str(e)}", "Team Event Emission Error"
             )
 
-    @staticmethod
-    def _membership_key(member):
-        """Row identity: the child row's name (#2265).
+    def _pair_member_rows(self, old_doc):
+        """Match the rows of this save to the rows of the saved copy (#2265).
 
-        (volunteer, from_date) was the key (#2181) and cannot tell apart two rows of one
-        volunteer that start on the same day: a dict keyed on it keeps one of them. A row
-        keeps its name across saves; one not yet inserted has none, so its position stands in.
+        Returns ``(pairs, added, removed)``: ``(old, new)`` row pairs, new rows with no old
+        counterpart, and old rows with no new one. A row is identified by its name, never by
+        (volunteer, from_date): a volunteer can hold several same-day rows. A save that
+        rewrites ``team_members`` without names (API, import) gives every row a fresh name, so
+        a new row that matches no old name is paired with a still-unmatched old row of the
+        same volunteer, start date, role and active flag before it counts as added.
         """
-        return member.name or ("new", member.idx)
+        old_rows = [m for m in old_doc.team_members or [] if m.volunteer]
+        old_by_name = {m.name: m for m in old_rows}
+        pairs, unnamed, matched = [], [], set()
+        for row in (m for m in self.team_members or [] if m.volunteer):
+            old = old_by_name.get(row.name) if row.name else None
+            if old:
+                pairs.append((old, row))
+                matched.add(old.name)
+            else:
+                unnamed.append(row)
+        removed = [m for m in old_rows if m.name not in matched]
+        added = []
+        for row in unnamed:
+            twin = next((o for o in removed if self._row_signature(o) == self._row_signature(row)), None)
+            if twin:
+                removed.remove(twin)
+                pairs.append((twin, row))
+            else:
+                added.append(row)
+        return pairs, added, removed
+
+    @staticmethod
+    def _row_signature(member):
+        from_date = member.from_date
+        return (
+            member.volunteer,
+            str(getdate(from_date)) if from_date else None,
+            member.team_role,
+            bool(member.is_active),
+        )
+
+    def _relink_renamed_rows(self, pairs):
+        """Point history entries at the new name of a row that was re-created under one."""
+        for old, row in pairs:
+            if old.name != row.name:
+                frappe.db.set_value(
+                    "Volunteer Assignment",
+                    {
+                        "reference_doctype": "Team",
+                        "reference_name": self.name,
+                        "reference_row": old.name,
+                    },
+                    "reference_row",
+                    row.name,
+                    update_modified=False,
+                )
 
     def _detect_and_emit_membership_changes(self, old_doc):
         """Detect and emit team membership changes"""
-        # Group by row, not volunteer: a volunteer may hold several rows (#2265)
-        old_by_volunteer = {self._membership_key(m): m for m in old_doc.team_members or [] if m.volunteer}
-        new_by_volunteer = {self._membership_key(m): m for m in self.team_members or [] if m.volunteer}
+        # Match by row, not volunteer: a volunteer may hold several rows (#2265)
+        pairs, added, removed = self._pair_member_rows(old_doc)
+        self._relink_renamed_rows(pairs)
 
         # Find added members
-        for key, member in new_by_volunteer.items():
-            if key not in old_by_volunteer and member.is_active:
+        for member in added:
+            if member.is_active:
                 emit_team_membership_changed(
                     self.name,
                     {
@@ -355,8 +376,8 @@ class Team(Document):
                 )
 
         # Find removed members
-        for key, old_member in old_by_volunteer.items():
-            if key not in new_by_volunteer and old_member.is_active:
+        for old_member in removed:
+            if old_member.is_active:
                 emit_team_membership_changed(
                     self.name,
                     {
@@ -371,53 +392,50 @@ class Team(Document):
                 )
 
         # Find role changes and status changes
-        for key, member in new_by_volunteer.items():
-            if key in old_by_volunteer:
-                old_member = old_by_volunteer[key]
+        for old_member, member in pairs:
+            # Check for role change
+            if old_member.team_role != member.team_role and old_member.is_active and member.is_active:
+                emit_team_membership_changed(
+                    self.name,
+                    {
+                        "volunteer": member.volunteer,
+                        "action": "role_changed",
+                        "role": member.team_role,
+                        "old_role": old_member.team_role,
+                        "from_date": member.from_date,
+                        "row_name": member.name,
+                        "changed_by": frappe.session.user,
+                    },
+                )
 
-                # Check for role change
-                if old_member.team_role != member.team_role and old_member.is_active and member.is_active:
-                    emit_team_membership_changed(
-                        self.name,
-                        {
-                            "volunteer": member.volunteer,
-                            "action": "role_changed",
-                            "role": member.team_role,
-                            "old_role": old_member.team_role,
-                            "from_date": member.from_date,
-                            "row_name": member.name,
-                            "changed_by": frappe.session.user,
-                        },
-                    )
+            # Check for status change from active to inactive
+            if old_member.is_active and not member.is_active:
+                emit_team_membership_changed(
+                    self.name,
+                    {
+                        "volunteer": member.volunteer,
+                        "action": "removed",
+                        "old_role": old_member.team_role,
+                        "from_date": old_member.from_date,
+                        "row_name": member.name,
+                        "to_date": frappe.utils.today(),
+                        "changed_by": frappe.session.user,
+                    },
+                )
 
-                # Check for status change from active to inactive
-                if old_member.is_active and not member.is_active:
-                    emit_team_membership_changed(
-                        self.name,
-                        {
-                            "volunteer": member.volunteer,
-                            "action": "removed",
-                            "old_role": old_member.team_role,
-                            "from_date": old_member.from_date,
-                            "row_name": old_member.name,
-                            "to_date": frappe.utils.today(),
-                            "changed_by": frappe.session.user,
-                        },
-                    )
-
-                # Check for status change from inactive to active
-                elif not old_member.is_active and member.is_active:
-                    emit_team_membership_changed(
-                        self.name,
-                        {
-                            "volunteer": member.volunteer,
-                            "action": "added",
-                            "role": member.team_role,
-                            "from_date": member.from_date,
-                            "row_name": member.name,
-                            "changed_by": frappe.session.user,
-                        },
-                    )
+            # Check for status change from inactive to active
+            elif not old_member.is_active and member.is_active:
+                emit_team_membership_changed(
+                    self.name,
+                    {
+                        "volunteer": member.volunteer,
+                        "action": "added",
+                        "role": member.team_role,
+                        "from_date": member.from_date,
+                        "row_name": member.name,
+                        "changed_by": frappe.session.user,
+                    },
+                )
 
     def _detect_and_emit_settings_changes(self, old_doc):
         """Detect and emit team settings changes"""

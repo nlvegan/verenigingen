@@ -65,6 +65,7 @@ class TeamService(StatelessService):
             role=role_description,
             start_date=start_date,
             reference_row=team_member.name,
+            claim_legacy=not self._same_role_sibling_rows(team_doc, team_member),
         )
 
         if success:
@@ -123,6 +124,9 @@ class TeamService(StatelessService):
         if not team_member:
             # Use team_role as-is if we can't find the member
             role_description = team_role or "Team Member"
+        elif row_name and team_role and team_member.team_role != team_role:
+            # The row holds another role by now (a role change job): describe the role that ends.
+            role_description = self._get_role_description_for_history(frappe._dict(team_role=team_role))
         else:
             # Create role description using Team Role system
             role_description = self._get_role_description_for_history(team_member)
@@ -149,6 +153,21 @@ class TeamService(StatelessService):
 
         return success
 
+    def _same_role_sibling_rows(self, team_doc, team_member):
+        """Other active rows of the volunteer that hold the same role as ``team_member``.
+
+        An entry that carries no row (written before #2265) cannot be told apart from theirs,
+        so it must not be taken for ``team_member``."""
+        description = self._get_role_description_for_history(team_member)
+        return [
+            m
+            for m in team_doc.team_members or []
+            if m.name != team_member.name
+            and m.volunteer == team_member.volunteer
+            and m.is_active
+            and self._get_role_description_for_history(m) == description
+        ]
+
     @staticmethod
     def has_active_history(volunteer, team_name, row_name):
         """Whether this Team Member row has an Active entry in the volunteer's history (#2265).
@@ -171,12 +190,15 @@ class TeamService(StatelessService):
 
     @staticmethod
     def _find_member_to_complete(team_doc, volunteer_id, start_date, row_name):
-        """The row an ending history entry describes: current rows first, then the saved copy
-        from before this save (a removed row is only there)."""
-        sources = [team_doc.team_members or []]
-        if getattr(team_doc, "_doc_before_save", None):
-            sources.append(team_doc._doc_before_save.team_members or [])
-        for members in sources:
+        """The row an ending history entry describes.
+
+        By name (#2265) the saved copy from before this save comes first: it still holds the
+        role being ended, and a removed row is only there. Without a name (legacy payload)
+        current rows come first and are matched by (volunteer, start_date)."""
+        current = team_doc.team_members or []
+        before = getattr(team_doc, "_doc_before_save", None)
+        saved = (before.team_members or []) if before else []
+        for members in (saved, current) if row_name else (current, saved):
             for member in members:
                 if row_name:
                     if member.name == row_name:

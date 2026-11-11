@@ -253,3 +253,120 @@ class TestTeamSameDayRows2265(VereningingenTestCase):
         )
         self.assertEqual(len(self._history_links()), 2, "the legacy entry is claimed, not duplicated")
         self.assertIn(row_a.name, self._history_links())
+
+    # ---- review round 1 (F1-F3) --------------------------------------------------------
+
+    def _make_history_legacy(self):
+        """Probe shortcut: the pre-#2265 shape (no reference_row) is made by clearing the
+        column on the entries the insert wrote."""
+        frappe.db.sql(
+            "update `tabVolunteer Assignment` set reference_row = NULL where parent = %s and reference_name = %s",
+            (self.volunteer.name, self.team.name),
+        )
+        self.assertEqual(self._history_links(), [None, None])
+
+    def test_legacy_entries_a_changed_same_day_row_completes_the_entry_of_its_own_role(self):
+        row_a, row_b = self._rows()
+        self._make_history_legacy()
+
+        def make_member(doc):
+            self._row_named(doc, row_b.name)["team_role"] = self.member_role.name
+
+        jobs = self._desk_save(make_member)
+        self._run_history_jobs(jobs)
+
+        role = self.member_role.role_name
+        self.assertEqual(self._history("Active"), [role, role])
+        self.assertEqual(self._history("Completed"), [self.leader_role.role_name])
+
+    def test_legacy_entry_of_one_row_is_not_claimed_by_a_new_same_role_row(self):
+        row_a, row_b = self._rows()
+        self._make_history_legacy()
+
+        def add_row(doc):
+            doc["team_members"].append(
+                {
+                    "doctype": "Team Member",
+                    "name": "new-team-member-1",
+                    "__islocal": 1,
+                    **self._row(self.member_role),
+                    "parent": self.team.name,
+                    "parentfield": "team_members",
+                    "parenttype": "Team",
+                }
+            )
+
+        jobs = self._desk_save(add_row)
+        self._run_history_jobs(jobs)
+        new_row = next(r for r in self._rows() if r.name not in (row_a.name, row_b.name))
+        self.assertEqual(self._history_links(), sorted([None, None, new_row.name], key=str))
+
+    def test_a_save_whose_rows_carry_no_names_changes_no_history(self):
+        """An API/import-style rewrite of team_members gives every row a fresh name. Nothing
+        about the membership changed, so nothing may be emitted or completed."""
+        old_names = sorted(r.name for r in self._rows())
+
+        def strip_names(doc):
+            doc["description"] = "rewritten without row names"
+            for row in doc["team_members"]:
+                row.pop("name")
+
+        jobs = self._desk_save(strip_names)
+        new_rows = self._rows()
+        self.assertNotEqual(sorted(r.name for r in new_rows), old_names, "fixture: rows really were renamed")
+        self.assertEqual([j["event_data"]["action"] for j in jobs if j["method"] == HISTORY_JOB], [])
+        self._run_history_jobs(jobs)
+        self.assertEqual(self._history("Completed"), [])
+        # The entries follow their rows to the new names.
+        self.assertEqual(self._history_links(), sorted(r.name for r in new_rows))
+
+    def test_a_job_queued_before_the_row_name_existed_still_changes_the_history(self):
+        """Payload without row_name (queued before this deploy). One row only: a payload
+        without a row cannot tell same-day rows apart, which is why the name exists."""
+        team = self._insert(
+            {
+                "doctype": "Team",
+                "team_name": f"Legacy Payload {frappe.generate_hash(length=6)}",
+                "status": "Active",
+                "team_type": "Project Team",
+                "start_date": self.start,
+                "description": "#2265 pre-deploy payload",
+                "team_members": [self._row(self.leader_role)],
+            }
+        )
+        self.team = team
+        row = self._rows()[0]
+        jobs = self._desk_save(lambda doc: self._row_named(doc, row.name).update(team_role=self.member_role.name))
+        for job in jobs:
+            job["event_data"].pop("row_name", None)
+        self._run_history_jobs(jobs)
+        self.assertEqual(self._history("Active"), [self.member_role.role_name])
+        self.assertEqual(self._history("Completed"), [self.leader_role.role_name])
+
+    def test_a_nameless_rewrite_pairs_only_rows_of_the_same_role(self):
+        """Control for the pairing: the unchanged row is paired (no event); the row whose role
+        changed in the same nameless save has no twin, so it is read as removed + added, and
+        the history still ends right."""
+        row_a, row_b = self._rows()
+
+        def rewrite(doc):
+            for row in doc["team_members"]:
+                if row["name"] == row_b.name:
+                    row["team_role"] = self.member_role.name
+                row.pop("name")
+
+        jobs = self._desk_save(rewrite)
+        events = sorted(
+            (j["event_data"]["action"], j["event_data"].get("role") or j["event_data"].get("old_role"))
+            for j in jobs
+            if j["method"] == HISTORY_JOB
+        )
+        self.assertEqual(
+            events,
+            sorted([("added", self.member_role.name), ("removed", self.leader_role.name)]),
+            events,
+        )
+        self._run_history_jobs(jobs)
+        role = self.member_role.role_name
+        self.assertEqual(self._history("Active"), [role, role])
+        self.assertEqual(self._history("Completed"), [self.leader_role.role_name])
