@@ -182,11 +182,13 @@ class TestStaffRecipients2095(EnhancedTestCase):
         try:
             with self.mail():
                 pass
-            leaked = [
-                m
-                for m in MODULES
-                if isinstance(getattr(importlib.import_module(m), "get_email_service", None), MagicMock)
-            ]
+            # Every loaded module, not just MODULES: any binder first imported under the patch is poisoned.
+            leaked = sorted(
+                name
+                for name, mod in list(sys.modules.items())
+                if mod is not None
+                and isinstance(getattr(mod, "__dict__", {}).get("get_email_service"), MagicMock)
+            )
         finally:
             for m in MODULES:
                 sys.modules.pop(m, None)
