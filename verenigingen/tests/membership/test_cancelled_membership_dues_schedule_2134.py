@@ -294,7 +294,7 @@ class TestCancelledMembershipDuesSchedule(ScheduleFrequencyFixtureMixin, Verenin
 
     # ------------------------------------------- review round: clause-by-clause pins
 
-    def _insert_schedule(self, membership, status):
+    def _insert_second_schedule_2134(self, membership, status):
         """A second schedule row for the member. PROBE SHORTCUT: a direct amendment-style insert,
         because the real flows no longer leave two schedules behind."""
         schedule = frappe.get_doc(
@@ -406,7 +406,7 @@ class TestCancelledMembershipDuesSchedule(ScheduleFrequencyFixtureMixin, Verenin
         first = self._submit("Monthly", -300)
         self._staff_cancel(first)
         self.assertIsNotNone(self._service().find_reusable_cancelled_schedule(self.member.name), "precondition")
-        self._insert_schedule(first, "Paused")
+        self._insert_second_schedule_2134(first, "Paused")
         # PROBE SHORTCUT: the Cancelled schedule is made the LATEST, so only the all-Cancelled guard
         # (not the "latest is Cancelled" check) can refuse.
         frappe.db.set_value(
@@ -419,7 +419,7 @@ class TestCancelledMembershipDuesSchedule(ScheduleFrequencyFixtureMixin, Verenin
         first = self._submit("Monthly", -300)
         self._staff_cancel(first)
         older = self._only_schedule().name
-        newer = self._insert_schedule(first, "Cancelled").name
+        newer = self._insert_second_schedule_2134(first, "Cancelled").name
         self.assertNotEqual(older, newer)
 
         self.assertEqual(self._service().find_reusable_cancelled_schedule(self.member.name), newer)
