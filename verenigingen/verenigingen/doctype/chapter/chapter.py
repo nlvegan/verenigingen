@@ -268,6 +268,8 @@ class Chapter(Document):
         # Emit events for significant changes to trigger background operations
         if old_doc:
             self._emit_chapter_change_events(old_doc)
+            # After the row diff is persisted, so a failed save sends no join mail (#1843)
+            self.member_manager.notify_board_of_joins(old_doc)
 
         # NOTE: Volunteer sync is handled exclusively via the event-driven
         # architecture in _emit_chapter_change_events above (2025-11-18), not here.
