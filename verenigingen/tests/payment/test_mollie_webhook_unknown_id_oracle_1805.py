@@ -106,6 +106,15 @@ try:
             return resp(401, {"status": 401, "title": "Unauthorized Request", "detail": "x", "_links": {}})
         if mode == "timeout":
             raise requests.exceptions.ConnectTimeout("timed out")
+        if mode == "chargebacks_404":
+            # payments.get and the refunds list succeed; only the chargebacks list 404s
+            if url.endswith("/refunds"):
+                return resp(200, {"count": 0, "_embedded": {"refunds": []}, "_links": {}})
+            if url.endswith("/chargebacks"):
+                return resp(404, NOT_FOUND)
+            body = payment_json(pid)
+            body["metadata"] = {}
+            return resp(200, body)
         if mode == "found_then_404":
             # the payment GET succeeds once (classification), then Mollie 404s every later call
             if plan.setdefault("seen", set()) is not None and pid not in plan["seen"]:
@@ -189,6 +198,16 @@ try:
     out["transient_500"] = post(tid(), "500")
     out["transient_timeout"] = post(tid(), "timeout")
     out["auth_401"] = post(tid(), "401")
+    out["chargebacks_list_404"] = post(tid(), "chargebacks_404")
+    ip6 = "2001:db8:%x:%x" % (base % 65535, (base >> 16) % 65535)
+    out["ipv6_first"] = post(tid(), "404", ip=ip6 + "::1")
+    out["ipv6_same_64"] = post(tid(), "404", ip=ip6 + "::2")
+    out["ipv6_other_64"] = post(tid(), "404", ip="2001:db8:%x:%x::1" % ((base >> 8) % 65535, (base >> 24) % 65535))
+    ip_b = addr()
+    out["notify_fails_first"] = post(tid(), "404", ip=ip_b, extra=[patch(
+        "verenigingen.utils.notification_helpers.notify_administrators", side_effect=RuntimeError("mail down"))])
+    out["retry_after_failed_alert"] = post(tid(), "404", ip=ip_b)
+    out["after_delivered_alert"] = post(tid(), "404", ip=ip_b)
     boom = patch("verenigingen.utils.notification_helpers.notify_administrators", side_effect=RuntimeError("mail down"))
     out["unknown_404_notify_fails"] = post(tid(), "404", extra=[boom])
     print("RESULT" + json.dumps(out))
@@ -272,6 +291,36 @@ class TestMollieWebhookUnknownIdOracle(EnhancedTestCase):
         self.assertEqual(len(other["error_logs"]), 1)
         self.assertGreater(other["notifications"], 0)
         self.assertEqual(other["notifications"], self.out["unknown_404"]["notifications"])
+
+    def test_the_alert_says_further_ids_from_the_caller_are_not_listed(self):
+        self.assertIn("NOT listed individually", self.out["unknown_404"]["error_logs"][0][1])
+
+    def test_a_chargebacks_list_404_is_not_the_payment_being_unknown(self):
+        """Only ``payments.get`` proves the id unknown; a failing sub-list keeps the retryable 503."""
+        got = self.out["chargebacks_list_404"]
+        self.assertEqual(got["status"], 503)
+        self.assertEqual(json.loads(got["body"]).get("Retry-After"), "60")
+        self.assertEqual(got["notifications"], 0)
+        self.assertFalse([m for m, _ in got["error_logs"] if "Payment Not Found" in m], got["error_logs"])
+
+    def test_an_ipv6_caller_is_deduped_on_its_64(self):
+        first, same, other = (self.out[k] for k in ("ipv6_first", "ipv6_same_64", "ipv6_other_64"))
+        self.assertEqual(len(first["error_logs"]), 1)
+        self.assertGreater(first["notifications"], 0)
+        self.assertEqual((same["error_logs"], same["notifications"]), ([], 0))
+        # control: another /64 is another caller
+        self.assertEqual(len(other["error_logs"]), 1)
+        self.assertGreater(other["notifications"], 0)
+
+    def test_a_failed_alert_does_not_use_up_the_dedupe_window(self):
+        failed = self.out["notify_fails_first"]
+        self.assertTrue(any("alert failed" in m for m, _ in failed["error_logs"]), failed["error_logs"])
+        retry = self.out["retry_after_failed_alert"]
+        self.assertGreater(retry["notifications"], 0, "the next delivery must try the alert again")
+        self.assertTrue(any(m == "Mollie Webhook Payment Not Found" for m, _ in retry["error_logs"]))
+        # control: once delivered, the window is used
+        again = self.out["after_delivered_alert"]
+        self.assertEqual((again["error_logs"], again["notifications"]), ([], 0))
 
     def test_a_failing_alert_does_not_turn_the_200_into_an_error(self):
         failed = self.out["unknown_404_notify_fails"]
@@ -399,3 +448,20 @@ class TestIsPaymentNotFound(EnhancedTestCase):
         self.assertFalse(is_payment_not_found(ResponseError({"status": 500, "title": "x", "detail": "x"})))
         self.assertFalse(is_payment_not_found(TimeoutError("404")))
         self.assertFalse(is_payment_not_found(None))
+        # Each link on its own: the matcher must follow BOTH, not just one of them.
+        only_cause = MolliePaymentError("wrapped")
+        only_cause.__cause__ = not_found
+        self.assertTrue(is_payment_not_found(only_cause))
+        only_original = MolliePaymentError("wrapped", original_error=not_found)
+        self.assertIsNone(only_original.__cause__)
+        self.assertTrue(is_payment_not_found(only_original))
+
+
+class TestCallerBucket(EnhancedTestCase):
+    def test_ipv6_callers_share_a_64_and_ipv4_is_unchanged(self):
+        from verenigingen.verenigingen_payments.mollie.services.unknown_payment_ack import caller_bucket
+
+        self.assertEqual(caller_bucket("2001:db8:1:2::1"), caller_bucket("2001:db8:1:2:ffff::9"))
+        self.assertNotEqual(caller_bucket("2001:db8:1:2::1"), caller_bucket("2001:db8:1:3::1"))
+        self.assertEqual(caller_bucket("203.0.113.7"), "203.0.113.7")
+        self.assertNotEqual(caller_bucket("203.0.113.7"), caller_bucket("203.0.113.8"))

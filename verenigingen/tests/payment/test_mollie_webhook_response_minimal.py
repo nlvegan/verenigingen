@@ -22,10 +22,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-
-from verenigingen.tests.payment import test_provider_webhook_urls_guest_reachable as guest_reachable
 from mollie.api.error import NotFoundError
 
+from verenigingen.tests.payment import test_provider_webhook_urls_guest_reachable as guest_reachable
 from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
 from verenigingen.verenigingen_payments.mollie.services.payment_type_router import PaymentTypeRouter
 
@@ -112,14 +111,37 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         # (a misconfigured key must be loud), the booked one none.
         self.assertEqual((real_errors, unknown_errors), (0, 1))
         # #1805: a 404 is permanent, so it is acknowledged like a known id.
+        self.assertEqual(real_status, 200)
         self.assertEqual(unknown_status, real_status)
 
     def test_a_lookup_failure_that_is_not_a_404_stays_retryable(self):
+        """The router fetch fails with an outage; the later Mollie calls time out too.
+
+        The HTTP layer is stubbed (a timeout), so the outcome does not depend on what the real
+        api.mollie.com would answer to this test site's key.
+        """
+        import requests
+
+        real_request = requests.Session.request
+
+        def timing_out(session, method=None, url=None, **kw):
+            if "api.mollie.com" in (url or ""):
+                raise requests.exceptions.ConnectTimeout("timed out")
+            return real_request(session, method=method, url=url, **kw)
+
         self.expectErrorLog("Mollie", "Webhook")
-        _body, status, _msgs, _errors = self._post(
-            f"tr_{frappe.generate_hash(length=10)}", fetch_error=MolliePaymentError("Mollie unreachable")
-        )
-        self.assertGreaterEqual(status, 400, "a failed lookup must stay retryable")
+        with patch.object(requests.Session, "request", timing_out), patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings."
+            "MollieSettings.get_active_api_key",
+            return_value="test_" + "a" * 30,
+        ), patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient._get_api_key",
+            return_value="test_" + "a" * 30,
+        ):
+            _body, status, _msgs, _errors = self._post(
+                f"tr_{frappe.generate_hash(length=10)}", fetch_error=MolliePaymentError("Mollie unreachable")
+            )
+        self.assertEqual(status, 503, "a failed lookup must stay retryable")
 
     def test_a_processing_error_stays_non_2xx_but_its_detail_goes_to_the_error_log(self):
         secret = f"member {self.member.name} cannot be booked {frappe.generate_hash(length=6)}"

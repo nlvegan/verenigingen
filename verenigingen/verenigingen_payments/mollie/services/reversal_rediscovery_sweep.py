@@ -210,6 +210,11 @@ def _book_for_payment(
     if state.refund_check_failed or state.chargeback_check_failed:
         summary["errors"].append({"payment_id": payment_id, "error": "Mollie refund/chargeback check failed"})
         return
+    if state.payment_not_found:
+        # The ids come from Mollie's own listing, so a 404 for one is serious (#1805): the webhook
+        # acks it, but this safety net must still record that it could not book anything.
+        summary["errors"].append({"payment_id": payment_id, "error": "Mollie answered 404 for the payment"})
+        return
 
     # The manager reports EVERY unbooked reversal of the payment, including ones older than
     # the lookback (possibly settled by hand). Book only what the lookback selected.

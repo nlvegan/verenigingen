@@ -238,6 +238,21 @@ class UnifiedIdempotencyManager:
                     # FIXED: Use payment entry existence instead of non-existent status
                     result.donation_status_updated = result.payment_entry_exists
 
+    @staticmethod
+    def _get_payment(mollie_client, payment_id: str, result: PaymentIdempotencyCheckResult):
+        """``payments.get``; None (and ``result.payment_not_found``) when Mollie 404s it.
+
+        Only this call proves the payment id unknown (#1805). A 404 from a later refunds or
+        chargebacks list is NOT that: it propagates and stays a failed, retryable check.
+        """
+        try:
+            return mollie_client.payments.get(payment_id)
+        except Exception as e:
+            if is_payment_not_found(e):
+                result.payment_not_found = True
+                return None
+            raise
+
     def _check_refund_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
     ):
@@ -265,15 +280,14 @@ class UnifiedIdempotencyManager:
 
             client = MollieClient()
             mollie_client = client._get_mollie_client()
-            payment = mollie_client.payments.get(payment_id)
+            payment = self._get_payment(mollie_client, payment_id, result)
+            if payment is None:
+                return
             refunds_response = payment.refunds.list()
 
             mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
             self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
         except Exception as e:
-            if is_payment_not_found(e):
-                result.payment_not_found = True
-                return
             self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
             # CRITICAL FIX: Mark check as failed instead of silent return
             result.refund_check_failed = True
@@ -378,7 +392,9 @@ class UnifiedIdempotencyManager:
 
                 client = MollieClient()
                 mollie_client = client._get_mollie_client()
-                payment = mollie_client.payments.get(payment_id)
+                payment = self._get_payment(mollie_client, payment_id, result)
+                if payment is None:
+                    return
                 mollie_chargebacks = payment.chargebacks.list()
 
                 def safe_extract_chargeback_data(chargeback):
@@ -435,9 +451,6 @@ class UnifiedIdempotencyManager:
                         self.logger.error(f"Failed to process chargeback data: {e}, chargeback: {chargeback}")
 
             except Exception as e:
-                if is_payment_not_found(e):
-                    result.payment_not_found = True
-                    return
                 self.logger.error(f"Failed to fetch Mollie chargebacks for {payment_id}: {e}")
                 # CRITICAL FIX: Mark check as failed instead of silent return
                 result.chargeback_check_failed = True
