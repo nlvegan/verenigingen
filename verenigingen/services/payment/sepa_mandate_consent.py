@@ -122,7 +122,7 @@ def enforce_consent_provenance(mandate) -> None:
     mandate.consent_ip = None
 
 
-def _normalised(fieldname: str, value):
+def _comparable_consent_value(fieldname: str, value):
     """Compare NULL and "" as equal, and a datetime however it was serialised."""
     if value in (None, ""):
         return None
@@ -142,7 +142,9 @@ def refuse_consent_record_change(mandate) -> None:
     if not stored:
         return
     for fieldname in CONSENT_FIELDS:
-        if _normalised(fieldname, mandate.get(fieldname)) != _normalised(fieldname, stored[fieldname]):
+        if _comparable_consent_value(fieldname, mandate.get(fieldname)) != _comparable_consent_value(
+            fieldname, stored[fieldname]
+        ):
             frappe.throw(
                 _("The consent record of a SEPA mandate cannot be changed."),
                 frappe.PermissionError,
