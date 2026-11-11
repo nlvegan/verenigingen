@@ -133,6 +133,10 @@ class TestStaffRecipients2095(EnhancedTestCase):
     @contextmanager
     def mail(self):
         mail = _Mail()
+        for module in MODULES:
+            # Import BEFORE patching SOURCE: a module first imported under that patch binds the mock
+            # as its get_email_service, and the per-module patch below would restore the mock (#2437).
+            importlib.import_module(module)
         with ExitStack() as stack:
             stack.enter_context(patch(SOURCE, return_value=mail.service))
             for module in MODULES:  # modules that bind the factory at import time
@@ -156,6 +160,41 @@ class TestStaffRecipients2095(EnhancedTestCase):
         self.assertNotIn(self.holder.split("@")[0], recipients)  # emails, not user names
         self.assertTrue(all("@" in r for r in recipients), recipients)
         self.audience(recipients, reaches, misses)
+
+    def test_mail_leaves_no_mock_behind_in_a_module_first_imported_under_it(self):
+        """#2437: a module first imported INSIDE mail() binds the patched factory at import time.
+
+        patch(SOURCE) is entered before the per-module patches, and a per-module patch imports its
+        module on entry. A module nobody had imported yet therefore ran ``from email_service import
+        get_email_service`` against the mock, patch saved THAT as the original, and restored it on
+        exit: the mock stayed for the rest of the process and silenced every later test of the module
+        (shard 9 of the queue build 42926880094).
+        """
+        import sys
+
+        saved = {m: sys.modules.pop(m) for m in MODULES if m in sys.modules}
+        parent_attrs = {}
+        for m in saved:
+            parent_name, _, leaf = m.rpartition(".")
+            parent_attrs[m] = (sys.modules[parent_name], leaf, getattr(sys.modules[parent_name], leaf, None))
+            if hasattr(sys.modules[parent_name], leaf):
+                delattr(sys.modules[parent_name], leaf)
+        try:
+            with self.mail():
+                pass
+            leaked = [
+                m
+                for m in MODULES
+                if isinstance(getattr(importlib.import_module(m), "get_email_service", None), MagicMock)
+            ]
+        finally:
+            for m in MODULES:
+                sys.modules.pop(m, None)
+            for m, mod in saved.items():
+                sys.modules[m] = mod
+                parent, leaf, attr = parent_attrs[m]
+                setattr(parent, leaf, attr)
+        self.assertEqual(leaked, [], "mail() left a MagicMock as get_email_service in these modules")
 
     def _membership_and_member(self):
         token = frappe.generate_hash(length=8)
