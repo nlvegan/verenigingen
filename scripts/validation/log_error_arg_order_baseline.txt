@@ -608,7 +608,6 @@ verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger._cre
 verenigingen/verenigingen_payments/mollie/utils/audit.py::MollieAuditLogger.cleanup_old_logs::1
 verenigingen/verenigingen_payments/mollie/utils/logging.py::MollieLogger.error::1
 verenigingen/verenigingen_payments/mollie/utils/security.py::WebhookSecurityManager._load_security_settings::1
-verenigingen/verenigingen_payments/mollie/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_bulk_payments::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::process_payment::1
 verenigingen/verenigingen_payments/page/mollie_bulk_payment_discovery/mollie_bulk_payment_discovery.py::run_discovery::1
@@ -636,18 +635,13 @@ verenigingen/verenigingen_payments/utils/payment_gateways.py::SEPAGateway._creat
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_direct_subscription_after_first_payment::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_donation_subscription_after_first_payment::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_subscription_after_first_payment::1
-verenigingen/verenigingen_payments/utils/payment_gateways.py::_authenticate_and_parse_subscription_payload::2
 verenigingen/verenigingen_payments/utils/payment_gateways.py::_create_webhook_processing_log::1
-verenigingen/verenigingen_payments/utils/payment_gateways.py::_find_member_for_subscription::2
-verenigingen/verenigingen_payments/utils/payment_gateways.py::_process_subscription_payment::2
-verenigingen/verenigingen_payments/utils/payment_gateways.py::_update_subscription_status::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::cancel_member_subscription::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::cancel_mollie_subscription_by_id::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::create_member_subscription::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::get_member_subscription_status::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::get_payment_status::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::manual_payment_confirmation::2
-verenigingen/verenigingen_payments/utils/payment_gateways.py::mollie_subscription_webhook::2
 verenigingen/verenigingen_payments/utils/payment_gateways.py::process_donation_payment::1
 verenigingen/verenigingen_payments/utils/payment_gateways.py::retry_failed_subscription_activations::2
 verenigingen/verenigingen_payments/utils/payment_gateways.py::update_mollie_subscription_amount::1
@@ -668,7 +662,6 @@ verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::BatchLoggingUtilities.add_to_batch_log::1
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::FileManagementUtilities.attach_file_to_document::1
 verenigingen/verenigingen_payments/utils/sepa_utilities.py::SEPAXMLValidator.validate_sepa_xml_schema::2
-verenigingen/verenigingen_payments/utils/webhook_security.py::log_webhook_security_event::1
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._save_reconciliation_record::2
 verenigingen/verenigingen_payments/workflows/reconciliation_engine.py::ReconciliationEngine._validate_bulk_imports::1
 verenigingen/www/dues_coverage_manager.py::get_coverage_data::1
