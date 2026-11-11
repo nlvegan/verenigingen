@@ -81,7 +81,8 @@ class TestCORRateLimitValidation(FrappeTestCase):
         self.assertIn("Batch rate limit calls", str(ctx.exception))
 
     def test_zero_batch_rate_limit_means_no_batch_limit_and_saves(self):
-        """#1656: ~1,900 shipped rows carry batch_rate_limit_calls=0, which the
+        """#1656: ~1,900 rows on long-lived sites carry batch_rate_limit_calls=0
+        (pre-existing data; fresh installs store the 5000/3600 defaults), which the
         rate-limit engine treats as "no batch limit". validate() must accept it,
         including against a shipped row's real interactive limit (180 > 0 must
         not trip the batch >= interactive ordering check)."""
@@ -92,7 +93,7 @@ class TestCORRateLimitValidation(FrappeTestCase):
             rate_limit_calls=180,
             rate_limit_period_seconds=3600,
             batch_rate_limit_calls=0,
-            batch_rate_limit_period_seconds=0,  # shipped rows store 0 here too
+            batch_rate_limit_period_seconds=0,  # affected rows store 0 here too
         )
         rule.insert()
         rule.description = "re-saved"
@@ -100,6 +101,32 @@ class TestCORRateLimitValidation(FrappeTestCase):
         self.assertEqual(
             frappe.db.get_value("Critical Operation Rule", rule.name, "batch_rate_limit_calls"), 0
         )
+
+    def test_zero_interactive_rate_limit_still_rejected(self):
+        """Control: only the BATCH fields tolerate 0; the interactive limit does not."""
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            _make_rule(operation_name="test_extra_interactive_zero", rate_limit_calls=0).insert()
+        self.assertIn("Rate limit calls must be at least 1", str(ctx.exception))
+
+    def test_interactive_period_below_floor_still_rejected(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            _make_rule(
+                operation_name="test_extra_interactive_period_30",
+                rate_limit_calls=5,
+                rate_limit_period_seconds=30,
+            ).insert()
+        self.assertIn("Rate limit period must be at least 60 seconds", str(ctx.exception))
+
+    def test_batch_calls_with_zero_period_saves(self):
+        """N batch calls with period 0 means N calls per the interactive period."""
+        rule = _make_rule(
+            operation_name="test_extra_batch_calls_period_zero",
+            rate_limit_calls=10,
+            batch_rate_limit_calls=100,
+            batch_rate_limit_period_seconds=0,
+        )
+        rule.insert()
+        self.assertEqual(rule.batch_rate_limit_period_seconds, 0)
 
     def test_negative_batch_period_rejected(self):
         with self.assertRaises(frappe.ValidationError) as ctx:
@@ -112,8 +139,8 @@ class TestCORRateLimitValidation(FrappeTestCase):
 
     def test_resave_of_stored_zero_batch_row_with_shipped_fields(self):
         """A row stored with batch 0 (as fixture sync leaves it: the stored value
-        is 0, not the 5000 default) re-saves. Fields are copied from the shipped
-        add_activity fixture row, not hand-picked."""
+        is 0, not the 5000 default, as on long-lived sites) re-saves. Fields are
+        copied from the shipped add_activity fixture row (which has no batch keys), not hand-picked."""
         shipped = _shipped_row("add_activity")
         fields = {
             k: v

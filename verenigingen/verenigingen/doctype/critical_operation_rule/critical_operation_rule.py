@@ -95,9 +95,10 @@ class CriticalOperationRule(Document):
         if self.rate_limit_period_seconds is not None and self.rate_limit_period_seconds < 60:
             frappe.throw(_("Rate limit period must be at least 60 seconds"))
 
-        # Validate batch rate limits if configured. 0 (or blank) means "no batch
-        # limit": rate_limit_engine._get_effective_limits treats a falsy value that
-        # way, and ~1,900 shipped rows carry 0 (#1656). Only negatives are invalid.
+        # Validate batch rate limits if configured. 0 (or blank) = no batch-specific
+        # limit (low/medium: unlimited in batch; critical/high: the interactive limit
+        # applies), as rate_limit_engine._get_effective_limits treats a falsy value.
+        # ~1,900 rows on long-lived sites carry 0 (#1656). Only negatives are invalid.
         if self.batch_rate_limit_calls is not None:
             if self.batch_rate_limit_calls < 0:
                 frappe.throw(_("Batch rate limit calls cannot be negative (use 0 for no batch limit)"))
