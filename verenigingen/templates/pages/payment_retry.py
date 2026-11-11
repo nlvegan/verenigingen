@@ -2,6 +2,8 @@
 Context for payment retry page
 """
 
+from urllib.parse import quote
+
 import frappe
 from frappe import _
 
@@ -19,6 +21,13 @@ def get_context(context):
     member_id = frappe.form_dict.get("member")
     invoice_id = frappe.form_dict.get("invoice")
 
+    # A reminder mail links here. A logged-out member logs in and comes back to this same URL; the
+    # ownership guard below still applies to whoever arrives (#2109). No guest access.
+    if frappe.session.user == "Guest":
+        back = f"/payment_retry?member={quote(member_id or '', safe='')}&invoice={quote(invoice_id or '', safe='')}"
+        frappe.local.flags.redirect_location = f"/login?redirect-to={quote(back, safe='')}"
+        raise frappe.Redirect
+
     # Member.autoname and Sales Invoice's naming_series are both sequential
     # and guessable, and "the invoice belongs to this member" only checks
     # that the two *supplied* parameters are mutually consistent -- it is
@@ -33,8 +42,9 @@ def get_context(context):
             member = frappe.get_doc("Member", member_id)
             invoice = frappe.get_doc("Sales Invoice", invoice_id)
 
-            # Verify the invoice belongs to this member
-            if invoice.member == member_id:
+            # Verify the invoice belongs to this member. Most real invoices leave `member` blank
+            # and carry only the member's Customer, which is still the member's own invoice.
+            if invoice.member == member_id or (not invoice.member and invoice.customer == member.customer):
                 context.member = member
                 context.invoice = invoice
 
