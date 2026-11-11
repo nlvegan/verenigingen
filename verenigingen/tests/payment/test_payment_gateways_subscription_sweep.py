@@ -409,6 +409,7 @@ class TestSubscriptionWebhookEntry(EnhancedTestCase):
         real booked entry, not produced by a staff action on a second delivery."""
         from verenigingen.tests.support import forward_refusal as refusal
 
+        self.expectErrorLog("Payment Notification Error")
         member, ref_no, _gw, _default, deliver = self._subscription_delivery_2406("2406c")
         live = deliver()["payment_processed"]["payment_entry"]
         self._committed_pes.append(live)

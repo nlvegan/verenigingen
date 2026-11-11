@@ -32,34 +32,29 @@ def clear_mollie_config_cache() -> None:
     MollieConfigurationService.clear_cache()
 
 
-def pin_verenigingen_settings(test_case, **fields) -> None:
-    """Point ``Verenigingen Settings`` fields at this test's fixtures for its duration."""
-    previous = {field: frappe.db.get_single_value("Verenigingen Settings", field) for field in fields}
+def _pin_single(test_case, doctype, **fields) -> None:
+    """Set Single ``doctype`` fields for this test's duration and restore them via ``addCleanup``."""
+    previous = {field: frappe.db.get_single_value(doctype, field) for field in fields}
 
     for field, value in fields.items():
-        frappe.db.set_single_value("Verenigingen Settings", field, value)
+        frappe.db.set_single_value(doctype, field, value)
 
     def restore():
         for field, value in previous.items():
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
+            frappe.db.set_single_value(doctype, field, value)
         frappe.db.commit()
 
     test_case.addCleanup(restore)
 
 
+def pin_verenigingen_settings(test_case, **fields) -> None:
+    """Point ``Verenigingen Settings`` fields at this test's fixtures for its duration."""
+    _pin_single(test_case, "Verenigingen Settings", **fields)
+
+
 def pin_payments_settings(test_case, **fields) -> None:
     """Point ``Verenigingen Payments Settings`` fields (e.g. ``dues_income_account``) at this test's fixtures."""
-    previous = {field: frappe.db.get_single_value("Verenigingen Payments Settings", field) for field in fields}
-
-    for field, value in fields.items():
-        frappe.db.set_single_value("Verenigingen Payments Settings", field, value)
-
-    def _cleanup_restore():
-        for field, value in previous.items():
-            frappe.db.set_single_value("Verenigingen Payments Settings", field, value)
-        frappe.db.commit()
-
-    test_case.addCleanup(_cleanup_restore)
+    _pin_single(test_case, "Verenigingen Payments Settings", **fields)
 
 
 def pin_mollie_clearing_account(test_case, clearing_account: str) -> None:

@@ -436,7 +436,6 @@ COMMIT_EXEMPT tests/services/test_customer_handling_service_integration.py::1  #
 COMMIT_EXEMPT tests/services/test_field_sync_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_cleanup_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_lookup_service.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/support/mollie_settings.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/wsgi_http_session.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::3  # order-dep-exempt

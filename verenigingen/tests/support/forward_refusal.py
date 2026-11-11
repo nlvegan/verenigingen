@@ -72,3 +72,44 @@ def assert_no_refusal(test_case, payment_id):
     """Control: a normal delivery raises no refusal and no alert."""
     test_case.assertEqual(refusal_logs(payment_id), [])
     test_case.assertEqual(alert_events(payment_id), [])
+
+
+def _name(entry):
+    return getattr(entry, "name", entry)
+
+
+def book_then_staff_cancel(test_case, payment_id, book):
+    """Book the payment through ``book()`` (returns a Payment Entry or its name), staff-cancel it.
+
+    Controls first: the delivery booked and raised no refusal. Then the cancel, then the recipient.
+    Returns whatever ``book`` returned.
+    """
+    first = book()
+    test_case.assertTrue(first, "fixture problem: payment not booked")
+    frappe.get_doc("Payment Entry", _name(first)).cancel()
+    test_case.assertEqual(
+        frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": payment_id, "payment_type": "Receive", "docstatus": 1},
+            pluck="name",
+        ),
+        [],
+        "fixture problem: cancel left a live row",
+    )
+    assert_no_refusal(test_case, payment_id)
+    prepare_refusal_fixture(test_case, payment_id)
+    return first
+
+
+def assert_not_rebooked(test_case, payment_id, first):
+    """Only the staff-cancelled audit row remains for the payment: nothing live, nothing new."""
+
+    def rows(**extra):
+        return frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": payment_id, "payment_type": "Receive", **extra},
+            pluck="name",
+        )
+
+    test_case.assertEqual(rows(docstatus=["!=", 2]), [], "a redelivery after a staff cancel re-booked")
+    test_case.assertEqual(rows(docstatus=2), [_name(first)], "expected only the audit row")

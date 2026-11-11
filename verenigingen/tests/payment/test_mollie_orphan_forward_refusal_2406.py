@@ -69,15 +69,6 @@ class TestOrphanForwardRefusal(OrchestratorBase):
         filters = {"reference_no": self.pid, "payment_type": "Receive", **extra}
         return frappe.get_all("Payment Entry", filters=filters, fields=["name", "docstatus", "party"])
 
-    def _book_then_staff_cancel(self):
-        first = self._write_orphan_entry()
-        self.assertTrue(first, "fixture problem: orphan entry not booked")
-        refusal.assert_no_refusal(self, self.pid)  # control: the first delivery raised no refusal
-        frappe.get_doc("Payment Entry", first).cancel()
-        self.assertEqual(self._orphan_rows_2406(docstatus=1), [], "fixture problem: cancel left a live row")
-        refusal.prepare_refusal_fixture(self, self.pid)
-        return first
-
     def _cancelled_row_of_another_party(self):
         """A CANCELLED Receive row for this payment id, beside the live one already booked."""
         other = self._write_orphan_entry(other_party=True)
@@ -85,23 +76,19 @@ class TestOrphanForwardRefusal(OrchestratorBase):
         frappe.get_doc("Payment Entry", other).cancel()
         self.assertEqual(frappe.db.get_value("Payment Entry", other, "docstatus"), 2)
 
-    def _assert_not_rebooked(self, first):
-        self.assertEqual(self._orphan_rows_2406(docstatus=["!=", 2]), [], "a redelivery after a staff cancel re-booked")
-        self.assertEqual([r.name for r in self._orphan_rows_2406(docstatus=2)], [first])
-
     def test_same_party_redelivery_is_refused_and_alerts(self):
-        first = self._book_then_staff_cancel()
+        first = refusal.book_then_staff_cancel(self, self.pid, self._write_orphan_entry)
         self.assertIsNone(self._write_orphan_entry())
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.pid, first)
         refusal.assert_refused_once(self, self.pid, "25.00")
         self.assertIsNone(self._write_orphan_entry())  # a second redelivery stays refused, no second alert
         refusal.assert_refused_once(self, self.pid, "25.00")
 
     def test_different_party_redelivery_is_refused_not_rebooked(self):
         """The key hashes the party, so a different party is NOT stopped by the unique index."""
-        first = self._book_then_staff_cancel()
+        first = refusal.book_then_staff_cancel(self, self.pid, self._write_orphan_entry)
         self.assertIsNone(self._write_orphan_entry(other_party=True))
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.pid, first)
         refusal.assert_refused_once(self, self.pid, "25.00")
 
     def test_control_first_delivery_books_and_raises_no_refusal(self):
@@ -144,7 +131,11 @@ class TestOrphanForwardRefusal(OrchestratorBase):
         refusal.assert_refused_once(self, self.pid, "25.00")
 
     def test_flow_control_cancelled_row_beside_a_live_one_is_not_a_refusal(self):
-        """A cancelled Receive row AND a live one for the payment: booked, so nothing to refuse."""
+        """A cancelled Receive row AND a live one for the payment: booked, so nothing to refuse.
+
+        End-to-end control only: the flow returns 'skipped' on the live entry
+        (get_processing_status) before the guard is reached, so this does NOT discriminate the
+        refuse-on-any-cancelled-row mutant. The writer-level control below does."""
         live = self._write_orphan_entry()
         self.assertTrue(live)
         self._cancelled_row_of_another_party()

@@ -168,20 +168,6 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
     # -- a staff-cancelled forward entry is NOT re-booked: refuse, log, alert, acknowledge ---
     # Maintainer ruling 2026-11-11 on #2406. Staff decide by hand.
 
-    def _book_then_staff_cancel(self, book):
-        first = book()
-        self.assertIsNotNone(first, "fixture problem: payment not booked")
-        frappe.get_doc("Payment Entry", first.name).cancel()
-        self.assertEqual(self._rows(docstatus=1), [], "fixture problem: cancel left a live row")
-        # Control: the first (non-cancelled) delivery booked and raised no refusal.
-        refusal.assert_no_refusal(self, self.payment_id)
-        self.staff_user = refusal.prepare_refusal_fixture(self, self.payment_id)
-        return first
-
-    def _assert_not_rebooked(self, first):
-        self.assertEqual(self._rows(docstatus=["!=", 2]), [], "a redelivery after a staff cancel re-booked")
-        self.assertEqual([r.name for r in self._rows(docstatus=2)], [first.name], "expected only the audit row")
-
     def test_webhook_redelivery_after_staff_cancel_is_refused_end_to_end(self):
         """Real flow through process_successful_payment_with_idempotency with the real idempotency
         check (which counts submitted entries only, so it reports 'not created')."""
@@ -215,28 +201,28 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
         def book():
             return frappe.get_doc("Payment Entry", deliver()["payment_entry"])
 
-        first = self._book_then_staff_cancel(book)
+        first = refusal.book_then_staff_cancel(self, self.payment_id, book)
         result = deliver()  # must not raise: an exception would make Mollie retry
         self.assertNotIn("payment_entry", result)
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         refusal.assert_refused_once(self, self.payment_id, "100.00")
         deliver()  # a second redelivery stays refused and does not alert staff again
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         refusal.assert_refused_once(self, self.payment_id, "100.00")
 
     def test_webhook_writer_direct_call_after_staff_cancel_refuses(self):
-        first = self._book_then_staff_cancel(
+        first = refusal.book_then_staff_cancel(self, self.payment_id, 
             lambda: create_payment_entry_for_donation(self.donation, self._webhook_data())
         )
         self.assertIsNone(create_payment_entry_for_donation(self.donation, self._webhook_data()))
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         refusal.assert_refused_once(self, self.payment_id, "100.00")
 
     def test_webhook_lookup_race_branch_ignores_cancelled_entries(self):
         """The inner `except` lookup (duplicate-race recovery) must not hand back a cancelled
         row. The race is simulated by forcing the duplicate branch, which is only reachable when
         the pre-insert refusal is bypassed (a cancel landing between check and insert)."""
-        first = self._book_then_staff_cancel(
+        first = refusal.book_then_staff_cancel(self, self.payment_id, 
             lambda: create_payment_entry_for_donation(self.donation, self._webhook_data())
         )
         with patch(
@@ -253,9 +239,9 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
         )
 
     def test_unified_receive_redelivery_after_staff_cancel_is_refused(self):
-        first = self._book_then_staff_cancel(self._unified)
+        first = refusal.book_then_staff_cancel(self, self.payment_id, self._unified)
         self.assertIsNone(self._unified())
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         refusal.assert_refused_once(self, self.payment_id, "100.00")
         self.assertIsNone(self._unified())
         refusal.assert_refused_once(self, self.payment_id, "100.00")
@@ -291,7 +277,7 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
             refuse_staff_cancelled_forward_payment,
         )
 
-        first = self._book_then_staff_cancel(self._unified)
+        first = refusal.book_then_staff_cancel(self, self.payment_id, self._unified)
         self.expectErrorLog("Mollie Forward Payment Refused Alert Failed")
         with patch(
             "verenigingen.utils.notification_helpers.notify_administrators",
@@ -306,7 +292,7 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
             ),
             "the notify failure was swallowed without a trace",
         )
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         frappe.db.delete("Error Log", {"method": "Mollie Forward Payment Refused Alert Failed"})
 
     def test_factory_redelivery_after_staff_cancel_is_refused(self):
@@ -324,9 +310,9 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
         def book():
             return factory.create_payment_entry(context, data, customer=self.customer)
 
-        first = self._book_then_staff_cancel(book)
+        first = refusal.book_then_staff_cancel(self, self.payment_id, book)
         self.assertIsNone(book())
-        self._assert_not_rebooked(first)
+        refusal.assert_not_rebooked(self, self.payment_id, first)
         refusal.assert_refused_once(self, self.payment_id, "100.00")
         self.assertIsNone(book())
         refusal.assert_refused_once(self, self.payment_id, "100.00")
