@@ -11,7 +11,7 @@ import frappe
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
-def _record_failure(title, message):
+def _record_invalidation_failure(title, message):
     """Best-effort Error Log row for a failed invalidation (#2409).
 
     log_error does cache and DB work of its own and can raise (e.g. a Redis TimeoutError in its
@@ -72,7 +72,7 @@ def invalidate_user_role_cache_on_user_update(doc, method):
         # Don't fail the user save if cache invalidation fails, but RECORD it (#2409):
         # a failed invalidation leaves a revoked role effective until the cache TTL, and
         # frappe.logger() output is not captured anywhere readable.
-        _record_failure(
+        _record_invalidation_failure(
             title="Security cache: user role cache invalidation failed",
             message=f"user={doc.name}\n{frappe.get_traceback()}",
         )
@@ -97,7 +97,7 @@ def invalidate_all_user_caches_on_role_profile_update(doc, method):
             raise
         except Exception:
             # Don't fail the role profile save if cache invalidation fails, but record it (#2409).
-            _record_failure(
+            _record_invalidation_failure(
                 title="Security cache: all-users role cache invalidation failed",
                 message=f"role_profile={doc.name}\n{frappe.get_traceback()}",
             )
@@ -123,7 +123,7 @@ def invalidate_user_cache_on_user_role_update(doc, method):
             raise
         except Exception:
             # Don't fail the role assignment if cache invalidation fails, but record it (#2409).
-            _record_failure(
+            _record_invalidation_failure(
                 title="Security cache: role assignment cache invalidation failed",
                 message=f"user={doc.parent}\n{frappe.get_traceback()}",
             )
@@ -156,7 +156,7 @@ def clear_security_caches_on_migrate():
         raise
     except Exception:
         # Recorded via log_error (#2409): frappe.logger() output is not captured.
-        _record_failure(
+        _record_invalidation_failure(
             title="Security cache: clearing security caches on migrate failed",
             message=frappe.get_traceback(),
         )
