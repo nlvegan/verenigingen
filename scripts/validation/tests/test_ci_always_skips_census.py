@@ -22,6 +22,7 @@ cas = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cas)
 
 PINNED = {
+    "verenigingen/tests/backend/workflows/test_payment_failure_recovery.py",  # #2467, not credentials
     "verenigingen/tests/payment/test_payment_gateways_live.py",
     "verenigingen/verenigingen_payments/ing_checkout/tests/test_client_live.py",
     "verenigingen/verenigingen_payments/mollie/tests/integration/test_real_api.py",
