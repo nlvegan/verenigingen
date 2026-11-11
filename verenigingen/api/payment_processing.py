@@ -339,6 +339,7 @@ def send_overdue_payment_reminders(
         # #2425: kept RAW and escaped once, where it is rendered (stock templates `|e`, fallback
         # escape_html). @critical_api has already HTML-escaped the argument (it decodes entities first), so
         # decode here; escaping again would show the member "&amp;#x27;" for an apostrophe.
+        # Templates that print custom_message MUST `|e` it (a test pins the shipped fixtures).
         custom_message = (
             APIValidator.sanitize_text(html.unescape(str(custom_message)), max_length=1000, allow_html=True)
             if custom_message

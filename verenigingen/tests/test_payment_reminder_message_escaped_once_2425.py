@@ -13,6 +13,9 @@ Run:
 """
 
 import html
+import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -65,3 +68,20 @@ class TestReminderMessageEscapedOnce(MailBodyEscapingBase):
 
     def test_fallback_html_path(self):
         self._assert_once(self._run(drop_template=True))
+
+
+class TestShippedTemplatesEscapeCustomMessage(MailBodyEscapingBase):
+    """custom_message is passed RAW, so every shipped template that prints it must escape it itself."""
+
+    def test_every_fixture_printing_custom_message_pipes_it_through_e(self):
+        fixture = Path(frappe.get_app_path("verenigingen", "fixtures", "email_template.json"))
+        printed = 0
+        for template in json.loads(fixture.read_text()):
+            body = template.get("response_html") or template.get("response") or ""
+            for expr in re.findall(r"\{\{(.*?)\}\}", body, flags=re.S):
+                if "custom_message" in expr:
+                    printed += 1
+                    self.assertRegex(
+                        expr, r"\|\s*e\b", f"{template['name']} prints custom_message without |e: {expr!r}"
+                    )
+        self.assertGreaterEqual(printed, 3, "control: the friendly, final and bulk templates print it")
