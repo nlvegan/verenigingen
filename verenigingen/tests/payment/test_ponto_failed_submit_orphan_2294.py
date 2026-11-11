@@ -84,6 +84,48 @@ class _OrphanChecks:
     def _assert_no_alert(self, name):
         self.assertEqual(self._orphan_alerts(name), ([], []))
 
+    def _assert_alert_survives_the_request_rollback(self, doctype, name, ponto_id, submit):
+        """B1: the request's exception rolls the transaction back, taking an inline Notification Log
+        with it. The alert must therefore be a job whose Redis push is not tied to that transaction.
+        Probe shortcut: ``frappe.enqueue`` is spied (and not run) so the job can be run AFTER the
+        rollback, the way a worker runs it in its own transaction; the rollback is explicit."""
+        queued = []
+        real_enqueue = frappe.enqueue
+
+        def spy(method, **kwargs):
+            if "send_ponto_orphan_alert" in str(method):
+                queued.append((method, kwargs))
+                return None
+            return real_enqueue(method, **kwargs)
+
+        self.expectErrorLog(ORPHAN_TITLE)
+        frappe.db.savepoint("ponto_2294_request")  # the draft and the seeded config sit before it
+        with patch("frappe.enqueue", side_effect=spy):
+            with self.assertRaises(frappe.CharacterLengthExceededError):
+                submit()
+        self.assertEqual(len(queued), 1, "the staff alert must be handed to a background job")
+        method, kwargs = queued[0]
+        self.assertIn(ponto_id, str(kwargs), "the job must carry the Ponto id")
+        self.assertFalse(kwargs.get("enqueue_after_commit"), "a push tied to the transaction dies with it")
+
+        frappe.db.rollback(save_point="ponto_2294_request")  # what Frappe does to the failing request
+        self.assertEqual(self._orphan_alerts(name)[0], [], "control: nothing inline survives the rollback")
+        self.assertFalse(
+            frappe.get_all("Staff Alert Event", filters={"reference_name": name, "outcome": "Delivered"}),
+            "no event may claim Delivered for an alert that was rolled back",
+        )
+
+        frappe.get_attr(method)(**{k: v for k, v in kwargs.items() if k not in ("queue", "now")})
+        self._assert_one_alert_naming(name, ponto_id)
+        events = frappe.get_all(
+            "Staff Alert Event",
+            filters={"reference_name": name},
+            fields=["outcome", "recipient_count"],
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].outcome, "Delivered")
+        self.assertGreater(events[0].recipient_count, 0)
+
     def _on_submit_raising(self, doctype_class):
         return patch.object(doctype_class, "on_submit", create=True, side_effect=RuntimeError("late hook"))
 
@@ -137,6 +179,14 @@ class TestPontoPaymentRequestFailedSubmit(_OrphanChecks, _PontoPaymentRequestFix
                     req.submit()
         client.delete_payment.assert_called_once()
         self._assert_one_alert_naming(req.name, OVERLONG_ID)
+
+    def test_the_alert_survives_the_request_rollback(self):
+        req = self._make_draft_request_2294()
+        client = _stub_orphan_client(OVERLONG_ID, delete_error=ConnectionError("ponto down"))
+        with patch(PAY_CLIENT_PATH, return_value=client):
+            self._assert_alert_survives_the_request_rollback(
+                "Ponto Payment Request", req.name, OVERLONG_ID, req.submit
+            )
 
     def test_a_good_submit_deletes_nothing_and_alerts_nobody(self):
         req = self._make_draft_request_2294()
@@ -193,6 +243,14 @@ class TestPontoPaymentLinkFailedSubmit(_OrphanChecks, EnhancedTestCase):
                     link.submit()
         client.delete_payment_request.assert_called_once()
         self._assert_one_alert_naming(link.name, OVERLONG_ID)
+
+    def test_the_alert_survives_the_request_rollback(self):
+        link = self._make_draft_link_2294()
+        client = _stub_orphan_client(OVERLONG_ID, delete_error=ConnectionError("ponto down"))
+        with patch(LINK_CLIENT_PATH, return_value=client):
+            self._assert_alert_survives_the_request_rollback(
+                "Ponto Payment Link", link.name, OVERLONG_ID, link.submit
+            )
 
     def test_a_good_submit_deletes_nothing_and_alerts_nobody(self):
         link = self._make_draft_link_2294()

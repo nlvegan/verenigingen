@@ -33,19 +33,21 @@ from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
+    PontoSubmitCompensation,
     alert_executed_on_cancelled_row,
     alert_executed_unbookable,
     alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
-    compensate_failed_submit,
     persist_cancelled_status,
     refuse_unless_system_update,
 )
 
 
-class PontoPaymentRequest(Document):
+class PontoPaymentRequest(PontoSubmitCompensation, Document):
     """Controller for Ponto Payment Request DocType."""
+
+    PONTO_DELETE_METHOD = "delete_ponto_payment"
 
     def validate(self):
         """Validate payment request before save."""
@@ -65,16 +67,6 @@ class PontoPaymentRequest(Document):
         """
         self._validate_payment_entry_prerequisites()
         self.create_ponto_payment()
-
-    def _submit(self):
-        """Submit, and delete the Ponto payment again if anything after its creation fails (#2294)."""
-        self.flags.ponto_created_id = None
-        try:
-            return super()._submit()
-        except Exception:
-            if self.flags.ponto_created_id:
-                compensate_failed_submit(self, self.flags.ponto_created_id, self.delete_ponto_payment)
-            raise
 
     def before_update_after_submit(self):
         """Only system code may change status / payment_entry on a submitted row (#1907)."""
@@ -207,8 +199,6 @@ class PontoPaymentRequest(Document):
         """
         if not self.ponto_payment_id:
             return
-
-        from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
 
         try:
             self.delete_ponto_payment()

@@ -430,6 +430,34 @@ def _alert_blocked_once(doc, kind, block_text, details):
 ORPHAN_TITLE = "Ponto payment ORPHANED by a failed submit"
 
 
+def submit_with_ponto_compensation(doc, submit, delete_at_ponto):
+    """Run ``submit`` (the base ``Document._submit``); if it fails after ``before_submit`` created
+    something at Ponto (``doc.flags.ponto_created_id``), delete that again and re-raise (#2294).
+
+    Shared by both controllers' ``_submit`` so the body is not duplicated.
+    """
+    doc.flags.ponto_created_id = None
+    try:
+        return submit()
+    except Exception:
+        if doc.flags.ponto_created_id:
+            compensate_failed_submit(doc, doc.flags.ponto_created_id, delete_at_ponto)
+        raise
+
+
+class PontoSubmitCompensation:
+    """Mixin for the Ponto submittable doctypes: a failed submit deletes what it created at Ponto.
+
+    The doctype names its raising Ponto delete method in ``PONTO_DELETE_METHOD``. It sits before
+    ``Document`` in the bases so this ``_submit`` wraps ``Document._submit``.
+    """
+
+    PONTO_DELETE_METHOD = ""
+
+    def _submit(self):
+        return submit_with_ponto_compensation(self, super()._submit, getattr(self, self.PONTO_DELETE_METHOD))
+
+
 def compensate_failed_submit(doc, ponto_id, delete_at_ponto):
     """Undo the Ponto create after a submit failed LATER than ``before_submit`` (#2294).
 
@@ -442,6 +470,14 @@ def compensate_failed_submit(doc, ponto_id, delete_at_ponto):
     orphan is still there: an Error Log row (MyISAM, so it survives the rollback that follows
     the re-raised error) and the registered staff alert name its Ponto id so someone can delete
     it by hand. No commit here: this runs in the failing request's own transaction.
+
+    The alert is a background job, not an inline ``notify_administrators``: the re-raised error
+    makes Frappe roll the request back, which would take an inline Notification Log with it while
+    the Staff Alert Event (MyISAM) survived claiming "Delivered" (measured on a real request).
+    The Redis push is not part of the database transaction (``enqueue_after_commit`` stays False),
+    and the job runs in a worker's own transaction. Same shape as
+    ``chapter_security.record_application_security_event``. PRODUCTION NEEDS A WORKER on the
+    "short" queue; ``now=frappe.in_test`` runs it inline under test (CI has no workers).
 
     Never raises: a failure here must not replace the error the caller is about to re-raise.
     """
@@ -457,16 +493,30 @@ def compensate_failed_submit(doc, ponto_id, delete_at_ponto):
     )
     try:
         frappe.log_error(title=ORPHAN_TITLE, message=details)
-        from verenigingen.utils.notification_helpers import notify_administrators
-
-        notify_administrators(
-            subject=f"{ORPHAN_TITLE}: {doc.doctype} {doc.name} ({ponto_id})",
-            message=f"<p>{escape_html(details)}</p>",
-            notification_key="ponto_orphaned_payment",  # literal: key discovery greps for it
-            document_type=doc.doctype,
-            document_name=doc.name,
-            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
-            staff_alert=True,
+        frappe.enqueue(
+            "verenigingen.verenigingen_payments.ponto.core.submitted_rows.send_ponto_orphan_alert",
+            queue="short",
+            now=frappe.in_test,
+            doctype=doc.doctype,
+            name=doc.name,
+            ponto_id=ponto_id,
+            amount=flt(doc.get("amount")),
+            details=details,
         )
     except Exception:
         frappe.log_error(title=f"{ORPHAN_TITLE}: the staff alert itself failed", message=details)
+
+
+def send_ponto_orphan_alert(doctype, name, ponto_id, amount, details):
+    """The background job behind ``compensate_failed_submit``: tell staff which Ponto id to delete."""
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    notify_administrators(
+        subject=f"{ORPHAN_TITLE}: {doctype} {name} ({ponto_id})",
+        message=f"<p>{escape_html(details)} Amount: EUR {flt(amount):,.2f}.</p>",
+        notification_key="ponto_orphaned_payment",  # literal: key discovery greps for it
+        document_type=doctype,
+        document_name=name,
+        exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+        staff_alert=True,
+    )
