@@ -2,7 +2,7 @@
 
 frappe.render_template does not autoescape, so the bare `{{ reason }}` in these seeded templates put
 reviewer-typed markup into the mail body (a reviewer can pick any of them as `email_template`). The
-seeder now writes `{{ reason|e }}`, but it only CREATES missing templates (#1984), so existing sites keep
+seeder now writes `{{ reason | e }}` (the form this patch also writes), but it only CREATES missing templates (#1984), so existing sites keep
 the old rows. A row whose response still equals EXACTLY the old stock text (as STORED: Frappe's Email
 Template save minifies inline styles, so this is not the seeder's source text) is updated; a template an
 admin edited is left alone. The old texts are frozen here. Idempotent: after the first run nothing matches.
@@ -107,6 +107,6 @@ def execute():
         if stored not in _stored_forms(old):
             continue
         # response only: the subject and `modified` bookkeeping of an untouched row stay as they were
-        new = stored.replace("{{ reason }}", "{{ reason|e }}")
+        new = stored.replace("{{ reason }}", "{{ reason | e }}")
         frappe.db.set_value("Email Template", name, "response", new, update_modified=False)
         invalidate_template_cache(name)

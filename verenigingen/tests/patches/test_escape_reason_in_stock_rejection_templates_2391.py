@@ -6,7 +6,6 @@ patch's ``execute`` is called directly, not through the patch runner.
 """
 
 import importlib
-from pathlib import Path
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -51,9 +50,9 @@ class TestEscapeReasonInStockRejectionTemplates(FrappeTestCase):
 
         for name, old in self.patch.OLD_STOCK.items():
             response = frappe.db.get_value("Email Template", name, "response")
-            self.assertEqual(response, old.replace("{{ reason }}", "{{ reason|e }}"), name)
+            self.assertEqual(response, old.replace("{{ reason }}", "{{ reason | e }}"), name)
             self.assertNotIn("{{ reason }}", response, name)
-            self.assertEqual(response.count("{{ reason|e }}"), 1, name)
+            self.assertEqual(response.count("{{ reason | e }}"), 1, name)
 
     def test_an_install_seeded_row_with_the_spaced_style_gets_the_escape(self):
         """Rows seeded under frappe.flags.in_install skip the sanitiser and keep the spaced inline style.
@@ -74,13 +73,13 @@ class TestEscapeReasonInStockRejectionTemplates(FrappeTestCase):
             seeded = frappe.db.get_value("Email Template", name, "response")
             # control: this really is the spaced, unsanitised shape (not the minified one)
             self.assertIn(SPACED_STYLE, seeded, name)
-            _write(name, seeded.replace("{{ reason|e }}", "{{ reason }}"))
+            _write(name, seeded.replace(" | e }}", " }}"))
 
         self.patch.execute()
 
         for name in NAMES:
             response = frappe.db.get_value("Email Template", name, "response")
-            self.assertIn("{{ reason|e }}", response, name)
+            self.assertIn("{{ reason | e }}", response, name)
             self.assertNotIn("{{ reason }}", response, name)
             self.assertIn(SPACED_STYLE, response, name)
 
@@ -114,6 +113,19 @@ class TestEscapeReasonInStockRejectionTemplates(FrappeTestCase):
 
         self.assertEqual(after_first, {n: frappe.db.get_value("Email Template", n, "response") for n in NAMES})
 
+    def test_an_already_escaped_row_is_not_escaped_again(self):
+        """#2351's seeds write the spaced `reason | e`; an earlier #2391 build wrote `reason|e`. Neither may be
+        touched (no double escape), whatever style shape the row has."""
+        for name, old in self.patch.OLD_STOCK.items():
+            for style in (MINIFIED_STYLE, SPACED_STYLE):
+                for escaped in ("{{ reason | e }}", "{{ reason|e }}"):
+                    row = old.replace(MINIFIED_STYLE, style).replace("{{ reason }}", escaped)
+                    _write(name, row)
+
+                    self.patch.execute()
+
+                    self.assertEqual(frappe.db.get_value("Email Template", name, "response"), row, (name, escaped))
+
     def test_the_old_stock_text_is_what_the_seeder_used_to_write(self):
         """Control: the frozen text is the seeder's text minus the escape, so a site seeded before this
         fix really matches. Fails if the seeder body drifts from the frozen copy."""
@@ -126,10 +138,12 @@ class TestEscapeReasonInStockRejectionTemplates(FrappeTestCase):
 
         for name, old in self.patch.OLD_STOCK.items():
             seeded = frappe.db.get_value("Email Template", name, "response")
-            self.assertEqual(seeded.replace("{{ reason|e }}", "{{ reason }}"), old, name)
+            self.assertEqual(seeded.replace(" | e }}", " }}"), old, name)
 
     def test_the_patch_is_registered(self):
-        import verenigingen
+        from frappe.modules import patch_handler
 
-        listed = (Path(verenigingen.__file__).parent / "patches.txt").read_text().splitlines()
-        self.assertIn(PATCH, listed)
+        from verenigingen.setup.patch_fragments import install
+
+        install()
+        self.assertIn(PATCH, patch_handler.get_patches_from_app("verenigingen"))
