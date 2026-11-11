@@ -297,8 +297,9 @@ class MemberIDService(StatelessService):
         lost = len(assigned_names) - len(persisted)
         error_msg = (
             f"Batch aborted at {failed_member}: {type(error).__name__}. "
-            f"{len(persisted)} assignment(s) persisted, {lost} rolled back by the database; "
-            "run the bulk assignment again."
+            f"{len(persisted)} assignment(s) persisted, {lost} discarded (a deadlock rolls back "
+            "the whole transaction; a lock timeout keeps earlier rows). "
+            "Run the bulk assignment again; it is idempotent."
         )
         self.logger.error(f"MemberIDService: {error_msg}")
         return OperationResult.fail(

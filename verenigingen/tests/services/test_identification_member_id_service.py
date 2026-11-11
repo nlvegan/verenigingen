@@ -146,17 +146,14 @@ class TestDebugMemberIdAssignment(EnhancedTestCase):
         self.assertIn("eligible", info["explanation"].lower())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
     """#2388: a 1213/1205 inside the bulk loop must stop the batch and report the truth.
 
     The fault is injected at ``frappe.db.sql`` on the counter's ``FOR UPDATE`` read,
     i.e. below every layer that catches on the real path (the decorator, the
-    per-member ``except``). For a deadlock the injection also rolls back the assignments made so far, which
-    is what MariaDB does to the transaction (see _seed_unassigned_members).
+    per-member ``except``). For a deadlock the injection also rolls back the
+    assignments made so far, which is what MariaDB does to the transaction
+    (see _seed_unassigned_members).
     """
 
     COUNTER_READ = "FOR UPDATE"
@@ -223,3 +220,7 @@ class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
         self.assertFalse(result.success)
         # Two members were assigned before the 3rd counter read failed; a 1205 keeps them.
         self.assertEqual(result.metadata["assigned"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
