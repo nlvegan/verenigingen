@@ -67,7 +67,7 @@ SCRIPT = textwrap.dedent(
         "chargeback": post("handle_chargeback_webhook", {{"status": "charged_back", "note": MARKER}}, "198.51.100.72"),
         "control": post(
             "handle_refund_webhook",
-            {{"resource": "refund", "id": "re_1807", "payment_id": "tr_1807", "note": MARKER}},
+            {{"resource": "refund", "id": "re_1807", "status": "refunded", "payment_id": "tr_1807", "note": MARKER}},
             "198.51.100.73",
         ),
     }}

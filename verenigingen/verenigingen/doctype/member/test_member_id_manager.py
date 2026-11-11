@@ -10,6 +10,8 @@ single. No business logic is mocked.
 """
 
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import cint
 
@@ -406,3 +408,75 @@ class TestStaleSettingsSaveKeepsCounter(TestMemberIDStartMovesCounter):
         frappe.db.sql("UPDATE `tabSingles` SET value='' WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
         doc.save()
         self.assertEqual(self._counter(), counter)
+
+
+class TestIssuerNeverFabricatesAnId(EnhancedTestCase):
+    """#2339: a failure while issuing an ID must raise, never return a made-up one.
+
+    The fault is injected at ``frappe.db.sql``, BELOW every layer on the real path
+    that used to swallow it (``MemberIDManager.get_next_member_id`` and
+    ``generate_member_id`` in the core service each had an ``except Exception``
+    returning a timestamp-derived ID). It fires only on the counter-row lock
+    (``SELECT ... FOR UPDATE`` on tabSingles), which is the statement a concurrent
+    Verenigingen Settings save deadlocks with. The error is a stand-in for a 1213:
+    no second connection is used. That a REAL 1213 rolls back the caller's whole
+    transaction (the reason there is no in-place retry) is verified out-of-band by a
+    two-process probe, not by these tests: the stand-in error does not roll back.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._real_sql = frappe.db.sql
+        self.lock_attempts = 0
+
+    def _fail_on_counter_lock(self, error):
+        real_sql = self._real_sql
+
+        def sql(query, *args, **kwargs):
+            if isinstance(query, str) and "FOR UPDATE" in query and "tabSingles" in query:
+                self.lock_attempts += 1
+                raise error
+            return real_sql(query, *args, **kwargs)
+
+        return patch.object(frappe.db, "sql", side_effect=sql)
+
+    def test_a_deadlock_on_the_counter_lock_raises_and_issues_nothing(self):
+        before = TestMemberIDManager._get_singles_counter(self)
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                MemberIDManager.get_next_member_id()
+        self.assertEqual(self.lock_attempts, 1, "a 1213 aborts the whole transaction: no in-place retry")
+        self.assertEqual(TestMemberIDManager._get_singles_counter(self), before)
+
+    def test_any_other_error_on_the_counter_lock_raises_too(self):
+        with self._fail_on_counter_lock(frappe.QueryTimeoutError()):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                MemberIDManager.get_next_member_id()
+
+    def test_the_core_service_does_not_substitute_its_own_timestamp_id(self):
+        # core/member_id_service.generate_member_id carried a SECOND fallback
+        # (str(int(time.time() * 1000))[-8:]) that would take over once the manager raises.
+        from verenigingen.services.member.core.member_id_service import generate_member_id
+
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                generate_member_id()
+
+    def test_a_member_insert_fails_instead_of_getting_a_timestamp_id(self):
+        # The real flow: Member.before_save -> _handle_id_generation -> generate_member_id.
+        # Built directly: the factories pre-set a member_id and re-wrap any exception.
+        before_count = frappe.db.count("Member")
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                frappe.get_doc(
+                    {
+                        "doctype": "Member",
+                        "first_name": "Idfault",
+                        "last_name": f"Probe-{frappe.generate_hash(length=6)}",
+                        "email": f"idfault-{frappe.generate_hash(length=8)}@test.invalid",
+                        "birth_date": frappe.utils.add_days(frappe.utils.getdate(), -9000),
+                        "status": "Active",
+                    }
+                ).insert(ignore_permissions=True)
+        self.assertGreaterEqual(self.lock_attempts, 1, "the insert never reached the counter lock")
+        self.assertEqual(frappe.db.count("Member"), before_count)

@@ -18,9 +18,11 @@ does not need to know which page invoked it.
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, today
 
 from verenigingen.utils.settings_utils import get_mollie_days_back_limit
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import validate_mollie_payment_ids
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 def bulk_retrieve_all_member_payments(
@@ -110,7 +112,6 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
     Returns:
         Dict with payments grouped by member match status
     """
-    from datetime import datetime, timedelta
 
     from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
     from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
@@ -147,9 +148,9 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
         matcher = get_member_payment_matcher()
 
         # Calculate date cutoff (use created_at for consistency with customer mode)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-        start_date_str = start_date.strftime("%Y-%m-%d")
+        # Site-local days on both sides: the cutoff is today's site day and each payment is
+        # dated by the site-local day of created_at (#2192).
+        start_date_str = str(add_days(today(), -days_back))
 
         # Get global payments list
         client = mollie_client.sdk_client
@@ -180,9 +181,9 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
 
                 # Check date filter using created_at (consistent with customer mode)
                 if hasattr(payment, "created_at") and payment.created_at:
-                    payment_date_str = payment.created_at[:10]  # YYYY-MM-DD
+                    payment_date = mollie_timestamp_to_local_date(payment.created_at)
 
-                    if payment_date_str < start_date_str:
+                    if payment_date is not None and str(payment_date) < start_date_str:
                         result["total_filtered_by_date"] += 1
                         consecutive_old_payments += 1
                         # Early termination after 50 consecutive old payments

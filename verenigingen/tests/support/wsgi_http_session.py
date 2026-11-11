@@ -28,13 +28,16 @@ from verenigingen.tests.harness_logger import get_harness_logger
 # Runs in the child. Each case is {"name", "endpoint", "login": None | {"usr", "pwd"},
 # "csrf": False | "valid" | "wrong" | "missing", "json": dict}. A False csrf never loads the desk,
 # so the session has no token yet (and Frappe does not enforce CSRF until one exists, #2367).
+# ``patches`` are dotted targets patched to a MagicMock for the whole child run (outbound side effects).
 _CHILD = textwrap.dedent(
     r"""
     import json, re, sys, time
+    from contextlib import ExitStack
+    from unittest.mock import patch
 
     import frappe
 
-    site, cases = {site!r}, json.loads({cases!r})
+    site, cases, patches = {site!r}, json.loads({cases!r}), {patches!r}
     frappe.init(site=site)
     frappe.connect()
     frappe.destroy()
@@ -43,31 +46,39 @@ _CHILD = textwrap.dedent(
     from werkzeug.test import Client
 
     out = {{}}
-    for case in cases:
-        client = Client(frappe.app.application)  # keeps the session cookie
-        headers = {{"X-Frappe-Site-Name": site}}
-        if case["login"]:
-            login = client.post("/api/method/login", data=case["login"], headers=headers)
-            assert login.status_code == 200, login.get_data(as_text=True)
-            if case["csrf"]:
-                # Loading the desk page is where a browser's session gets its token
-                # (frappe.csrf_token = "..."); Frappe only enforces CSRF once one exists.
-                desk = client.get("/desk", headers=headers)
-                token = re.search(r'frappe\.csrf_token = "([^"]+)"', desk.get_data(as_text=True)).group(1)
-                if case["csrf"] == "valid":
-                    headers["X-Frappe-CSRF-Token"] = token
-                elif case["csrf"] == "wrong":
-                    headers["X-Frappe-CSRF-Token"] = "not-" + token
-        response = client.post(case["endpoint"], json=case["json"], headers=headers)
-        out[case["name"]] = {{"status": response.status_code, "body": response.get_data(as_text=True)}}
+    with ExitStack() as stack:
+        for target in patches:
+            stack.enter_context(patch(target))
+        for case in cases:
+            client = Client(frappe.app.application)  # keeps the session cookie
+            headers = {{"X-Frappe-Site-Name": site}}
+            if case["login"]:
+                login = client.post("/api/method/login", data=case["login"], headers=headers)
+                assert login.status_code == 200, login.get_data(as_text=True)
+                if case["csrf"]:
+                    # Loading the desk page is where a browser's session gets its token
+                    # (frappe.csrf_token = "..."); Frappe only enforces CSRF once one exists.
+                    desk = client.get("/desk", headers=headers)
+                    token = re.search(r'frappe\.csrf_token = "([^"]+)"', desk.get_data(as_text=True)).group(1)
+                    if case["csrf"] == "valid":
+                        headers["X-Frappe-CSRF-Token"] = token
+                    elif case["csrf"] == "wrong":
+                        headers["X-Frappe-CSRF-Token"] = "not-" + token
+            started = time.time()
+            response = client.post(case["endpoint"], json=case["json"], headers=headers)
+            out[case["name"]] = {{
+                "status": response.status_code,
+                "body": response.get_data(as_text=True),
+                "ms": (time.time() - started) * 1000,
+            }}
     print("RESULT" + json.dumps(out))
     """
 )
 
 
-def run_wsgi_cases(*cases):
-    """Run the cases through the WSGI app in a child process; return {name: {"status", "body"}}."""
-    script = _CHILD.format(site=frappe.local.site, cases=json.dumps(list(cases)))
+def run_wsgi_cases(*cases, patches=()):
+    """Run the cases through the WSGI app in a child process; return {name: {"status", "body", "ms"}}."""
+    script = _CHILD.format(site=frappe.local.site, cases=json.dumps(list(cases)), patches=list(patches))
     result = subprocess.run(
         [sys.executable, "-W", "ignore", "-c", script],
         cwd=os.path.join(get_bench_path(), "sites"),
@@ -147,8 +158,10 @@ class CommittedLoginUsersMixin:
         self._login_users = []
         self.addCleanup(self._cleanup_login_users)
         emails = {}
-        for label, role_profile in role_profile_by_label.items():
-            emails[label] = _create_committed_login_user(label, self.password, role_profile)
+        for label, spec in role_profile_by_label.items():
+            # A role profile name, or (role profile, extra direct roles).
+            role_profile, extra_roles = (spec, ()) if isinstance(spec, str) else spec
+            emails[label] = _create_committed_login_user(label, self.password, role_profile, extra_roles)
             self._login_users.append(emails[label])
         return emails
 

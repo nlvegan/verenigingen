@@ -5,6 +5,7 @@ Unified service layer for all Mollie API debugging operations
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.error_handling import sanitize_error_for_audit
@@ -23,6 +24,7 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     validate_mollie_amount,
 )
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 class MollieDebugService(StatelessService):
@@ -2442,8 +2444,9 @@ class MollieDebugService(StatelessService):
         if not (hasattr(payment, "created_at") and payment.created_at):
             return False
 
-        payment_date_str = payment.created_at[:10]
-        if payment_date_str < start_date_str:
+        # Site-local day of created_at, not the UTC day of the timestamp (#2192)
+        payment_date = mollie_timestamp_to_local_date(payment.created_at)
+        if payment_date is not None and str(payment_date) < start_date_str:
             result["total_filtered_by_date"] += 1
             consecutive_old_payments += 1
             result["_consecutive_old"] = consecutive_old_payments
@@ -2567,8 +2570,6 @@ class MollieDebugService(StatelessService):
                 - members: List of member details with payments
                 - api_calls_made: Number of API calls to Mollie
         """
-        from datetime import datetime, timedelta
-
         from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
             get_member_payment_matcher,
         )
@@ -2607,9 +2608,8 @@ class MollieDebugService(StatelessService):
             )
 
             # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days_back)
-            start_date_str = start_date.strftime("%Y-%m-%d")
+            # Site-local days on both sides (#2192)
+            start_date_str = str(add_days(today(), -days_back))
 
             # Get raw Mollie client
             client = self.mollie_client.sdk_client
