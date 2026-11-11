@@ -85,13 +85,28 @@ OLD_STOCK = {
 }
 
 
+# The seeder's own inline style. A row seeded while frappe.flags.in_install is set (setup_membership_
+# application_system) skips Frappe's content sanitiser (document.py), so it is stored VERBATIM with this
+# spaced style; only the admin-button path stores the minified form that OLD_STOCK holds.
+MINIFIED_STYLE = "background:#fff3cd;border:1px solid #ffeaa7;padding:15px;border-radius:5px;margin:15px 0"
+SPACED_STYLE = (
+    "background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;"
+)
+
+
+def _stored_forms(old):
+    """The two shapes the old stock text can have on disk: minified, and install-seeded verbatim."""
+    return (old, old.replace(MINIFIED_STYLE, SPACED_STYLE))
+
+
 def execute():
     from verenigingen.services.communication.email_service import invalidate_template_cache
 
     for name, old in OLD_STOCK.items():
-        if frappe.db.get_value("Email Template", name, "response") != old:
+        stored = frappe.db.get_value("Email Template", name, "response")
+        if stored not in _stored_forms(old):
             continue
         # response only: the subject and `modified` bookkeeping of an untouched row stay as they were
-        new = old.replace("{{ reason }}", "{{ reason|e }}")
+        new = stored.replace("{{ reason }}", "{{ reason|e }}")
         frappe.db.set_value("Email Template", name, "response", new, update_modified=False)
         invalidate_template_cache(name)
