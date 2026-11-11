@@ -61,11 +61,13 @@ jobs:
     - name: Run Black formatting check
       run: |
         echo "Checking code formatting with Black..."
+        # advisory by design: style/security report, not a gate
         black --check --diff . || echo "⚠️ Code formatting issues found. Run 'black .' to fix."
 
     - name: Run isort import sorting check
       run: |
         echo "Checking import sorting with isort..."
+        # advisory by design: style/security report, not a gate
         isort --check-only --diff . || echo "⚠️ Import sorting issues found. Run 'isort .' to fix."
 
     - name: Run Flake8 linting
@@ -76,6 +78,7 @@ jobs:
     - name: Run Bandit security check
       run: |
         echo "Running security checks with Bandit..."
+        # advisory by design: style/security report, not a gate
         bandit -r . -f json -o bandit-results.json || echo "⚠️ Security issues found."
 
     - name: Upload Bandit results

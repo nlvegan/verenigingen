@@ -25,7 +25,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from test_workflow_field_validator_exit_code import _SWALLOW, steps_running
+try:
+    from test_workflow_field_validator_exit_code import _SWALLOW, steps_running
+except ImportError:  # dotted-module run: python -m unittest scripts.validation.tests.<name>
+    from .test_workflow_field_validator_exit_code import _SWALLOW, steps_running
 
 _WORKFLOW = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "ci.yml"
 

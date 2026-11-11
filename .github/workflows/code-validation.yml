@@ -62,6 +62,9 @@ jobs:
         pip install pathlib
         # template_escaping_validator (#1890) and its unit test parse Jinja
         pip install jinja2
+        # test_workflow_ci_syntax_gates (#2399) runs flake8 against a scratch tree; without it
+        # that test skips
+        pip install flake8
 
     # #2190: no `|| echo`. continue-on-error keeps this job green (the other validators here
     # are advisory too) but, unlike the `|| echo`, leaves the step's `outcome` real, so the
