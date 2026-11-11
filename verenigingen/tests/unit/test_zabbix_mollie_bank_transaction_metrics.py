@@ -81,18 +81,8 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
         self.assertEqual(bt.status, "Unreconciled" if submitted else "Pending")
         return bt
 
-    def _back_date_creation(self, bt, creation):
-        """Probe shortcut: no flow yields an old row inside a test, so set ``creation``."""
-        frappe.db.set_value("Bank Transaction", bt.name, "creation", creation, update_modified=False)
-
-    def test_a_submitted_reconciled_row_in_the_window_is_not_unreconciled(self):
-        """Control: a row reconciled through ERPNext's own "create voucher" flow.
-
-        ``create_journal_entry_bts`` is what the Bank Reconciliation Tool runs; it books a
-        Journal Entry for the row and allocates it, so ERPNext (not this test) derives
-        status "Reconciled". Without this row a metric that treated every submitted row
-        as unreconciled would pass.
-        """
+    def _reconcile_through_erpnext(self, bt):
+        """ERPNext's own "create voucher" flow: it allocates, ERPNext derives "Reconciled"."""
         from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
             create_journal_entry_bts,
         )
@@ -101,9 +91,6 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
             "Account", {"company": self.company, "root_type": "Income", "is_group": 0}, "name"
         )
         self.assertTrue(income, "the shared test company has no income leaf account")
-        bt = self._baltr(submitted=True)
-        before = self._metrics()
-
         je = create_journal_entry_bts(
             bt.name,
             reference_number=bt.reference_number,
@@ -116,6 +103,23 @@ class TestZabbixMollieBankTransactionMetrics(BTRBase):
         self.track_doc("Journal Entry", je_doc.name)
         bt.reload()
         self.assertEqual(bt.status, "Reconciled", "ERPNext did not reconcile the row")
+
+    def _back_date_creation(self, bt, creation):
+        """Probe shortcut: no flow yields an old row inside a test, so set ``creation``."""
+        frappe.db.set_value("Bank Transaction", bt.name, "creation", creation, update_modified=False)
+
+    def test_a_submitted_reconciled_row_in_the_window_is_not_unreconciled(self):
+        """Control: a row reconciled through ERPNext's own "create voucher" flow.
+
+        ``create_journal_entry_bts`` is what the Bank Reconciliation Tool runs; it books a
+        Journal Entry for the row and allocates it, so ERPNext (not this test) derives
+        status "Reconciled". Without this row a metric that treated every submitted row
+        as unreconciled would pass.
+        """
+        bt = self._baltr(submitted=True)
+        before = self._metrics()
+
+        self._reconcile_through_erpnext(bt)
 
         after = self._metrics()
 
