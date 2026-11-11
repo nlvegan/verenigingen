@@ -260,11 +260,7 @@ def handle_ponto_webhook():
         payload = frappe.request.get_data()
         signature = frappe.request.headers.get("Signature")
 
-        # Check if webhooks are enabled
         settings = frappe.get_single("Ponto Settings")
-        if not settings.enable_webhooks:
-            error_handler.log_info("Webhook received but webhooks are disabled")
-            return webhook_ack(messages_before)
 
         # Verify webhook signature (JWT/JWKS)
         # SECURITY: When require_webhook_signature is enabled, reject unsigned requests
@@ -299,6 +295,14 @@ def handle_ponto_webhook():
                 "Webhook received without signature - INSECURE MODE. "
                 "Enable require_webhook_signature in Ponto Settings for production."
             )
+
+        # Honour enable_webhooks only AFTER the request is authenticated (#1813): checked
+        # first, an anonymous caller could read from the status code (200 off, 401 on)
+        # whether the integration is enabled. A genuine, signed delivery to a disabled
+        # integration is still acked so Ponto does not keep retrying it.
+        if not settings.enable_webhooks:
+            error_handler.log_info("Webhook received but webhooks are disabled")
+            return webhook_ack(messages_before)
 
         # Parse the webhook payload
         try:
