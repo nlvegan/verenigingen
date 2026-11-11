@@ -26,7 +26,7 @@ def get_context(context):
     if frappe.session.user == "Guest":
         back = f"/payment_retry?member={quote(member_id or '', safe='')}&invoice={quote(invoice_id or '', safe='')}"
         frappe.local.flags.redirect_location = f"/login?redirect-to={quote(back, safe='')}"
-        raise frappe.Redirect
+        raise frappe.Redirect(302)
 
     # Member.autoname and Sales Invoice's naming_series are both sequential
     # and guessable, and "the invoice belongs to this member" only checks

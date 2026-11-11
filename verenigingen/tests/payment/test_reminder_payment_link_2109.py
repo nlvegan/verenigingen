@@ -17,7 +17,11 @@ from verenigingen.setup.notification_registry_setup import ensure_notification_r
 from verenigingen.templates.pages import payment_retry
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
-from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns, configure_notification_key
+from verenigingen.tests.utils.reminder_mail_state import (
+    clear_email_cooldowns,
+    configure_notification_key,
+    ensure_outgoing_email_account,
+)
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates, _load_fixture_rows
 
 REMINDER_TYPES = ["Friendly Reminder", "Urgent Notice", "Final Notice", "Bulk Reminder"]
@@ -38,7 +42,7 @@ class TestReminderPaymentLink(PortalSelfServiceTestMixin, EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self._ensure_outgoing_account()
+        ensure_outgoing_email_account(self)
         ensure_notification_registry_rows()
         fixture = _load_fixture_rows()
         for name in TEMPLATES:
@@ -75,25 +79,6 @@ class TestReminderPaymentLink(PortalSelfServiceTestMixin, EnhancedTestCase):
         super().tearDown()
 
     # ---- helpers -------------------------------------------------------
-
-    def _ensure_outgoing_account(self):
-        if frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1}):
-            return
-        account = frappe.get_doc(
-            {
-                "doctype": "Email Account",
-                "email_account_name": "Test Outgoing",
-                "email_id": "test-outgoing@example.com",
-                "enable_outgoing": 1,
-                "default_outgoing": 1,
-                "smtp_server": "localhost",
-                "smtp_port": 25,
-                "login_id_is_different": 0,
-            }
-        )
-        account.flags.ignore_validate = True
-        account.flags.ignore_mandatory = True
-        account.insert()
 
     def _overdue_invoice(self, posting_offset, due_offset, amount):
         invoice = self.create_test_sales_invoice(
@@ -152,8 +137,9 @@ class TestReminderPaymentLink(PortalSelfServiceTestMixin, EnhancedTestCase):
     def test_logged_out_visitor_is_sent_to_login_and_back_to_the_same_url(self):
         frappe.set_user("Guest")
         frappe.local.form_dict = frappe._dict({"member": self.member.name, "invoice": self.oldest})
-        with self.assertRaises(frappe.Redirect):
+        with self.assertRaises(frappe.Redirect) as raised:
             payment_retry.get_context(frappe._dict())
+        self.assertEqual(raised.exception.args, (302,))
         back = f"/payment_retry?member={self.member.name}&invoice={self.oldest}"
         self.assertEqual(
             frappe.local.flags.redirect_location, f"/login?redirect-to={quote(back, safe='')}"
@@ -186,6 +172,18 @@ class TestReminderPaymentLink(PortalSelfServiceTestMixin, EnhancedTestCase):
         context = frappe._dict()
         payment_retry.get_context(context)
         self.assertEqual(context.invoice.name, self.oldest)
+
+    def test_invoice_naming_another_member_is_not_shown_even_on_the_members_customer(self):
+        """Control: a Customer shared by two Members must not open the other Member's invoice."""
+        other = self.create_test_member(birth_date="1994-01-01")
+        shared = self.create_test_sales_invoice(customer=self.member.name)  # on THIS member's customer
+        frappe.db.set_value("Sales Invoice", shared.name, "member", other.name)  # ...but naming another
+        user = self._link_member_to_user(self.member)
+        frappe.set_user(user.name)
+        frappe.local.form_dict = frappe._dict({"member": self.member.name, "invoice": shared.name})
+        context = frappe._dict()
+        payment_retry.get_context(context)
+        self.assertIsNone(context.invoice)
 
     def test_blank_member_invoice_of_another_customer_is_not_shown(self):
         """Control for the test above: a blank `member` does not make any invoice the member's."""
