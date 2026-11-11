@@ -8,6 +8,7 @@
  * @version 1.0.0
  */
 
+const Ajv = require('ajv');
 const { SimpleAPIContractTester } = require('../setup/api-contract-simple');
 
 require('../setup/frappe-mocks').setupTestMocks();
@@ -17,6 +18,10 @@ describe('API Contract Performance Tests', () => {
 
 	beforeEach(() => {
 		tester = new SimpleAPIContractTester();
+	});
+
+	afterEach(() => {
+		jest.restoreAllMocks();
 	});
 
 	describe('Validator Caching', () => {
@@ -41,14 +46,14 @@ describe('API Contract Performance Tests', () => {
 			expect(result2.performance.compilationTime).toBe(0);
 		});
 
-		it('should show significant performance improvement with caching', () => {
+		it('recompiles nothing on a cache hit', () => {
 			const method = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
 			const validArgs = { iban: 'NL91ABNA0417164300' };
 
 			// Assert caching by what it saves (schema compilations), not by wall-clock
 			// timings: a ratio of two sub-millisecond timings on a shared CI runner
 			// flaked (#2420). A cache hit must not recompile the schema.
-			const compileSpy = jest.spyOn(tester.ajv, 'compile');
+			const compileSpy = jest.spyOn(Ajv.prototype, 'compile');
 
 			const result1 = tester.validateFrappeCall({ method, args: validArgs });
 			expect(result1.valid).toBe(true);
@@ -59,6 +64,9 @@ describe('API Contract Performance Tests', () => {
 			expect(result2.valid).toBe(true);
 			expect(result2.performance.cacheHit).toBe(true);
 			expect(compileSpy).toHaveBeenCalledTimes(1); // no recompilation on the cached call
+			// The hit must reuse the stored validator, not compile elsewhere (e.g. a fresh Ajv)
+			expect(tester.compiledValidators.size).toBe(1);
+			expect(tester.compiledValidators.get(method)).toBe(compileSpy.mock.results[0].value);
 		});
 
 		it('should maintain separate cache entries for different methods', () => {
@@ -174,7 +182,7 @@ describe('API Contract Performance Tests', () => {
 				'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban': { iban: 'NL91ABNA0417164300' }
 			};
 
-			const compileSpy = jest.spyOn(tester.ajv, 'compile');
+			const compileSpy = jest.spyOn(Ajv.prototype, 'compile');
 
 			// Perform initial validations (cache misses)
 			const initialStart = performance.now();
@@ -193,6 +201,10 @@ describe('API Contract Performance Tests', () => {
 			// Cached rounds must not recompile any schema (count, not wall-clock: #2420).
 			// Timings below are informational only.
 			expect(compileSpy).toHaveBeenCalledTimes(methods.length);
+			expect(tester.compiledValidators.size).toBe(methods.length);
+			methods.forEach((method, i) => {
+				expect(tester.compiledValidators.get(method)).toBe(compileSpy.mock.results[i].value);
+			});
 
 			const metrics = tester.getPerformanceMetrics();
 			console.log('🚀 Performance Benchmark Results:');
