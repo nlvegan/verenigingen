@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -184,7 +185,10 @@ class PaymentEntryFactory:
             pe.insert()
 
             try:
-                pe.submit()
+                # Savepoint: a submit that fails in on_submit has already written
+                # docstatus 1, which delete_doc below cannot remove (#2406). Rolling back
+                # to the savepoint restores the draft, which it can.
+                submit_atomically(pe)
             except Exception as submit_error:
                 # Submit failed - clean up the inserted but unsubmitted PE
                 self._handle_orphan_cleanup(pe, submit_error, context, mollie_data)

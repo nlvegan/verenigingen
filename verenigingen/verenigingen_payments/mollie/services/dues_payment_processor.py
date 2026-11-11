@@ -23,6 +23,7 @@ from verenigingen.services.billing.coverage_calculator import calculate_coverage
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
 from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
@@ -1323,8 +1324,9 @@ class DuesPaymentProcessor:
                 "custom_member": member_name,
             }
         )
-        payment_entry.insert()
-        payment_entry.submit()
+        # One unit: a failed submit must not leave a draft or a half-posted row holding
+        # this payment's reference and idempotency key (#2406).
+        insert_and_submit_atomically(payment_entry)
         return payment_entry
 
     @staticmethod

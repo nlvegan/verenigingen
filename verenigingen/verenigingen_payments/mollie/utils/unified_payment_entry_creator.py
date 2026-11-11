@@ -78,12 +78,11 @@ def create_unified_payment_entry(
 
         # Check if Payment Entry already exists (UNIFIED IDEMPOTENCY)
         existing_filters = {"payment_type": payment_type, "reference_no": reference_no, "party": customer}
-        if payment_type == "Pay":
-            # A cancelled reversal frees its key (find_booked_reversal's rule), so it is
-            # not "already exists" either: a submit that failed after docstatus 1 was
-            # written is cancelled by _discard_unposted_payment_entry, and the retry
-            # must book anew rather than be handed that cancelled entry (#2384).
-            existing_filters["docstatus"] = ["!=", 2]
+        # A cancelled entry is not "already exists" for either direction: a submit that
+        # failed after docstatus 1 was written is cancelled by
+        # _discard_unposted_payment_entry, and the retry must book anew rather than be
+        # handed that cancelled entry (#2384 reversals, #2406 forward payments).
+        existing_filters["docstatus"] = ["!=", 2]
         existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
         if not existing_pe and payment_type == "Pay":
             _free_cancelled_reversal_keys(reference_no, customer)

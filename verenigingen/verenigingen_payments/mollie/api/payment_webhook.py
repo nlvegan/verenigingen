@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 # Import extracted handlers
@@ -500,7 +501,13 @@ def create_payment_entry_for_donation(donation, mollie_data):
         # Check if Payment Entry already exists
         existing_pe = frappe.db.get_value(
             "Payment Entry",
-            {"payment_type": "Receive", "reference_no": mollie_data["payment_id"], "party": customer},
+            {
+                "payment_type": "Receive",
+                "reference_no": mollie_data["payment_id"],
+                "party": customer,
+                # A cancelled entry is not a booking (#2406)
+                "docstatus": ["!=", 2],
+            },
             "name",
         )
 
@@ -582,8 +589,9 @@ def create_payment_entry_for_donation(donation, mollie_data):
 
         # Use proper webhook user permissions - no bypass needed
         try:
-            pe.insert()
-            pe.submit()
+            # One unit: a failed submit must not leave a draft, or a docstatus-1 row with
+            # no ledger, claiming this payment's reference (#2406).
+            insert_and_submit_atomically(pe)
             frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
             return pe
         except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
@@ -612,7 +620,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
             frappe.logger().info("⚠️ Duplicate Payment Entry detected, fetching existing")
             existing_pe = frappe.db.get_value(
                 "Payment Entry",
-                {"reference_no": mollie_data["payment_id"], "party": customer},
+                {"reference_no": mollie_data["payment_id"], "party": customer, "docstatus": ["!=", 2]},
                 "name",
             )
             if existing_pe:
