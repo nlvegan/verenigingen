@@ -425,3 +425,48 @@ def _alert_blocked_once(doc, kind, block_text, details):
             _log_undelivered(details, delivery, UNBOOKABLE_KEY, kind.undelivered_title)
     if not logged:
         frappe.log_error(title=kind.title, message=f"{details}\nNotification: {delivery}")
+
+
+ORPHAN_TITLE = "Ponto payment ORPHANED by a failed submit"
+
+
+def compensate_failed_submit(doc, ponto_id, delete_at_ponto):
+    """Undo the Ponto create after a submit failed LATER than ``before_submit`` (#2294).
+
+    ``before_submit`` calls Ponto first and Frappe writes the row afterwards, so a failure of
+    that write (or of ``on_submit``) leaves a real, unsigned payment at Ponto that no local row
+    points at. The caller re-raises the original error; this only cleans up after it.
+
+    ``delete_at_ponto`` is the doctype's own Ponto delete call (the one ``cancel_ponto_payment`` /
+    ``cancel_ponto_request`` make on cancel); it raises when Ponto refuses. Then the
+    orphan is still there: an Error Log row (MyISAM, so it survives the rollback that follows
+    the re-raised error) and the registered staff alert name its Ponto id so someone can delete
+    it by hand. No commit here: this runs in the failing request's own transaction.
+
+    Never raises: a failure here must not replace the error the caller is about to re-raise.
+    """
+    try:
+        delete_at_ponto()
+        return
+    except Exception as delete_error:
+        reason = str(delete_error)
+    details = (
+        f"{ORPHAN_TITLE}: {doc.doctype} {doc.name}. Ponto created payment {ponto_id}, the submit then "
+        f"failed, and deleting it at Ponto failed too ({reason}). It is unsigned and no local row points at it. "
+        f"Action required: delete Ponto id {ponto_id} in Ponto by hand."
+    )
+    try:
+        frappe.log_error(title=ORPHAN_TITLE, message=details)
+        from verenigingen.utils.notification_helpers import notify_administrators
+
+        notify_administrators(
+            subject=f"{ORPHAN_TITLE}: {doc.doctype} {doc.name} ({ponto_id})",
+            message=f"<p>{escape_html(details)}</p>",
+            notification_key="ponto_orphaned_payment",  # literal: key discovery greps for it
+            document_type=doc.doctype,
+            document_name=doc.name,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+    except Exception:
+        frappe.log_error(title=f"{ORPHAN_TITLE}: the staff alert itself failed", message=details)

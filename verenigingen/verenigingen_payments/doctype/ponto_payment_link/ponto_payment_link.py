@@ -44,6 +44,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     alert_executed_on_cancelled_row,
     as_system_update,
     as_system_update_from_db,
+    compensate_failed_submit,
     persist_cancelled_status,
     refuse_unless_system_update,
 )
@@ -71,6 +72,16 @@ class PontoPaymentLink(Document):
     def before_submit(self):
         """Create payment initiation request in Ponto API before submit."""
         self.create_ponto_payment_request()
+
+    def _submit(self):
+        """Submit, and delete the Ponto request again if anything after its creation fails (#2294)."""
+        self.flags.ponto_created_id = None
+        try:
+            return super()._submit()
+        except Exception:
+            if self.flags.ponto_created_id:
+                compensate_failed_submit(self, self.flags.ponto_created_id, self.delete_ponto_request)
+            raise
 
     def before_update_after_submit(self):
         """Only system code may change status / debtor / invoice / entry on a submitted row (#1907)."""
@@ -251,6 +262,7 @@ class PontoPaymentLink(Document):
 
             # Update document with Ponto response
             self.ponto_request_id = result.id
+            self.flags.ponto_created_id = result.id  # _submit deletes it if the save fails (#2294)
             self.redirect_link = result.redirect_link
             self.status = "Pending Authorization"
 
@@ -288,12 +300,20 @@ class PontoPaymentLink(Document):
         )
 
         try:
-            client = get_betaalverzoek_client()
-            client.delete_payment_request(self.ponto_request_id)
+            self.delete_ponto_request()
             frappe.logger().info(f"Cancelled Ponto payment request {self.ponto_request_id}")
         except Exception as e:
             frappe.logger().warning(f"Failed to cancel Ponto payment request {self.ponto_request_id}: {e}")
             # Don't throw - the request may already be authorized or executed
+
+    def delete_ponto_request(self):
+        """The Ponto delete call itself; raises on failure (on_cancel swallows, the failed-submit
+        compensation reports it, #2294)."""
+        from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
+            get_betaalverzoek_client,
+        )
+
+        get_betaalverzoek_client().delete_payment_request(self.ponto_request_id)
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
