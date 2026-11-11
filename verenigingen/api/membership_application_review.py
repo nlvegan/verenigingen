@@ -427,6 +427,48 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
     return sent, skipped_reason
 
 
+def _request_mandate_signature_safe(member):
+    """Mail a SEPA Direct Debit applicant that their authorisation waits for their signature (#1836).
+
+    Fire-and-forget for the approval, like the approval mail: a failure is logged and never undoes the
+    approval. Sends nothing when the member already has an Active membership mandate (or several, #607).
+    """
+    from verenigingen.services.communication.email_service import get_email_service
+    from verenigingen.services.payment.sepa_mandate_manager import member_needs_mandate_signature
+
+    try:
+        if not member.email or not member_needs_mandate_signature(member.name):
+            return False
+        result = get_email_service().send_templated_email(
+            template_name="sepa_mandate_signature_request",
+            recipients=[member.email],
+            context={
+                "member": member,
+                "dashboard_url": frappe.utils.get_url("/payment_dashboard"),
+                "company": frappe.defaults.get_global_default("company"),
+                "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")
+                or "info@verenigingen.nl",
+            },
+            reference_doctype="Member",
+            reference_name=member.name,
+            notification_key="member_sepa_mandate_signature_requested",
+        )
+        if not result.success:
+            frappe.log_error(
+                title="SEPA Mandate Signature Request Failed",
+                message=f"Could not mail {member.name} the mandate signature request: {'; '.join(result.errors or [])}",
+            )
+        return bool(result.success)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:  # swallow-ok: best-effort (logged below; the approval must stand)
+        frappe.log_error(
+            title="SEPA Mandate Signature Request Exception",
+            message=f"{member.name}: {frappe.get_traceback()}",
+        )
+        return False
+
+
 def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
     """Build approval response dict with 5-way user account status branching.
 
@@ -631,6 +673,9 @@ def _approve_membership_application_locked(
     # it WAITS for the invoice (#1900, ruling 2026-11-03 round 2). Only create_invoice=False sends it without one.
     if invoice or not create_invoice:
         _send_approval_email_safe(member, invoice, membership_type_doc)
+    # A SEPA applicant gets NO mandate from approval: a mandate is the member's own authorisation (#1836
+    # ruling). Approval asks them to sign one instead; until then the first invoice is paid by transfer.
+    _request_mandate_signature_safe(member)
 
     # Queue background job to update payment history with initial invoice
     if invoice:
