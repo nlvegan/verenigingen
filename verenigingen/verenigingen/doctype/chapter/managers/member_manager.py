@@ -307,6 +307,7 @@ class MemberManager(BaseManager):
         introduction: str = None,
         website_url: str = None,
         notify: bool = True,
+        acting_as_member: bool = False,
     ) -> Dict:
         """
         Request to join this chapter (creates pending membership)
@@ -316,6 +317,9 @@ class MemberManager(BaseManager):
             introduction: Member introduction text
             website_url: Member website URL
             notify: Whether to send notification
+            acting_as_member: The caller was already proved to BE `member_id` (Member.user);
+                a rejoin writes the member's own existing row and needs no Chapter:write
+                (#2165, #2210), as the first-time request already does not.
 
         Returns:
             Dict with operation result
@@ -343,7 +347,7 @@ class MemberManager(BaseManager):
 
             # Check if member already exists in chapter
             existing_member = self._find_chapter_member(member_id)
-            if existing_member:
+            if existing_member and existing_member.enabled:
                 if existing_member.status == "Pending":
                     return {
                         "success": False,
@@ -356,35 +360,43 @@ class MemberManager(BaseManager):
                         "message": _("You are already a member of this chapter"),
                         "action": "already_member",
                     }
-                elif existing_member.status == "Inactive" and existing_member.enabled:
-                    # Reactivate request
-                    existing_member.status = "Pending"
-                    existing_member.chapter_join_date = None
+            if existing_member:
+                # #2210: the member's row is still there but they are not in the chapter: they left
+                # (remove_member leaves status Active, enabled=0), were terminated and reinstated
+                # (Inactive), or withdrew a request (Pending, enabled=0). A rejoin REACTIVATES that
+                # row, never a second one (maintainer ruling 2026-11-11). The earlier period stays recorded
+                # in Member.chapter_membership_history (its Quit entry, with the leave reason); the
+                # row only carries the current period. The new period's history entry is written by
+                # Chapter.handle_member_changes when the save flips enabled 0 -> 1.
+                existing_member.status = "Pending"
+                existing_member.enabled = 1
+                existing_member.chapter_join_date = None
+                existing_member.leave_reason = None
 
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    save_result = secure_document_operation(
-                        operation="save",
-                        doc=self.chapter_doc,
-                        justification=f"Reactivate membership request for {member_id} in chapter {self.chapter_name}",
-                        required_permissions=["Chapter:write"],
-                    )
+                save_result = secure_document_operation(
+                    operation="save",
+                    doc=self.chapter_doc,
+                    justification=f"Reactivate membership request for {member_id} in chapter {self.chapter_name}",
+                    required_permissions=["Chapter:write"],
+                    system_operation=acting_as_member,
+                )
 
-                    if not save_result.success:
-                        frappe.throw(_("Unable to reactivate membership request. Please check permissions."))
+                if not save_result.success:
+                    frappe.throw(_("Unable to reactivate membership request. Please check permissions."))
 
-                    self.create_comment(
-                        "Info",
-                        _("Member {0} requested to rejoin chapter").format(self._get_member_name(member_id)),
-                    )
+                self.create_comment(
+                    "Info",
+                    _("Member {0} requested to rejoin chapter").format(self._get_member_name(member_id)),
+                )
 
-                    if notify:
-                        self._notify_board_of_join_request(member_id)
+                if notify:
+                    self._notify_board_of_join_request(member_id)
 
-                    return {
-                        "success": True,
-                        "message": _("Your request to rejoin has been submitted for approval"),
-                        "action": "rejoin_requested",
-                    }
+                return {
+                    "success": True,
+                    "message": _("Your request to rejoin has been submitted for approval"),
+                    "action": "rejoin_requested",
+                }
 
             # Get member details
             member_doc = frappe.get_doc("Member", member_id)

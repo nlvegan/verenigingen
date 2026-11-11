@@ -66,11 +66,33 @@ class PaymentGateway(ABC):
         """Get payment status from gateway"""
 
 
+def _refuse_sales_invoice(ref_doc):
+    """Refusal for a Sales Invoice reference, or None for anything else (#2238).
+
+    BankTransfer, Ponto and SEPA were written for a Donation: they read ``amount`` /
+    ``donor`` and write ``payment_id`` / ``sepa_mandate``, none of which a Sales Invoice has.
+    They already failed closed, but only by accident and mid-way (Ponto leaked an internal
+    AttributeError text to the caller). Maintainer ruling 2026-11-10: refuse BEFORE any side
+    effect, with the same wording as the Mollie gate (#2225), until #2244 is settled. Lives
+    in the gateways, not the hook, so it covers every caller of ``process_payment``.
+    """
+    if getattr(ref_doc, "doctype", None) == "Sales Invoice":
+        return {
+            "status": "error",
+            "message": _("Paying an invoice through this page is not available yet."),
+        }
+    return None
+
+
 class BankTransferGateway(PaymentGateway):
     """Handler for bank transfer payments"""
 
     def process_payment(self, donation, form_data):
         """Generate bank transfer instructions"""
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
         settings = frappe.get_single("Verenigingen Settings")
         payments_settings = get_payments_settings()
         company = frappe.get_doc("Company", settings.company)
@@ -177,11 +199,9 @@ class MollieGateway(PaymentGateway):
             # webhook resolver cannot map the payment to the invoice, so the money is never
             # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
             # mollie_checkout so it covers every caller of process_payment.
-            if getattr(donation, "doctype", None) == "Sales Invoice":
-                return {
-                    "status": "error",
-                    "message": _("Paying an invoice through this page is not available yet."),
-                }
+            refusal = _refuse_sales_invoice(donation)
+            if refusal:
+                return refusal
 
             amount = self._amount_to_charge(donation)
             if amount is None:
@@ -834,6 +854,10 @@ class SEPAGateway(PaymentGateway):
 
     def process_payment(self, donation, form_data):
         """Set up SEPA direct debit mandate"""
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
         iban = form_data.get("donor_iban", "").replace(" ", "").upper()
 
         if not iban:
@@ -981,6 +1005,10 @@ class PontoGateway(PaymentGateway):
         Returns a redirect URL where the customer can authorize the payment
         at their own bank.
         """
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
         settings = frappe.get_single("Verenigingen Settings")
         payments_settings = get_payments_settings()
 

@@ -631,15 +631,12 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             currency = mollie_data.get("currency") or "EUR"
 
             # Extract and convert payment date
-            paid_at = mollie_data.get("paid_at")
-            if paid_at:
-                # Convert ISO string to date object
-                from dateutil import parser
+            # The site-local day of the UTC timestamp (#2378); today if it is missing
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
 
-                payment_date = parser.parse(paid_at).date()
-            else:
-                # Fallback to today if paid_at is missing
-                payment_date = frappe.utils.getdate()
+            payment_date = (
+                mollie_timestamp_to_local_date(mollie_data.get("paid_at")) or frappe.utils.getdate()
+            )
 
             # Build description with donation context
             donor_name = donor.donor_name or "Unknown Donor"

@@ -654,15 +654,10 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
             return True  # Already exists counts as success
 
         # Create new payment history entry
-        payment_date = mollie_data.get("paid_at") or frappe.utils.getdate()
-        if isinstance(payment_date, str):
-            try:
-                # Parse ISO datetime
-                from dateutil import parser
+        # The site-local day of the UTC timestamp (#2378)
+        from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
-                payment_date = parser.parse(payment_date).date()
-            except (ValueError, TypeError, ImportError):
-                payment_date = frappe.utils.getdate()
+        payment_date = mollie_timestamp_to_local_date(mollie_data.get("paid_at")) or frappe.utils.getdate()
 
         donation.append(
             "payments",

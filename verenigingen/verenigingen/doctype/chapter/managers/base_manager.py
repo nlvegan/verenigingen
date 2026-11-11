@@ -158,19 +158,36 @@ class BaseManager(ABC):
                     "content": content,
                 }
             )
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            # WHY system_operation: this is the chapter AUDIT SINK. It must be written whoever
+            # acts (a board member approving, a member leaving), and only System Manager /
+            # Website Manager hold Comment:create, so an acting-user check let the audited
+            # actor skip their own audit record (#2196, #2218). Only this one insert skips the
+            # DocPerm check; the Comment doctype's permissions are unchanged and the Comment
+            # stays owned by the acting user. Elevation is limited to what callers write: an
+            # "Info" comment on THIS chapter. Any other reference or type keeps the normal
+            # permission path, so this cannot be used to write comments on other documents.
             from verenigingen.utils.secure_operations import secure_document_operation
 
+            is_chapter_audit = (
+                comment_type == "Info"
+                and (reference_doctype or "Chapter") == "Chapter"
+                and (reference_name or self.chapter_name) == self.chapter_name
+            )
+            justification_target = reference_name or self.chapter_name
             comment_result = secure_document_operation(
                 operation="insert",
                 doc=comment_doc,
-                justification=f"Create chapter management comment for {reference_name}",
-                required_permissions=["Comment:create"],
+                justification=f"Create chapter management comment for {justification_target}",
+                required_permissions=None if is_chapter_audit else ["Comment:create"],
+                system_operation=is_chapter_audit,
             )
 
+            # A failed write is already recorded by secure_document_operation as a
+            # "Secure Operation Failed" Error Log row; the chapter action must not fail for it.
             if not comment_result.success:
-                frappe.logger().error(f"Failed to create chapter comment: {'; '.join(comment_result.errors)}")
-                # Don't fail the main operation for comment creation failure, just log it
+                self.log_action(
+                    "Chapter audit comment not written", {"errors": comment_result.errors}, "warning"
+                )
 
         except Exception as e:
             self.log_action("Failed to create comment", {"error": str(e), "content": content[:100]}, "error")

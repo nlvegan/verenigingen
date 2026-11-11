@@ -38,6 +38,7 @@ from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
+    persist_cancelled_status,
     refuse_unless_system_update,
 )
 
@@ -72,7 +73,7 @@ class PontoPaymentRequest(Document):
         """Handle cancellation."""
         if self.status == "Pending" and self.ponto_payment_id:
             self.cancel_ponto_payment()
-        self.status = "Cancelled"
+        persist_cancelled_status(self)
 
     def validate_currency(self):
         """Ensure currency is EUR for SEPA payments."""
