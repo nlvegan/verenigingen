@@ -81,13 +81,17 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 					__('Actions')
 				);
 
-				frm.add_custom_button(
-					__('Cancel Agreement'),
-					() => {
-						cancel_agreement_dialog(frm);
-					},
-					__('Actions')
-				);
+				// With a workflow, cancelling is its 'Cancel Agreement' action (#1850); the server
+				// refuses a plain cancel. frm.state_fieldname is set only when a workflow is active.
+				if (!frm.state_fieldname) {
+					frm.add_custom_button(
+						__('Cancel Agreement'),
+						() => {
+							cancel_agreement_dialog(frm);
+						},
+						__('Actions')
+					);
+				}
 
 				frm.add_custom_button(
 					__('Generate PDF'),

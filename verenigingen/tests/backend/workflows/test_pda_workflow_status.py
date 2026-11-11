@@ -285,7 +285,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
             self.track_doc("User", email)
         return email
 
-    def _as_admin(self):
+    def _as_admin_1850(self):
         frappe.set_user("Administrator")
 
     def _as_request(self, user):
@@ -319,7 +319,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._as_request(user)
         with self.assertRaisesRegex(frappe.ValidationError, "matching workflow action"):
             call()
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(self._pda_status(), before)
 
     def test_set_value_to_cancelled_refused_for_accounts_user(self):
@@ -369,7 +369,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
         with self.assertRaises(frappe.ValidationError):
             self._cancel_via_dispatcher()
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(self._pda_status(), before)
 
     def test_cancel_agreement_works_for_verenigingen_administrator_from_active(self):
@@ -377,7 +377,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._active()
         self._as_request(self._create_pda_user(profile="Verenigingen Administrator"))
         self.assertTrue(self._cancel_via_dispatcher("moved abroad"))
-        self._as_admin()
+        self._as_admin_1850()
         state = self._pda_status()
         self.assertEqual((state.status, state.workflow_state), ("Cancelled", "Cancelled"))
         row = frappe.db.get_value(
@@ -396,12 +396,38 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
         with self.assertRaises(frappe.ValidationError):
             self._cancel_via_dispatcher()
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(self._pda_status().status, "Draft")
         self._as_request(self._create_pda_user(profile="Verenigingen System Administrator"))
         self.assertTrue(self._cancel_via_dispatcher())
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(self._pda_status().status, "Cancelled")
+
+    def test_owner_va_can_cancel_own_active_agreement(self):
+        """Maintainer ruling: allow self-cancel. The agreement is OWNED by the very user who
+        cancels it (the setUp owner is replaced by a stranger, so this must be set explicitly)."""
+        va = self._create_pda_user(profile="Verenigingen Administrator")
+        self._active()
+        frappe.db.set_value(DOCTYPE, self.agreement.name, "owner", va, update_modified=False)
+        self._as_request(va)
+        self.assertTrue(self._cancel_via_dispatcher())
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status().status, "Cancelled")
+
+    def test_status_and_workflow_state_that_disagree_are_refused(self):
+        """N1: workflow_state moved (to Cancelled) but status says Completed. Only an exact
+        match passes; 'workflow_state changed at all' is the wrong guard."""
+        self._active()
+        self._make_end_date_reached()
+        self._prepare(cancellation_reason="donor request")
+        self._as_request(self._create_pda_user(profile="Verenigingen Administrator"))
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name).as_dict()
+        doc.update({"status": "Completed", "workflow_state": "Cancelled"})
+        with self.assertRaisesRegex(frappe.ValidationError, "matching workflow action"):
+            frappe.client.save(doc)
+        self._as_admin_1850()
+        state = self._pda_status()
+        self.assertEqual((state.status, state.workflow_state), ("Active", "Active"))
 
     def test_system_manager_completes_after_end_date_through_the_workflow(self):
         self._active()
@@ -409,7 +435,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self._as_request(self._create_pda_user(profile="Verenigingen System Administrator"))
         doc = frappe.get_doc(DOCTYPE, self.agreement.name)
         apply_workflow(doc, "Complete Agreement")
-        self._as_admin()
+        self._as_admin_1850()
         state = self._pda_status()
         self.assertEqual((state.status, state.workflow_state), ("Completed", "Completed"))
 
@@ -429,7 +455,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         doc = frappe.get_doc(DOCTYPE, self.agreement.name)
         doc.annual_amount = 1300
         doc.save()
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "annual_amount"), 1300)
 
     def test_insert_as_cancelled_refused_in_a_request(self):
@@ -458,5 +484,5 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         frappe.clear_cache(doctype=DOCTYPE)
         self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
         self.assertTrue(self._cancel_via_dispatcher())
-        self._as_admin()
+        self._as_admin_1850()
         self.assertEqual(self._pda_status().status, "Cancelled")
