@@ -16,7 +16,8 @@ Stated shortcuts:
 """
 
 import frappe
-from frappe.utils import add_days, add_months, getdate, today
+from unittest import mock
+from frappe.utils import add_days, add_months, getdate, now_datetime, today
 from freezegun import freeze_time
 
 from verenigingen.patches.v2_2 import cancel_schedules_paused_by_membership_cancel_2134 as patch
@@ -290,3 +291,174 @@ class TestCancelledMembershipDuesSchedule(ScheduleFrequencyFixtureMixin, Verenin
             "verenigingen.patches.v2_2.cancel_schedules_paused_by_membership_cancel_2134",
             patch_handler.get_patches_from_app("verenigingen"),
         )
+
+    # ------------------------------------------- review round: clause-by-clause pins
+
+    def _insert_schedule(self, membership, status):
+        """A second schedule row for the member. PROBE SHORTCUT: a direct amendment-style insert,
+        because the real flows no longer leave two schedules behind."""
+        schedule = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "schedule_name": f"R2134 {frappe.generate_hash(length=6)}",
+                "member": self.member.name,
+                "membership": membership.name,
+                "membership_type": membership.membership_type,
+                "contribution_mode": "Fixed",
+                "dues_rate": 20,
+                "billing_frequency": "Monthly",
+                "status": status,
+                "auto_generate": 1,
+                "next_invoice_date": today(),
+            }
+        )
+        schedule.flags.from_amendment = True
+        schedule.insert()
+        return schedule
+
+    def _cancelled_name(self):
+        return frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member.name, "status": "Cancelled"}, "name"
+        )
+
+    def _service(self):
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        return get_dues_schedule_lifecycle_service()
+
+    def test_cancelling_the_last_membership_cancels_a_live_schedule_linked_to_an_older_one(self):
+        """Member-wide: M1 Expired, its Active schedule still linked to M1 (M2's submit only re-types it).
+        Cancelling M2 must stop that schedule, though it is not linked to M2."""
+        first = self._submit("Monthly", -300)
+        # PROBE SHORTCUT: M1 expired by a direct write.
+        frappe.db.set_value("Membership", first.name, "status", "Expired")
+        second = self._submit("Monthly", 0)
+        schedule = self._only_schedule()
+        self.assertEqual((schedule.status, schedule.membership), ("Active", first.name), "precondition")
+
+        self._staff_cancel(second)
+
+        self.assertEqual(self._only_schedule().status, "Cancelled")
+
+    def test_cancelling_a_membership_leaves_the_schedule_while_another_live_membership_exists(self):
+        """Control: M1 is still live (Active, its renewal date behind M2's start so they do not overlap)."""
+        first = self._submit("Monthly", -300)
+        # PROBE SHORTCUT: renewal date moved so the two periods do not overlap.
+        frappe.db.set_value("Membership", first.name, "renewal_date", add_days(today(), -100))
+        # The sanctioned override for a second live membership (the "Create Anyway" action).
+        frappe.flags.allow_multiple_memberships = True
+        try:
+            second = self._submit("Monthly", 0)
+        finally:
+            frappe.flags.allow_multiple_memberships = False
+        schedule = self._only_schedule()
+        self.assertEqual((schedule.status, schedule.membership), ("Active", first.name), "precondition")
+
+        self._staff_cancel(second)
+
+        self.assertEqual(self._only_schedule().status, "Active")
+
+    def test_a_rejoin_after_an_immediate_cancel_membership_reuses_the_schedule(self):
+        """Only the status == Cancelled clause of the reuse rule (docstatus stays 1)."""
+        first = self._submit("Monthly", -300)
+        membership_module.cancel_membership(first.name, today(), "test", "Immediate")
+        self.assertEqual(frappe.db.get_value("Membership", first.name, "docstatus"), 1, "precondition")
+        schedule = self._only_schedule()
+        self.assertEqual(schedule.status, "Cancelled", "precondition")
+
+        second = self._submit("Monthly", 0)
+
+        reused = self._only_schedule()
+        self.assertEqual((reused.name, reused.status, reused.membership), (schedule.name, "Active", second.name))
+
+    def test_a_rejoin_after_an_end_of_period_cancellation_reuses_the_schedule(self):
+        """Only the Expired + End-of-Period clause: the membership is neither docstatus 2 nor Cancelled."""
+        first = self._submit("Monthly", -300)
+        first.reload()
+        first.cancellation_date = today()
+        first.cancellation_type = "End of Period"
+        first.flags.ignore_validate_update_after_submit = True
+        first.save()
+        # PROBE SHORTCUT: renewal date already past.
+        frappe.db.set_value("Membership", first.name, "renewal_date", add_days(today(), -100))
+        membership_module._process_membership_status(first.name, getdate(today()))
+        self.assertEqual(frappe.db.get_value("Membership", first.name, "status"), "Expired", "precondition")
+        schedule = self._only_schedule()
+        self.assertEqual(schedule.status, "Cancelled", "precondition")
+
+        second = self._submit("Monthly", 0)
+
+        reused = self._only_schedule()
+        self.assertEqual((reused.name, reused.status, reused.membership), (schedule.name, "Active", second.name))
+
+    def test_a_plain_expiry_is_not_a_reason_to_reuse_a_cancelled_schedule(self):
+        """Control for the clause above: Expired WITHOUT an End-of-Period cancellation."""
+        first = self._submit("Monthly", -300)
+        schedule_name = self._only_schedule().name
+        self._service().cancel_schedule(frappe.get_doc("Membership Dues Schedule", schedule_name), "admin")
+        frappe.db.set_value("Membership", first.name, "status", "Expired")
+
+        self.assertFalse(self._service().is_reusable_for_rejoin(self.member.name, schedule_name))
+
+    def test_no_reuse_while_the_member_also_has_a_non_cancelled_schedule(self):
+        first = self._submit("Monthly", -300)
+        self._staff_cancel(first)
+        self.assertIsNotNone(self._service().find_reusable_cancelled_schedule(self.member.name), "precondition")
+        self._insert_schedule(first, "Paused")
+        # PROBE SHORTCUT: the Cancelled schedule is made the LATEST, so only the all-Cancelled guard
+        # (not the "latest is Cancelled" check) can refuse.
+        frappe.db.set_value(
+            "Membership Dues Schedule", self._cancelled_name(), "modified", add_days(now_datetime(), 1)
+        )
+
+        self.assertIsNone(self._service().find_reusable_cancelled_schedule(self.member.name))
+
+    def test_with_two_cancelled_schedules_the_latest_is_the_one_reused(self):
+        first = self._submit("Monthly", -300)
+        self._staff_cancel(first)
+        older = self._only_schedule().name
+        newer = self._insert_schedule(first, "Cancelled").name
+        self.assertNotEqual(older, newer)
+
+        self.assertEqual(self._service().find_reusable_cancelled_schedule(self.member.name), newer)
+
+    # ------------------------------------------ scheduler failure is visible (N3)
+
+    def test_a_failing_end_of_period_cancel_is_logged_and_the_batch_continues(self):
+        other = self._create_schedule_test_member("Cancel2134b")
+        failing = self._submit("Monthly", -300)
+        working = self._submit_membership_via_template(
+            other, "Monthly", "Monthly", start_date=add_days(today(), -300)
+        )
+        for membership in (failing, working):
+            membership.reload()
+            membership.cancellation_date = today()
+            membership.cancellation_type = "End of Period"
+            membership.flags.ignore_validate_update_after_submit = True
+            membership.save()
+            # PROBE SHORTCUT: renewal date already past.
+            frappe.db.set_value("Membership", membership.name, "renewal_date", add_days(today(), -3))
+        real = membership_module.cancel_dues_schedule_if_end_of_period_cancelled
+
+        def fail_for_one(membership):
+            if membership.name == failing.name:
+                raise frappe.ValidationError("probe: cancel refused")
+            return real(membership)
+
+        from verenigingen.verenigingen.doctype.membership import scheduler
+
+        # Error Log is non-transactional and names are reused after a rollback: count the delta.
+        logged_before = frappe.db.count("Error Log", {"method": ["like", f"%{failing.name}%"]})
+
+        # Mock justified: fault injection. A schedule that cannot be cancelled cannot be built on demand.
+        with mock.patch.object(
+            membership_module, "cancel_dues_schedule_if_end_of_period_cancelled", fail_for_one
+        ):
+            scheduler._process_expired_memberships_impl()
+
+        self.assertEqual(frappe.db.get_value("Membership", working.name, "status"), "Expired")
+        self.assertEqual(frappe.db.get_value("Membership", failing.name, "status"), "Active")
+        logged = frappe.db.count("Error Log", {"method": ["like", f"%{failing.name}%"]})
+        self.assertEqual(logged - logged_before, 1, "the stuck membership leaves an Error Log row")

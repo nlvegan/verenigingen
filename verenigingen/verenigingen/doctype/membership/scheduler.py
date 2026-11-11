@@ -143,7 +143,11 @@ def _process_expired_memberships_impl():
             doc.update_member_status()
             count += 1
         except Exception as e:
-            frappe.logger().error(f"Error updating membership {membership.name}: {str(e)}")
+            # frappe.logger() writes nowhere a person reads; a membership stuck Active must be visible.
+            frappe.log_error(
+                title=f"Membership expiry failed: {membership.name}",
+                message=f"{e}\n\n{frappe.get_traceback()}",
+            )
 
     if count:
         frappe.logger().info(f"Processed {count} expired memberships")
