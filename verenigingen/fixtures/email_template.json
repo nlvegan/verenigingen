@@ -526,5 +526,17 @@
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Overdue Member Payments</h2>\n        <p class=\"email-subtitle\">{{ chapter.name|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>This is a notice for the board of {{ chapter.name|e }}.</p>\n        <p>{{ member_count|e }} member(s) of your chapter have overdue membership payments (total {{ total_overdue|e }}).</p>\n        <table class=\"email-data-table\">\n            <thead>\n                <tr><th>Member</th><th>Total overdue</th><th>Days overdue</th><th>Invoices</th></tr>\n            </thead>\n            <tbody>\n            {% for m in members %}\n                <tr><td>{{ m.full_name|e }}</td><td>{{ m.total_overdue|e }}</td><td>{{ m.days_overdue|e }}</td><td>{{ m.overdue_count|e }}</td></tr>\n            {% endfor %}\n            </tbody>\n        </table>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Chapter notification\n        </div>\n    </div>\n</div>",
     "subject": "Overdue payments: {{ member_count|e }} member(s) - {{ chapter.name|e }}",
     "use_html": 1
+  },
+  {
+    "docstatus": 0,
+    "doctype": "Email Template",
+    "enabled": 1,
+    "modified": "2026-11-11 12:00:00",
+    "name": "sepa_mandate_signature_request",
+    "reference_doctype": null,
+    "response": null,
+    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-success\">\n        <h2 class=\"email-title\">Please sign your direct debit authorisation</h2>\n        <p class=\"email-subtitle\">{{ (company or \"Our Organization\")|e }}</p>\n    </div>\n\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n\n        <p>Your membership application has been approved. You chose to pay by SEPA Direct Debit, but we can only collect from your bank account once you have signed the direct debit authorisation (mandate). We have not created one on your behalf.</p>\n\n        <p>Please sign in to your payment dashboard, check your bank details and sign the authorisation there:</p>\n\n        <div style=\"text-align: center; margin: 30px 0;\">\n            <a href=\"{{ dashboard_url }}\" class=\"email-btn-primary\">Sign direct debit authorisation</a>\n        </div>\n\n        <p>Until you have signed, we cannot collect by direct debit. Please pay your first membership invoice by bank transfer, using the payment link in your approval email.</p>\n\n        <p>If you have any questions, contact us at {{ support_email|e }}.</p>\n\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or \"Our Organization\")|e }}<br>\n            {{ support_email|e }}<br>\n            <br>\n            This is an automated notification from the membership system.\n        </div>\n    </div>\n</div>",
+    "subject": "Please sign your direct debit authorisation - {{ (company or \"Our Organization\")|e }}",
+    "use_html": 1
   }
 ]
