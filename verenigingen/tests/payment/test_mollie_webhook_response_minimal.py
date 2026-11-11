@@ -120,12 +120,14 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         The HTTP layer is stubbed (a timeout), so the outcome does not depend on what the real
         api.mollie.com would answer to this test site's key.
         """
+        from urllib.parse import urlsplit
+
         import requests
 
         real_request = requests.Session.request
 
         def timing_out(session, method=None, url=None, **kw):
-            if "api.mollie.com" in (url or ""):
+            if urlsplit(url or "").hostname == "api.mollie.com":
                 raise requests.exceptions.ConnectTimeout("timed out")
             return real_request(session, method=method, url=url, **kw)
 

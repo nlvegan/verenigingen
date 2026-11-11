@@ -29,6 +29,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 _PROBE = r"""
 import itertools, json, re, sys, uuid
+from urllib.parse import urlsplit
 from unittest.mock import patch
 import frappe, requests
 
@@ -91,7 +92,7 @@ try:
     real_request = requests.Session.request
     calls = {"n": 0}
     def fake_request(self, method=None, url=None, **kw):
-        if "api.mollie.com" not in (url or ""):
+        if urlsplit(url or "").hostname != "api.mollie.com":
             return real_request(self, method=method, url=url, **kw)
         calls["n"] += 1
         pid = url.rsplit("/", 1)[-1]
@@ -348,12 +349,14 @@ class TestMollieWebhookUnknownIdOracle(EnhancedTestCase):
 
 def _mollie_sdk_http_layer_1805(code, payload=None, raises=None):
     """Replace only the HTTP call the real Mollie SDK makes to api.mollie.com."""
+    from urllib.parse import urlsplit
+
     import requests
 
     real = requests.Session.request
 
     def fake(self, method=None, url=None, **kw):
-        if "api.mollie.com" not in (url or ""):
+        if urlsplit(url or "").hostname != "api.mollie.com":
             return real(self, method=method, url=url, **kw)
         if raises:
             raise raises
