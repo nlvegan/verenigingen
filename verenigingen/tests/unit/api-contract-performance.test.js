@@ -45,24 +45,20 @@ describe('API Contract Performance Tests', () => {
 			const method = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
 			const validArgs = { iban: 'NL91ABNA0417164300' };
 
-			// Measure performance without cache (first call)
-			const startTime1 = performance.now();
-			const result1 = tester.validateFrappeCall({ method, args: validArgs });
-			const firstCallTime = performance.now() - startTime1;
+			// Assert caching by what it saves (schema compilations), not by wall-clock
+			// timings: a ratio of two sub-millisecond timings on a shared CI runner
+			// flaked (#2420). A cache hit must not recompile the schema.
+			const compileSpy = jest.spyOn(tester.ajv, 'compile');
 
+			const result1 = tester.validateFrappeCall({ method, args: validArgs });
 			expect(result1.valid).toBe(true);
 			expect(result1.performance.cacheHit).toBe(false);
+			expect(compileSpy).toHaveBeenCalledTimes(1);
 
-			// Measure performance with cache (subsequent calls)
-			const startTime2 = performance.now();
 			const result2 = tester.validateFrappeCall({ method, args: validArgs });
-			const cachedCallTime = performance.now() - startTime2;
-
 			expect(result2.valid).toBe(true);
 			expect(result2.performance.cacheHit).toBe(true);
-
-			// Cached call should be significantly faster
-			expect(cachedCallTime).toBeLessThan(firstCallTime * 0.5); // At least 50% faster
+			expect(compileSpy).toHaveBeenCalledTimes(1); // no recompilation on the cached call
 		});
 
 		it('should maintain separate cache entries for different methods', () => {
@@ -178,6 +174,8 @@ describe('API Contract Performance Tests', () => {
 				'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban': { iban: 'NL91ABNA0417164300' }
 			};
 
+			const compileSpy = jest.spyOn(tester.ajv, 'compile');
+
 			// Perform initial validations (cache misses)
 			const initialStart = performance.now();
 			methods.forEach((method) => {
@@ -192,8 +190,9 @@ describe('API Contract Performance Tests', () => {
 			});
 			const cachedTime = performance.now() - cachedStart;
 
-			// Cached execution should be significantly faster
-			expect(cachedTime).toBeLessThan(initialTime * 0.6); // At least 40% improvement
+			// Cached rounds must not recompile any schema (count, not wall-clock: #2420).
+			// Timings below are informational only.
+			expect(compileSpy).toHaveBeenCalledTimes(methods.length);
 
 			const metrics = tester.getPerformanceMetrics();
 			console.log('🚀 Performance Benchmark Results:');
