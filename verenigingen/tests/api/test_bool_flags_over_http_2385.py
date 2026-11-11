@@ -254,7 +254,7 @@ class TestStringFlagsCalledDirectly(VereningingenTestCase):
                 result = module.cleanup_invalid_schedules(dry_run=flag)
                 self.assertFalse(result["success"], (flag, result))
 
-    def _cleanup_chapter(self, name):
+    def _cleanup_seeded_chapter(self, name):
         frappe.db.rollback()
         if frappe.db.exists("Chapter", name):
             frappe.delete_doc("Chapter", name, force=True, ignore_permissions=True)
@@ -266,7 +266,7 @@ class TestStringFlagsCalledDirectly(VereningingenTestCase):
         Inserted with db_insert (link validation would refuse them); rolled back at teardown.
         """
         chapter = self.create_test_chapter()
-        self.addCleanup(self._cleanup_chapter, chapter.name)
+        self.addCleanup(self._cleanup_seeded_chapter, chapter.name)
         member_row = frappe.get_doc(
             {
                 "doctype": "Chapter Member",
