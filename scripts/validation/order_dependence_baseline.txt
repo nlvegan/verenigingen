@@ -394,7 +394,7 @@ COMMIT_EXEMPT tests/payment/test_mt940_import_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_mt940_import_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_api_mutations.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_gateways_coverage.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt
