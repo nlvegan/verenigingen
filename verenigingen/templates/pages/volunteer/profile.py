@@ -35,12 +35,12 @@ def get_user_volunteer_record():
     """Get volunteer record for current user"""
     user_email = frappe.session.user
 
-    # First try to find by linked member. Member.user first, then Member.email -
-    # resolving by email alone misses a member whose login user differs from their
-    # contact address.
-    from verenigingen.utils.member_utils import get_member_name_for_user
+    # #2206 (maintainer ruling 2026-11-11): the caller's Volunteer is resolved by an explicit
+    # link only -- Volunteer.member -> Member.user, or Volunteer.user. Never by Member.email or
+    # Volunteer.email: a User who merely shares an email with a Volunteer must not see it.
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
 
-    member = get_member_name_for_user(user_email)
+    member = get_member_name_for_board_access(user_email)
     if member:
         volunteer = frappe.db.get_value(
             "Volunteer", {"member": member}, ["name", "volunteer_name"], as_dict=True
@@ -48,9 +48,8 @@ def get_user_volunteer_record():
         if volunteer:
             return volunteer
 
-    # Try to find volunteer directly by email
     volunteer = frappe.db.get_value(
-        "Volunteer", {"email": user_email}, ["name", "volunteer_name"], as_dict=True
+        "Volunteer", {"user": user_email}, ["name", "volunteer_name"], as_dict=True
     )
     if volunteer:
         return volunteer

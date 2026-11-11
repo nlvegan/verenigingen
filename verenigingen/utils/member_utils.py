@@ -116,14 +116,14 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
 
 def get_member_name_for_board_access(user_email: str) -> Optional[str]:
     """
-    Resolve `user_email` to a Member name for a BOARD-ACCESS authorization
-    decision -- a Chapter Board Member permission_query_conditions/
-    has_permission check, or an internal helper answering "does this person
-    hold a board seat". Never use this for a member's own-record access, and
-    never for a non-authorization purpose (dashboards, routing, role-sync);
-    those keep using get_member_name_for_user.
+    Resolve `user_email` to a Member name for an AUTHORIZATION decision:
+    board access (a Chapter Board Member permission_query_conditions/
+    has_permission check, or "does this person hold a board seat") AND a
+    member's own-record document access (#2205). Never use this for a
+    non-authorization purpose (dashboards, routing, role-sync); those keep
+    using get_member_name_for_user.
 
-    Board access is decided on the explicit Member.user link ONLY. Unlike
+    Identity is decided on the explicit Member.user link ONLY. Unlike
     get_member_name_for_user, this deliberately has NO Member.email fallback:
     that fallback would let a User who merely shares an email address with an
     unrelated Member inherit that Member's board seat (measured on veg11:
@@ -133,7 +133,11 @@ def get_member_name_for_board_access(user_email: str) -> Optional[str]:
     (services/chapter/chapter_permission_service.py, which now resolves
     strictly unconditionally -- it previously took a `strict_user_link` flag
     for exactly this). Maintainer ruling on #1546: board identity is
-    Member.user only, full stop, for every board permission check.
+    Member.user only, full stop, for every board permission check. Maintainer
+    ruling on #2205 (2026-11-11): own-record document permissions in
+    permissions.py are Member.user only too, with no backfill; a User whose
+    email matches a Member but who has no Member.user link loses own-record
+    access.
 
     Returns:
         Member name/ID if `user_email` is linked via Member.user, None
@@ -746,9 +750,10 @@ def get_volunteer_name_for_user(user_email: str) -> Optional[str]:
         Volunteer record name if found, None otherwise
 
     Note:
-        This function tries two lookup strategies:
-        1. By email field (primary)
-        2. By user field (fallback for older records)
+        #2206 (maintainer ruling 2026-11-11): identity by explicit link only, no
+        Volunteer.email / Member.email fallback and no backfill. Two strategies:
+        1. By Volunteer.user
+        2. By Volunteer.member -> Member.user
 
     Error Handling:
         Returns None if no volunteer found - caller should handle explicitly.
@@ -759,12 +764,12 @@ def get_volunteer_name_for_user(user_email: str) -> Optional[str]:
         return None
 
     try:
-        # Primary lookup: by email field
-        volunteer_name = frappe.db.get_value("Volunteer", {"email": user_email}, "name")
+        volunteer_name = frappe.db.get_value("Volunteer", {"user": user_email}, "name")
 
         if not volunteer_name:
-            # Fallback lookup: by user field (for compatibility)
-            volunteer_name = frappe.db.get_value("Volunteer", {"user": user_email}, "name")
+            member_name = get_member_name_for_board_access(user_email)
+            if member_name:
+                volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
 
         return volunteer_name
     except Exception as e:
