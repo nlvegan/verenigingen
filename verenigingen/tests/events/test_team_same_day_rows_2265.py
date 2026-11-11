@@ -279,6 +279,32 @@ class TestTeamSameDayRows2265(VereningingenTestCase):
         self.assertEqual(self._history("Active"), [role, role])
         self.assertEqual(self._history("Completed"), [self.leader_role.role_name])
 
+    def test_legacy_entry_of_a_row_with_free_text_role_is_completed_when_its_team_role_changes(self):
+        """Review round 3: the ending description must keep the row's free-text ``role``
+        ("Lead - Chair"), or the role criterion misses a legacy entry (reference_row NULL).
+        Probe shortcut: the free text and the matching entry role are written directly."""
+        row_a, row_b = self._rows()
+        free_text = "Chair"
+        frappe.db.set_value("Team Member", row_b.name, "role", free_text, update_modified=False)
+        lead_entry = f"{self.leader_role.role_name} - {free_text}"
+        frappe.db.sql(
+            "update `tabVolunteer Assignment` set role = %s where parent = %s and reference_name = %s"
+            " and role = %s",
+            (lead_entry, self.volunteer.name, self.team.name, self.leader_role.role_name),
+        )
+        self._make_history_legacy()
+
+        def make_member(doc):
+            self._row_named(doc, row_b.name)["team_role"] = self.member_role.name
+
+        self._run_history_jobs(self._desk_save(make_member))
+
+        member_entry = f"{self.member_role.role_name} - {free_text}"
+        self.assertEqual(
+            self._history("Active"), sorted([self.member_role.role_name, member_entry])
+        )
+        self.assertEqual(self._history("Completed"), [lead_entry])
+
     def test_legacy_entry_of_one_row_is_not_claimed_by_a_new_same_role_row(self):
         row_a, row_b = self._rows()
         self._make_history_legacy()

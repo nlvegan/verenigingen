@@ -126,7 +126,9 @@ class TeamService(StatelessService):
             role_description = team_role or "Team Member"
         elif row_name and team_role and team_member.team_role != team_role:
             # The row holds another role by now (a role change job): describe the role that ends.
-            role_description = self._get_role_description_for_history(frappe._dict(team_role=team_role))
+            role_description = self._get_role_description_for_history(
+                frappe._dict(team_member.as_dict(), team_role=team_role)
+            )
         else:
             # Create role description using Team Role system
             role_description = self._get_role_description_for_history(team_member)
@@ -190,15 +192,12 @@ class TeamService(StatelessService):
 
     @staticmethod
     def _find_member_to_complete(team_doc, volunteer_id, start_date, row_name):
-        """The row an ending history entry describes.
-
-        By name (#2265) the saved copy from before this save comes first: it still holds the
-        role being ended, and a removed row is only there. Without a name (legacy payload)
-        current rows come first and are matched by (volunteer, start_date)."""
-        current = team_doc.team_members or []
-        before = getattr(team_doc, "_doc_before_save", None)
-        saved = (before.team_members or []) if before else []
-        for members in (saved, current) if row_name else (current, saved):
+        """The row an ending history entry describes: current rows first, then the saved copy
+        from before this save (a removed row is only there)."""
+        sources = [team_doc.team_members or []]
+        if getattr(team_doc, "_doc_before_save", None):
+            sources.append(team_doc._doc_before_save.team_members or [])
+        for members in sources:
             for member in members:
                 if row_name:
                     if member.name == row_name:
