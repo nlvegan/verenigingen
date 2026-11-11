@@ -39,7 +39,7 @@ def create_default_email_templates():
 
 <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
     <p><strong>Application ID:</strong> {{ application_id }}</p>
-    <p><strong>Reason:</strong> {{ reason }}</p>
+    <p><strong>Reason:</strong> {{ reason|e }}</p>
 </div>
 
 <p>If you have any questions or would like to discuss this decision, please don't hesitate to contact us.</p>
@@ -69,7 +69,7 @@ def create_default_email_templates():
 
 <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
     <p><strong>Application ID:</strong> {{ application_id }}</p>
-    <p><strong>Missing Information:</strong> {{ reason }}</p>
+    <p><strong>Missing Information:</strong> {{ reason|e }}</p>
 </div>
 
 <p>You are welcome to submit a new application with the complete information at any time. We encourage you to reapply once you have the required documentation or details.</p>
@@ -101,7 +101,7 @@ def create_default_email_templates():
 
 <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
     <p><strong>Application ID:</strong> {{ application_id }}</p>
-    <p><strong>Details:</strong> {{ reason }}</p>
+    <p><strong>Details:</strong> {{ reason|e }}</p>
 </div>
 
 <p>We encourage you to review our membership requirements and consider reapplying in the future if your circumstances change.</p>
@@ -133,7 +133,7 @@ def create_default_email_templates():
 
 <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
     <p><strong>Application ID:</strong> {{ application_id }}</p>
-    <p><strong>Details:</strong> {{ reason }}</p>
+    <p><strong>Details:</strong> {{ reason|e }}</p>
 </div>
 
 <p>If you believe this is an error or if you need assistance with your existing membership, please contact us immediately.</p>

@@ -80,11 +80,6 @@ def _sanitize_text_fields(text_fields):
 
     Returns:
         Dict of {field_name: sanitized_value}.
-
-    allow_html=True keeps the text RAW (stripped, length-checked), for text that is escaped once, where
-    it is rendered. The @high_security_api wrapper has already HTML-escaped every keyword argument
-    (it decodes entities first, then escapes), so the entities are decoded here: left as they are they
-    would be escaped again at render, and the applicant would read "&amp;#x27;" for an apostrophe (#2391).
     """
     sanitized = {}
     if not text_fields:
@@ -94,14 +89,35 @@ def _sanitize_text_fields(text_fields):
         value, max_length = spec[0], spec[1]
         allow_html = spec[2] if len(spec) > 2 else True
         if value:
-            text = html.unescape(str(value)) if allow_html else str(value)
             sanitized[field_name] = APIValidator.sanitize_text(
-                text, max_length=max_length, allow_html=allow_html
+                str(value), max_length=max_length, allow_html=allow_html
             )
         else:
             sanitized[field_name] = value
 
     return sanitized
+
+
+def _raw_text_fields(text_fields):
+    """Free text that is stored raw and escaped ONCE, where it is rendered (mail body, status page, timeline).
+
+    Args:
+        text_fields: Dict of {field_name: (value, max_length)}.
+
+    The @high_security_api wrapper has already HTML-escaped every keyword argument (it decodes entities
+    first, then escapes), so the entities are decoded here: left as they are they would be escaped again at
+    render and the applicant would read "&amp;#x27;" for an apostrophe (#2391). ONLY for text that is
+    escaped at every sink. Identifiers (membership type, chapter, template name) reach `frappe.throw`
+    messages that Desk renders as HTML, so they stay on the decorator's escaping.
+    """
+    return {
+        field_name: (
+            APIValidator.sanitize_text(html.unescape(str(value)), max_length=max_length, allow_html=True)
+            if value
+            else value
+        )
+        for field_name, (value, max_length) in text_fields.items()
+    }
 
 
 def _activate_pending_chapter_memberships(member, applied_chapter):
@@ -689,9 +705,8 @@ def approve_application(
     from verenigingen.utils.db_advisory_lock import advisory_lock
 
     application_name = _sanitize_application_name(application_name, "approval")
-    sanitized = _sanitize_text_fields(
-        {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, True)}
-    )
+    sanitized = _sanitize_text_fields({"membership_type": (membership_type, 255), "chapter": (chapter, 255)})
+    sanitized.update(_raw_text_fields({"notes": (notes, 2000)}))
     validate_application_permission_or_throw(application_name, "approve")
     with advisory_lock(f"approve_application:{application_name}", timeout=30):
         return _approve_application_locked(
@@ -848,13 +863,9 @@ def reject_application(
 
     application_name = _sanitize_application_name(application_name, "rejection")
     sanitized = _sanitize_text_fields(
-        {
-            "reason": (reason, 1000, True),
-            "email_template": (email_template, 255),
-            "rejection_category": (rejection_category, 255),
-            "internal_notes": (internal_notes, 2000, True),
-        }
+        {"email_template": (email_template, 255), "rejection_category": (rejection_category, 255)}
     )
+    sanitized.update(_raw_text_fields({"reason": (reason, 1000), "internal_notes": (internal_notes, 2000)}))
     validate_application_permission_or_throw(application_name, "reject")
     if sanitized["email_template"] and not frappe.db.exists("Email Template", sanitized["email_template"]):
         frappe.throw(_("Invalid email template specified"))
@@ -898,7 +909,7 @@ def request_more_info(application_name: str, info_needed: str):
 
     application_name = _sanitize_application_name(application_name, "information request")
     # allow_html: the text is kept raw and escaped once, where it is rendered (mail body, timeline note)
-    info_needed = _sanitize_text_fields({"info_needed": (info_needed, 2000, True)})["info_needed"]
+    info_needed = _raw_text_fields({"info_needed": (info_needed, 2000)})["info_needed"]
     validate_application_permission_or_throw(application_name, "manage")
     if not info_needed:
         frappe.throw(_("Describe the information you need from the applicant"))

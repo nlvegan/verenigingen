@@ -751,9 +751,9 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
 
     def _rejection_mail_html(self, name, **kwargs):
-        """The HTML the real EmailService renders from the real default template for a real reject_application
+        """The HTML the real EmailService renders from a real Email Template for a real reject_application
         call (keyword arguments, as over HTTP, so the security decorator's argument pass runs too)."""
-        from verenigingen.services.communication.email_service import EmailService
+        from verenigingen.services.communication.email_service import EmailService, invalidate_template_cache
         from verenigingen.utils.operation_result import OperationResult
 
         sent = []
@@ -762,6 +762,10 @@ class TestRejectApplication(ApprovalCase):
             sent.append(mail["content"])
             return OperationResult.ok({"queued": True})
 
+        # The service caches templates in-process; a template another test changed must not be served stale
+        for template in ("membership_application_rejected", kwargs.get("email_template")):
+            if template:
+                invalidate_template_cache(template)
         # Mock justified: External Service - SMTP delivery; the template render and the endpoint are real
         with patch.object(EmailService, "_send_email_internal", capture):
             result = self._reject_as(name, **kwargs)
@@ -769,33 +773,86 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual(len(sent), 1, "exactly one rejection mail")
         return sent[0]
 
+    def _assert_reason_reads_as_typed(self, content, reason):
+        """What the applicant SEES (the parsed text) is the reason as typed, and no typed tag became a live
+        element. Parsed text, not a string spelling: one escape renders as the typed text, two or none do not."""
+        import lxml.html
+
+        tree = lxml.html.fromstring(content)
+        text = tree.text_content()
+        self.assertIn(reason, text, "the reason reads exactly as the reviewer typed it")
+        for tag in ("b", "script", "a"):
+            self.assertEqual(tree.xpath(f"//{tag}"), [], f"a typed <{tag}> must not become a live element")
+
     def test_an_apostrophe_and_an_ampersand_in_the_reason_are_escaped_once_in_the_mail(self):
         """#2391: the reason was HTML-escaped by the decorator, again by _sanitize_text_fields, and a third time
         by the template's |e, so the applicant read &amp;#x27; for an apostrophe. Once is right."""
-        from markupsafe import escape
-
         reason = "Doesn't qualify & more"
         name = self._stage_and_confirm()
 
         content = self._rejection_mail_html(name, reason=reason)
 
-        self.assertIn(str(escape(reason)), content)
-        self.assertNotIn("&amp;", content.replace(str(escape(reason)), ""), "no other layer of escaping")
+        self._assert_reason_reads_as_typed(content, reason)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "review_notes").count(reason), 1, "stored raw")
 
-    def test_markup_in_the_reason_stays_inert_and_is_escaped_once_in_the_mail(self):
+    def test_markup_and_an_apostrophe_in_the_reason_stay_inert_in_the_mail(self):
         """Control for the test above: removing the input-side escaping must not leave markup live."""
-        from markupsafe import escape
-
-        reason = "No <b>x</b> & <script>alert(1)</script>"
+        reason = "Don't <b>x</b> & <script>alert(1)</script> <a href=\"https://evil.example\">click</a>"
         name = self._stage_and_confirm()
 
         content = self._rejection_mail_html(name, reason=reason)
 
+        self._assert_reason_reads_as_typed(content, reason)
         self.assertNotIn("<b>x</b>", content)
-        self.assertNotIn("<script>", content)
-        self.assertIn(str(escape(reason)), content)
-        self.assertNotIn("&amp;lt;", content)
+
+    def _reseed_stock_rejection_templates(self):
+        """The three seeder-only rejection templates exist and carry the seeder's CURRENT text; the fixture
+        row for membership_application_rejected is put back from the fixture (cleanup does both again)."""
+        from verenigingen.api.membership_email_templates import create_default_email_templates
+        from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
+
+        names = (
+            "membership_application_rejected",
+            "membership_rejection_incomplete",
+            "membership_rejection_ineligible",
+            "membership_rejection_duplicate",
+        )
+        for template in names:
+            if frappe.db.exists("Email Template", template):
+                frappe.delete_doc("Email Template", template, force=True)
+        create_default_email_templates()
+        _cleanup_stock_email_templates(["membership_application_rejected"])
+        self.addCleanup(_cleanup_stock_email_templates, names)
+        return names
+
+    def test_every_shipped_rejection_template_keeps_markup_in_the_reason_inert(self):
+        """reject_application accepts any Email Template, and the stock ones are all selectable: each must
+        escape the reason once (three of them rendered a bare {{ reason }}, so a typed link went out live)."""
+        reason = "Don't <b>x</b> & <a href=\"https://evil.example\">click</a>"
+        for template in self._reseed_stock_rejection_templates():
+            with self.subTest(template=template):
+                self.email = self._fresh_applicant_email()
+                name = self._stage_and_confirm(email=self.email)
+
+                content = self._rejection_mail_html(name, reason=reason, email_template=template)
+
+                self._assert_reason_reads_as_typed(content, reason)
+
+    def test_a_markup_chapter_or_membership_type_is_refused_without_live_markup(self):
+        """The identifiers stay on the decorator's escaping: their refusal text is rendered as HTML by Desk, so
+        the typed tag must not come back as a tag (the free-text unescape must not reach them)."""
+        payload = "<img src=x onerror=alert(1)>"
+        for field in ("chapter", "membership_type"):
+            with self.subTest(field=field):
+                name = self._stage_and_confirm()
+                kwargs = {field: payload}
+
+                with self.assertRaises(frappe.ValidationError) as caught:
+                    self._approve_as(name, **kwargs)
+
+                shown = " ".join([str(caught.exception)] + [str(m) for m in frappe.local.message_log])
+                self.assertNotIn("<img", shown)
+                self.assertIn("&lt;img", shown, "control: the refusal does name what was typed, escaped")
 
     def _reject_with_mail_service(self, name, **service):
         from verenigingen.services.communication.email_service import EmailService
