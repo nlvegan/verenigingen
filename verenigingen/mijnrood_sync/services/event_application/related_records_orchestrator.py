@@ -268,7 +268,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         self._pending_alerts.clear()
 
     def queue_alert(self, claim: str, send: Callable[[], bool], failure_title: str) -> None:
-        """Queue a staff alert to be sent after the event's commit, at most once a day per ``claim``."""
+        """Queue a staff alert to be sent after the event's commit, at most once per 24h per ``claim`` (rolling TTL, not a calendar day)."""
         self._pending_alerts.append((claim, send, failure_title))
 
     def flush_pending_alerts(self) -> None:
@@ -284,7 +284,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             self._send_alert_once_a_day(claim, send, failure_title)
 
     def _send_alert_once_a_day(self, claim: str, send: Callable[[], bool], failure_title: str) -> None:
-        """Tell staff once a day. The alert must never undo the sync, so a failure here is logged and swallowed."""
+        """Tell staff once per 24h. The alert must never undo the sync, so a failure here is logged and swallowed."""
         try:
             # SETNX with an expiry, not the key's per-recipient cooldown: that is admin-editable (0 = off).
             if not frappe.cache.set(claim, "1", ex=ALERT_REALERT_SECONDS, nx=True):
@@ -369,7 +369,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 f"<p>Reason: {escape_html(reason)}</p>"
                 f"<p>Action required: fix the cause and move the member by hand. MijnRood will not send "
                 f"this change again (event {escape_html(event_name)}). This alert "
-                "repeats at most once a day for the same member, chapter and reason.</p>"
+                "repeats at most once per 24h for the same member, chapter and reason.</p>"
             ),
             notification_key="mijnrood_chapter_move_failed",  # literal: key discovery greps for it
             document_type="Member",

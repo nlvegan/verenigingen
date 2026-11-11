@@ -374,6 +374,15 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
+            # A revoked contact keeps the board seat of a chapter we cannot find: staff must remove it.
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id,
+                "unmapped (removal)",
+                "no Chapter has that division id, so the board seat of a revoked division contact "
+                "could not be removed",
+                member_name,
+                event,
+            )
             return None, _("Division ID {0} does not match any Chapter").format(division_id)
 
         from verenigingen.verenigingen.doctype.volunteer.volunteer import (

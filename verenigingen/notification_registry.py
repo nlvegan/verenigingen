@@ -167,7 +167,7 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_ADMIN,
         "description": "Sent when a MijnRood event names a division id that no Chapter answers to, or whose "
         "mapped Chapter is gone (the event is applied without its chapter step and MijnRood will not "
-        "resend it). At most once a day per division and reason. The mail names the division.",
+        "resend it). At most once per 24h per division and reason. The mail names the division.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
@@ -184,7 +184,7 @@ NOTIFICATION_KEYS = {
         "label": "MijnRood Dues Template Unresolved (Admin)",
         "category": CATEGORY_ADMIN,
         "description": "Sent when a synced member's payment period has no dues schedule template in "
-        "Verenigingen Settings, so the dues schedule was skipped. At most once a day per payment period. "
+        "Verenigingen Settings, so the dues schedule was skipped. At most once per 24h per payment period. "
         "The mail names the period.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,

@@ -3,7 +3,7 @@
 A mapping that points at nothing (a division id no Chapter owns, a Role / Chapter Role / Team that is
 gone, a payment period with no dues template) fails the same way for every event it touches, and the
 event is consumed with only a message string: MijnRood does not resend. Each fault class has one
-registered key; the alert is deduplicated once a day per FAULT (not per member), because the fix is one
+registered key; the alert is deduplicated once per 24h per FAULT (not per member), because the fix is one
 setting no matter how many members hit it.
 
 These functions only BUILD and SEND. Queueing, the once-a-day Redis claim and the after-commit timing
@@ -69,7 +69,7 @@ def send_division_unmapped_alert(
                 "will not send it again.</p>"
                 f"<p>{_first_seen(member_name, event_name)} "
                 "Action required: set the division id on the right Chapter (or create the Chapter), then "
-                "assign the affected members by hand. This alert repeats at most once a day for the same "
+                "assign the affected members by hand. This alert repeats at most once per 24h for the same "
                 "division and reason.</p>"
             ),
             notification_key="mijnrood_division_unmapped",  # literal: key discovery greps for it
@@ -97,7 +97,7 @@ def send_role_mapping_alert(
                 f"<p>{_first_seen(member_name, event_name)} "
                 "Action required: fix the MijnRood Sync Settings role mapping (or create / reactivate "
                 f"the {escape_html(object_type)}), then redo the step for the affected members. This "
-                "alert repeats at most once a day for the same object and reason.</p>"
+                "alert repeats at most once per 24h for the same object and reason.</p>"
             ),
             notification_key="mijnrood_role_mapping_invalid",  # literal: key discovery greps for it
             event_reference=f"mijnrood_role_mapping_invalid:{object_type}:{name}:{reason}",
@@ -121,7 +121,7 @@ def send_dues_template_alert(payment_period, detail: str, member_name: str, even
                 "was skipped, and MijnRood will not send the member again.</p>"
                 f"<p>{_first_seen(member_name, event_name)} "
                 "Action required: configure the dues schedule template for this period in Verenigingen "
-                "Settings, then create the schedules by hand. This alert repeats at most once a day for "
+                "Settings, then create the schedules by hand. This alert repeats at most once per 24h for "
                 "the same payment period.</p>"
             ),
             notification_key="mijnrood_dues_template_unresolved",  # literal: key discovery greps for it

@@ -370,6 +370,37 @@ class TestConfigFaultAlerts2309(EnhancedTestCase):
 
         self.assertEqual(self._sent(self._unmapped_subject(division)), first)
 
+    def _revoke_division_contact(self, division_id):
+        """A real Changed event that removes the member's division-contact role for ``division_id``."""
+        mapping = self._role_mapping()
+        return self._apply(
+            new_data={"managed_division_ids": []},
+            old_data={"managed_division_ids": [division_id]},
+            role_mapping=mapping,
+            with_id=False,
+        )
+
+    def test_a_board_seat_removal_for_an_unmapped_division_alerts_once_per_24h(self):
+        self._give_member_a_volunteer()
+        division = _unused_division_id()
+        subject = f"MijnRood division {division}: unmapped (removal)"
+
+        result = self._revoke_division_contact(division)
+
+        self.assertTrue(result["success"], result)
+        self.assertIn(f"Division ID {division} does not match any Chapter", result["message"])
+        self.assertEqual(
+            frappe.db.get_value("MijnRood Sync Event", self.last_event_name, "status"), "Applied"
+        )
+        first = self._sent(subject)
+        self.assertGreater(first, 0, "the unremoved board seat must be reported")
+        self.assertEqual(len(self._alert_events("mijnrood_division_unmapped")), 1)
+        self.assertIn(self.admin_user, self._recipients(subject))
+
+        self._revoke_division_contact(division)
+
+        self.assertEqual(self._sent(subject), first, "the same fault within 24h must not alert twice")
+
     def test_the_board_add_for_a_missing_mapped_chapter_alerts(self):
         division = _unused_division_id()
         ghost = f"Ghost Board Chapter {frappe.generate_hash(length=6)}"
