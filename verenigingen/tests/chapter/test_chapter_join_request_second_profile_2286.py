@@ -20,6 +20,10 @@ from verenigingen.services.member.account.user_role_profile_calculator import (
     sync_user_role_profile,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import (
+    allow_reminder_sends,
+    ensure_outgoing_email_account,
+)
 
 STAFF = "Verenigingen Staff"
 
@@ -36,6 +40,18 @@ class TestChapterJoinRequestSecondProfile2286(VereningingenTestCase):
         )
         self.applicant = self.create_test_member(
             first_name="Applicant", last_name="S2286", status="Active"
+        )
+        # A fresh CI site has no default outgoing account, so EmailService would refuse to queue
+        # anything; without this the module passed only on sites that carry a leaked one.
+        ensure_outgoing_email_account(self)
+        allow_reminder_sends(keys=("chapter_join_request_submitted",))
+        # Anchor: a real seat on the request's own chapter, so every send provably reaches someone.
+        self.anchor = self._person_2286("Anchor")
+        self.add_board_member_to_chapter(
+            frappe.get_doc("Chapter", self.request_chapter.name),
+            self.anchor.volunteer,
+            self._chapter_role_2286(),
+            email=self.anchor.email,
         )
 
     def tearDown(self):
@@ -151,6 +167,7 @@ class TestChapterJoinRequestSecondProfile2286(VereningingenTestCase):
             frappe.get_all("Email Queue Recipient", filters={"parent": ["in", queued or [""]]}, pluck="recipient")
         )
         self._drop_queue_2286(queued)
+        self.assertIn(self.anchor.email, recipients, "control: the chapter's own board member got the mail")
         return recipients
 
     # ------------------------------------------------------------------ tests
