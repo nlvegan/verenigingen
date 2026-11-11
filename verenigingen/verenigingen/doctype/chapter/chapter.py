@@ -289,9 +289,11 @@ class Chapter(Document):
         Runs once the Chapter and its rows are really gone (``on_trash`` is too early: the
         rows would still count as live seats, #1953). A holder with a seat on another
         chapter keeps the access: the withdrawal only drops what no live seat justifies.
-        Same helper as the orphan-row path in Chapter Board Member (#1953), including its
-        fail-closed errors: a failed withdrawal aborts the delete instead of leaving seat
-        holders with a board role and no board.
+        Same helper as the orphan-row path in Chapter Board Member (#1953). An unexpected
+        error (e.g. a DB error) aborts the delete; a swallowed profile-sync or User-save
+        failure leaves an Error Log row and the delete proceeds, so an unrelated User
+        problem cannot make a chapter undeletable. ``ignore_on_trash`` skips ``on_trash``,
+        so no withdrawal happens then (no production caller does that).
         """
         from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
             _withdraw_access_without_chapter,
