@@ -27,6 +27,8 @@ nothing is lost diagnostically.
 
 import hashlib
 
+import frappe
+
 from verenigingen.verenigingen_payments.utils.payment_services.constants import (
     MOLLIE_LIVE_PAYMENT_PREFIX,
     MOLLIE_LIVE_REFUND_PREFIX,
@@ -125,3 +127,23 @@ def set_payment_entry_idempotency_key(doc, method=None):
         return
 
     doc.set(FIELDNAME, build_idempotency_key(doc.reference_no, doc.payment_type, doc.party))
+
+
+def free_cancelled_payment_entry_keys(reference_no, payment_type) -> None:
+    """Release the unique key still held by CANCELLED Payment Entries of this reference.
+
+    A cancelled entry is not a booking (``find_booked_payment`` / ``find_booked_reversal``
+    both treat it so), but the cancelled row keeps ``custom_mollie_idempotency_key``, a
+    unique index, so a redelivery's new insert would collide with it and the payment
+    could never be booked again (#2384 reversals, #2406 forward payments). The cancelled
+    row stays as the audit record; only its key is cleared. Only ``docstatus = 2`` rows
+    are touched, so a live entry's key is never released.
+    """
+    if not reference_no or not frappe.get_meta("Payment Entry").has_field(FIELDNAME):
+        return
+    for name in frappe.get_all(
+        "Payment Entry",
+        filters={"reference_no": reference_no, "payment_type": payment_type, "docstatus": 2},
+        pluck="name",
+    ):
+        frappe.db.set_value("Payment Entry", name, FIELDNAME, None, update_modified=False)

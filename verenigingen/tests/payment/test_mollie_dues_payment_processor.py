@@ -390,6 +390,33 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
         )
         self.assertEqual(second, first)
 
+    def test_redelivery_after_staff_cancel_books_one_new_submitted_pe(self):
+        """#2406: a staff-cancelled PE is not a booking, but it keeps the unique
+        idempotency key, so the redelivery's insert used to collide (IntegrityError)."""
+        payment = _payment(amount={"value": "25.00", "currency": "EUR"})
+        first = self.proc._create_payment_entry_for_dues(
+            self.member.name, payment, invoice_name=self.invoice_name
+        )
+        self.assertIsNotNone(first, "fixture problem: dues PE not booked")
+        frappe.get_doc("Payment Entry", first).cancel()
+
+        second = self.proc._create_payment_entry_for_dues(
+            self.member.name, payment, invoice_name=self.invoice_name
+        )
+        self.assertIsNotNone(second)
+        self.assertNotEqual(second, first)
+        self.assertEqual(frappe.db.get_value("Payment Entry", second, "docstatus"), 1)
+        live = frappe.get_all(
+            "Payment Entry", filters={"reference_no": payment.id, "docstatus": 1}, pluck="name"
+        )
+        self.assertEqual(live, [second], "expected exactly one live PE for the payment")
+        self.assertGreater(
+            frappe.db.count(
+                "GL Entry", {"voucher_type": "Payment Entry", "voucher_no": second, "is_cancelled": 0}
+            ),
+            0,
+        )
+
 
 class TestCreatePaymentEntryForDuesCompanyMismatchAmbiguity(EnhancedTestCase):
     """Tests for the #1451 company-mismatch fallback in `_create_payment_entry_for_dues`.

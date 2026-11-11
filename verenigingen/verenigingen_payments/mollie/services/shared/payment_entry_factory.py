@@ -28,6 +28,9 @@ from verenigingen.services.customer_group_resolver import resolve_non_group_cust
 from verenigingen.utils.transaction_errors import submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    free_cancelled_payment_entry_keys,
+)
 
 from .cost_center_resolver import CostCenterResolver
 
@@ -121,6 +124,9 @@ class PaymentEntryFactory:
                     "returning None (idempotent)"
                 )
                 return None
+
+            # A staff-cancelled entry is not a booking but still holds the unique key (#2406)
+            free_cancelled_payment_entry_keys(payment_id, "Receive")
 
             # Resolve customer if not provided
             if not customer:

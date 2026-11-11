@@ -35,6 +35,9 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    free_cancelled_payment_entry_keys,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # =============================================================================
@@ -1063,6 +1066,10 @@ class DuesPaymentProcessor:
                 f"[Mollie] Payment Entry already exists for payment {payment_id}: {existing_pe}"
             )
             return existing_pe
+
+        # A staff-cancelled entry is not a booking but still holds the unique key; free
+        # it so the new insert (allocated or unallocated) cannot collide (#2406).
+        free_cancelled_payment_entry_keys(payment_id, "Receive")
 
         # Determine company - prioritize invoice's company if available
         # This prevents company/account mismatches

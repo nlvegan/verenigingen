@@ -164,20 +164,95 @@ class TestForwardPaymentEntryFailedSubmit(_RefundFixtureMixin, EnhancedTestCase)
         pe = factory.create_payment_entry(context, data, customer=self.customer)
         self._assert_booked_once(pe)
 
-    # -- a staff-cancelled forward entry is not a booking either -----------------------------
+    # -- a staff-cancelled forward entry is not a booking: a redelivery must book anew -------
 
-    def test_webhook_does_not_hand_back_a_staff_cancelled_entry_as_the_booking(self):
-        """Real flow: book -> staff cancel -> redelivery. The cancelled row is not 'already
-        exists'; whatever the redelivery returns must not be that cancelled entry (the
-        cancelled row still holds the unique idempotency key, so a rebooking is refused
-        here: that is a separate, unfixed question and the call may return None)."""
-        first = create_payment_entry_for_donation(self.donation, self._webhook_data())
+    def _book_then_staff_cancel(self, book):
+        first = book()
         self.assertIsNotNone(first, "fixture problem: payment not booked")
         frappe.get_doc("Payment Entry", first.name).cancel()
-        self.expectErrorLog("Payment Entry Creation")
+        self.assertEqual(self._rows(docstatus=1), [], "fixture problem: cancel left a live row")
+        return first
 
-        again = create_payment_entry_for_donation(self.donation, self._webhook_data())
-        self.assertFalse(
-            again is not None and again.name == first.name,
-            "the redelivery was handed the cancelled Payment Entry as the booking",
+    def _assert_one_new_live_entry(self, first, second):
+        self.assertIsNotNone(second, "the redelivery after a staff cancel did not book")
+        self.assertNotEqual(second.name, first.name)
+        self._assert_booked_once(second)
+
+    def test_redelivery_after_staff_cancel_books_one_new_entry_end_to_end(self):
+        """Real flow through process_successful_payment_with_idempotency, using the real
+        idempotency check (which counts submitted entries only, so it reports 'not created')."""
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
+            check_payment_processing_status,
+            process_successful_payment_with_idempotency,
         )
+
+        payment = SimpleNamespace(
+            id=self.payment_id,
+            status="paid",
+            amount={"value": "100.00", "currency": "EUR"},
+            method="ideal",
+            customer_id=None,
+            mandate_id=None,
+            subscription_id=None,
+            created_at="2024-02-01T10:00:00+00:00",
+            paid_at="2024-02-01T10:05:00+00:00",
+            description=None,
+            metadata={},
+            sequence_type=None,
+        )
+
+        def deliver():
+            self.donation.reload()  # the webhook saves the donation; avoid a stale timestamp
+            status = check_payment_processing_status(self.donation, self.payment_id)
+            result = process_successful_payment_with_idempotency(self.donation, payment, status)
+            return frappe.get_doc("Payment Entry", result["payment_entry"])
+
+        first = self._book_then_staff_cancel(deliver)
+        self.assertEqual(self._rows(docstatus=1), [])
+        self._assert_one_new_live_entry(first, deliver())
+        self.assertEqual(
+            frappe.db.count("Payment Entry", {"reference_no": self.payment_id, "payment_type": "Receive"}),
+            2,
+            "expected the cancelled audit row plus exactly one new entry",
+        )
+
+    def test_webhook_lookup_race_branch_ignores_cancelled_entries(self):
+        """The inner `except` lookup (duplicate-race recovery) must not hand back a cancelled
+        row. The unique key is cleared on the cancelled row so the insert cannot collide on
+        it; the race is simulated by forcing the duplicate branch."""
+        first = self._book_then_staff_cancel(
+            lambda: create_payment_entry_for_donation(self.donation, self._webhook_data())
+        )
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.api.payment_webhook.insert_and_submit_atomically",
+            side_effect=frappe.DuplicateEntryError("Payment Entry", "x", Exception("dup")),
+        ):
+            result = create_payment_entry_for_donation(self.donation, self._webhook_data())
+        self.assertFalse(
+            result is not None and result.name == first.name,
+            "the duplicate-race branch returned the cancelled Payment Entry",
+        )
+
+    def test_unified_receive_redelivery_after_staff_cancel_books_one_new_entry(self):
+        first = self._book_then_staff_cancel(self._unified)
+        self._assert_one_new_live_entry(first, self._unified())
+
+    def test_factory_redelivery_after_staff_cancel_books_one_new_entry(self):
+        from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import (
+            PaymentContext,
+        )
+        from verenigingen.verenigingen_payments.mollie.services.shared.payment_entry_factory import (
+            PaymentEntryFactory,
+        )
+
+        context = PaymentContext("donation", "Donation", self.donation.name)
+        data = {"payment_id": self.payment_id, "amount": "100.00"}
+        factory = PaymentEntryFactory()
+
+        def book():
+            return factory.create_payment_entry(context, data, customer=self.customer)
+
+        first = self._book_then_staff_cancel(book)
+        self._assert_one_new_live_entry(first, book())

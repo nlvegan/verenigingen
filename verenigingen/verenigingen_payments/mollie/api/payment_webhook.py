@@ -19,6 +19,9 @@ from verenigingen.verenigingen_payments.mollie.services.handlers import (
     find_donation_for_payment_by_id as _handler_find_donation_for_payment_by_id,
     find_donation_for_subscription_payment as _handler_find_donation_for_subscription_payment,
 )
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    free_cancelled_payment_entry_keys,
+)
 
 
 def get_appropriate_cost_center(donation, company):
@@ -514,6 +517,9 @@ def create_payment_entry_for_donation(donation, mollie_data):
         if existing_pe:
             frappe.logger().info("⚠️ Payment Entry already exists: %s", existing_pe)
             return frappe.get_doc("Payment Entry", existing_pe)
+
+        # A staff-cancelled entry is not a booking but still holds the unique key (#2406)
+        free_cancelled_payment_entry_keys(mollie_data["payment_id"], "Receive")
 
         # Get company and accounts
         settings = frappe.get_single("Verenigingen Settings")
