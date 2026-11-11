@@ -31,6 +31,8 @@ from typing import Any, Optional, Union
 import frappe
 from frappe.utils import getdate
 
+from .timezone_utils import mollie_timestamp_to_local_date
+
 
 class MollieObjectType(Enum):
     """
@@ -576,26 +578,18 @@ class PaymentDataExtractor:
             if not date_value:
                 continue
 
-            # Parse ISO datetime strings (Mollie uses "2025-12-01T23:45:30+00:00" format)
+            # Mollie stamps in UTC ("2025-12-01T23:45:30+00:00"); the booking day is the
+            # SITE-local day of it, and a bare date is already a local day (#2378).
+            local_date = mollie_timestamp_to_local_date(date_value)
+            if local_date:
+                return local_date
+
             if isinstance(date_value, str):
+                # Not a Mollie timestamp: let Frappe's getdate try other formats
                 try:
-                    from dateutil import parser
-
-                    return parser.parse(date_value).date()
-                except (ValueError, TypeError, ImportError):
-                    # Try Frappe's getdate as fallback
-                    try:
-                        return getdate(date_value)
-                    except Exception:
-                        continue
-
-            # Handle datetime objects
-            if hasattr(date_value, "date"):
-                return date_value.date()
-
-            # Handle date objects
-            if isinstance(date_value, date):
-                return date_value
+                    return getdate(date_value)
+                except Exception:
+                    continue
 
         # Fallback to today
         frappe.logger().debug(f"Could not extract date from fields {field_names}, using today's date")
@@ -610,7 +604,7 @@ class PaymentDataExtractor:
         """
         Safely extract payment date from Mollie object.
 
-        Handles timezone conversions (Mollie uses UTC) and provides
+        Returns the SITE-local day of Mollie's UTC timestamp (#2378) and provides
         consistent fallback behavior.
 
         Args:
@@ -641,8 +635,8 @@ class PaymentDataExtractor:
         date_value = getattr(payment_object, field_name, None)
 
         if date_value:
-            # Convert to date using Frappe's getdate (handles string, datetime, date)
-            return getdate(date_value)
+            # The site-local day of a Mollie UTC timestamp (#2378); other formats via getdate
+            return mollie_timestamp_to_local_date(date_value) or getdate(date_value)
 
         if fallback_to_today:
             frappe.logger().debug(f"Payment object missing '{field_name}' field, using today's date")

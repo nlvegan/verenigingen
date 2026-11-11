@@ -22,10 +22,10 @@ status of cancelled rows that still carry an open status and, ONLY when Ponto sa
 ``executed``, raises the #1848 alert. It never calls ``refresh_status`` on such a row and
 never writes to it: no save, no ``db_set``, no status. See ``_check_cancelled_one``.
 
-Limits of the cancelled pass, by design: it depends on #1918 (``on_cancel`` sets "Cancelled" in
-memory only, so a cancelled row keeps its open status in the table; if that is ever fixed the
-selection finds nothing, and the ``_cancel`` fixture assertion in
-``TestPollOnReallySubmittedAndCancelledRows`` trips). It runs AFTER the open rows and shares
+Which cancelled rows (#1918): ``on_cancel`` now persists "Cancelled", so a row cancelled since
+then reads "Cancelled" in the table; a row cancelled BEFORE that fix still carries its old open
+status. The pass selects both. A cancelled Executed row keeps "Executed" (final) and is not read.
+Limits of the cancelled pass, by design: it runs AFTER the open rows and shares
 their wall-clock budget, so it has no progress guarantee if open rows use the whole
 RUN_BUDGET_SECONDS every run. A row that was already alerted, or that Ponto answers 404 for, is
 read again every hour until it leaves the window: a poll cannot write to the row to mark it done.
@@ -93,6 +93,8 @@ ONCE_A_DAY_SECONDS = 24 * 60 * 60
 
 _monotonic = time.monotonic  # replaced by a fake clock in tests
 
+CANCELLED_STATUS = "Cancelled"
+
 # (doctype, open statuses, Ponto id field)
 _POLLED = (
     ("Ponto Payment Request", ["Pending", "Signed"], "ponto_payment_id"),
@@ -149,7 +151,8 @@ def poll_open_ponto_payment_statuses():
 # backslashes.
 def _open_where(doctype, statuses, id_field, cancelled=False):
     """(FROM/WHERE sql, params) for the open rows, or with ``cancelled`` for the docstatus-2 rows
-    that still carry an open status (``on_cancel`` sets "Cancelled" in memory only, #1918).
+    that read "Cancelled" (what ``on_cancel`` persists, #1918) or, for rows cancelled before that
+    fix, still carry an open status.
     ``doctype`` and ``id_field`` come from the module's own ``_POLLED`` constants, never from a
     caller; every VALUE is a bound parameter.
 
@@ -163,6 +166,8 @@ def _open_where(doctype, statuses, id_field, cancelled=False):
     shorter one); nothing in the app does that to these two doctypes.
     """
     docstatus = "= 2" if cancelled else "!= 2"
+    if cancelled:
+        statuses = [*statuses, CANCELLED_STATUS]
     window_column = "modified" if cancelled else "creation"
     sql = (
         f"FROM `tab{doctype}` WHERE docstatus {docstatus} AND status IN %(statuses)s "

@@ -85,26 +85,30 @@ def is_chapter_management_enabled():
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_sepa_mandate_status(member: str):
     """Check SEPA mandate status for dashboard indicators"""
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+    from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
     # Membership-scoped (#605): this drives the member form's mandate indicator,
     # and that form is about dues. A member may legitimately also hold an Active
     # donation mandate (#584), which is not an answer to "is this member's dues
     # collection set up".
-    active_mandates = get_sepa_mandate_manager().get_active_mandates(member, purpose="used_for_memberships")
+    #
+    # Several Active membership mandates are a refusal, not "mandate active" (#2289):
+    # collection debits none of them, so the indicator must not claim one.
+    choice = unambiguous_active_mandate(member, "Member form mandate status: ambiguous mandate")
 
-    result = {"has_active_mandate": bool(active_mandates), "expiring_soon": False}
+    result = {
+        "has_active_mandate": bool(choice),
+        "expiring_soon": False,
+        "mandate_ambiguous": choice.is_ambiguous,
+    }
 
     # Get configurable warning threshold
     settings = get_member_settings()
     warning_days = settings["mandate_expiry_warning_days"]
 
-    for mandate in active_mandates:
-        if mandate.expiry_date:
-            days_to_expiry = frappe.utils.date_diff(mandate.expiry_date, today())
-            if 0 < days_to_expiry <= warning_days:
-                result["expiring_soon"] = True
-                break
+    if choice and choice.mandate.get("expiry_date"):
+        days_to_expiry = frappe.utils.date_diff(choice.mandate["expiry_date"], today())
+        result["expiring_soon"] = 0 < days_to_expiry <= warning_days
 
     return result
 

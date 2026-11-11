@@ -609,9 +609,9 @@ class MollieDebugService(StatelessService):
                 "status": mandate.status,
                 "method": mandate.method,
                 "signatureDate": str(mandate.signature_date) if mandate.signature_date else None,
-                "mandateReference": mandate.mandate_reference
-                if hasattr(mandate, "mandate_reference")
-                else None,
+                "mandateReference": (
+                    mandate.mandate_reference if hasattr(mandate, "mandate_reference") else None
+                ),
                 "createdAt": str(mandate.created_at),
             }
 
@@ -1578,12 +1578,16 @@ class MollieDebugService(StatelessService):
                     "description": subscription.description,
                     "webhook_url": getattr(subscription, "webhook_url", None)
                     or getattr(subscription, "webhookUrl", None),
-                    "start_date": str(subscription.start_date)
-                    if hasattr(subscription, "start_date") and subscription.start_date
-                    else None,
-                    "next_payment_date": str(subscription.next_payment_date)
-                    if hasattr(subscription, "next_payment_date") and subscription.next_payment_date
-                    else None,
+                    "start_date": (
+                        str(subscription.start_date)
+                        if hasattr(subscription, "start_date") and subscription.start_date
+                        else None
+                    ),
+                    "next_payment_date": (
+                        str(subscription.next_payment_date)
+                        if hasattr(subscription, "next_payment_date") and subscription.next_payment_date
+                        else None
+                    ),
                     "timestamp": frappe.utils.now(),
                 },
             )
@@ -2293,8 +2297,6 @@ class MollieDebugService(StatelessService):
 
         Returns canceled date object or None. Marks member_result as skipped on 410.
         """
-        from datetime import datetime
-
         client = self.mollie_client.sdk_client
 
         try:
@@ -2318,9 +2320,8 @@ class MollieDebugService(StatelessService):
         if not latest_canceled_at:
             return None
 
-        if isinstance(latest_canceled_at, str):
-            return datetime.fromisoformat(latest_canceled_at.replace("Z", "+00:00")).date()
-        return latest_canceled_at.date()
+        # The site-local day of the UTC timestamp, not the UTC day (#2378)
+        return mollie_timestamp_to_local_date(latest_canceled_at)
 
     def _sync_single_member_end_date(self, member, member_result, result, dry_run):
         """Sync end date for a single member from Mollie subscription cancellation.

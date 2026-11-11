@@ -417,57 +417,61 @@ def generate_weekly_termination_report():
                 report_data["pending_count"] += 1
 
         # Send report to administrators
-        administrators = frappe.get_all(
-            "User", filters={"role_profile_name": ["like", "%Verenigingen Administrator%"]}, fields=["email"]
+        # Its own key, whose seeded roles are Verenigingen Administrator: the report's old audience,
+        # reached by role as well as by profile. Never the Administrator user (#2240).
+        from verenigingen.utils.notification_helpers import resolve_admin_recipients
+
+        admin_emails = resolve_admin_recipients(
+            notification_key="termination_weekly_report",
+            default_roles=[Roles.VERENIGINGEN_ADMIN],
+            exclude_users=("Administrator",),
+            key_first=True,
         )
 
-        if administrators:
-            admin_emails = [admin.email for admin in administrators if admin.email]
+        if admin_emails:
+            # Create report content
+            report_content = f"""
+            <h3>Weekly Termination Report</h3>
+            <p>Period: {week_ago} to {today()}</p>
 
-            if admin_emails:
-                # Create report content
-                report_content = f"""
-                <h3>Weekly Termination Report</h3>
-                <p>Period: {week_ago} to {today()}</p>
+            <h4>Summary</h4>
+            <ul>
+                <li>Total Requests: {report_data['total_requests']}</li>
+                <li>Executed: {report_data['executed_count']}</li>
+                <li>Pending: {report_data['pending_count']}</li>
+            </ul>
 
-                <h4>Summary</h4>
-                <ul>
-                    <li>Total Requests: {report_data['total_requests']}</li>
-                    <li>Executed: {report_data['executed_count']}</li>
-                    <li>Pending: {report_data['pending_count']}</li>
-                </ul>
+            <h4>By Status</h4>
+            <ul>
+            """
 
-                <h4>By Status</h4>
-                <ul>
-                """
+            for status, count in report_data["by_status"].items():
+                report_content += f"<li>{status}: {count}</li>"
 
-                for status, count in report_data["by_status"].items():
-                    report_content += f"<li>{status}: {count}</li>"
+            report_content += """
+            </ul>
 
-                report_content += """
-                </ul>
+            <h4>By Type</h4>
+            <ul>
+            """
 
-                <h4>By Type</h4>
-                <ul>
-                """
+            for req_type, count in report_data["by_type"].items():
+                report_content += f"<li>{req_type}: {count}</li>"
 
-                for req_type, count in report_data["by_type"].items():
-                    report_content += f"<li>{req_type}: {count}</li>"
+            report_content += "</ul>"
 
-                report_content += "</ul>"
+            # Send email using unified EmailService
+            from verenigingen.services.communication.email_service import get_email_service
 
-                # Send email using unified EmailService
-                from verenigingen.services.communication.email_service import get_email_service
+            email_service = get_email_service()
+            email_service.send_simple_email(
+                recipients=admin_emails,
+                subject=f"Weekly Termination Report - {report_data['total_requests']} requests",
+                message=report_content,
+                notification_key="termination_weekly_report",
+            )
 
-                email_service = get_email_service()
-                email_service.send_simple_email(
-                    recipients=admin_emails,
-                    subject=f"Weekly Termination Report - {report_data['total_requests']} requests",
-                    message=report_content,
-                    notification_key="termination_overdue",
-                )
-
-                frappe.logger().info(f"Sent weekly termination report to {len(admin_emails)} administrators")
+            frappe.logger().info(f"Sent weekly termination report to {len(admin_emails)} administrators")
 
         return report_data
 
