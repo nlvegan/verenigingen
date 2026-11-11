@@ -9,7 +9,8 @@ does not hide anything here; the WSGI route is used because the guest path (rate
 
 Every refusal is compared with the UNKNOWN-name answer on every channel an anonymous caller
 can read: HTTP status, body (``exc_type`` and ``_server_messages`` with the per-request
-``__frappe_exc_id`` removed), response headers other than rate-limit counters, and the Error
+``__frappe_exc_id`` removed), response headers other than rate-limit counters and the random per-response
+X-Frappe-Request-Id (newer Frappe sets one; CI has it, this bench may not), and the Error
 Log row count. Query count is not measured over WSGI; the refusal for a missing/wrong token
 happens before any database read by construction (see the endpoint docstring).
 
@@ -117,7 +118,7 @@ SCRIPT = textwrap.dedent(
                 if isinstance(data.get(key), str):
                     data[key] = re.sub(r'__frappe_exc_id[^,}}]*', "", data[key])
             data.pop("exc", None)
-            hdrs = {{k: v for k, v in r.headers.items() if not k.lower().startswith(("x-ratelimit", "date", "content-length"))}}
+            hdrs = {{k: v for k, v in r.headers.items() if not k.lower().startswith(("x-ratelimit", "date", "content-length", "x-frappe-request-id"))}}
             data.pop("headers", None)
             return {{
                 "status": r.status_code,
