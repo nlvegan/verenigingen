@@ -408,6 +408,52 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         affected = [c["chapter"] for c in results["chapters_affected"]]
         self.assertIn(chapter_name, affected)
 
+    def test_chapters_cleaned_excludes_a_failed_chapter_in_the_same_run(self):
+        # Good first: the listing is newest-first, so the failing chapter is visited BEFORE
+        # the cleaned one and a running "chapters seen so far" count would be wrong.
+        good, good_ghost = self._chapter_with_orphan()
+        bad, bad_ghost = self._chapter_with_orphan(with_dangling_board_link=True)
+        results, _removed = self._run_live()
+
+        self.assertFalse(self._row_exists(good, good_ghost))
+        self.assertTrue(self._row_exists(bad, bad_ghost))
+        affected = [c["chapter"] for c in results["chapters_affected"]]
+        self.assertIn(bad, affected)
+        self.assertIn(good, affected)
+        # Derived from what really happened, so other orphan chapters on the site don't matter.
+        really_cleaned = [c for c in affected if c not in results["chapters_failed"]]
+        self.assertEqual(results["chapters_failed"].count(bad), 1)
+        self.assertEqual(results["chapters_cleaned"], len(really_cleaned))
+        self.assertLess(results["chapters_cleaned"], len(affected))
+        self.assertIn(f"from {len(really_cleaned)} chapter(s)", results["summary"])
+
+    def test_a_lost_transaction_reports_the_deadlock_not_the_missing_savepoint(self):
+        from unittest.mock import patch
+
+        import pymysql
+
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        chapter_name, ghost = self._chapter_with_orphan()
+
+        def save_then_lose_transaction(doc, *args, **kwargs):
+            if doc.name != chapter_name:
+                return real_save(doc, *args, **kwargs)
+            # A 1213 victim: the server has already rolled the whole transaction back.
+            frappe.db.rollback()
+            raise pymysql.err.OperationalError(1213, "Deadlock found when trying to get lock")
+
+        real_save = Chapter.save
+        # Mock justified: reproduces the server-side rollback a deadlock victim suffers.
+        with patch.object(Chapter, "save", save_then_lose_transaction):
+            results, _removed = self._run_live()
+
+        mine = [e for e in results["errors"] if e.split(":")[0] == chapter_name]
+        self.assertEqual(len(mine), 1)
+        self.assertIn("1213", mine[0])
+        self.assertNotIn("1305", mine[0])
+        self.assertIn(chapter_name, results["chapters_failed"])
+
     def test_removed_count_is_orphan_rows_not_chapters(self):
         chapter_name, ghost = self._chapter_with_orphan(orphans=3)
         results, really_removed = self._run_live()

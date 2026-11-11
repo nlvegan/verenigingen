@@ -437,7 +437,15 @@ def _remove_orphans_atomically(chapter_doc, orphaned_indices):
         # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
         chapter_doc.save(ignore_permissions=True)
     except Exception:
-        frappe.db.rollback(save_point=savepoint_name)
+        try:
+            frappe.db.rollback(save_point=savepoint_name)
+        except Exception as rollback_error:
+            # A deadlock victim has already lost the whole transaction, so the savepoint is
+            # gone (1305). Keep the ORIGINAL error for the caller; only log this one.
+            frappe.log_error(
+                title="Orphaned Chapter Cleanup Rollback Error",
+                message=f"{chapter_doc.name}: savepoint rollback failed: {rollback_error}",
+            )
         raise
     frappe.db.release_savepoint(savepoint_name)
 
