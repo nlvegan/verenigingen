@@ -715,6 +715,9 @@ class Chapter(Document):
     def _handle_document_changes(self):
         """Handle changes between document versions"""
         old_doc = self.get_doc_before_save()
+        # Per-save marker (#1843): a save that failed after seating must not leave ids that
+        # would suppress a later real join on this object
+        self.flags.pop("board_seated_member_ids", None)
         if old_doc:
             # Seating a board member auto-adds them to `members`. That append has to
             # land before handle_member_additions diffs the table, or the auto-added

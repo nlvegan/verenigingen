@@ -10,6 +10,7 @@ from frappe.utils import now, today
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from .base_manager import BaseManager
@@ -1544,24 +1545,42 @@ class MemberManager(BaseManager):
         if not old_doc:
             return
         seated = self.chapter_doc.flags.pop("board_seated_member_ids", None) or set()
+        if self._join_notifications_suppressed():
+            return
         old_live = {m.name for m in old_doc.members or [] if m.name and self._is_live_row(m)}
-        for member in sorted(self.chapter_doc.members or [], key=lambda m: m.member or ""):
-            if (
-                not member.member
-                or member.member in seated
-                or member.name in old_live
-                or not self._is_live_row(member)
-            ):
-                continue
-            if frappe.db.get_value("Member", member.member, "status") != "Active":
+        candidates = [
+            member.member
+            for member in sorted(self.chapter_doc.members or [], key=lambda m: m.member or "")
+            if member.member
+            and member.member not in seated
+            and member.name not in old_live
+            and self._is_live_row(member)
+        ]
+        if not candidates:
+            return
+        # One query per save, not one per row (the bulk-add query-count cap)
+        active = set(
+            frappe.get_all("Member", filters={"name": ["in", candidates], "status": "Active"}, pluck="name")
+        )
+        for member_id in candidates:
+            if member_id not in active:
                 continue
             try:
-                self.chapter_doc.communication_manager.notify_board_of_member_joined(member.member)
+                self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
+            except NON_RESUMABLE_DB_ERRORS:
+                # a broken transaction must not be logged past and reported as success
+                raise
             except Exception as e:
                 frappe.log_error(
                     title=f"Board join notification failed: {self.chapter_name}",
-                    message=f"member={member.member}: {e}\n{frappe.get_traceback()}",
+                    message=f"member={member_id}: {e}\n{frappe.get_traceback()}",
                 )
+
+    @staticmethod
+    def _join_notifications_suppressed():
+        """Imports and patches save many chapters; they must not mail every board (#1843)."""
+        flags = frappe.flags
+        return bool(flags.in_import or flags.in_bulk_import or flags.in_patch)
 
     @staticmethod
     def _is_live_row(row):

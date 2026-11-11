@@ -139,7 +139,18 @@ class TestBoardToldOfEveryJoin(ApprovalCase):
         volunteer = self.factory.create_volunteer(email=f"seat.{frappe.generate_hash(length=6)}@example.org")
         member = volunteer.member
         self.assertTrue(member, "premise: the volunteer has a Member")
-        role = frappe.get_all("Chapter Role", pluck="name", limit=1)[0]
+        role = "Test Board Role 1843"
+        if not frappe.db.exists("Chapter Role", role):
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": role,
+                    "permissions_level": "Basic",
+                    "is_chair": 0,
+                    "is_unique": 0,
+                }
+            ).insert()
+            self.track_doc("Chapter Role", role)
         chapter = frappe.get_doc("Chapter", self.chapter.name)
         chapter.append(
             "board_members",
@@ -158,3 +169,28 @@ class TestBoardToldOfEveryJoin(ApprovalCase):
             "premise: seating wrote an enabled Member row",
         )
         self.assertEqual(self._joins(member), [])
+
+    def test_import_and_patch_flags_suppress_the_mail(self):
+        """A Data Import / bulk import / patch saving chapters must not mail every board."""
+        for flag in ("in_import", "in_bulk_import", "in_patch"):
+            member = self.create_test_member(email=f"{flag}.{frappe.generate_hash(length=6)}@example.org").name
+            setattr(frappe.flags, flag, True)
+            try:
+                chapter = frappe.get_doc("Chapter", self.chapter.name)
+                chapter.append("members", {"member": member, "enabled": 1, "status": "Active", "chapter_join_date": today()})
+                chapter.save()
+            finally:
+                setattr(frappe.flags, flag, False)
+            self.assertTrue(frappe.db.exists("Chapter Member", {"parent": self.chapter.name, "member": member, "enabled": 1}), flag)
+            self.assertEqual(self._joins(member), [], flag)
+        control = self.create_test_member(email=f"ctl.{frappe.generate_hash(length=6)}@example.org").name
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter.append("members", {"member": control, "enabled": 1, "status": "Active", "chapter_join_date": today()})
+        chapter.save()
+        self.assertEqual(len(self._joins(control)), 1, "control: the same save with no flag mails")
+
+    def test_failed_save_does_not_leave_the_seating_marker(self):
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter.flags.board_seated_member_ids = {"stale"}
+        chapter._handle_document_changes()
+        self.assertNotIn("board_seated_member_ids", chapter.flags)
