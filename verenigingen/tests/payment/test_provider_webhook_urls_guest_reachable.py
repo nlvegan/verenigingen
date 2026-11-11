@@ -281,7 +281,10 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         # a host the URL builder refuses, so a later call would raise.
         self.webhook_url = frappe.get_single("Mollie Settings").get_subscription_webhook_url()
 
-    def _unpaid_dues_invoice(self):
+    def _unpaid_dues_invoice(self, coverage=("2025-04-01", "2025-04-30")):
+        """A submitted open dues invoice. Real dues invoices always carry the coverage
+        dates of the running period they discharge (the matcher keys on them); pass
+        ``coverage=None`` for one that does not."""
         income = frappe.get_value("Company", self.company, "default_income_account")
         item_code = f"Sub Hook Dues {frappe.generate_hash(length=5)}"
         item = frappe.new_doc("Item")
@@ -301,6 +304,8 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         invoice.currency = frappe.get_value("Company", self.company, "default_currency")
         invoice.member = self.member.name
         invoice.is_membership_invoice = 1
+        if coverage:
+            invoice.custom_coverage_start_date, invoice.custom_coverage_end_date = coverage
         invoice.append("items", {"item_code": item_code, "qty": 1, "rate": 25, "income_account": income})
         invoice.insert()
         invoice.submit()
@@ -422,9 +427,24 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             "outstanding": float(frappe.db.get_value("Sales Invoice", self.invoice_name, "outstanding_amount")),
         }
 
+    def _age_the_invoice_out_of_reach(self):
+        """Move the open invoice's coverage to a period years before the payment, outside
+        the matcher's window, so the payment matches NO open invoice (#1803).
+
+        Probe shortcut: coverage dates are written directly (the matcher's own input)."""
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            {"custom_coverage_start_date": "2023-01-01", "custom_coverage_end_date": "2023-01-31"},
+            update_modified=False,
+        )
+
     def test_a_second_identical_delivery_leaves_state_unchanged(self):
-        """#1780. Probe shortcut: none -- both deliveries are the real Guest dispatch."""
+        """#1780, for a payment that matches NO open invoice (it stays a Bank Transaction
+        only; #1803 allocates the matched case, tested below).
+        Probe shortcut: none -- both deliveries are the real Guest dispatch."""
         payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        self._age_the_invoice_out_of_reach()
         payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
 
         first = self._post_mollie_notification(payment)
@@ -437,7 +457,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(self._state_of(payment_id), after_first, f"a retry changed state: {second}")
         self.assertEqual(after_first["bank_transactions"][0]["status"], "Unreconciled")
 
-    def test_a_retry_resubmits_a_bank_transaction_left_in_draft_instead_of_booking_a_payment_entry(self):
+    def test_a_retry_resubmits_a_bank_transaction_left_in_draft_and_allocates_the_matched_invoice(self):
         """The retry that IS owed work: the first delivery left a BT that never submitted.
 
         Probe shortcut: the draft is produced by making the SUBMIT step of
@@ -460,16 +480,20 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
 
         payment_id = f"tr_{frappe.generate_hash(length=10)}"
         payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        # The first delivery also must not book a Payment Entry against a draft BT.
         with patch.object(secure_operations, "secure_document_operation", side_effect=refuse_submit):
             self._post_mollie_notification(payment)
         rows = frappe.get_all("Bank Transaction", filters={"reference_number": payment_id}, fields=["docstatus"])
         self.assertEqual([r.docstatus for r in rows], [0], "fixture: the first delivery must leave a draft")
+        self.assertEqual(self._state_of(payment_id)["payment_entries"], [], "a PE was booked against a draft BT")
 
         self._post_mollie_notification(payment)
 
         after = self._state_of(payment_id)
         self.assertEqual([b["docstatus"] for b in after["bank_transactions"]], [1], "draft BT not resubmitted")
-        self.assertEqual(after["payment_entries"], [], "the retry posted a Payment Entry")
+        self.assertEqual(len(after["payment_entries"]), 1, "the retry must book ONE allocated Payment Entry")
+        self.assertEqual(after["outstanding"], 0.0)
+        self.assertEqual(after["bank_transactions"][0]["status"], "Reconciled")
 
     def test_a_delivery_that_raced_past_the_existence_check_still_books_nothing_new(self):
         """Concurrent double delivery. Two deliveries that BOTH read "no BT yet" book one
@@ -495,6 +519,202 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             self._post_mollie_notification(payment)
 
         self.assertEqual(self._state_of(payment_id), after_first)
+
+    # ---- #1803: a confirmed dues payment is booked ALLOCATED to its open invoice ----
+
+    def _allocation_state(self, payment_id):
+        """The books for one payment: its Payment Entries (any docstatus), what each
+        allocates, the Bank Transaction link rows and the invoice outstanding."""
+        pes = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": payment_id, "payment_type": "Receive"},
+            fields=["name", "docstatus", "paid_amount"],
+        )
+        refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"parent": ["in", [p.name for p in pes] or [""]], "reference_doctype": "Sales Invoice"},
+            fields=["parent", "reference_name", "allocated_amount"],
+        )
+        bts = frappe.get_all(
+            "Bank Transaction",
+            filters={"reference_number": payment_id},
+            fields=["name", "docstatus", "status", "deposit", "allocated_amount", "unallocated_amount"],
+        )
+        links = frappe.get_all(
+            "Bank Transaction Payments",
+            filters={"parent": ["in", [b.name for b in bts] or [""]]},
+            fields=["parent", "payment_document", "payment_entry", "allocated_amount"],
+        )
+        return {"pes": pes, "refs": refs, "bts": bts, "links": links, "outstanding": self._invoice_outstanding()}
+
+    def test_a_paid_dues_notification_books_a_payment_entry_allocated_to_the_matched_invoice(self):
+        """#1803, through the real Guest dispatch; only Mollie's HTTP boundary is stubbed."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        total = float(self.invoice_total)
+
+        result = self._post_mollie_notification(self._paid_dues_payment(payment_id, total))
+
+        state = self._allocation_state(payment_id)
+        self.assertLess(self._http_status(), 400, result)
+        self.assertEqual([p.docstatus for p in state["pes"]], [1], f"expected one submitted PE: {result}")
+        pe = state["pes"][0]
+        self.assertEqual(
+            [(r.parent, r.reference_name, float(r.allocated_amount)) for r in state["refs"]],
+            [(pe.name, self.invoice_name, total)],
+            "the Payment Entry is not allocated to the matched invoice",
+        )
+        self.assertEqual(state["outstanding"], 0.0)
+        self.assertEqual(frappe.db.get_value("Sales Invoice", self.invoice_name, "status"), "Paid")
+        # The Bank Transaction and the PE are ONE movement of cash, linked, not two.
+        self.assertEqual(len(state["bts"]), 1)
+        bt = state["bts"][0]
+        self.assertEqual(bt.docstatus, 1)
+        self.assertEqual(float(bt.deposit), total)
+        self.assertEqual(
+            [(k.payment_document, k.payment_entry, float(k.allocated_amount)) for k in state["links"]],
+            [("Payment Entry", pe.name, total)],
+        )
+        self.assertEqual(float(bt.allocated_amount), total)
+        self.assertEqual(float(bt.unallocated_amount), 0.0)
+        self.assertEqual(bt.status, "Reconciled")
+
+    def test_an_overpayment_allocates_the_invoice_and_keeps_the_excess_unallocated(self):
+        """One open invoice, paid a little more: the invoice is settled, the excess stays
+        an unallocated credit on the customer, and the Bank Transaction is still fully
+        linked (the PE records the whole cash)."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        total = float(self.invoice_total)
+        paid = round(total + 1.37, 2)
+
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, paid))
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual([p.docstatus for p in books["pes"]], [1])
+        self.assertEqual(float(books["pes"][0].paid_amount), paid)
+        self.assertEqual([float(r.allocated_amount) for r in books["refs"]], [total])
+        self.assertEqual(books["outstanding"], 0.0)
+        self.assertEqual(float(books["bts"][0].unallocated_amount), 0.0)
+
+    def test_the_batch_path_with_create_payment_entry_links_the_allocated_entry_once(self):
+        """Second path to the same outcome: ``batch_process_customer_payments`` links a
+        Payment Entry to the BT itself when ``create_payment_entry`` is set. When the
+        processor has already booked and linked the allocated one, a second link row
+        would double-count the cash. Only the SDK listing is stubbed."""
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        customers = SimpleNamespace(
+            get=lambda _cid: SimpleNamespace(payments=SimpleNamespace(list=lambda **_kw: [payment]))
+        )
+        processor = DuesPaymentProcessor()
+        processor.mollie_client = SimpleNamespace(sdk_client=SimpleNamespace(customers=customers))
+
+        result = processor.batch_process_customer_payments(self.mollie_customer_id, create_payment_entry=True)
+
+        self.assertEqual(result["errors"], 0, result)
+        books = self._allocation_state(payment_id)
+        self.assertEqual([p.docstatus for p in books["pes"]], [1])
+        self.assertEqual(len(books["links"]), 1, f"the Payment Entry was linked to the BT twice: {books['links']}")
+        self.assertEqual(float(books["bts"][0].allocated_amount), float(self.invoice_total))
+        self.assertEqual(books["outstanding"], 0.0)
+
+    def test_a_second_delivery_of_an_allocated_dues_payment_changes_nothing(self):
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self._post_mollie_notification(payment)
+        before, books = self._state_of(payment_id), self._allocation_state(payment_id)
+        self.assertEqual(len(books["pes"]), 1, "fixture: the first delivery must have allocated")
+
+        again = self._post_mollie_notification(payment)
+
+        self.assertLess(self._http_status(), 400, again)
+        self.assertEqual(self._state_of(payment_id), before)
+        self.assertEqual(self._allocation_state(payment_id), books)
+
+    def test_a_redelivery_allocates_a_dues_bank_transaction_booked_before_it_could_match(self):
+        """A BT-only row (what every dues payment produced before #1803, or one whose
+        invoice did not exist yet) is completed by the next delivery: ONE allocated PE,
+        linked to the EXISTING BT, no second BT.
+
+        Probe shortcut: the first delivery is the real dispatch against an invoice with no
+        coverage dates (the matcher keys on them), which the fixture then gains."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            {"custom_coverage_start_date": None, "custom_coverage_end_date": None},
+            update_modified=False,
+        )
+        self._post_mollie_notification(payment)
+        first = self._allocation_state(payment_id)
+        self.assertEqual((len(first["bts"]), first["pes"], first["outstanding"]), (1, [], float(self.invoice_total)))
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            {"custom_coverage_start_date": "2025-04-01", "custom_coverage_end_date": "2025-04-30"},
+            update_modified=False,
+        )
+
+        result = self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertLess(self._http_status(), 400, result)
+        self.assertEqual([b.name for b in books["bts"]], [b.name for b in first["bts"]], "a second BT was booked")
+        self.assertEqual([p.docstatus for p in books["pes"]], [1])
+        self.assertEqual(books["outstanding"], 0.0)
+        self.assertEqual([k.payment_entry for k in books["links"]], [books["pes"][0].name])
+
+    def test_two_open_invoices_the_payment_could_be_for_are_not_guessed_between(self):
+        """Control: with TWO equally good candidates the payment stays a Bank Transaction,
+        both invoices stay open, nothing is allocated, and the refusal is in the Error Log.
+        Both candidates are real, open, same-amount invoices of the member."""
+        second_invoice, _ = self._unpaid_dues_invoice(coverage=("2025-04-01", "2025-04-30"))
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        self.expectErrorLog("Invoice Match Ambiguous")
+
+        result = self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total)))
+
+        books = self._allocation_state(payment_id)
+        self.assertLess(self._http_status(), 400, result)
+        self.assertEqual(books["pes"], [], "a payment was allocated by guessing between two invoices")
+        self.assertEqual(len(books["bts"]), 1, "the payment must still be booked as a Bank Transaction")
+        self.assertEqual(books["outstanding"], float(self.invoice_total))
+        self.assertEqual(
+            float(frappe.db.get_value("Sales Invoice", second_invoice, "outstanding_amount")),
+            float(self.invoice_total),
+        )
+
+    def test_a_refund_of_an_allocated_dues_payment_is_booked(self):
+        """The #1803 consequence: with the forward Payment Entry the webhook itself booked
+        (no hand-made one), a refund announced by a re-delivery is bookable and moves the
+        invoice back to open by exactly the refunded amount, once."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        total = float(self.invoice_total)
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, total))
+        self.assertEqual(self._invoice_outstanding(), 0.0, "fixture: the delivery must allocate")
+        refund = self._refund_of(round(total / 5, 2))
+        refunded = float(refund["amount"]["value"])
+        payment = self._paid_dues_payment(
+            payment_id,
+            total,
+            amountRefunded={"value": f"{refunded:.2f}", "currency": self.currency},
+        )
+        client = _FakeMollie(refunds=[refund])
+
+        first = self._post_mollie_notification(payment, client)
+        again = self._post_mollie_notification(payment, client)
+
+        self.assertLess(self._http_status(), 400, first)
+        self.assertLess(self._http_status(), 400, again)
+        key = f"{payment_id}_refund_{refund['id']}"
+        self.assertEqual(len(frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1})), 1)
+        self.assertEqual(self._invoice_outstanding(), refunded)
 
     def _forward_dues_payment_entry(self, payment_id):
         """The forward artefact the reversal booking needs: a submitted Payment Entry
@@ -596,6 +816,8 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         The delivery must say so (non-success, so Mollie retries until the treasurer has
         reconciled) -- never answer 200 and lose the refund, and never post a stand-in."""
         payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        # A payment matching no open invoice stays a Bank Transaction only (#1803).
+        self._age_the_invoice_out_of_reach()
         payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
         self._post_mollie_notification(payment)
         before = self._state_of(payment_id)
