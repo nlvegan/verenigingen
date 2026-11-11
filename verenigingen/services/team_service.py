@@ -28,17 +28,26 @@ class TeamService(StatelessService):
         return True
 
     def add_assignment_history(
-        self, team_doc, volunteer_id: str, team_role: str, start_date: str, row_from_date=None
+        self,
+        team_doc,
+        volunteer_id: str,
+        team_role: str,
+        start_date: str,
+        row_from_date=None,
+        row_name=None,
     ):
         """Add assignment history for a team member.
 
-        ``row_from_date`` identifies the Team Member row when the history starts on a different
-        day than the row (a role change starts today); it defaults to ``start_date``."""
+        ``row_name`` is the Team Member row the entry describes (#2265): the one reliable
+        identity, since rows of a volunteer can share their from_date and role. Without it
+        (callers that only know the volunteer), ``row_from_date`` identifies the row when
+        the history starts on a different day than the row (a role change starts today); it
+        defaults to ``start_date``."""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
         # Get the team member to access both team_role and role fields
         team_member = self._find_member_for_new_history(
-            team_doc, volunteer_id, team_role, row_from_date or start_date
+            team_doc, volunteer_id, team_role, row_from_date or start_date, row_name
         )
 
         if not team_member:
@@ -55,6 +64,8 @@ class TeamService(StatelessService):
             reference_name=team_doc.name,
             role=role_description,
             start_date=start_date,
+            reference_row=team_member.name,
+            claim_legacy=not self._same_role_sibling_rows(team_doc, team_member),
         )
 
         if success:
@@ -69,15 +80,18 @@ class TeamService(StatelessService):
         return success
 
     @staticmethod
-    def _find_member_for_new_history(team_doc, volunteer_id, team_role, row_from_date):
-        """The row a new history entry describes (#2181).
+    def _find_member_for_new_history(team_doc, volunteer_id, team_role, row_from_date, row_name=None):
+        """The row a new history entry describes (#2181, #2265).
 
-        Rows are identified by (volunteer, from_date), the same key Team's membership events
-        use. Prefer the active row of that day holding ``team_role``, then the legacy date-only
+        A ``row_name`` is the row's identity and decides alone. Without one (a caller that
+        only knows the volunteer, or a job queued before #2265), rows are matched by
+        (volunteer, from_date). Prefer the active row of that day holding ``team_role``, then the legacy date-only
         match. It never picks "any row holding the role": a volunteer may hold the same
         team_role in two rows, and the wrong row's description is deduplicated against the
         other row's Active entry, so the changed row would get no history.
         """
+        if row_name:
+            return next((m for m in team_doc.team_members or [] if m.name == row_name), None)
         same_day = [
             m
             for m in team_doc.team_members or []
@@ -90,28 +104,31 @@ class TeamService(StatelessService):
         return None
 
     def complete_assignment_history(
-        self, team_doc, volunteer_id: str, team_role: str, start_date: str, end_date: str
+        self,
+        team_doc,
+        volunteer_id: str,
+        team_role: str,
+        start_date: str,
+        end_date: str,
+        row_name=None,
     ):
-        """Complete assignment history for a team member"""
+        """Complete assignment history for a team member.
+
+        ``row_name`` is the Team Member row whose entry ends (#2265); without it the row is
+        matched by (volunteer, start_date), which cannot tell same-day rows apart."""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
         # Get the team member to access both team_role and role fields
-        team_member = None
-        for member in team_doc.team_members:
-            if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                team_member = member
-                break
-
-        # If not in current members, check the old document
-        if not team_member and hasattr(team_doc, "_doc_before_save"):
-            for member in team_doc._doc_before_save.team_members or []:
-                if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                    team_member = member
-                    break
+        team_member = self._find_member_to_complete(team_doc, volunteer_id, start_date, row_name)
 
         if not team_member:
             # Use team_role as-is if we can't find the member
             role_description = team_role or "Team Member"
+        elif row_name and team_role and team_member.team_role != team_role:
+            # The row holds another role by now (a role change job): describe the role that ends.
+            role_description = self._get_role_description_for_history(
+                frappe._dict(team_member.as_dict(), team_role=team_role)
+            )
         else:
             # Create role description using Team Role system
             role_description = self._get_role_description_for_history(team_member)
@@ -124,6 +141,7 @@ class TeamService(StatelessService):
             role=role_description,
             start_date=start_date,
             end_date=end_date,
+            reference_row=row_name,
         )
 
         if success:
@@ -136,6 +154,57 @@ class TeamService(StatelessService):
             )
 
         return success
+
+    def _same_role_sibling_rows(self, team_doc, team_member):
+        """Other active rows of the volunteer that hold the same role as ``team_member``.
+
+        An entry that carries no row (written before #2265) cannot be told apart from theirs,
+        so it must not be taken for ``team_member``."""
+        description = self._get_role_description_for_history(team_member)
+        return [
+            m
+            for m in team_doc.team_members or []
+            if m.name != team_member.name
+            and m.volunteer == team_member.volunteer
+            and m.is_active
+            and self._get_role_description_for_history(m) == description
+        ]
+
+    @staticmethod
+    def has_active_history(volunteer, team_name, row_name):
+        """Whether this Team Member row has an Active entry in the volunteer's history (#2265).
+
+        An entry that carries another row's name does not count: two same-day rows of one
+        volunteer would otherwise hide each other's missing entry. An entry written before
+        rows were recorded carries none and counts for any row (the old behaviour)."""
+        row_links = frappe.get_all(
+            "Volunteer Assignment",
+            filters={
+                "parent": volunteer,
+                "parenttype": "Volunteer",
+                "reference_doctype": "Team",
+                "reference_name": team_name,
+                "status": "Active",
+            },
+            pluck="reference_row",
+        )
+        return any(link in (row_name, None, "") for link in row_links)
+
+    @staticmethod
+    def _find_member_to_complete(team_doc, volunteer_id, start_date, row_name):
+        """The row an ending history entry describes: current rows first, then the saved copy
+        from before this save (a removed row is only there)."""
+        sources = [team_doc.team_members or []]
+        if getattr(team_doc, "_doc_before_save", None):
+            sources.append(team_doc._doc_before_save.team_members or [])
+        for members in sources:
+            for member in members:
+                if row_name:
+                    if member.name == row_name:
+                        return member
+                elif member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
+                    return member
+        return None
 
     def _get_role_description_for_history(self, team_member):
         """Generate role description for assignment history using Team Role system"""
@@ -182,7 +251,12 @@ class TeamService(StatelessService):
             # Role changed - complete old assignment and create new one
             change_date = frappe.utils.today()
             self.complete_assignment_history(
-                team_doc, old_member.volunteer, old_member.team_role, old_member.from_date, change_date
+                team_doc,
+                old_member.volunteer,
+                old_member.team_role,
+                old_member.from_date,
+                change_date,
+                row_name=old_member.name,
             )
 
             # Start new assignment with new role using today's date
@@ -192,6 +266,7 @@ class TeamService(StatelessService):
                 new_member.team_role,
                 change_date,
                 row_from_date=new_member.from_date,
+                row_name=new_member.name,
             )
 
     def validate_unique_roles(self, team_doc):
