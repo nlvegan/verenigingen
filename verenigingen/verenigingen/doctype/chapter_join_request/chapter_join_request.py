@@ -329,6 +329,28 @@ class ChapterJoinRequest(Document):
         finally:
             self.flags.review_in_progress = False
 
+    @staticmethod
+    def _chapter_profile_holder_emails():
+        """Emails of enabled users holding any '%Chapter%' role profile.
+
+        Profiles live in the ``role_profiles`` child table; the deprecated
+        ``User.role_profile_name`` mirrors only the FIRST one, so a staffer whose board
+        profile is their second would be missed by filtering on it alone (#2286).
+        """
+        holders = frappe.get_all(
+            "User Role Profile",
+            filters={"role_profile": ["like", "%Chapter%"], "parenttype": "User"},
+            pluck="parent",
+        )
+        if not holders:
+            return []
+        return frappe.get_all(
+            "User",
+            filters={"name": ["in", sorted(set(holders))], "enabled": 1, "email": ["is", "set"]},
+            pluck="email",
+            order_by="email asc",
+        )
+
     def notify_chapter_board(self):
         """Send notification to chapter board members about new join request"""
         try:
@@ -347,12 +369,9 @@ class ChapterJoinRequest(Document):
                         recipients.append(member_email)
 
             # Also notify chapter managers
-            managers = frappe.get_all(
-                "User", filters={"role_profile_name": ["like", "%Chapter%"], "enabled": 1}, fields=["email"]
-            )
-            for manager in managers:
-                if manager.email not in recipients:
-                    recipients.append(manager.email)
+            for manager_email in self._chapter_profile_holder_emails():
+                if manager_email not in recipients:
+                    recipients.append(manager_email)
 
             if recipients:
                 email_service = get_email_service()
