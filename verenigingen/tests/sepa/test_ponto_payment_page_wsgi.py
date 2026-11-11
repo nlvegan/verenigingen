@@ -241,11 +241,13 @@ class TestPontoPaymentPageOverRealWsgi(EnhancedTestCase):
         self.assertEqual(self.out["other_links_token"]["status"], 404)
 
     def test_tokens_do_not_follow_the_sequential_name(self):
-        """The token is not derivable from the name: consecutive links share no structure and
-        the token contains no part of the name's counter."""
+        """The token is not derivable from the name: it is long, does not embed the name, and
+        two consecutive links get unrelated tokens. (Not a check for the counter's digits: a
+        64-char hex HMAC contains a short digit run by chance on some site keys.)"""
         tokens = self.out["tokens"]
         names = self.out["names"]
         for key in ("pending", "other"):
-            digits = re.search(r"(\d+)$", names[key]).group(1)
-            self.assertNotIn(digits, tokens[names[key]])
-            self.assertGreaterEqual(len(tokens[names[key]]), 32)
+            token = tokens[names[key]]
+            self.assertNotIn(names[key], token)
+            self.assertGreaterEqual(len(token), 32)
+        self.assertNotEqual(tokens[names["pending"]], tokens[names["other"]])
