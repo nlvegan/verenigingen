@@ -109,6 +109,12 @@ class SEPAXMLGenerationService:
             frappe.logger().info(f"SEPA XML file generated successfully for batch {batch_doc.name}")
             return file_url
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213/1205 must reach the caller as itself (#958): flattening it into
+            # ValidationError makes a retryable lock contention look like a permanent
+            # SEPA failure to any retry layer keying on the type. Not logged as a batch
+            # error either; it is not one, and the write would run on a broken transaction.
+            raise
         except Exception as e:
             error_msg = f"Error generating SEPA file: {str(e)}"
             frappe.log_error(

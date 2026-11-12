@@ -22,6 +22,7 @@ from verenigingen.services.payment.sepa_upload_guard import (
     get_sepa_upload_guard,
 )
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.non_resumable_errors import deadlock, lock_wait_timeout
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import (
     SEPAXMLGenerationService,
     sepa_xml_service,
@@ -682,11 +683,77 @@ class TestSEPABatchStatusRollbackOnFailure(FrappeTestCase):
             f"exactly what `except NON_RESUMABLE_DB_ERRORS: raise` prevents: {raised}",
         )
 
-        # NOT asserted, deliberately: that the caller receives QueryDeadlockError.
-        # It does not. generate_sepa_xml_for_batch flattens every exception into
-        # `raise frappe.ValidationError(error_msg)` (sepa_xml_generation_service.py:119),
-        # so the TYPE is lost one frame above the fix and only the message survives.
-        # That is a separate, pre-existing defect -- a retry layer keying on
-        # QueryDeadlockError cannot see a deadlock here -- filed rather than widened
-        # into this branch. Asserting the message is the strongest claim this
-        # boundary currently supports.
+        # And the TYPE survives: a retry layer keying on QueryDeadlockError must see one
+        # (#958). generate_sepa_xml_for_batch used to flatten every exception into
+        # ValidationError, leaving only the message. The dedicated type-preservation
+        # tests are in TestGenerateSepaXmlPreservesNonResumableErrors below.
+        self.assertIsInstance(caught.exception, frappe.QueryDeadlockError)
+
+
+class TestGenerateSepaXmlPreservesNonResumableErrors(FrappeTestCase):
+    """#958: ``generate_sepa_xml_for_batch`` must not flatten a 1213/1205 into
+    ValidationError, and must not log it as a SEPA batch error.
+
+    The error is injected on a REAL write inside the call (the finalize block's
+    upload-log ``set_value``, the first write to that doctype), not by stubbing
+    ``_save_xml_file``. Every other exception keeps its old behaviour.
+    """
+
+    LOG_TITLE = "SEPA Direct Debit Batch Error"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = SEPATestDataFactory(seed=24680)
+        _ensure_sepa_settings_for_xml_generation()
+
+    def setUp(self):
+        super().setUp()
+        _ensure_sepa_settings_for_xml_generation()
+        self.service = SEPAXMLGenerationService()
+        frappe.db.delete("SEPA Batch Upload Log", {})
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.delete("SEPA Batch Upload Log", {})
+        frappe.db.commit()
+        super().tearDown()
+
+    def _generate_with_failing_finalize_write(self, error):
+        """Run generation with ``error`` raised on the first upload-log write; return
+        (raised exception, number of SEPA batch Error Log rows the call added)."""
+        batch = self.factory.create_test_direct_debit_batch(invoice_count=1)
+        original_set_value = frappe.db.set_value
+        calls = {"n": 0}
+
+        def _fail_first_upload_log_write(doctype, *args, **kwargs):
+            if doctype == "SEPA Batch Upload Log":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise error
+            return original_set_value(doctype, *args, **kwargs)
+
+        before = frappe.db.count("Error Log", {"method": self.LOG_TITLE})
+        with patch.object(frappe.db, "set_value", side_effect=_fail_first_upload_log_write):
+            with self.assertRaises(Exception) as caught:
+                self.service.generate_sepa_xml_for_batch(batch)
+        self.assertGreaterEqual(calls["n"], 1, "the injected write was never reached")
+        return caught.exception, frappe.db.count("Error Log", {"method": self.LOG_TITLE}) - before
+
+    def test_deadlock_arrives_as_query_deadlock_error_and_is_not_logged(self):
+        raised, logged = self._generate_with_failing_finalize_write(deadlock())
+        self.assertIsInstance(raised, frappe.QueryDeadlockError)
+        self.assertEqual(logged, 0, "a deadlock must not be logged as a SEPA batch error")
+
+    def test_lock_wait_timeout_arrives_as_query_timeout_error_and_is_not_logged(self):
+        raised, logged = self._generate_with_failing_finalize_write(lock_wait_timeout())
+        self.assertIsInstance(raised, frappe.QueryTimeoutError)
+        self.assertEqual(logged, 0, "a timeout must not be logged as a SEPA batch error")
+
+    def test_an_ordinary_error_is_still_a_logged_validation_error_with_the_message(self):
+        """Control: only the two non-resumable types escape; the rest keep the old shape."""
+        raised, logged = self._generate_with_failing_finalize_write(ValueError("injected ordinary failure"))
+        self.assertIsInstance(raised, frappe.ValidationError)
+        self.assertNotIsInstance(raised, (frappe.QueryDeadlockError, frappe.QueryTimeoutError))
+        self.assertIn("Error generating SEPA file: injected ordinary failure", str(raised))
+        self.assertEqual(logged, 1)
