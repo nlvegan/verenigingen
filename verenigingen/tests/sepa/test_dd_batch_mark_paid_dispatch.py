@@ -60,6 +60,8 @@ class TestMarkInvoicesAsPaidDispatch(_BatchBase):
         self.staff = self.create_test_user_with_roles(roles=["Verenigingen Staff"])
         self.outsider = self.create_test_user_with_roles(roles=["Verenigingen Member"])
         self.method, self.uses_doc, self.call_block = _read_mark_paid_call()
+        args_match = re.search(r"args:\s*\{\s*(\w+):\s*frm\.doc\.name", self.call_block)
+        self.args_key = args_match.group(1) if args_match else None
 
     def _dispatch_as(self, user):
         """Replay the call the JS makes, through the same gates frappe.handler applies."""
@@ -74,15 +76,22 @@ class TestMarkInvoicesAsPaidDispatch(_BatchBase):
                 return None
             fn = frappe.handler.get_attr(self.method)
             frappe.handler.is_whitelisted(fn)
-            return frappe.call(fn, batch_name=self.batch.name)
+            return frappe.call(fn, **{self.args_key: self.batch.name})
         finally:
             frappe.set_user(original)
 
     def test_js_names_a_dotted_module_function_not_a_doc_bound_call(self):
         self.assertFalse(self.uses_doc, "run_doc_method is gated on the unwhitelisted instance method")
         self.assertIn(".", self.method, "bare method names are deprecated shorthand")
-        self.assertRegex(self.call_block, r"batch_name:\s*frm\.doc\.name")
+        self.assertEqual(self.args_key, "batch_name")
+        self.assertRegex(self.call_block, r"args:\s*\{\s*batch_name:\s*frm\.doc\.name\s*\}")
         self.assertIn(frappe.get_attr(self.method), frappe.whitelisted)
+
+    def test_progress_dialog_is_hidden_on_every_outcome(self):
+        """callback runs on success only; a refused/thrown call must still hide the dialog."""
+        always = re.search(r"\balways\s*(?::\s*function)?\s*\([^)]*\)\s*\{(.*?)\}", self.call_block, re.S)
+        self.assertIsNotNone(always, "no always() handler on the call")
+        self.assertIn("frappe.hide_progress()", always.group(1))
 
     def test_finance_role_reaches_the_batch_logic(self):
         """Dispatch must reach the batch's own guard, not a PermissionError."""
