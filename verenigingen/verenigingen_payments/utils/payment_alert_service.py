@@ -245,6 +245,9 @@ class PaymentAlertService:
                 subject=subject,
                 message=message,
                 notification_key=notification_key,
+                # Per transaction: otherwise one payment's alert silences the next payment's for an
+                # hour, per recipient (#2310).
+                cooldown_scope=context_id,
             )
             # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
             return result.success and not result.skip_reason

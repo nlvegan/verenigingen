@@ -5872,7 +5872,7 @@
   "enabled": 1,
   "security_level": "high",
   "business_context": "System operation for cancel agreement",
-  "required_roles": "System Manager",
+  "required_roles": "Verenigingen Administrator",
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
