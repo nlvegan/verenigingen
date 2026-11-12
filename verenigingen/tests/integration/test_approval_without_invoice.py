@@ -20,6 +20,7 @@ from frappe.utils import add_days, add_months, getdate, now_datetime, today
 
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 NOTIFICATION_KEY = "member_application_approved"
 APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approval Notification Failed"]
@@ -29,6 +30,8 @@ class TestApprovalWithoutInvoice(ApprovalCase):
     def setUp(self):
         super().setUp()
         self._require_approval_notification_enabled()
+        # EmailService refuses without a default outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
 
     def _require_approval_notification_enabled(self):
         """Precondition, stated rather than seeded: with no `notification_types` row the key counts as

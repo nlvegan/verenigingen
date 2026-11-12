@@ -36,6 +36,7 @@ from verenigingen.services.member.lifecycle.member_status_notification_service i
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 SUBMISSION = "Membership Application Submission"
@@ -962,6 +963,9 @@ class TestApproveApplicationBoard(ApprovalCase):
     def test_board_approval_creates_invoice_schedule_and_account_request_like_admin(self):
         """#1930: after the approver is AUTHORISED, the follow-on steps run with system privileges, so a
         board approval ends exactly where an Administrator approval does."""
+        # With no outgoing Email Account both approvals log an "Approval Email Failed" row whose title carries
+        # the member id, so the two Error Log lists could never be equal. Give the site an account.
+        ensure_outgoing_email_account(self)
         admin_name, admin_result, admin_errors = self._approve_for_comparison(self.admin_user.email)
         admin_state = self._follow_on_state(admin_name, admin_result)
         board_name, board_result, board_errors = self._approve_for_comparison(self.board.user)
