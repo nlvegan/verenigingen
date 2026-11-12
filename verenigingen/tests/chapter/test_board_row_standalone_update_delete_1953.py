@@ -223,10 +223,8 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
     def test_a_failed_withdrawal_is_not_swallowed_by_the_assignment_service(self):
         """The failure is injected BELOW every swallowing layer (BoardManager._log_or_reraise
         and the service's per-row except): the two manager steps do nothing, so the real
-        post-condition raises BoardAccessWithdrawalError, which must reach the caller."""
+        post-condition raises BoardAccessWithdrawalError, whose reason must reach the caller."""
         from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
-        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
-
         person = self._person_1953("Fail")
         self._seat_1953(person)
         base = "verenigingen.verenigingen.doctype.chapter.managers.board_manager.BoardManager."
@@ -234,8 +232,12 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         with mock.patch(base + "_sync_role_profile_for_volunteer"), mock.patch(
             base + "_withdraw_board_role_if_unseated"
         ):
-            with self.assertRaises(BoardAccessWithdrawalError):
+            # The service wraps the failure to name member and chapter (#738), so the type is
+            # a plain ValidationError; the control is that the withdrawal reason survives in it.
+            with self.assertRaises(frappe.ValidationError) as raised:
                 ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
+        self.assertIn("access was not withdrawn", str(raised.exception), "the withdrawal failure reached the caller")
+        self.assertIn(person.member, str(raised.exception))
 
         # The direct call above ended `row` before raising; the reassignment gets its own seat.
         other = self._person_1953("Fail2")
@@ -354,12 +356,16 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         self.assertEqual(frappe.db.get_value("Chapter Board Member", failing_row, "to_date"), None)
 
     def test_a_seat_the_chapter_save_cannot_end_refuses_the_move(self):
-        """Opposite-harm guard: a Chapter save that fails must not be waved through, or the
-        move reports success with the seat still active. Probe shortcut: the chapter's
-        ``default_board_role_profile`` is pointed at a missing Role Profile with
-        ``db.set_value`` so ``Chapter.validate`` refuses. Any Chapter-save
-        failure (an access refusal on the National Board chapter included) takes the same
-        handler, so one test covers them."""
+        """Opposite-harm guard (#738 ruling): a Chapter save that fails must not be waved
+        through, or the move reports success with the seat still active.
+
+        The person is SEAT-ONLY: no enabled Chapter Member row in the source chapter, so the
+        membership step (_remove_from_old_chapter, #1945) has nothing to refuse and the refusal
+        can only come from the board-seat step. Probe shortcuts: the Chapter Member row is
+        disabled with ``db.set_value`` (a seat-only volunteer, as the real flow leaves one after a
+        leave) and the chapter's ``default_board_role_profile`` is pointed at a missing Role
+        Profile with ``db.set_value`` so ``Chapter.validate`` refuses. The refusal names the
+        member and the chapter."""
         from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
 
         target = self.create_test_chapter(
@@ -367,6 +373,16 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         )
         person = self._person_1953("Refuse738")
         row = self._seat_1953(person)
+        for member_row in frappe.get_all(
+            "Chapter Member", filters={"parent": self.chapter.name, "member": person.member}, pluck="name"
+        ):
+            frappe.db.set_value("Chapter Member", member_row, "enabled", 0)
+        self.assertFalse(
+            frappe.db.exists(
+                "Chapter Member", {"parent": self.chapter.name, "member": person.member, "enabled": 1}
+            ),
+            "fixture: seat-only, no enabled Chapter Member row in the source chapter",
+        )
         frappe.db.set_value(
             "Chapter", self.chapter.name, "default_board_role_profile", f"No Such Profile {frappe.generate_hash(length=6)}"
         )
@@ -374,6 +390,8 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         result = ChapterAssignmentService().assign_with_cleanup(person.member, target.name)
 
         self.assertFalse(result["success"], f"the move must be refused: {result}")
+        self.assertIn(person.member, result["message"], "the refusal names the member")
+        self.assertIn(self.chapter.name, result["message"], "the refusal names the chapter")
         self.assertFalse(result.get("cleanup_performed"))
         self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "is_active"), 1, "seat untouched")
         self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "to_date"), None)

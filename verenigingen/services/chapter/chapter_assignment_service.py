@@ -369,10 +369,12 @@ class ChapterAssignmentService(StatelessService):
             rows_by_chapter.setdefault(board_membership.parent, []).append(board_membership.name)
 
         for chapter_name, row_names in rows_by_chapter.items():
-            # A save that fails after the row write must not leave a half-ended seat (#832),
-            # and one chapter's failure must not undo another's.
+            # A save that fails after the row write must not leave a half-ended seat (#832).
+            # The failure is re-raised and assign_with_cleanup rolls the whole move back, so
+            # this savepoint serves direct callers of this method.
             savepoint = f"end_board_{frappe.generate_hash(length=10)}"
             frappe.db.savepoint(savepoint)
+            logged_before = len(frappe.local.message_log)
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter_name)
                 for row in chapter_doc.board_members:
@@ -394,10 +396,16 @@ class ChapterAssignmentService(StatelessService):
                 # old standalone row save could not fail on Chapter validation, so skipping
                 # here would report success with the seat still active (#738). A failed
                 # WITHDRAWAL (#1953) takes the same route. assign_with_cleanup rolls back and
-                # returns the failure.
+                # returns the failure. frappe.throw() queues the raw reason too; the caller
+                # must see one message, so the queue is trimmed as _remove_from_old_chapter does.
                 rollback_to_savepoint(savepoint)
-                self.logger.error(f"Error ending board memberships {row_names} of {chapter_name}: {str(e)}")
-                raise
+                reason = str(e) or self._last_logged_message(logged_before) or type(e).__name__
+                del frappe.local.message_log[logged_before:]
+                frappe.throw(
+                    _("Board seat(s) of {0} in {1} could not be ended, so the move was not made: {2}").format(
+                        member, chapter_name, reason
+                    )
+                )
 
         return cleanup_performed
 
