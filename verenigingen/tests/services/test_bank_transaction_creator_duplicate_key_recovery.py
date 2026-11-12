@@ -71,11 +71,11 @@ class TestBankTransactionCreatorDuplicateKeyRecovery(_BankTxnFixtureMixin, Enhan
         return mock.patch.object(self.creator, "_find_matching_bank_transaction", side_effect=flaky_lookup)
 
     def test_duplicate_key_create_failure_recovers_the_winner_of_the_race(self):
-        # Must be a SYSTEM-issued shape (here: Mollie's tr_ prefix) -- the amended #1267
-        # scope leaves an MT940/manual-shaped reference unconstrained, so a race on one of
-        # those could never collide on custom_reference_number_key in the first place.
+        # Both racers must be SYSTEM-issued, as the writers mark them (#1349) -- the #1267
+        # scope leaves a payer-reference row unconstrained, so a race on one of those could
+        # never collide on custom_reference_number_key in the first place.
         ref = f"tr_{frappe.generate_hash()[:10]}"
-        winner = self._insert_draft_bank_transaction(ref, self.bank_account)
+        winner = self._insert_draft_bank_transaction(ref, self.bank_account, system_issued=True)
 
         # secure_document_operation() itself logs the swallowed IntegrityError via
         # frappe.log_error before returning success=False -- that happens regardless of
@@ -93,6 +93,7 @@ class TestBankTransactionCreatorDuplicateKeyRecovery(_BankTxnFixtureMixin, Enhan
                 currency="EUR",
                 reference_number=ref,
                 description="racing writer",
+                custom_reference_is_system_issued=1,
             )
 
         self.assertEqual(
