@@ -25,6 +25,12 @@ def validate_expense_claim_chapter_access(doc):
     if not chapter:
         return
 
+    # A team claim carries its team's chapter as attribution (#1714), so the chapter's seats
+    # can see it. That is not a volunteer picking a chapter to file against: the portal already
+    # required team membership, and the team (which is not board-gated) decided the chapter.
+    if doc.get("custom_team") and chapter == frappe.db.get_value("Team", doc.custom_team, "chapter"):
+        return
+
     # Get accessible chapters for current user
     accessible_chapters = get_user_accessible_chapters(user)
 

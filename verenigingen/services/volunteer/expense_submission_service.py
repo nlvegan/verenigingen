@@ -434,6 +434,10 @@ class VolunteerExpenseSubmissionService(StatelessService):
             chapter = request.chapter
         elif request.organization_type == "Team":
             team = request.team
+            # A team claim belongs to its team's chapter: the Expense Claim list query and
+            # doc-level permission scope on custom_chapter, so a chapter seat only sees the
+            # claim when it is attributed (#1714). A team with no chapter stays unattributed.
+            chapter = frappe.db.get_value("Team", team, "chapter") or None
         elif request.organization_type == "National":
             # National expenses are NOT attributed to a specific chapter: their
             # cost center comes from Verenigingen Settings.national_cost_center
