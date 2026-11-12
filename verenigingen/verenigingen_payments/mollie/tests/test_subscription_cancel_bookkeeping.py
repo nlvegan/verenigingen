@@ -10,11 +10,13 @@ real Member field `subscription_cancelled_date` and skips what a doctype lacks.
 """
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import CompletePaymentService
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import SubscriptionService
 
 
@@ -33,8 +35,20 @@ class _FakeMollieClient:
 
 class TestSubscriptionCancelBookkeeping(EnhancedTestCase):
     def _cancel(self, metadata):
+        """Cancel through the real service; returns (result, owner_calls). owner_calls
+        records, without replacing, each (owner_doctype, owner_name) the shared writer
+        was asked to update, so a test can prove WHICH metadata branch ran."""
+        owner_calls = []
+        original = CompletePaymentService._update_subscription_status
+
+        def spy(writer, subscription_id, status, reason="", owner_doctype=None, owner_name=None):
+            owner_calls.append((owner_doctype, owner_name))
+            return original(writer, subscription_id, status, reason, owner_doctype, owner_name)
+
         service = SubscriptionService(client=_FakeMollieClient(metadata))
-        return service.cancel_subscription("cst_fake", "sub_fake", reason="member asked")
+        with patch.object(CompletePaymentService, "_update_subscription_status", spy):
+            result = service.cancel_subscription("cst_fake", "sub_fake", reason="member asked")
+        return result, owner_calls
 
     def _active_member(self, last_name):
         member = self.create_test_member(first_name="CancelBook", last_name=last_name)
@@ -50,9 +64,10 @@ class TestSubscriptionCancelBookkeeping(EnhancedTestCase):
         member = self._active_member("Dues")
         bystander = self._active_member("Bystander")
 
-        result = self._cancel({"subscription_type": "membership_dues", "member_id": member.name})
+        result, owner_calls = self._cancel({"subscription_type": "membership_dues", "member_id": member.name})
 
         self.assertEqual(result["status"], "success")
+        self.assertEqual(owner_calls, [("Member", member.name)])
         row = frappe.db.get_value(
             "Member", member.name, ["subscription_status", "subscription_cancelled_date"], as_dict=True
         )
@@ -63,8 +78,8 @@ class TestSubscriptionCancelBookkeeping(EnhancedTestCase):
         self.assertIsNone(frappe.db.get_value("Member", bystander.name, "subscription_cancelled_date"))
 
     def test_recurring_donation_cancel_does_not_touch_donor(self):
-        """Donor declares none of the subscription fields, so there is nothing to write;
-        the old code still re-saved the Donor (bumping `modified`) for nothing."""
+        """The recurring_donation branch runs for the Donor (spy), but Donor declares none
+        of the subscription fields, so nothing is written and it is not re-saved."""
         donor = self.create_test_donor(
             donor_name="Cancel Book Donor",
             donor_email=f"cancel-book-{frappe.generate_hash(length=8)}@example.org",
@@ -75,9 +90,11 @@ class TestSubscriptionCancelBookkeeping(EnhancedTestCase):
             self.assertFalse(meta.has_field(fieldname), fieldname)
         modified_before = frappe.db.get_value("Donor", donor.name, "modified")
 
-        result = self._cancel({"subscription_type": "recurring_donation", "donor_id": donor.name})
+        result, owner_calls = self._cancel({"subscription_type": "recurring_donation", "donor_id": donor.name})
 
         self.assertEqual(result["status"], "success")
+        # Proves the donor branch ran (without it "unchanged" would hold vacuously).
+        self.assertEqual(owner_calls, [("Donor", donor.name)])
         self.assertEqual(frappe.db.get_value("Donor", donor.name, "modified"), modified_before)
 
     def test_undeclared_names_stay_undeclared_on_member(self):

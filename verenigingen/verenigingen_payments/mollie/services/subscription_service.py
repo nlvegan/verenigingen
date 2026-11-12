@@ -79,7 +79,9 @@ class SubscriptionService:
             "mandate_id": subscription.mandate_id,
         }
 
-    def cancel_subscription(self, customer_id: str, subscription_id: str, reason: str = "") -> Dict[str, Any]:
+    def cancel_subscription(
+        self, customer_id: str, subscription_id: str, reason: str = "", record_owner_cancel: bool = True
+    ) -> Dict[str, Any]:
         """
         Cancel a subscription.
 
@@ -87,11 +89,21 @@ class SubscriptionService:
             customer_id: Mollie customer ID
             subscription_id: Mollie subscription ID
             reason: Optional cancellation reason
+            record_owner_cancel: Stamp the owning Member/Donor as cancelled. Pass False when
+                the cancel is part of an amendment swap or its rollback: a replacement
+                subscription is live, so the owner is NOT cancelled (#873).
 
         Returns:
             Standard cancel result dict: {status, subscription_id, message}
         """
         subscription = self.client.cancel_subscription(customer_id, subscription_id)
+
+        if not record_owner_cancel:
+            return {
+                "status": "success",
+                "subscription_id": subscription_id,
+                "message": "Subscription cancelled successfully",
+            }
 
         # Update related records based on subscription type
         subscription_type = subscription.metadata.get("subscription_type")
