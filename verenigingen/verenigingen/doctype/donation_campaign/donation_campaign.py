@@ -279,7 +279,7 @@ class DonationCampaign(Document):
             "Expense Claim",
             filters={"project": self.project, "docstatus": 1},
             fields=["name", "total_claimed_amount", "posting_date"],
-            limit=0,  # explicit: get_list pages at 20 by default and the total sums every row
+            limit=0,  # explicit no-limit guard: the total below sums every row
         )
 
     def get_accounting_entries(self, from_date=None, to_date=None):

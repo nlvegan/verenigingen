@@ -129,6 +129,21 @@ class TestCampaignProjectSummaryClaimLeak(StaffExpenseBase):
         self.assertNotIn(self.claim_b.name, json.dumps(summary, default=str))
         self.assertEqual(flt(summary["total_expenses"]), 0)
 
+    def test_a_caller_without_expense_claim_read_gets_an_empty_list_not_an_error(self):
+        """The doctype-level pre-check: get_list would raise for a caller with no Expense Claim role,
+        which would also tell them apart from a project without claims. Only roles that pass the
+        security tier and the campaign check (via the forged owner) are in play here."""
+        caller = self.create_test_user(
+            email=f"x2546-noread-{self.token}@test.com", roles=["Verenigingen Volunteer"]
+        )
+        self.assertFalse(
+            self.act_as(caller, lambda: frappe.has_permission("Expense Claim", "read")),
+            "precondition: no doctype-level Expense Claim read",
+        )
+        summary = self._summary_as_2546(caller.name, forge_owner=True)
+        self.assertEqual(summary["expenses"], [])
+        self.assertEqual(flt(summary["total_expenses"]), 0)
+
     def test_guest_cannot_reach_the_method_even_with_a_forged_owner(self):
         with self.assertRaises(frappe.PermissionError):
             self._summary_as_2546("Guest", forge_owner=True)
