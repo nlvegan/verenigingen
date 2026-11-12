@@ -362,9 +362,10 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         The person is SEAT-ONLY: no enabled Chapter Member row in the source chapter, so the
         membership step (_remove_from_old_chapter, #1945) has nothing to refuse and the refusal
         can only come from the board-seat step. Probe shortcuts: the Chapter Member row is
-        disabled with ``db.set_value`` (a seat-only volunteer, as the real flow leaves one after a
-        leave) and the chapter's ``default_board_role_profile`` is pointed at a missing Role
-        Profile with ``db.set_value`` so ``Chapter.validate`` refuses. The refusal names the
+        disabled with ``db.set_value(enabled=0)`` to stand in for a seat-only volunteer; that
+        state was NOT reproduced through ``Chapter.remove_member``, so this test does not
+        show that the real leave flow produces it. The chapter's
+        ``default_board_role_profile`` is pointed at a missing Role Profile with ``db.set_value`` so ``Chapter.validate`` refuses. The refusal names the
         member and the chapter."""
         from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
 
