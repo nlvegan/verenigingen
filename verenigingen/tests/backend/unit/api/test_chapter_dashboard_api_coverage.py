@@ -207,10 +207,7 @@ class TestChapterDashboardQuickApproveJoinRequest(_ChapterDashboardBase):
         self._reseat_board_as_chapter_head(_vol.name)
 
         with self._as_user(board_user.name):
-            # The post-approval audit Comment is inserted via secure_document_operation,
-            # which requires elevated-operation permission the board user lacks; the
-            # endpoint deliberately logs that and continues (approval is NOT blocked).
-            self.expectErrorLog()
+            # The audit Comment is a system_operation insert (#2492), so no error is logged.
             result = chapter_dashboard_api.quick_approve_join_request(
                 applicant.name, self.chapter.name
             )

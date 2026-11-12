@@ -269,12 +269,17 @@ def quick_approve_join_request(member_name: str, chapter_name: str | None = None
                 }
             )
 
-            # Secure audit trail comment creation with explicit permission validation
+            # WHY system_operation: this is the approval's AUDIT SINK. A board member does not hold
+            # Comment:create, so checking the acting user let the approver's own audit record be
+            # dropped (#2492, ruling #2218 as applied to the chapter comment in #2455). Only this one
+            # insert skips the DocPerm check; the Comment stays owned by the acting user, Comment
+            # permissions are unchanged, and the content is system-constructed above, on a Member
+            # whose join request this caller was just authorised to approve.
             comment_result = secure_document_operation(
                 operation="insert",
                 doc=comment_doc,
                 justification=f"Chapter governance audit trail for member approval {member_name}",
-                required_permissions=["Comment:create"],
+                system_operation=True,
             )
 
             if not comment_result.success:
