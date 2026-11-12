@@ -592,6 +592,15 @@ NOTIFICATION_KEYS = {
         # alerts go through Notification Log, which applies no cooldown.
         "cooldown_minutes": 0,
     },
+    "ponto_orphaned_payment": {
+        "label": "Ponto Payment Orphaned By A Failed Submit (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when submitting a Ponto Payment Request or Link failed after Ponto had created "
+        "the payment, and deleting it at Ponto failed too. The unsigned payment is still at Ponto with no "
+        "local row; the mail names its Ponto id so it can be deleted there by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "ponto_executed_unbookable": {
         "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
         "category": CATEGORY_PAYMENT,
@@ -923,6 +932,7 @@ REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
         "ponto_executed_unbookable",
+        "ponto_orphaned_payment",
         "mollie_forward_payment_staff_cancelled",
         "door_unavailable",
         "sepa_batch_error",
