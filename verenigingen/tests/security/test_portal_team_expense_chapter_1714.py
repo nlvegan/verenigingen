@@ -248,6 +248,28 @@ class TestPortalTeamExpenseChapter(LimitBase):
         with self.assertRaises(frappe.exceptions.ValidationError):
             self._insert_as_volunteer(custom_team=team.name, custom_chapter=self.chapter_b.name)
 
+    def test_an_ex_member_cannot_resave_their_attributed_claim_but_the_financial_seat_can(self):
+        """Maintainer ruling (#1714): attribution needs an ACTIVE team member. Once the claimant is
+        deactivated on the team, even an UNCHANGED re-save is refused for them (the member check runs
+        before the unchanged-chapter exemption), while the chapter's Financial seat still saves it."""
+        team = self._team(self.chapter)
+        claim = self._file_through_portal(organization_type="Team", team=team.name)
+        self.assertEqual(claim.custom_chapter, self.chapter.name)
+        frappe.db.set_value("Team Member", {"parent": team.name, "volunteer": self.volunteer.name}, "is_active", 0)
+
+        def resave(remark):
+            def run():
+                doc = frappe.get_doc("Expense Claim", claim.name)
+                doc.remark = remark
+                doc.save()
+
+            return run
+
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            self.act_as(self.user, resave("ex-member edit"))
+        self.act_as(self.fin_user, resave("seat edit"))
+        self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "remark"), "seat edit")
+
     def test_the_chapter_gate_still_refuses_a_chapter_that_is_not_the_teams(self):
         """The exemption is for the team's OWN chapter only: a volunteer without a seat on
         chapter_a still cannot file against it, with or without a team of another chapter."""
