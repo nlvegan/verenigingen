@@ -17,6 +17,10 @@ from verenigingen.services.customer_group_resolver import resolve_non_group_cust
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager, TestUserFactory
 
+# Its only test is permanently @unittest.skip'd (Customer read PermissionError, #2467); remove this
+# marker when #2467 un-skips it.
+CI_ALWAYS_SKIPS = "only test is @unittest.skip'd pending #2467 (Customer read PermissionError for the admin test user)"
+
 
 class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
     """

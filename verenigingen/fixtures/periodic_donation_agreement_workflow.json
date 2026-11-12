@@ -99,7 +99,7 @@
       },
       {
         "action": "Cancel Agreement",
-        "allow_self_approval": 0,
+        "allow_self_approval": 1,
         "allowed": "Verenigingen Administrator",
         "condition": "doc.cancellation_reason",
         "next_state": "Cancelled",
@@ -107,7 +107,7 @@
       },
       {
         "action": "Cancel Agreement",
-        "allow_self_approval": 0,
+        "allow_self_approval": 1,
         "allowed": "System Manager",
         "condition": "doc.cancellation_reason",
         "next_state": "Cancelled",
@@ -115,7 +115,7 @@
       },
       {
         "action": "Cancel Agreement",
-        "allow_self_approval": 0,
+        "allow_self_approval": 1,
         "allowed": "System Manager",
         "condition": "doc.cancellation_reason",
         "next_state": "Cancelled",

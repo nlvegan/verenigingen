@@ -61,21 +61,24 @@ jobs:
     - name: Run Black formatting check
       run: |
         echo "Checking code formatting with Black..."
+        # advisory by design: style/security report, not a gate
         black --check --diff . || echo "⚠️ Code formatting issues found. Run 'black .' to fix."
 
     - name: Run isort import sorting check
       run: |
         echo "Checking import sorting with isort..."
+        # advisory by design: style/security report, not a gate
         isort --check-only --diff . || echo "⚠️ Import sorting issues found. Run 'isort .' to fix."
 
     - name: Run Flake8 linting
       run: |
         echo "Running flake8 linting..."
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Critical linting issues found."
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
     - name: Run Bandit security check
       run: |
         echo "Running security checks with Bandit..."
+        # advisory by design: style/security report, not a gate
         bandit -r . -f json -o bandit-results.json || echo "⚠️ Security issues found."
 
     - name: Upload Bandit results
@@ -139,7 +142,10 @@ jobs:
     - name: Syntax validation
       run: |
         echo "Checking Python syntax..."
-        python -m py_compile verenigingen/**/*.py || echo "Syntax errors found"
+        # compileall recurses and exits non-zero on a syntax error. The old
+        # `py_compile verenigingen/**/*.py || echo` compiled one directory level under sh
+        # (no globstar) and swallowed the exit code (#2399).
+        python -m compileall -q verenigingen
 
     - name: Import validation
       run: |
@@ -148,6 +154,7 @@ jobs:
         python -c "
         import ast
         import os
+        failed = False
         for root, dirs, files in os.walk('verenigingen'):
             for file in files:
                 if file.endswith('.py'):
@@ -158,12 +165,17 @@ jobs:
                         print(f'✓ {filepath}')
                     except SyntaxError as e:
                         print(f'✗ {filepath}: {e}')
+                        failed = True
+        if failed:
+            raise SystemExit(1)
         "
 
     - name: Check JavaScript/JSON files
       run: |
         echo "Checking JSON files..."
-        find . -name "*.json" -exec python -m json.tool {} \; > /dev/null || echo "JSON syntax errors found"
+        # `find -exec ... \;` exits 0 whatever the command did; xargs exits non-zero if any
+        # invocation fails (#2399).
+        find . -name "*.json" -not -path "./.git/*" -print0 | xargs -0 -n1 python -m json.tool > /dev/null
 
         echo "Basic file structure validation..."
         ls -la verenigingen/

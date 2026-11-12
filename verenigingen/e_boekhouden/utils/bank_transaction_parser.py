@@ -17,6 +17,7 @@ from typing import Dict, Optional, Tuple
 
 import frappe
 
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.sepa_parser import extract_salutation
 
@@ -576,7 +577,7 @@ class BankTransactionParser:
                 doc.territory = "Netherlands"
             else:
                 doc.supplier_name = generic_name
-                doc.supplier_group = "All Supplier Groups"
+                doc.supplier_group = resolve_non_group_supplier_group()
                 doc.supplier_type = "Company"
 
             doc.insert(ignore_permissions=False)
