@@ -103,8 +103,26 @@ class TestAccountCreationFlagRestore(VereningingenTestCase):
     def _retry_all_with_nothing_matching(self):
         # The employee_exists filter drops the row above, so nothing is retried; the endpoint
         # still gets past its "no failed requests" early return and sets the flag.
+        self._assert_no_stale_employee_exists_failures()
         self._a_failed_request()
         return api.retry_all_failed_requests(failure_type="employee_exists")
+
+    def _assert_no_stale_employee_exists_failures(self):
+        """The endpoint retries EVERY Failed request (retry_count < 3) the filter selects, not only
+        ours: a stale row mentioning "already assigned to Employee" would get a real
+        ``retry_processing()`` and an enqueued job. Refuse to run rather than touch it.
+        (Chosen over a filter that selects nothing: every ``failure_type`` either applies a
+        filter that can match site rows, or none, which selects them all.)"""
+        stale = frappe.get_all(
+            "Account Creation Request",
+            filters={
+                "status": "Failed",
+                "retry_count": ["<", 3],
+                "failure_reason": ["like", "%already assigned to Employee%"],
+            },
+            pluck="name",
+        )
+        self.assertEqual(stale, [], "stale Failed ACRs on this site would be retried by the test")
 
     def _exits(self):
         return {
@@ -158,21 +176,76 @@ class TestAccountCreationFlagRestore(VereningingenTestCase):
                 for name in FLAGS:
                     frappe.flags.pop(name, None)
 
-    def test_the_endpoints_do_set_the_flags_while_they_run(self):
-        """Control: restoring must not have been achieved by never setting them."""
+    def _record(self, seen):
+        seen.update({name: frappe.flags.get(name) for name in FLAGS})
+
+    def _flags_seen_inside(self, label):
+        """Run endpoint ``label`` and return the flags as seen from a call it makes AFTER setting them."""
         seen = {}
+        record = lambda: self._record(seen)  # noqa: E731
 
-        class Spy:
-            cancelled = False
+        if label == "process_account_creation_request":
 
-            def __init__(self, request_name):
-                pass
+            class Spy:
+                cancelled = False
 
-            def process_complete_pipeline(self):
-                seen.update({name: frappe.flags.get(name) for name in FLAGS})
+                def __init__(self, request_name):
+                    pass
 
-        # Mock justified: Infrastructure - observe the flags from inside the pipeline.
-        with patch.object(api, "AccountCreationManager", Spy):
-            api.process_account_creation_request("ACR-spy-2559")
-        self.assertEqual(seen, {name: True for name in FLAGS})
-        self._assert_unset()
+                def process_complete_pipeline(self):
+                    record()
+
+            # Mock justified: Infrastructure - observe the flags from inside the pipeline.
+            with patch.object(api, "AccountCreationManager", Spy):
+                api.process_account_creation_request("ACR-spy-2559")
+        elif label == "queue_bulk_account_creation_for_members":
+
+            class Service:
+                def queue_bulk_requests(self, **kwargs):
+                    record()
+                    return {}
+
+            # Mock justified: Infrastructure - observe the flags from inside the service call.
+            with patch(
+                "verenigingen.services.account.account_creation_service.get_account_creation_service",
+                return_value=Service(),
+            ):
+                api.queue_bulk_account_creation_for_members(["MEM-spy-2559"])
+        elif label == "process_bulk_account_creation_batch":
+
+            def spy_executor(*args, **kwargs):
+                record()
+                raise _Boom
+
+            # Mock justified: Infrastructure - observe the flags when the executor is created.
+            with patch("concurrent.futures.ThreadPoolExecutor", side_effect=spy_executor):
+                with self.assertRaises(_Boom):
+                    self._process_batch_not_found()
+        else:
+            self._assert_no_stale_employee_exists_failures()
+            self._a_failed_request()
+            real_logger = frappe.logger
+
+            def spy_logger(*args, **kwargs):
+                record()
+                return real_logger(*args, **kwargs)
+
+            # Mock justified: Infrastructure - first call the endpoint makes after setting its flag.
+            with patch.object(frappe, "logger", side_effect=spy_logger):
+                api.retry_all_failed_requests(failure_type="employee_exists")
+        return seen
+
+    def test_each_endpoint_sets_its_own_flags_while_it_runs(self):
+        """Control: restoring must not have been achieved by never setting them. Each endpoint's OWN
+        set is asserted (queue: bulk + background, no in_import; retry_all: bulk only)."""
+        expected = {
+            "process_account_creation_request": {"in_background_job", "bulk_account_creation", "in_import"},
+            "queue_bulk_account_creation_for_members": {"in_background_job", "bulk_account_creation"},
+            "process_bulk_account_creation_batch": {"in_background_job", "bulk_account_creation", "in_import"},
+            "retry_all_failed_requests": {"bulk_account_creation"},
+        }
+        for label, names in expected.items():
+            with self.subTest(endpoint=label):
+                seen = self._flags_seen_inside(label)
+                self.assertEqual({n for n, v in seen.items() if v is True}, names)
+                self._assert_unset()
