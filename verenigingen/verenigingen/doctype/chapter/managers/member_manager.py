@@ -251,8 +251,10 @@ class MemberManager(BaseManager):
                 # Log but don't fail - broken pipe errors during bulk imports shouldn't prevent member addition
                 frappe.logger().warning(f"Failed to create audit comment for member {member_id}: {str(e)}")
 
-            # Send notification - don't fail member addition if this fails
-            if notify:
+            # Send notification - don't fail member addition if this fails. Only when the
+            # member actually joined: a disabled row (non-Active member) is hidden from the
+            # roster, so "welcome to the chapter" would be false (#1842, as #1798 for the board).
+            if notify and chapter_enabled:
                 try:
                     self.chapter_doc.communication_manager.notify_member_added(member_id)
                 except Exception as e:
