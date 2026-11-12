@@ -63,7 +63,11 @@ class ChapterMembershipManager:
 
             # Use the chapter's member manager to request membership (pending approval)
             result = chapter_doc.member_manager.request_to_join(  # ast-skip: @property not field
-                member_id=member_id, introduction=introduction, website_url=website_url, notify=True
+                member_id=member_id,
+                introduction=introduction,
+                website_url=website_url,
+                notify=True,
+                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
             )
 
             # Update member tracking fields if successful

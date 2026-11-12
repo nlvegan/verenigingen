@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -103,6 +104,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     Returns:
         dict: Results of the cleanup operation
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_cleanup = is_confirmed(confirm_nuclear_cleanup)
+    dry_run = is_dry_run(dry_run)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
     validate_nuclear_confirmation(confirm_nuclear_cleanup)
@@ -159,6 +163,8 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -347,6 +353,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -423,6 +431,8 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -1478,6 +1488,8 @@ def cleanup_all_test_data(dry_run=True):
         # Actually delete
         bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data --kwargs '{"dry_run": False}'
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = _new_cleanup_results(dry_run)
@@ -1546,8 +1558,8 @@ def cleanup_test_members_only(email_patterns: list | None = None, dry_run=False)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     if not email_patterns:
         email_patterns = ["%test@example.com", "%@test.com", "test_%@%", "%example.%", "%@test.%"]
@@ -1719,6 +1731,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         - Requires Verenigingen Administrator role
         - Rate limited to 2 uses per hour per user (via COR)
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_truncate = is_confirmed(confirm_nuclear_truncate)
+    dry_run = is_dry_run(dry_run)
     # Security validation - Verenigingen Administrator only
     _validate_verenigingen_admin_permissions()
 
@@ -2117,8 +2132,8 @@ def scan_and_clear_broken_links(
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     # Default target doctypes - common ones that get truncated
     default_targets = [

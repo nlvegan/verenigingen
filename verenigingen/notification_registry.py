@@ -127,6 +127,16 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_DOCUMENT_FIELD,
         "cooldown_minutes": 0,
     },
+    "member_sepa_mandate_signature_requested": {
+        "label": "SEPA Mandate Signature Requested",
+        "category": CATEGORY_MEMBER,
+        "description": (
+            "Sent to a new member who chose SEPA Direct Debit when their application is approved: "
+            "they must sign the direct debit authorisation in the payment dashboard."
+        ),
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     "member_application_overdue": {
         "label": "Application Overdue Alert",
         "category": CATEGORY_ADMIN,

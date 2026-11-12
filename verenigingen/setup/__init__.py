@@ -418,7 +418,16 @@ def _install_security():
 
 
 def _install_webhook_user():
-    from verenigingen.setup.webhook_user_setup import setup_webhook_user
+    """The webhook user's Role Profile ships ONLY as a fixture, and `install_app` runs after_install
+    before sync_fixtures, so during an install it cannot exist yet (#2357, same class as #1956).
+    Creating the user now would leave it role-less and report a failed install step; the
+    `after_sync` hook `ensure_webhook_user` configures it once the profile exists. Outside an
+    install a missing profile is a real failure and still raises."""
+    from verenigingen.setup.webhook_user_setup import WEBHOOK_PROFILE, setup_webhook_user
+
+    if frappe.flags.in_install and not frappe.db.exists("Role Profile", WEBHOOK_PROFILE):
+        print("   ⏭️ Webhook user setup deferred: the Role Profile ships as a fixture (after_sync)")
+        return
 
     result = setup_webhook_user()
     if not result.get("success"):

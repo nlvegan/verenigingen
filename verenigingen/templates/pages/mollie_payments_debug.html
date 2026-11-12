@@ -3814,6 +3814,13 @@ function formatHistoricalResult(data) {
     return html;
 }
 
+// Server-classified outcome (#2396): a draft's ERPNext status is always Pending, so the
+// badge colour cannot come from it.
+function outcomeClass(outcome) {
+    const classes = {reconciled: 'status-active', unreconciled: 'status-canceled'};
+    return classes[outcome] || 'status-pending';
+}
+
 function formatTransactionStatus(data) {
     if (data.status === 'error') {
         return `<strong>Error:</strong> ${data.error}`;
@@ -3830,7 +3837,7 @@ function formatTransactionStatus(data) {
         html += `<p><strong>Date:</strong> ${bt.date}</p>`;
         html += `<p><strong>Amount:</strong> ${bt.currency} ${bt.amount.toFixed(2)}</p>`;
         html += `<p><strong>Description:</strong> ${bt.description}</p>`;
-        html += `<p><strong>Status:</strong> <span class="status-badge ${bt.status === 'Reconciled' ? 'status-active' : 'status-canceled'}">${bt.status}</span></p>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${outcomeClass(bt.outcome)}">${escapeHtml(bt.processing_status || bt.status)}</span></p>`;
     } else {
         html += `<p><strong>Status:</strong> <span class="status-badge status-canceled">Not Processed</span></p>`;
         html += `<p class="text-gray-700">This transaction has not been imported into ERPNext yet</p>`;
@@ -3941,7 +3948,7 @@ function formatSearchResults(data) {
         html += `<div class="mt-2 space-y-3">`;
 
         data.results.forEach(tx => {
-            const statusClass = tx.status === 'Reconciled' ? 'status-active' : 'status-canceled';
+            const statusClass = outcomeClass(tx.outcome);
             const typeLabel = tx.type === 'deposit' ? '💰 Deposit' : '💸 Withdrawal';
             const amountColor = tx.type === 'deposit' ? 'text-green-600' : 'text-red-600';
 
@@ -3956,7 +3963,7 @@ function formatSearchResults(data) {
             html += `</div>`;
             html += `<div class="text-right">`;
             html += `<p class="${amountColor} font-semibold">${typeLabel} ${tx.currency} ${tx.amount.toFixed(2)}</p>`;
-            html += `<span class="status-badge ${statusClass} text-xs mt-1 inline-block">${tx.status}</span>`;
+            html += `<span class="status-badge ${statusClass} text-xs mt-1 inline-block">${escapeHtml(tx.processing_status || tx.status)}</span>`;
             html += `</div>`;
             html += `</div>`;
 
