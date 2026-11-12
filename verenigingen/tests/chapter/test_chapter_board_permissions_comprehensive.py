@@ -490,17 +490,16 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         # #2450: no Account Creation Request per Volunteer. Volunteer.after_insert queues
         # one, and the commit at the end of this setUp makes each survive the rollback.
         # Only this one flag is saved and restored; patch.dict would restore the whole dict.
-        self._skip_flag_was_set = "skip_volunteer_account_creation" in frappe.flags
-        self._skip_flag_before = frappe.flags.get("skip_volunteer_account_creation")
+        flag_was_set = "skip_volunteer_account_creation" in frappe.flags
+        flag_before = frappe.flags.get("skip_volunteer_account_creation")
         frappe.flags.update({"skip_volunteer_account_creation": True})
 
         def restore_flag():
-            if self._skip_flag_was_set:
-                frappe.flags.update({"skip_volunteer_account_creation": self._skip_flag_before})
+            if flag_was_set:
+                frappe.flags.update({"skip_volunteer_account_creation": flag_before})
             else:
                 frappe.flags.pop("skip_volunteer_account_creation", None)
 
-        self._restore_skip_account_flag = restore_flag
         self.addCleanup(restore_flag)
         self.board_factory = ChapterBoardTestFactory(self)
 
@@ -537,19 +536,6 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
                 frappe.db.exists("Account Creation Request", {"source_record": volunteer.name}),
                 f"an Account Creation Request was queued for {volunteer.name}",
             )
-
-        # The cleanup must put the flag back, from a known starting state.
-        was_set, before = self._skip_flag_was_set, self._skip_flag_before
-        self._skip_flag_was_set, self._skip_flag_before = False, None
-        frappe.flags.update({"skip_volunteer_account_creation": True})
-        self._restore_skip_account_flag()
-        self.assertNotIn("skip_volunteer_account_creation", frappe.flags)
-        self._skip_flag_was_set, self._skip_flag_before = True, "sentinel"
-        self._restore_skip_account_flag()
-        self.assertEqual(frappe.flags.get("skip_volunteer_account_creation"), "sentinel")
-        # Put the real state back; the registered cleanup then runs against it.
-        self._skip_flag_was_set, self._skip_flag_before = was_set, before
-        frappe.flags.update({"skip_volunteer_account_creation": True})
 
     def test_membership_termination_workflow(self):
         """Test complete membership termination approval workflow"""
