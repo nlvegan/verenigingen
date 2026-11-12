@@ -91,7 +91,6 @@ verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.tes
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_submit_handler_enqueues_add_and_no_inline_process::DATABASE MOCK::1
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_update_after_submit_handler_enqueues_add::DATABASE MOCK::1
 verenigingen/tests/financial/test_nuke_financial_data_safeguards.py::_destruction_proof_db::DATABASE MOCK::1
-verenigingen/tests/integration/test_payment_processing_api_integration.py::TestPaymentProcessingAPIIntegration._enable_notifications::PERMISSION BYPASS::2
 verenigingen/tests/integration/test_query_optimization_suite.py::query_counter::DATABASE MOCK::2
 verenigingen/tests/member/test_member_merge.py::TestMemberMerge.test_merge_conflict_warnings::PERMISSION BYPASS::2
 verenigingen/tests/member/test_member_performance_optimization.py::TestMemberPerformanceOptimization.test_query_counter_survives_an_instance_level_sql_attribute::DATABASE MOCK::1
