@@ -325,19 +325,14 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
             "the Chapter save's history sync must run",
         )
 
-    def test_a_chapter_whose_save_fails_keeps_its_seat_and_the_others_still_end(self):
-        """A save that fails AFTER the row write must not leave a half-ended seat (#832); the
-        per-chapter savepoint rolls the row back, and one chapter's failure spares the next.
-        Control: the second chapter's seat really does end."""
+    def test_a_chapter_whose_save_fails_after_the_row_write_keeps_its_seat(self):
+        """A save that fails AFTER the row write must not leave a half-ended seat (#832): the
+        per-chapter savepoint rolls the row back before the error reaches the caller."""
         from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
         from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
 
-        other_chapter = self.create_test_chapter(
-            chapter_name=f"Row738b {frappe.generate_hash(length=6)}", postal_codes="5000-5999", published=1
-        )
         person = self._person_1953("Half738")
         failing_row = self._seat_1953(person)
-        other_row = self._seat_1953(person, chapter=other_chapter)
         real_on_update = Chapter.on_update
         failing_chapter = self.chapter.name
 
@@ -348,13 +343,75 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
 
         # Mock justified: injects a failure at the Chapter save boundary, after the rows are written.
         with mock.patch.object(Chapter, "on_update", autospec=True, side_effect=fail_after_write):
-            performed = ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
+            with self.assertRaises(frappe.ValidationError):
+                ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
 
-        self.assertTrue(performed, "the other chapter's seat ended")
-        self.assertEqual(frappe.db.get_value("Chapter Board Member", other_row, "is_active"), 0, "control")
         self.assertEqual(
             frappe.db.get_value("Chapter Board Member", failing_row, "is_active"),
             1,
             "a failed Chapter save must not leave a half-ended seat",
         )
         self.assertEqual(frappe.db.get_value("Chapter Board Member", failing_row, "to_date"), None)
+
+    def test_a_seat_the_chapter_save_cannot_end_refuses_the_move(self):
+        """Opposite-harm guard: a Chapter save that fails must not be waved through, or the
+        move reports success with the seat still active. Probe shortcut: the chapter's
+        ``default_board_role_profile`` is pointed at a missing Role Profile with
+        ``db.set_value`` so ``Chapter.validate`` refuses. Any Chapter-save
+        failure (an access refusal on the National Board chapter included) takes the same
+        handler, so one test covers them."""
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        target = self.create_test_chapter(
+            chapter_name=f"Row738t {frappe.generate_hash(length=6)}", postal_codes="6000-6999", published=1
+        )
+        person = self._person_1953("Refuse738")
+        row = self._seat_1953(person)
+        frappe.db.set_value(
+            "Chapter", self.chapter.name, "default_board_role_profile", f"No Such Profile {frappe.generate_hash(length=6)}"
+        )
+
+        result = ChapterAssignmentService().assign_with_cleanup(person.member, target.name)
+
+        self.assertFalse(result["success"], f"the move must be refused: {result}")
+        self.assertFalse(result.get("cleanup_performed"))
+        self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "is_active"), 1, "seat untouched")
+        self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "to_date"), None)
+        self.assertEqual(self._history_738(person), [(self.chapter.name, "Active", "")], "nothing half-done")
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"parent": target.name, "member": person.member}),
+            "not added to the target",
+        )
+
+    def test_two_active_rows_of_one_volunteer_in_one_chapter_both_end(self):
+        """Pick-first guard: the Chapter save ends every marked row and completes both history
+        entries (on develop's standalone path this was a per-row loop; a pick-first rewrite
+        would leave the second row active)."""
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        person = self._person_1953("Two738")
+        first = self._seat_1953(person)
+        second_role = self._chapter_role_1953("Treasurer")
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": person.volunteer,
+                "volunteer_name": "Two Row",
+                "email": person.email,
+                "chapter_role": second_role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter.save()
+        rows = frappe.get_all(
+            "Chapter Board Member", filters={"parent": self.chapter.name, "volunteer": person.volunteer, "is_active": 1}, pluck="name"
+        )
+        self.assertEqual(len(rows), 2, "fixture: two active rows in one chapter")
+
+        self.assertTrue(ChapterAssignmentService()._cleanup_board_memberships(person.member, "test"))
+
+        for row in rows:
+            self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "is_active"), 0, row)
+        self.assertEqual(sorted(h[1] for h in self._history_738(person)), ["Completed", "Completed"])

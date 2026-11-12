@@ -390,19 +390,14 @@ class ChapterAssignmentService(StatelessService):
                 # A deadlock or lock timeout has already destroyed the savepoint.
                 raise
             except Exception as e:
+                # A seat the Chapter save cannot end must refuse the move, not be skipped: the
+                # old standalone row save could not fail on Chapter validation, so skipping
+                # here would report success with the seat still active (#738). A failed
+                # WITHDRAWAL (#1953) takes the same route. assign_with_cleanup rolls back and
+                # returns the failure.
                 rollback_to_savepoint(savepoint)
-                # A failed WITHDRAWAL must reach the caller (#1953): swallowing it leaves the
-                # row ended and the user still holding the board role. assign_with_cleanup
-                # rolls its savepoint back on this raise.
-                from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
-
-                if isinstance(e, BoardAccessWithdrawalError):
-                    raise
                 self.logger.error(f"Error ending board memberships {row_names} of {chapter_name}: {str(e)}")
-                frappe.log_error(
-                    title="Chapter board term ending failed",
-                    message=f"Board memberships {row_names} in {chapter_name} of member {member}: {str(e)}",
-                )
+                raise
 
         return cleanup_performed
 
