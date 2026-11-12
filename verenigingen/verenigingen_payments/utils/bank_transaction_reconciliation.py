@@ -29,14 +29,10 @@ from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 #: is what ``match_transaction`` compares against before calling
 #: ``create_reconciliation``. Raising this above the threshold reinstates #547.
 #:
-#: What this DOES buy: the transaction is left ``Pending`` and unallocated, so it
+#: What this buys: the transaction is left ``Pending`` and unallocated, so it
 #: stays in the operator's bank-reconciliation queue instead of being booked against
-#: a guess. What it does NOT buy, contrary to an earlier version of this comment:
-#: the ``match_reason`` built below is not persisted anywhere. ``match_transaction``
-#: returns False on a sub-threshold best match and writes nothing -- no comment, no
-#: Error Log -- so WHICH settlement nearly matched, and why it was refused, is
-#: currently discarded for every strategy, not just this one. Filed separately;
-#: do not restate the visibility claim until something reads this string.
+#: a guess, and (#560) ``match_transaction`` records the refused candidate and its
+#: ``match_reason`` as a Comment on the Bank Transaction.
 SETTLEMENT_UNCONFIRMED_CONFIDENCE = 0.60
 
 #: Minimum length for a settlement `reference` to be trusted as an identifier.
@@ -109,6 +105,9 @@ class PaymentReconciliationManager:
     # counted on the next run. Comments are the only per-transaction attempt record;
     # Bank Transaction has no retry-count field.
     RETRY_COMMENT_MARKER = "Reconciliation failed (will retry)"
+
+    # Prefix of the Comment `_record_near_miss` writes for a sub-threshold best match (#560).
+    NEAR_MISS_COMMENT_MARKER = "Near-miss reconciliation candidate"
 
     # Every DocType a Mollie settlement books. The settlement is refused unless the
     # acting user can SUBMIT all of them -- see `_require_submit_permission`.
@@ -277,8 +276,61 @@ class PaymentReconciliationManager:
             best_match = max(matches, key=lambda x: x["confidence"])
             if best_match["confidence"] >= self.match_threshold:
                 return self.create_reconciliation(transaction, best_match)
+            self._record_near_miss(transaction, best_match)
 
         return False
+
+    def _record_near_miss(self, transaction, best_match):
+        """Leave a Comment saying which candidate nearly matched and why it was refused.
+
+        #560: the best sub-threshold candidate's ``match_reason`` used to be dropped, so
+        staff looking at a Pending transaction could not tell what the matcher knew. A
+        Comment (no schema, visible on the form) rather than an Error Log row: near-misses
+        are a normal outcome. ``reconcile_bank_transactions`` runs daily over every
+        still-Pending draft, so an identical Comment is written once, not once per run.
+        """
+        name = transaction.get("name")
+        if not name:
+            return
+        content = (
+            f"{self.NEAR_MISS_COMMENT_MARKER}: {best_match.get('type')} "
+            f"{best_match.get('reference') or '(several)'}, confidence "
+            f"{best_match['confidence']:.2f} is below the auto-match threshold "
+            f"{self.match_threshold:.2f}. Reason: {best_match.get('match_reason')}"
+        )
+        try:
+            if self._near_miss_already_recorded(name, content):
+                return
+            bank_trans = frappe.get_doc("Bank Transaction", name)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Comment",
+                f"Could not read near-miss history for {name}: {str(e)}. Content was: {content}",
+            )
+            return
+        self._add_comment_without_failing(bank_trans, content)
+
+    def _near_miss_already_recorded(self, bank_transaction_name, content):
+        """True when ANY earlier near-miss Comment on this transaction has this content.
+
+        Any, not just the newest: a candidate that alternates A, B, A would otherwise be
+        rewritten every run. Compared in the form Comment.validate stores (it sanitises
+        content, so '&' is stored as '&amp;').
+        """
+        stored_form = frappe.utils.sanitize_html(
+            content, always_sanitize=True, disallowed_tags=["form", "input", "button"]
+        )
+        return bool(
+            frappe.db.exists(
+                "Comment",
+                {
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                    "comment_type": "Comment",
+                    "content": stored_form,
+                },
+            )
+        )
 
     def match_by_batch_reference(self, transaction):
         """Match transaction by SEPA batch reference"""
