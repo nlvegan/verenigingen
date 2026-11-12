@@ -1503,7 +1503,10 @@ class _MembershipApplication {
 			if (typeof frappe !== 'undefined' && frappe.msgprint) {
 				frappe.msgprint({
 					title: 'Submission Error',
-					message: error.message || 'An error occurred while submitting your application',
+					// Error.message is plain text (server text can echo applicant input), so escape here (#2276).
+					message: verenigingen.utils.escapeHtml(
+						error.message || 'An error occurred while submitting your application'
+					),
 					indicator: 'red'
 				});
 			}
@@ -4039,15 +4042,11 @@ class MembershipAPI {
 					if (status === 'timeout') {
 						errorMsg = 'The request timed out. Please try again.';
 					} else if (xhr.responseJSON && xhr.responseJSON.exc) {
-						errorMsg = verenigingen.utils.escapeHtml(
-							verenigingen.utils.getHttpErrorMessage(xhr.responseJSON, errorMsg)
-						);
+						errorMsg = verenigingen.utils.getHttpErrorMessage(xhr.responseJSON, errorMsg);
 					} else if (xhr.responseText) {
 						try {
 							const parsed = JSON.parse(xhr.responseText);
-							errorMsg =
-								parsed.message ||
-								verenigingen.utils.escapeHtml(verenigingen.utils.getHttpErrorMessage(parsed, errorMsg));
+							errorMsg = parsed.message || verenigingen.utils.getHttpErrorMessage(parsed, errorMsg);
 						} catch (e) {
 							errorMsg = `Server error: ${xhr.status} ${xhr.statusText}`;
 						}
@@ -4096,13 +4095,7 @@ class MembershipAPI {
 							resolve(msg);
 						}
 					} else if (r.exc) {
-						reject(
-							new Error(
-								verenigingen.utils.escapeHtml(
-									verenigingen.utils.getHttpErrorMessage(r, 'Operation failed')
-								)
-							)
-						);
+						reject(new Error(verenigingen.utils.getHttpErrorMessage(r, 'Operation failed')));
 					} else {
 						// Sometimes frappe returns success with no message
 						resolve(r);
@@ -4114,9 +4107,7 @@ class MembershipAPI {
 
 					let errorMsg = 'Network error';
 					if (r.responseJSON?.exc) {
-						errorMsg = verenigingen.utils.escapeHtml(
-							verenigingen.utils.getHttpErrorMessage(r.responseJSON, errorMsg)
-						);
+						errorMsg = verenigingen.utils.getHttpErrorMessage(r.responseJSON, errorMsg);
 					} else if (r.statusText) {
 						errorMsg = `${r.status}: ${r.statusText}`;
 					} else if (r.message) {
@@ -4187,9 +4178,7 @@ class MembershipAPI {
 
 					if (xhr.responseJSON) {
 						if (xhr.responseJSON.exc) {
-							errorMsg = verenigingen.utils.escapeHtml(
-								verenigingen.utils.getHttpErrorMessage(xhr.responseJSON, errorMsg)
-							);
+							errorMsg = verenigingen.utils.getHttpErrorMessage(xhr.responseJSON, errorMsg);
 						} else if (xhr.responseJSON.error_message) {
 							errorMsg = xhr.responseJSON.error_message;
 						} else if (xhr.responseJSON.message && xhr.responseJSON.message.error) {
@@ -4259,7 +4248,8 @@ class _UIManager {
 	}
 
 	showError(title, error) {
-		const message = error.message || error.toString();
+		// Error.message is plain text; escape at this HTML sink (#2276). Dead code today (no callers).
+		const message = verenigingen.utils.escapeHtml(error.message || error.toString());
 		frappe.msgprint({
 			title,
 			message,

@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import frappe
 
+from verenigingen.utils.boolean_utils import is_dry_run
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
@@ -288,8 +289,7 @@ def complete_partial_payments(
         dict: Processing results
     """
     # Check permissions before processing (only when not dry_run)
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() == "true"
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     if not dry_run:
         missing_permissions = []
@@ -534,8 +534,7 @@ def repair_invoices_missing_gl_entries(
     Returns:
         dict: Processing results
     """
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() == "true"
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     if isinstance(invoice_names, str):
         import json
