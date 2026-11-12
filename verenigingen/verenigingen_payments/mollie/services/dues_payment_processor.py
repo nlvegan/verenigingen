@@ -1046,14 +1046,26 @@ class DuesPaymentProcessor:
         payment that carry no link row between them; anything else is left alone (a
         cancelled or draft document is staff's or the retry path's business). Idempotent:
         a linked pair is not touched, so no second Payment Entry or link row appears.
+
+        The Bank Transaction is resolved the way the creator resolves it, scoped to the
+        Mollie bank account and company: ``reference_number`` is unique only per bank
+        account, and an unscoped lookup can pick another account's newer row.
+
+        Known behaviour: a Bank Transaction that staff deliberately unreconciled
+        (ERPNext's ``unreconcile_transaction``) is linked again by a redelivery. Mollie
+        rarely redelivers a settled payment, so the exposure is small; not changed here.
         """
         if frappe.db.get_value("Payment Entry", pe_name, "docstatus") != 1:
             return
-        bt_name = frappe.db.get_value(
-            "Bank Transaction", {"reference_number": payment_id, "docstatus": 1}, "name"
-        )
-        if not bt_name:
+        config = self.bank_tx_creator.get_mollie_bank_account_config()
+        if config.get("error"):
             return
+        bt = self.bank_tx_creator._find_matching_bank_transaction(
+            payment_id, config["bank_account"], config["company"]
+        )
+        if not bt or bt.docstatus != 1:
+            return
+        bt_name = bt.name
         if frappe.db.exists("Bank Transaction Payments", {"parent": bt_name, "payment_entry": pe_name}):
             return
         result["bank_transaction"] = bt_name

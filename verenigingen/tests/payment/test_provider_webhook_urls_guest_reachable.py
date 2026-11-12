@@ -256,6 +256,7 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         accounts = ctx.__enter__()
         self.addCleanup(ctx.__exit__, None, None, None)
         self.clearing_account = accounts["clearing_account"]
+        self.settlement_account = accounts["bank_account"]
         self.currency = frappe.get_value("Company", self.company, "default_currency")
         # The Bank Transaction is booked against the Bank Account of the clearing GL.
         ensure_bank_account_record(self.company, accounts["clearing_account"])
@@ -768,6 +769,72 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self._post_mollie_notification(payment)
 
         self.assertEqual(self._allocation_state(payment_id), settled)
+
+    def _fail_the_first_link(self, payment_id, payment):
+        """Deliver once with the link forced to fail: PE booked, BT submitted and unlinked."""
+        self.addCleanup(
+            frappe.db.delete,
+            "Error Log",
+            {"method": self.LINK_FAILURE_TITLE, "error": ["like", f"%{payment_id}%"]},
+        )
+        self.expectErrorLog(self.LINK_FAILURE_TITLE)
+        with self._force_the_bank_transaction_link_to_fail():
+            self._post_mollie_notification(payment)
+        failed = self._allocation_state(payment_id)
+        self.assertEqual(len(failed["pes"]), 1, "fixture: the PE must be booked")
+        self.assertEqual(failed["links"], [], "fixture: the link must have failed")
+        return failed
+
+    def test_a_redelivery_links_its_own_bank_transaction_not_a_newer_one_of_another_bank_account(self):
+        """#1803 review: ``reference_number`` is unique only per bank account. A NEWER submitted
+        Bank Transaction with the same reference on a DIFFERENT bank account must stay untouched
+        and the Mollie account's own row gets linked. (The unscoped lookup picked the foreign row,
+        ERPNext refused, and the true BT stayed unreconciled for good.) Probe shortcut: the
+        foreign row is inserted directly, as another importer would write it."""
+        from verenigingen.tests.fixtures.mollie_account_fixtures import ensure_bank_account_record
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        failed = self._fail_the_first_link(payment_id, payment)
+        true_bt = failed["bts"][0]
+        foreign_account = ensure_bank_account_record(self.company, self.settlement_account)
+        self.assertNotEqual(foreign_account, frappe.db.get_value("Bank Transaction", true_bt.name, "bank_account"))
+        foreign = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": frappe.db.get_value("Bank Transaction", true_bt.name, "date"),
+                "bank_account": foreign_account,
+                "company": self.company,
+                "currency": self.currency,
+                "deposit": true_bt.deposit,
+                "reference_number": payment_id,
+                "description": "foreign-account row, same reference",
+            }
+        ).insert()
+        foreign.submit()
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": self.LINK_FAILURE_TITLE})
+
+        result = self._post_mollie_notification(payment)
+
+        self.assertLess(self._http_status(), 400, result)
+        linked = frappe.get_all("Bank Transaction Payments", fields=["parent", "payment_entry"],
+                                filters={"payment_entry": failed["pes"][0].name})
+        self.assertEqual([k.parent for k in linked], [true_bt.name], "the wrong Bank Transaction was linked")
+        self.assertEqual(frappe.db.count("Bank Transaction Payments", {"parent": foreign.name}), 0)
+        self.assertEqual(len(self._error_log_rows(self.LINK_FAILURE_TITLE, payment_id)), 1, "only the forced failure")
+
+    def test_a_redelivery_does_not_link_a_payment_entry_that_is_not_submitted(self):
+        """The relink acts on a SUBMITTED Payment Entry only. Probe shortcut: the PE is set back
+        to draft directly (``db.set_value``), standing in for any non-submitted state."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        failed = self._fail_the_first_link(payment_id, payment)
+        frappe.db.set_value("Payment Entry", failed["pes"][0].name, "docstatus", 0, update_modified=False)
+
+        self._post_mollie_notification(payment)
+
+        self.assertEqual(self._allocation_state(payment_id)["links"], [], "a draft PE was linked")
+        self.assertEqual(len(self._error_log_rows(self.LINK_FAILURE_TITLE, payment_id)), 1, "only the forced failure")
 
     def test_a_redelivery_after_staff_cancelled_both_the_entry_and_the_bank_transaction_books_nothing(self):
         """#1803 review F4: staff cancel the PE AND the BT, Mollie redelivers. Pins what happens:
