@@ -22,6 +22,7 @@ import frappe
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
+from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
 
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
@@ -71,6 +72,8 @@ def on_member_on_update(doc, method):
                 assign_chapter_board_role(new_user)
                 frappe.logger().info(f"Re-evaluated board role for new user {new_user}")
 
+    except BoardAccessWithdrawalError:
+        raise  # #702/#1953: a failed withdrawal aborts the save instead of leaving live board access
     except Exception as e:
         frappe.log_error(f"Error in member update handler: {str(e)}")
 
@@ -103,6 +106,8 @@ def on_chapter_role_on_update(doc, method):
                                 f"Re-evaluated board role for {user_email} due to chapter role changes"
                             )
 
+    except BoardAccessWithdrawalError:
+        raise  # #702/#1953
     except Exception as e:
         frappe.log_error(f"Error in chapter role update handler: {str(e)}")
 
