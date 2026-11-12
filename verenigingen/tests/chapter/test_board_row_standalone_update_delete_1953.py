@@ -297,3 +297,64 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         self.assertNotIn(BOARD_ROLE, self._roles_1953(person.user))
         staff_roles = {r.role for r in frappe.get_doc("Role Profile", STAFF).roles}
         self.assertLessEqual(staff_roles, self._roles_1953(person.user), "Staff's roles intact")
+
+    # ------------------------------------------------------------------ #738: end through the Chapter
+    # Measured on develop before the fix: _cleanup_board_memberships left the volunteer's assignment
+    # history Active with no end date and wrote no audit comment, where
+    # BoardManager.remove_board_member completes the entry.
+
+    def _history_738(self, person):
+        return [
+            (h.reference_name, h.status, str(h.end_date or ""))
+            for h in frappe.get_doc("Volunteer", person.volunteer).assignment_history
+            if h.assignment_type == "Board Position"
+        ]
+
+    def test_ending_the_seat_completes_the_assignment_history(self):
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        person = self._person_1953("Hist738")
+        self._seat_1953(person)
+        self.assertEqual(self._history_738(person), [(self.chapter.name, "Active", "")], "fixture")
+
+        self.assertTrue(ChapterAssignmentService()._cleanup_board_memberships(person.member, "test"))
+
+        self.assertEqual(
+            self._history_738(person),
+            [(self.chapter.name, "Completed", str(frappe.utils.today()))],
+            "the Chapter save's history sync must run",
+        )
+
+    def test_a_chapter_whose_save_fails_keeps_its_seat_and_the_others_still_end(self):
+        """A save that fails AFTER the row write must not leave a half-ended seat (#832); the
+        per-chapter savepoint rolls the row back, and one chapter's failure spares the next.
+        Control: the second chapter's seat really does end."""
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        other_chapter = self.create_test_chapter(
+            chapter_name=f"Row738b {frappe.generate_hash(length=6)}", postal_codes="5000-5999", published=1
+        )
+        person = self._person_1953("Half738")
+        failing_row = self._seat_1953(person)
+        other_row = self._seat_1953(person, chapter=other_chapter)
+        real_on_update = Chapter.on_update
+        failing_chapter = self.chapter.name
+
+        def fail_after_write(chapter_self, *args, **kwargs):
+            if chapter_self.name == failing_chapter:
+                frappe.throw("injected: the Chapter save fails after the row was written")
+            return real_on_update(chapter_self, *args, **kwargs)
+
+        # Mock justified: injects a failure at the Chapter save boundary, after the rows are written.
+        with mock.patch.object(Chapter, "on_update", autospec=True, side_effect=fail_after_write):
+            performed = ChapterAssignmentService()._cleanup_board_memberships(person.member, "test")
+
+        self.assertTrue(performed, "the other chapter's seat ended")
+        self.assertEqual(frappe.db.get_value("Chapter Board Member", other_row, "is_active"), 0, "control")
+        self.assertEqual(
+            frappe.db.get_value("Chapter Board Member", failing_row, "is_active"),
+            1,
+            "a failed Chapter save must not leave a half-ended seat",
+        )
+        self.assertEqual(frappe.db.get_value("Chapter Board Member", failing_row, "to_date"), None)
