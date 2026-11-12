@@ -25,8 +25,8 @@ import frappe
 
 from verenigingen.setup.notification_registry_setup import DEFAULT_COOLDOWN_MINUTES
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import (
-    allow_reminder_sends,
     clear_email_cooldowns,
     ensure_outgoing_email_account,
 )
@@ -42,7 +42,7 @@ class TestOperationResultCallers2177(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         ensure_outgoing_email_account(self)
-        allow_reminder_sends(keys=(SYNC_KEY, REQUEST_KEY))
+        own_notification_keys(self, SYNC_KEY, REQUEST_KEY)
         self.holder = f"holder-2177-{frappe.generate_hash(length=5)}@example.org"
         self.create_test_user(self.holder, roles=ROLES)
 

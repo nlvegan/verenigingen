@@ -20,6 +20,8 @@ that; it notices the commit at cleanup and fails the test, so the leak is loud i
 import frappe
 
 DOCTYPE = "Verenigingen Email Configuration"
+# The keys the payment-reminder API tests send through (#2053).
+PAYMENT_REMINDER_KEYS = ("payment_reminder_friendly", "payment_reminder_urgent", "payment_failure")
 
 
 def own_notification_keys(test, *keys):

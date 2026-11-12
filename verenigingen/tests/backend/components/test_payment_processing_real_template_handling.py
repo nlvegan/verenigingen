@@ -26,6 +26,7 @@ REAL BUSINESS LOGIC TESTED:
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
 from verenigingen.api.payment_processing import send_payment_reminder_email, generate_payment_reminder_html
 from unittest.mock import patch
@@ -41,13 +42,10 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         # send_payment_reminder_email routes through EmailService, which only
         # reaches frappe.sendmail when (a) a default outgoing account exists and
         # (b) the relevant notification key is enabled in the configuration.
-        # ORDER-DEPENDENCE FIX: these mutate the "Verenigingen Email Configuration"
-        # Single (master_email_enabled + notification_types). Capture the original
-        # state so tearDown can restore it, otherwise the enabled flags leak into
-        # later files in the same shard (no DB reset between files).
-        self._snapshot_email_configuration()
+        # own_notification_keys seeds exactly these keys (enabled, cooldown 0: this test reminds one
+        # member repeatedly) and puts rows and master switch back afterwards (#2053).
         self._ensure_outgoing_email_account()
-        self._enable_notifications(["payment_reminder_friendly", "payment_reminder_urgent"])
+        own_notification_keys(self, "payment_reminder_friendly", "payment_reminder_urgent")
 
         # Create real test member
         self.test_member = self.create_test_member(
@@ -92,46 +90,6 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         account.flags.ignore_validate = True
         account.flags.ignore_mandatory = True
         account.insert(ignore_permissions=True)
-
-    def _snapshot_email_configuration(self):
-        """Capture the Verenigingen Email Configuration Single for tearDown restore.
-
-        Records master_email_enabled plus the (notification_key -> enabled) map and
-        which keys existed before this test, so tearDown can restore the flags and
-        drop any rows this test appended. Prevents leaking enabled-notification
-        state into later files in the same parallel shard.
-        """
-        config = frappe.get_single("Verenigingen Email Configuration")
-        self._orig_master_email_enabled = config.master_email_enabled
-        self._orig_notification_state = {
-            nt.notification_key: nt.enabled for nt in config.notification_types
-        }
-        # #1999: payment_reminder_* are registered, so a fresh install seeds them with a real
-        # cooldown (10080 / 4320 min). Every test here reminds the SAME member, so a seeded
-        # cooldown would suppress the second send. Remember it to restore it.
-        self._orig_notification_cooldowns = {
-            nt.notification_key: nt.cooldown_minutes for nt in config.notification_types
-        }
-
-    def _enable_notifications(self, notification_keys):
-        """Enable the given notification keys in Verenigingen Email Configuration."""
-        config = frappe.get_single("Verenigingen Email Configuration")
-        config.master_email_enabled = 1
-        existing = {nt.notification_key for nt in config.notification_types}
-        for key in notification_keys:
-            if key in existing:
-                for nt in config.notification_types:
-                    if nt.notification_key == key:
-                        nt.enabled = 1
-                        nt.cooldown_minutes = 0  # this test reminds one member repeatedly
-            else:
-                config.append(
-                    "notification_types",
-                    {"notification_key": key, "enabled": 1, "label": key,
-                     "category": "Payment", "cooldown_minutes": 0},
-                )
-        config.flags.ignore_permissions = True
-        config.save(ignore_permissions=True)
 
     def create_real_email_template(self):
         """Create real email template in database for testing"""
@@ -495,33 +453,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         except Exception as e:
             print(f"Warning: Template cleanup encountered issue: {e}")
 
-        # ORDER-DEPENDENCE FIX: restore the Verenigingen Email Configuration Single
-        # to its pre-test state (master flag + per-notification enabled flags, and
-        # drop rows this test appended) so the enabled-notification state does not
-        # leak into later files in the same shard.
-        try:
-            self._restore_email_configuration()
-        except Exception as e:
-            print(f"Warning: Email configuration restore encountered issue: {e}")
-
         super().tearDown()
-
-    def _restore_email_configuration(self):
-        """Restore the email configuration Single captured in _snapshot_email_configuration."""
-        if not hasattr(self, "_orig_notification_state"):
-            return
-        config = frappe.get_single("Verenigingen Email Configuration")
-        config.master_email_enabled = self._orig_master_email_enabled
-        # Keep only notification rows that existed before; restore their enabled flag.
-        retained = []
-        for nt in config.notification_types:
-            if nt.notification_key in self._orig_notification_state:
-                nt.enabled = self._orig_notification_state[nt.notification_key]
-                nt.cooldown_minutes = self._orig_notification_cooldowns[nt.notification_key]
-                retained.append(nt)
-        config.notification_types = retained
-        config.flags.ignore_permissions = True
-        config.save(ignore_permissions=True)
 
 print("Payment Processing Real Template Handling Test Created")
 print("=" * 55)
