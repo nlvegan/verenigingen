@@ -21,8 +21,6 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
-from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
-
 # NOTE: The former TestPartyConfig class (test_party_config_has_required_keys,
 # test_customer_config_has_required_fields, test_supplier_config_has_required_fields)
 # was removed during the residual-tautology sweep. Those tests only mirrored the
@@ -350,9 +348,8 @@ class TestCreateProvisionalParty(unittest.TestCase):
 
         mock_frappe.new_doc.assert_called_once_with("Supplier")
         self.assertEqual(mock_doc.supplier_name, "Supplier 456 (eBoekhouden)")
-        # Never the group root, which erpnext version-16 rejects on a Supplier.
-        self.assertEqual(mock_doc.supplier_group, resolve_non_group_supplier_group())
-        self.assertNotEqual(mock_doc.supplier_group, "All Supplier Groups")
+        # A real leaf, never the group root that erpnext version-16 rejects on a Supplier.
+        self.assertEqual(frappe.db.get_value("Supplier Group", mock_doc.supplier_group, "is_group"), 0)
         self.assertEqual(mock_doc.eboekhouden_relation_code, "456")
         mock_doc.insert.assert_called_once()
 

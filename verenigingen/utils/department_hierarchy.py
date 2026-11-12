@@ -130,10 +130,14 @@ class DepartmentHierarchyManager:
         ``is_group=0``. Departments are inserted as leaves, and sites that ran
         this setup before that rule hold their parents as leaves, so the parent
         is promoted when it first gains a child rather than at creation time.
+        Saving it re-validates its own parent, so a legacy chain of leaves is
+        promoted top-down.
         """
         if frappe.db.get_value("Department", dept_name, "is_group") != 0:
             return
         parent_doc = frappe.get_doc("Department", dept_name)
+        if parent_doc.parent_department:
+            self._ensure_group(parent_doc.parent_department)
         parent_doc.is_group = 1
         result = secure_document_operation(
             operation="save",
