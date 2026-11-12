@@ -318,7 +318,7 @@ class VolunteerExpenseSubmissionService(StatelessService):
     def _validate_team_access(self, team_name: str) -> Optional[str]:
         """Validate volunteer has team membership"""
         team_membership = frappe.db.exists(
-            "Team Member", {"parent": team_name, "volunteer": self.volunteer_name}
+            "Team Member", {"parent": team_name, "volunteer": self.volunteer_name, "is_active": 1}
         )
         if not team_membership:
             return _("Team membership required for {0}").format(team_name)
