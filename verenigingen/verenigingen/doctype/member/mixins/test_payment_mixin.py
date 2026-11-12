@@ -377,6 +377,89 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         mock_queue.assert_not_called()
 
     # ------------------------------------------------------------------
+    # #829: a give-up on a persistently-missing invoice must be VISIBLE.
+    # ------------------------------------------------------------------
+    GIVE_UP_TITLE = "Payment History Race Condition"
+
+    def _give_up_logs(self, start, member_name, invoice_name):
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": self.GIVE_UP_TITLE, "creation": [">=", start]},
+            fields=["error"],
+        )
+        return [r for r in rows if member_name in r.error and invoice_name in r.error]
+
+    def test_cross_drain_requeues_are_capped_and_the_give_up_is_logged(self):
+        """Drive the REAL processor, one drain at a time, with the requeue held
+        in the queue (a recent ``_last_processed`` stops the inline re-drain, as
+        in a long-lived process). Before #829 the miss re-queued itself on every
+        drain, forever and silently. Now it stops after a bound and writes one
+        Error Log row naming the member and the invoice."""
+        member = self._member_with_customer()
+        invoice_name = "ACC-SINV-829-NEVER-EXISTS"
+        self.expectErrorLog(self.GIVE_UP_TITLE)
+        start = frappe.utils.now()
+
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+
+        drains = 0
+        with self.assertErrorLog(self.GIVE_UP_TITLE):
+            while FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"] and drains < 20:
+                self.assertEqual(
+                    self._give_up_logs(start, member.name, invoice_name),
+                    [],
+                    f"gave up (logged) before the cap was reached, after drain {drains}",
+                )
+                FinancialHistoryBatchProcessor.force_process_all()
+                drains += 1
+
+        self.assertLess(drains, 20, "the missing invoice was re-queued on every drain, forever")
+        self.assertGreater(drains, 1, "must retry across drains before giving up, not on the first miss")
+        self.assertEqual(
+            len(self._give_up_logs(start, member.name, invoice_name)),
+            1,
+            "exactly one Error Log row naming the member and invoice when the cap is hit",
+        )
+
+    def test_inline_redrain_give_up_is_logged(self):
+        """The common path: the miss re-queues, the re-queue triggers an inline
+        nested drain in the same (stale) transaction, and the reentrancy guard
+        drops the update. That give-up used to leave no trace at all."""
+        member = self._member_with_customer()
+        invoice_name = "ACC-SINV-829-NEVER-EXISTS-INLINE"
+        self.expectErrorLog(self.GIVE_UP_TITLE)
+        start = frappe.utils.now()
+
+        FinancialHistoryBatchProcessor._last_processed.clear()
+        with self.assertErrorLog(self.GIVE_UP_TITLE):
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+
+        self.assertEqual(FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 0)
+        self.assertEqual(
+            len(self._give_up_logs(start, member.name, invoice_name)),
+            1,
+            "the update was dropped without an Error Log row naming the member and invoice",
+        )
+
+    def test_a_transient_miss_that_resolves_is_not_logged(self):
+        """Control: an invoice that appears before the cap is written to the
+        history and produces no give-up row."""
+        member = self._member_with_customer()
+        start = frappe.utils.now()
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
+        )
+
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice.name, "add_update")
+        FinancialHistoryBatchProcessor.force_process_all()
+
+        member.reload()
+        self.assertIn(invoice.name, [r.invoice for r in member.payment_history])
+        self.assertEqual(self._give_up_logs(start, member.name, invoice.name), [])
+
+    # ------------------------------------------------------------------
     # Source guard, so a reintroduced frappe.db.commit() or FOR UPDATE fails
     # even if no behavioural test happens to exercise the exact race above.
     # ------------------------------------------------------------------

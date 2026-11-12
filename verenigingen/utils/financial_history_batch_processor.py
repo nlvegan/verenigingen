@@ -20,6 +20,11 @@ from frappe.utils import get_datetime, now
 
 from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
 
+# #829: how many times one (member, invoice) update may miss its invoice before
+# Member._get_invoice_with_retry gives up and logs it. Counted across drains in
+# the queued operation's own data ("attempts").
+MAX_MISSING_INVOICE_ATTEMPTS = 3
+
 
 class FinancialHistoryBatchProcessor:
     """
@@ -218,8 +223,10 @@ class FinancialHistoryBatchProcessor:
 
                 if operation == "add_update":
                     # Build invoice entry
+                    attempts = (op_data.get("data") or {}).get("attempts", 0)
+
                     def build_invoice_entry():
-                        invoice = member._get_invoice_with_retry(invoice_name)
+                        invoice = member._get_invoice_with_retry(invoice_name, attempts=attempts)
                         if invoice and invoice.customer == member.customer:
                             return member._build_payment_history_entry(invoice)
                         return None
@@ -602,9 +609,15 @@ def validate_fee_change_history_integrity(member_names=None):
 
 
 # Convenience functions for immediate use
-def queue_payment_update(member_name: str, invoice_name: str):
-    """Queue a payment history add/update operation."""
-    FinancialHistoryBatchProcessor.queue_payment_operation(member_name, invoice_name, "add_update")
+def queue_payment_update(member_name: str, invoice_name: str, attempts: int = 0):
+    """Queue a payment history add/update operation.
+
+    ``attempts`` is how many times this update has already missed its invoice
+    (#829); a fresh event leaves it at 0.
+    """
+    FinancialHistoryBatchProcessor.queue_payment_operation(
+        member_name, invoice_name, "add_update", {"attempts": attempts} if attempts else None
+    )
 
 
 def queue_payment_removal(member_name: str, invoice_name: str):
