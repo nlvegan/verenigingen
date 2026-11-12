@@ -222,5 +222,56 @@ class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
         self.assertEqual(result.metadata["assigned"], 2)
 
 
+class TestBulkAssignmentNothingAssigned(EnhancedTestCase):
+    """#2424: the zero-assigned branch must return a failure that carries the real facts.
+
+    It used to pass ``errors=`` AND ``**results`` (which holds ``errors``), so Python
+    raised TypeError and the outer ``except`` replaced the result with a generic one,
+    losing the per-member errors and ``total_checked``.
+    """
+
+    def _seed_unassigned_member(self):
+        member = self.create_test_member(
+            first_name="Nothing",
+            last_name="Assigned",
+            email="nothing.assigned@example.com",
+        )
+        frappe.db.set_value("Member", member.name, "member_id", None)
+        return member
+
+    def test_per_member_errors_and_total_checked_survive_when_nothing_is_assigned(self):
+        self._seed_unassigned_member()
+        with patch(
+            "verenigingen.verenigingen.doctype.member.member.Member.should_have_member_id",
+            return_value=True,
+        ), patch(
+            "verenigingen.verenigingen.doctype.member.member.Member.ensure_member_id",
+            side_effect=frappe.ValidationError("counter exploded"),
+        ):
+            result = get_member_id_service().assign_missing_member_ids()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_message, "No member IDs were assigned")
+        self.assertNotIn("multiple values", str(result.error_message))
+        self.assertTrue(result.errors)
+        self.assertTrue(all("counter exploded" in e for e in result.errors), result.errors)
+        self.assertGreaterEqual(result.metadata["total_checked"], 1)
+        self.assertEqual(result.metadata["assigned"], 0)
+
+    def test_nobody_eligible_reports_the_placeholder_error_and_total_checked(self):
+        self._seed_unassigned_member()
+        with patch(
+            "verenigingen.verenigingen.doctype.member.member.Member.should_have_member_id",
+            return_value=False,
+        ):
+            result = get_member_id_service().assign_missing_member_ids()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_message, "No member IDs were assigned")
+        self.assertEqual(result.errors, ["No eligible members found"])
+        self.assertGreaterEqual(result.metadata["total_checked"], 1)
+        self.assertEqual(result.metadata["assigned"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
