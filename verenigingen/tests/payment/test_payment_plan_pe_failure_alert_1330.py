@@ -19,6 +19,7 @@ finalize_payment_plan_installment, which is what is driven here.
 
 import importlib
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import cint
@@ -43,13 +44,16 @@ from verenigingen.tests.payment.test_payment_plan_paid_after_pe import (
     _create_pp1288_intent,
     _create_pp1288_plan,
 )
+from verenigingen.verenigingen_payments.services import payment_plan_finalization as finalization
 from verenigingen.verenigingen_payments.services.payment_plan_finalization import (
     PE_FAILURE_ALERT_THRESHOLD,
+    _payment_id_line,
     finalize_payment_plan_installment,
 )
 
 ALERT_TITLE = "Payment Plan Payment Repeated Failure"
 ALERT_KEY = "payment_alert_failure"
+ALERT_LOG_TITLE = ALERT_TITLE
 
 
 def _create_chartless_company_1330():
@@ -216,6 +220,140 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
             frappe.db.delete("Email Queue Recipient", {"parent": row})
             frappe.db.delete("Email Queue", {"name": row})
         frappe.db.commit()
+
+    def _create_no_finance_holder_state(self):
+        """No enabled Verenigingen Financial Manager holder and no Payments Settings addresses:
+        the alert has nobody to reach. Committed (the finalizer rolls back fully); restored on cleanup."""
+        holders = frappe.get_all(
+            "Has Role",
+            filters={"role": FINANCE_ROLE, "parenttype": "User"},
+            pluck="parent",
+        )
+        enabled = frappe.get_all("User", filters={"name": ["in", holders or [""]], "enabled": 1}, pluck="name")
+        for user in enabled:
+            frappe.db.set_value("User", user, "enabled", 0)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_enable_users, enabled)
+
+    def _create_foreign_error_log_row(self, title, message):
+        """A seeded Error Log row, committed (the finalizer rolls back fully)."""
+        frappe.log_error(title=title, message=message)
+        frappe.db.commit()
+
+    def _cleanup_enable_users(self, users):
+        for user in users:
+            frappe.db.set_value("User", user, "enabled", 1)
+        frappe.db.commit()
+
+    def test_an_undelivered_alert_is_marked_no_then_retried_until_delivered(self):
+        self._create_no_finance_holder_state()
+        settings_addresses = frappe.db.get_single_value("Verenigingen Payments Settings", "financial_admin_emails")
+        self.assertFalse(settings_addresses, "fixture: no Payments Settings address may exist")
+        self.expectErrorLog("SEPA notification recipients")
+        for _ in range(PE_FAILURE_ALERT_THRESHOLD - 1):
+            self._attempt()
+        self._attempt()  # attempt N: nobody to tell
+        self.assertEqual(self._alert_queue_rows(), [])
+        logged = self._alert_log_rows()
+        self.assertEqual(len(logged), 1)
+        self.assertIn("Mail delivered: no", logged[0].error)
+        self.assertNotIn("Mail delivered: yes", logged[0].error)
+
+        # A holder appears: attempt N+1 must retry the delivery (a "no" row is not "delivered").
+        self._cleanup_enable_users([self.finance_email])
+        self._attempt()
+        self.assertEqual(len(self._alert_queue_rows()), 1)
+        self.assertEqual(
+            sorted("yes" if "Mail delivered: yes" in r.error else "no" for r in self._alert_log_rows()),
+            ["no", "yes"],
+        )
+
+        # N+2: delivered, so silent.
+        self._attempt()
+        self.assertEqual(len(self._alert_queue_rows()), 1)
+        self.assertEqual(len(self._alert_log_rows()), 2)
+
+    def test_rollback_happens_before_the_alert_commits(self):
+        """A failure AFTER a write: the write must be rolled back and the alert must survive.
+
+        The chart-less failure happens before any write, so it cannot tell "rollback, then alert +
+        commit" from "alert + commit, then rollback" (which would COMMIT the half-done write).
+        """
+        installment = self.plan.installments[0]
+
+        def write_then_fail(*args, **kwargs):
+            frappe.db.set_value("Payment Plan Installment", installment.name, "status", "Overdue")
+            raise frappe.ValidationError("injected failure after a write")
+
+        # Mock justified: fault injection. The finalizer's date helper is called just before
+        # process_payment, outside its savepoint; the real PE failure writes nothing the finalizer's
+        # own rollback has to undo, so only an injected write-then-fail can pin the ordering.
+        with patch.object(finalization, "today", write_then_fail):
+            for _ in range(PE_FAILURE_ALERT_THRESHOLD):
+                self.assertEqual(self._attempt()["status"], "error")
+        self.assertEqual(
+            frappe.db.get_value("Payment Plan Installment", installment.name, "status"),
+            "Pending",
+            "the half-done write must be rolled back",
+        )
+        self.assertEqual(len(self._alert_queue_rows()), 1)
+        self.assertEqual(len(self._alert_log_rows()), 1)
+
+    def test_a_failed_status_delivery_that_throws_never_alerts(self):
+        # Mock justified: fault injection. A failed/expired webhook normally cannot throw, so make
+        # its status write raise to reach the except branch with status != "paid".
+        with patch.object(frappe.db, "set_value", side_effect=frappe.ValidationError("injected")):
+            for status in ("failed", "expired"):
+                for _ in range(PE_FAILURE_ALERT_THRESHOLD):
+                    result = finalize_payment_plan_installment(
+                        self.intent.name, payment_reference=self.payment_id, status=status
+                    )
+                    self.assertEqual(result["status"], "error")
+        self.assertEqual(self._alert_queue_rows(), [])
+        self.assertEqual(self._alert_log_rows(), [])
+
+    def _other_intent(self, payment_id):
+        intent = _create_pp1288_intent(
+            self, self.plan.name, self.member.name, installment_number=2, payment_id=payment_id
+        )
+        self.addCleanup(self._cleanup_queue_for, payment_id)
+        return intent
+
+    def test_a_forged_multiline_id_cannot_raise_anothers_count(self):
+        forged = f"x\n{_payment_id_line(self.payment_id)}\n"
+        other = self._other_intent(forged)
+        for _ in range(PE_FAILURE_ALERT_THRESHOLD):
+            finalize_payment_plan_installment(other.name, payment_reference=forged, status="paid")
+        # The victim has failed ZERO times itself: its first failure must not alert.
+        self.assertEqual(self._attempt()["status"], "error")
+        self.assertEqual(self._alert_queue_rows(), [])
+        self.assertEqual(self._alert_log_rows(), [])
+
+    def test_forged_delivered_lines_in_another_alert_row_cannot_suppress_this_alert(self):
+        """A foreign alert row whose TEXT (e.g. a cause echoing attacker input) holds this payment's
+        id line followed by "Mail delivered: yes" is not this payment's delivered marker.
+        Seeded directly: a forged id never reaches the threshold itself, so the row is the proxy for
+        any alert whose cause text carries attacker lines."""
+        self._create_foreign_error_log_row(
+            ALERT_LOG_TITLE,
+            f"foreign alert, cause echoes input\n{_payment_id_line(self.payment_id)}\nMail delivered: yes\nmore",
+        )
+        for _ in range(PE_FAILURE_ALERT_THRESHOLD):
+            self._attempt()
+        self.assertEqual(len(self._alert_queue_rows()), 1, "the victim's own alert must still go out")
+
+    def test_attempt_rows_echoing_this_payments_key_line_mid_text_are_not_counted(self):
+        """Foreign attempt rows whose cause text holds this payment's key line (not as their tail)
+        must not count: the cause is where input can be echoed. Seeded directly as the proxy."""
+        for _ in range(PE_FAILURE_ALERT_THRESHOLD):
+            self._create_foreign_error_log_row(
+                "Payment Plan Payment Webhook",
+                f"cause echoing input\n{_payment_id_line(self.payment_id)}\nmore cause text\n"
+                f"Gateway payment id: \"other\"\nGateway payment id key: other",
+            )
+        self.assertEqual(self._attempt()["status"], "error")
+        self.assertEqual(self._alert_queue_rows(), [])
+        self.assertEqual(self._alert_log_rows(), [])
 
     def test_transient_failure_then_success_sends_no_alert(self):
         for _ in range(PE_FAILURE_ALERT_THRESHOLD - 1):

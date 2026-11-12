@@ -7,6 +7,9 @@ installment is marked Paid via PaymentPlan.process_payment ONLY here (never on
 a member-triggered path), so a member cannot self-certify payment.
 """
 
+import hashlib
+import json
+
 import frappe
 from frappe.utils import today
 
@@ -121,6 +124,7 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
         frappe.log_error(
             title=ATTEMPT_LOG_TITLE,
             message=f"Payment plan payment finalize failed for intent {intent_name}: {e}\n"
+            f"Gateway payment id: {_payment_id_display(payment_reference)}\n"
             f"{_payment_id_line(payment_reference)}",
         )
         if status == "paid":
@@ -129,18 +133,32 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
 
 
 def _payment_id_line(payment_reference):
-    return f"Gateway payment id: {payment_reference}"
+    """The LAST-LINE key of a counted Error Log row: a hash, so a gateway-supplied id holding
+    newlines, control characters or LIKE wildcards can neither forge another id's line nor break
+    the match. The readable id (JSON-escaped to ONE line) is logged by `_payment_id_display`."""
+    digest = hashlib.sha256(str(payment_reference).encode("utf-8", "replace")).hexdigest()[:32]
+    return f"Gateway payment id key: {digest}"
 
 
-def _error_log_lines(title, payment_reference):
-    """Error Log rows of `title` for this gateway payment id, matched on the exact id line."""
+def _payment_id_display(payment_reference):
+    """The id as ONE printable line (quotes and control characters escaped): safe in a log row and
+    in a mail subject."""
+    return json.dumps(str(payment_reference))
+
+
+def _error_log_lines(title, payment_reference, from_end):
+    """Error Log rows of `title` for this gateway payment id: the key line must be the exact
+    `from_end`-th line from the END of the row (1 = last)."""
     line = _payment_id_line(payment_reference)
     rows = frappe.get_all(
         "Error Log",
         filters={"method": title, "error": ["like", f"%{line}%"]},
         fields=["error"],
     )
-    return [r for r in rows if line in r.error.splitlines()]
+    # Text before the key lines (the cause) can echo attacker input, so only the tail counts.
+    return [
+        r for r in rows if len(r.error.splitlines()) >= from_end and r.error.splitlines()[-from_end] == line
+    ]
 
 
 def _alert_after_repeated_failure(intent_name, payment_reference, cause):
@@ -157,15 +175,18 @@ def _alert_after_repeated_failure(intent_name, payment_reference, cause):
     Never raises: the caller answers the gateway with an error either way so it retries.
     """
     try:
-        if len(_error_log_lines(ATTEMPT_LOG_TITLE, payment_reference)) < PE_FAILURE_ALERT_THRESHOLD:
+        if (
+            len(_error_log_lines(ATTEMPT_LOG_TITLE, payment_reference, from_end=1))
+            < PE_FAILURE_ALERT_THRESHOLD
+        ):
             return
-        delivered_mark = f"{_payment_id_line(payment_reference)}\nMail delivered: yes"
-        if any(delivered_mark in r.error for r in _error_log_lines(ALERT_LOG_TITLE, payment_reference)):
+        alerts = _error_log_lines(ALERT_LOG_TITLE, payment_reference, from_end=2)
+        if any(r.error.splitlines()[-1] == "Mail delivered: yes" for r in alerts):
             return
         delivered = _send_failure_alert(intent_name, payment_reference, cause)
         frappe.log_error(
             title=ALERT_LOG_TITLE,
-            message=f"Payment {payment_reference} (intent {intent_name}) has failed "
+            message=f"Payment {_payment_id_display(payment_reference)} (intent {intent_name}) has failed "
             f"{PE_FAILURE_ALERT_THRESHOLD} or more times: {cause}\n"
             f"{_payment_id_line(payment_reference)}\nMail delivered: {'yes' if delivered else 'no'}",
         )
@@ -173,7 +194,7 @@ def _alert_after_repeated_failure(intent_name, payment_reference, cause):
     except Exception as alert_error:
         frappe.log_error(
             title=f"{ALERT_LOG_TITLE} Alert Failed",
-            message=f"Payment {payment_reference}: the alert could not be sent ({alert_error}). Cause: {cause}",
+            message=f"Payment {_payment_id_display(payment_reference)}: the alert could not be sent ({alert_error}). Cause: {cause}",
         )
 
 
@@ -189,9 +210,9 @@ def _send_failure_alert(intent_name, payment_reference, cause):
         return False
     result = get_email_service().send_simple_email(
         recipients=recipients,
-        subject=f"URGENT: payment {payment_reference} is paid but its installment could not be booked",
+        subject=f"URGENT: payment {_payment_id_display(payment_reference)} is paid but its installment could not be booked",
         message=(
-            f"<p>Gateway payment <strong>{escape_html(payment_reference)}</strong> (payment plan intent "
+            f"<p>Gateway payment <strong>{escape_html(_payment_id_display(payment_reference))}</strong> (payment plan intent "
             f"{escape_html(intent_name)}) has failed to book {PE_FAILURE_ALERT_THRESHOLD} times. The member "
             f"has paid; the installment is still Pending and no Payment Entry exists.</p>"
             f"<p><strong>Cause:</strong></p><pre>{escape_html(cause)}</pre>"
@@ -199,6 +220,8 @@ def _send_failure_alert(intent_name, payment_reference, cause):
             f"default accounts) or book the payment by hand.</p>"
         ),
         notification_key=ALERT_NOTIFICATION_KEY,
-        cooldown_scope=payment_reference,  # per payment: one payment's alert must not silence another's
+        cooldown_scope=_payment_id_line(payment_reference).rsplit(" ", 1)[
+            -1
+        ],  # per payment: one payment's alert must not silence another's
     )
     return bool(result.success and not result.skip_reason)
