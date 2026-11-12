@@ -44,6 +44,10 @@ class FinancialHistoryBatchProcessor:
     So the guarantee to rely on is still the narrower one, which holds
     unconditionally: a failure never escalates into a transaction-wide rollback of
     other members or of the caller.
+
+    The queues are per PROCESS, so a re-queued update only survives to a later
+    drain inside a long-lived process; the "next drain" and cron retry once
+    assumed here do not reach another process's queue (#2527).
     """
 
     # Class-level batch queues (shared across instances)

@@ -581,6 +581,11 @@ class PaymentMixin:
         signature compatibility, since no amount of retrying inside this
         transaction can succeed for the reason above.
 
+        CAVEAT (#2527): the batch queue is per process, so the "next drain" /
+        cron described above only helps inside a long-lived process; the inline
+        re-drain and a finished RQ job both drop a held miss. #829 makes the
+        give-up visible, it does not make the retry real.
+
         ``attempts`` is how many times the queued update has already missed
         (carried in the queued operation's own data, #829). A miss that cannot
         be re-queued -- the cap is reached, or the reentrancy guard below

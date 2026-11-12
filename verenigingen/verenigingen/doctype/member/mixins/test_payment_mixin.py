@@ -22,7 +22,10 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
+from verenigingen.utils.financial_history_batch_processor import (
+    MAX_MISSING_INVOICE_ATTEMPTS,
+    FinancialHistoryBatchProcessor,
+)
 
 
 class TestPaymentMixin(EnhancedTestCase):
@@ -218,6 +221,8 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         # silently skip re-queuing too.
         frappe.flags._payment_mixin_invoice_retry_requeuing = False
         FinancialHistoryBatchProcessor.reset_queues()
+        # PROCESS-global drain clock; tests here pin it to hold or allow inline drains.
+        FinancialHistoryBatchProcessor._last_processed.clear()
         super().tearDown()
 
     # ------------------------------------------------------------------
@@ -415,7 +420,11 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
                 drains += 1
 
         self.assertLess(drains, 20, "the missing invoice was re-queued on every drain, forever")
-        self.assertGreater(drains, 1, "must retry across drains before giving up, not on the first miss")
+        self.assertEqual(
+            drains,
+            MAX_MISSING_INVOICE_ATTEMPTS,
+            "must give up on exactly the cap-th miss: not earlier, not one drain later",
+        )
         self.assertEqual(
             len(self._give_up_logs(start, member.name, invoice_name)),
             1,
@@ -441,6 +450,32 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
             1,
             "the update was dropped without an Error Log row naming the member and invoice",
         )
+
+    def test_a_real_miss_that_resolves_on_the_next_drain_is_written_and_not_logged(self):
+        """Control with a REAL miss, no mocks: the update is queued under a name
+        that does not exist yet (the invoice is renamed to it between drains), so
+        drain 1 genuinely misses and re-queues, and drain 2 finds it. The entry
+        lands in payment history and no give-up row exists."""
+        member = self._member_with_customer()
+        start = frappe.utils.now()
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
+        )
+        target_name = f"{invoice.name}-829R"
+
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, target_name, "add_update")
+        FinancialHistoryBatchProcessor.force_process_all()
+        self.assertEqual(
+            FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 1, "miss re-queued"
+        )
+
+        frappe.rename_doc("Sales Invoice", invoice.name, target_name, force=True)
+        FinancialHistoryBatchProcessor.force_process_all()
+
+        member.reload()
+        self.assertIn(target_name, [r.invoice for r in member.payment_history])
+        self.assertEqual(self._give_up_logs(start, member.name, target_name), [])
 
     def test_a_transient_miss_that_resolves_is_not_logged(self):
         """Control: an invoice that appears before the cap is written to the
