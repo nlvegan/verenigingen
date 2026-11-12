@@ -259,18 +259,25 @@ class TestBulkAssignmentNothingAssigned(EnhancedTestCase):
         self.assertEqual(result.metadata["assigned"], 0)
 
     def test_nobody_eligible_reports_the_placeholder_error_and_total_checked(self):
-        self._seed_unassigned_member()
-        with patch(
-            "verenigingen.verenigingen.doctype.member.member.Member.should_have_member_id",
-            return_value=False,
-        ):
-            result = get_member_id_service().assign_missing_member_ids()
+        """A Pending applicant without a member_id is genuinely not eligible.
+
+        Probe shortcut: application_id/application_status are written with
+        ``db.set_value`` on a factory member, not through the application flow.
+        """
+        member = self._seed_unassigned_member()
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"application_id": f"APP-2424-{member.name}", "application_status": "Pending"},
+        )
+        result = get_member_id_service().assign_missing_member_ids()
 
         self.assertFalse(result.success)
         self.assertEqual(result.error_message, "No member IDs were assigned")
         self.assertEqual(result.errors, ["No eligible members found"])
         self.assertGreaterEqual(result.metadata["total_checked"], 1)
         self.assertEqual(result.metadata["assigned"], 0)
+        self.assertFalse(frappe.db.get_value("Member", member.name, "member_id"))
 
 
 if __name__ == "__main__":
