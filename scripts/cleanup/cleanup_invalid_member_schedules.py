@@ -7,6 +7,7 @@ Addresses the 47 schedules discovered during invoice generation investigation
 import frappe
 from frappe.utils import today, now
 
+from verenigingen.utils.boolean_utils import is_dry_run
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -63,6 +64,8 @@ def cleanup_invalid_schedules(dry_run=True):
     Args:
         dry_run (bool): If True, only report what would be done without making changes
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     
     # First identify invalid schedules
     invalid_data = identify_invalid_schedules()

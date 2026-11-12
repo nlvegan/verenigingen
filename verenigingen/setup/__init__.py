@@ -369,7 +369,6 @@ def execute_after_install():
     run("set up tax exemption templates", setup_tax_exemption_on_install)
     run("set up termination system", setup_termination_system_integration)
     run("set up workspace", setup_workspace)
-    run("load fixtures", load_application_fixtures)
     run("set up security", _install_security)
     run("set up webhook user", _install_webhook_user)
     run("set up public document creator", _install_public_document_creator)
@@ -419,7 +418,16 @@ def _install_security():
 
 
 def _install_webhook_user():
-    from verenigingen.setup.webhook_user_setup import setup_webhook_user
+    """The webhook user's Role Profile ships ONLY as a fixture, and `install_app` runs after_install
+    before sync_fixtures, so during an install it cannot exist yet (#2357, same class as #1956).
+    Creating the user now would leave it role-less and report a failed install step; the
+    `after_sync` hook `ensure_webhook_user` configures it once the profile exists. Outside an
+    install a missing profile is a real failure and still raises."""
+    from verenigingen.setup.webhook_user_setup import WEBHOOK_PROFILE, setup_webhook_user
+
+    if frappe.flags.in_install and not frappe.db.exists("Role Profile", WEBHOOK_PROFILE):
+        print("   ⏭️ Webhook user setup deferred: the Role Profile ships as a fixture (after_sync)")
+        return
 
     result = setup_webhook_user()
     if not result.get("success"):
@@ -1395,61 +1403,6 @@ def update_workspace_links():
     except Exception as e:
         print(f"   ⚠️ Workspace update failed: {str(e)}")
         raise
-
-
-def load_application_fixtures():
-    """Load necessary fixtures for the application.
-
-    A fixture that cannot be read or inserted does not stop the other files, but the run
-    then raises ONE summary error so the install runner sees it (#1880). A missing file is
-    not a failure (the files are optional).
-    """
-    print("📦 Loading application fixtures...")
-
-    import os
-
-    # Get fixtures directory
-    app_path = frappe.get_app_path("verenigingen")
-    fixtures_path = os.path.join(app_path, "..", "fixtures")
-
-    # Load workflow fixtures if they exist
-    fixture_files = ["workflow.json", "membership_workflow.json"]
-
-    loaded_count = 0
-    failures = []
-    for fixture_file in fixture_files:
-        fixture_path = os.path.join(fixtures_path, fixture_file)
-        if os.path.exists(fixture_path):
-            try:
-                # Use frappe.get_doc approach instead of install_fixtures
-                import json
-
-                with open(fixture_path, "r") as f:
-                    fixture_data = json.load(f)
-
-                if isinstance(fixture_data, list):
-                    for doc_data in fixture_data:
-                        if "doctype" in doc_data:
-                            doc = frappe.get_doc(doc_data)
-                            doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                else:
-                    if "doctype" in fixture_data:
-                        doc = frappe.get_doc(fixture_data)
-                        doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                loaded_count += 1
-                print(f"   ✓ Loaded fixture: {fixture_file}")
-            except Exception as e:
-                print(f"   ⚠️ Could not load fixture {fixture_file}: {str(e)}")
-                failures.append(f"{fixture_file}: {str(e)}")
-        else:
-            print(f"   ℹ️  Fixture not found: {fixture_file}")
-
-    if loaded_count > 0:
-        print(f"   📦 Loaded {loaded_count} fixtures")
-    else:
-        print("   ℹ️  No fixtures loaded")
-
-    _raise_if_any_failed("Loading fixtures", failures)
 
 
 # Consolidated API endpoints for all setup functions
