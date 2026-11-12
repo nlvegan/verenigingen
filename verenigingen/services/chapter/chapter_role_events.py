@@ -111,23 +111,23 @@ def on_chapter_role_on_update(doc, method):
 
 
 def _refresh_expense_approvers_for_role(doc):
-    """A role gaining or losing Financial (or being deactivated) re-points its chapters' approvers (#1682)."""
+    """A role gaining or losing Financial (or being deactivated) re-points its chapters' approvers (#1682).
+
+    Queued, not run here: a role can be held in many chapters, and the national chapter's
+    seats feed every volunteer. Only a role that WAS an active Financial role and no longer
+    is can make an approver stale; any other change just recomputes.
+    """
     if not (doc.has_value_changed("permissions_level") or doc.has_value_changed("is_active")):
         return
 
     try:
         from verenigingen.services.volunteer.native_expense_helpers import (
-            refresh_expense_approvers_for_chapter,
+            enqueue_expense_approver_refresh_for_role,
         )
 
-        seats = frappe.get_all(
-            "Chapter Board Member",
-            filters={"chapter_role": doc.name, "is_active": 1},
-            fields=["parent", "volunteer"],
-        )
-        for chapter_name in dict.fromkeys(seat.parent for seat in seats):
-            holders = [seat.volunteer for seat in seats if seat.parent == chapter_name]
-            refresh_expense_approvers_for_chapter(chapter_name, holders)
+        was_financial = _is_active_financial_role(doc.get_doc_before_save())
+        is_financial = _is_active_financial_role(doc)
+        enqueue_expense_approver_refresh_for_role(doc.name, left_financial=was_financial and not is_financial)
     except NON_RESUMABLE_DB_ERRORS:
         raise
     except Exception as e:
@@ -135,6 +135,10 @@ def _refresh_expense_approvers_for_role(doc):
             title="Chapter Role approver refresh",
             message=f"Expense approver refresh after Chapter Role {doc.name} change failed: {e}",
         )
+
+
+def _is_active_financial_role(role_doc):
+    return bool(role_doc and role_doc.get("permissions_level") == "Financial" and role_doc.get("is_active"))
 
 
 @frappe.whitelist()

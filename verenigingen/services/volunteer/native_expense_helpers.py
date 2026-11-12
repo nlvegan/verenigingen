@@ -7,6 +7,7 @@ import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 
 
@@ -81,6 +82,11 @@ def update_employee_approver(
 
         return approver
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # #1682: this handler is now load-bearing for seat changes. A deadlock or lock
+        # timeout means the transaction is gone; logging it and returning None would let
+        # the seat change report success over a refresh that never happened.
+        raise
     except Exception as e:
         frappe.log_error(f"Error updating employee approver: {str(e)}", "Employee Approver Update Error")
         return None
@@ -107,35 +113,143 @@ def _clear_stale_employee_approver(volunteer, stale_users, system_operation=Fals
         )
 
 
-def refresh_expense_approvers_for_chapter(chapter_name, seat_volunteers=()):
+def refresh_expense_approvers_for_chapter(chapter_name, departed_volunteers=(), inline=False):
     """Refresh the approver rows a chapter's board seats feed, at the moment they change (#1682).
 
     Same computation as the daily ``refresh_all_expense_approvers`` /
     ``sync_all_department_approvers``, scoped to the people the chapter can affect.
-    ``seat_volunteers`` are the volunteers whose seat was added, ended, deleted or
-    re-roled: their users are the candidates for a now-stale approver. Runs inside the
-    caller's save and never commits (hook context).
+    ``departed_volunteers`` are those who held a Financial seat here before the change: the
+    ones that no longer hold one have their user treated as a stale approver (a seat that
+    was added or never Financial cannot make an approver stale). Runs inside the caller's
+    save and never commits (hook context).
+
+    The chapter's own Department rows are written inline (a handful of rows). The Employee
+    refresh is inline for an ordinary chapter, but ENQUEUED for the national chapter: its
+    seats feed every volunteer, and one ``Employee.save`` per volunteer inside a Chapter
+    save was measured at ~2.4s each. ``inline=True`` is for code already in a job.
     """
     from verenigingen.utils.department_hierarchy import DepartmentHierarchyManager
 
-    stale_users = _volunteer_users(seat_volunteers)
+    stale_users = sorted(_users_who_left_a_financial_seat(chapter_name, departed_volunteers))
     DepartmentHierarchyManager().sync_chapter_approvers_for_chapter(
         chapter_name, remove_approvers=stale_users, system_operation=True
     )
+    if not inline and _is_national_chapter(chapter_name):
+        _enqueue_once(
+            f"{_JOBS}refresh_employee_approvers_for_chapter",
+            f"chapter|{chapter_name}|{_digest(stale_users)}",
+            chapter_name=chapter_name,
+            stale_users=stale_users,
+        )
+        return
+    refresh_employee_approvers_for_chapter(chapter_name, stale_users)
+
+
+def refresh_employee_approvers_for_chapter(chapter_name, stale_users=()):
+    """Recompute Employee.expense_approver for every volunteer the chapter's seats feed.
+
+    Also the queued job for the national chapter. A deadlock or lock timeout propagates
+    (``update_employee_approver`` re-raises it): the caller owns the transaction.
+    """
     for volunteer_name in _volunteers_fed_by_chapter(chapter_name, stale_users):
         update_employee_approver(volunteer_name, clear_if_approver_in=stale_users, system_operation=True)
 
 
+def refresh_expense_approvers_for_role(role_name, left_financial=False):
+    """Queued job: re-point every chapter that holds ``role_name`` after the role changed (#1682).
+
+    ``left_financial``: the role was an active Financial role and no longer is, so its
+    holders are the candidates for a stale approver.
+    """
+    seats = frappe.get_all(
+        "Chapter Board Member",
+        filters={"chapter_role": role_name, "is_active": 1},
+        fields=["parent", "volunteer"],
+    )
+    for chapter_name in dict.fromkeys(seat.parent for seat in seats):
+        holders = [seat.volunteer for seat in seats if seat.parent == chapter_name] if left_financial else ()
+        refresh_expense_approvers_for_chapter(chapter_name, holders, inline=True)
+
+
+def enqueue_expense_approver_refresh_for_role(role_name, left_financial):
+    """One job per Chapter Role change, however many chapters hold the role (#1682)."""
+    _enqueue_once(
+        f"{_JOBS}refresh_expense_approvers_for_role",
+        f"role|{role_name}|{int(bool(left_financial))}",
+        role_name=role_name,
+        left_financial=bool(left_financial),
+    )
+
+
+_JOBS = "verenigingen.services.volunteer.native_expense_helpers."
+
+
+def _enqueue_once(method, job_key, **kwargs):
+    """Enqueue after the caller's commit, unless an identical job still waits in the queue.
+
+    ``deduplicate=True`` is inert together with ``enqueue_after_commit`` (the check runs
+    when the callback fires, after the job id was already chosen), so the check is made here.
+    Only a QUEUED job counts: one already running may have read state older than this change.
+    """
+    job_id = f"expense_approver_refresh|{job_key}"
+    if _job_is_queued(job_id):
+        return
+    frappe.enqueue(
+        method,
+        queue="long",
+        timeout=1800,
+        job_id=job_id,
+        enqueue_after_commit=True,
+        **kwargs,
+    )
+
+
+def _job_is_queued(job_id):
+    from frappe.utils.background_jobs import JobStatus, get_job_status
+
+    return get_job_status(job_id) == JobStatus.QUEUED
+
+
+def _digest(values):
+    import hashlib
+
+    return hashlib.sha1("|".join(values).encode()).hexdigest()[:10]
+
+
+def _is_national_chapter(chapter_name):
+    return chapter_name == frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+
+
+def _users_who_left_a_financial_seat(chapter_name, departed_volunteers):
+    """Users of the ``departed_volunteers`` who hold no active Financial seat in the chapter now."""
+    departed = [name for name in dict.fromkeys(departed_volunteers) if name]
+    if not departed:
+        return set()
+    still_financial = set(
+        frappe.db.sql(
+            """
+            SELECT DISTINCT cbm.volunteer
+            FROM `tabChapter Board Member` cbm
+            JOIN `tabChapter Role` cr ON cr.name = cbm.chapter_role
+            WHERE cbm.parent = %(chapter)s AND cbm.is_active = 1
+                AND cr.permissions_level = 'Financial' AND cr.is_active = 1
+                AND cbm.volunteer IN %(volunteers)s
+            """,
+            {"chapter": chapter_name, "volunteers": departed},
+            pluck=True,
+        )
+    )
+    return _volunteer_users([name for name in departed if name not in still_financial])
+
+
 def _volunteer_users(volunteer_names):
     """User ids (email, else personal email) the approver lookup would resolve for these volunteers."""
-    users = set()
-    for volunteer_name in volunteer_names:
-        email, personal_email = frappe.db.get_value(
-            "Volunteer", volunteer_name, ["email", "personal_email"]
-        ) or (None, None)
-        if email or personal_email:
-            users.add(email or personal_email)
-    return users
+    if not volunteer_names:
+        return set()
+    rows = frappe.get_all(
+        "Volunteer", filters={"name": ["in", list(volunteer_names)]}, fields=["email", "personal_email"]
+    )
+    return {row.email or row.personal_email for row in rows if row.email or row.personal_email}
 
 
 def _volunteers_fed_by_chapter(chapter_name, stale_users):
@@ -144,53 +258,40 @@ def _volunteers_fed_by_chapter(chapter_name, stale_users):
     A volunteer's approver comes from their own seat (board), their enabled chapter
     memberships, their teams' chapter, and the national board as the fallback, so the
     national chapter feeds everyone. Anyone whose Employee still names a stale user is
-    included so that value is judged too.
+    included so that value is judged too. One query, however many volunteers there are.
     """
-    volunteers = {
-        row.name: row.employee_id
-        for row in frappe.get_all(
-            "Volunteer", filters={"employee_id": ["is", "set"]}, fields=["name", "employee_id", "member"]
-        )
-        if frappe.db.exists("Employee", row.employee_id)
-    }
-    if chapter_name == frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"):
-        return list(volunteers)
-
-    members = set(
-        frappe.get_all("Chapter Member", filters={"parent": chapter_name, "enabled": 1}, pluck="member")
+    fed = ""
+    if not _is_national_chapter(chapter_name):
+        stale = "OR e.expense_approver IN %(stale)s" if stale_users else ""
+        fed = f"""
+            AND (
+                v.member IN (
+                    SELECT cm.member FROM `tabChapter Member` cm
+                    WHERE cm.parent = %(chapter)s AND cm.enabled = 1
+                )
+                OR v.name IN (
+                    SELECT tm.volunteer FROM `tabTeam Member` tm
+                    JOIN `tabTeam` t ON t.name = tm.parent
+                    WHERE t.chapter = %(chapter)s AND tm.status = 'Active'
+                )
+                OR v.name IN (
+                    SELECT cbm.volunteer FROM `tabChapter Board Member` cbm WHERE cbm.parent = %(chapter)s
+                )
+                {stale}
+            )
+        """
+    return frappe.db.sql(
+        f"""
+        SELECT v.name
+        FROM `tabVolunteer` v
+        JOIN `tabEmployee` e ON e.name = v.employee_id
+        WHERE v.employee_id IS NOT NULL AND v.employee_id != ''
+        {fed}
+        ORDER BY v.name
+        """,
+        {"chapter": chapter_name, "stale": tuple(stale_users) or ("",)},
+        pluck=True,
     )
-    team_volunteers = set(
-        frappe.db.sql(
-            """
-            SELECT tm.volunteer FROM `tabTeam Member` tm
-            JOIN `tabTeam` t ON t.name = tm.parent
-            WHERE t.chapter = %s AND tm.status = 'Active'
-            """,
-            chapter_name,
-            pluck=True,
-        )
-    )
-    seated = set(frappe.get_all("Chapter Board Member", filters={"parent": chapter_name}, pluck="volunteer"))
-    stale_holders = (
-        {
-            name
-            for name, employee_id in volunteers.items()
-            if frappe.db.get_value("Employee", employee_id, "expense_approver") in stale_users
-        }
-        if stale_users
-        else set()
-    )
-    member_of = (
-        {
-            row.name
-            for row in frappe.get_all("Volunteer", filters={"member": ["in", list(members)]}, fields=["name"])
-        }
-        if members
-        else set()
-    )
-
-    fed = member_of | team_volunteers | seated | stale_holders
-    return [name for name in volunteers if name in fed]
 
 
 @frappe.whitelist()
