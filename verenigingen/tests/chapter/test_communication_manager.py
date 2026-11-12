@@ -34,6 +34,7 @@ class TestCommunicationManager(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
+        ensure_outgoing_email_account(self)  # a fresh CI site has none; sends are refused without one
         own_notification_keys(
             self,
             "chapter_board_added",
