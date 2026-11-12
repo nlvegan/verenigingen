@@ -12,7 +12,7 @@ No business-logic mocking: real Role Profiles, Teams, Chapters, Users, Members
 and Volunteers are created via ``frappe.get_doc().insert()`` / the test factory.
 Tests run as Administrator.
 
-Coverage focus (previously ~54%): assign_role_profile, remove_role_profile,
+Coverage focus (previously ~54%): remove_role_profile,
 the validate_* family, get_entities_using_role_profile, bulk_assign_role_profiles
 / _process_bulk_member, _validate_role_assignment_inputs, _strip_role_profile,
 _is_system_operation_authorized and safe_hook_execution.
@@ -35,6 +35,10 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     validate_entity_configuration,
     validate_role_profile_dependencies,
     validate_system_configuration,
+)
+from verenigingen.tests.support.role_profile_grant import (
+    end_team_membership_without_sync,
+    grant_team_profile_via_sync,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG, _team_manager
@@ -111,6 +115,30 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         user.insert()
         self.track_doc("User", user.name)
         return user.name
+
+    def _make_user_with_volunteer(self):
+        """Create a User + backing Member + Volunteer, all linked."""
+        user = self._make_system_user()
+        member = self.create_test_member(
+            first_name="Grant",
+            last_name=frappe.generate_hash(length=5),
+            email=user,
+        )
+        frappe.db.set_value("Member", member.name, "user", user)
+        volunteer = self.create_test_volunteer(member=member.name)
+        return user, volunteer
+
+    def _make_user_holding_team_profile(self, team, profile):
+        """A user who holds ``profile`` as the real sync granted it (via ``team``).
+
+        Returns ``(user, team_member_row)``. The grant is asserted here, so a setup that
+        silently stops granting fails loudly instead of letting a removal test pass on
+        a user who never held the profile.
+        """
+        user, volunteer = self._make_user_with_volunteer()
+        row = grant_team_profile_via_sync(user, volunteer.name, team)
+        self.assertIn(profile, self._assigned_profiles(user), "setup: sync did not grant the team profile")
+        return user, row
 
     def _assigned_profiles(self, user):
         """Role profiles assigned to ``user``, version-agnostic.
@@ -261,96 +289,55 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         self.assertIsNone(self.team_manager.determine_role_profile_for_member(team))
 
     # =================================================================
-    # _validate_role_assignment_inputs (via assign_role_profile guard paths)
+    # _validate_role_assignment_inputs (via remove_role_profile guard paths)
     # =================================================================
 
-    def test_assign_empty_user_rejected(self):
+    def test_remove_empty_user_rejected(self):
         team = self._make_team(default_profile=self._make_role_profile())
-        result = self.team_manager.assign_role_profile("   ", team)
+        result = self.team_manager.remove_role_profile("   ", team)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
 
-    def test_assign_empty_entity_rejected(self):
+    def test_remove_empty_entity_rejected(self):
         user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, "")
+        result = self.team_manager.remove_role_profile(user, "")
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
 
-    def test_assign_nonexistent_user_rejected(self):
+    def test_remove_nonexistent_user_rejected(self):
         team = self._make_team(default_profile=self._make_role_profile())
-        result = self.team_manager.assign_role_profile("ghost@nope.invalid", team)
+        result = self.team_manager.remove_role_profile("ghost@nope.invalid", team)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["NOT_FOUND"])
         self.assertIn("does not exist", result["error"])
 
-    def test_assign_nonexistent_entity_rejected(self):
+    def test_remove_nonexistent_entity_rejected(self):
         user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, "No Such Team ZZZ")
+        result = self.team_manager.remove_role_profile(user, "No Such Team ZZZ")
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["NOT_FOUND"])
 
-    def test_assign_overlong_role_rejected(self):
+    def test_remove_overlong_role_rejected(self):
         user = self._make_system_user()
         team = self._make_team(default_profile=self._make_role_profile())
-        result = self.team_manager.assign_role_profile(user, team, role="x" * 101)
+        result = self.team_manager.remove_role_profile(user, team, role="x" * 101)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
         self.assertIn("maximum 100 characters", result["error"])
 
     # =================================================================
-    # assign_role_profile - happy and edge paths
+    # remove_role_profile - profile deleted under a configured team
     # =================================================================
 
-    def test_assign_role_profile_happy_path(self):
-        profile = self._make_role_profile()
-        team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "assigned")
-        self.assertEqual(result["role_profile"], profile)
-
-        assigned = self._assigned_profiles(user)
-        self.assertIn(profile, assigned)
-
-    def test_assign_role_profile_idempotent(self):
-        profile = self._make_role_profile()
-        team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-
-        self.team_manager.assign_role_profile(user, team)
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "already_assigned")
-
-    def test_assign_role_profile_no_config(self):
-        team = self._make_team(default_profile=None)
-        user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "no_config")
-
-    def test_assign_role_profile_disabled_user_rejected(self):
-        profile = self._make_role_profile()
-        team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        frappe.db.set_value("User", user, "enabled", 0)
-
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
-        self.assertIn("disabled user", result["error"])
-
-    def test_assign_role_profile_deleted_profile_falls_through_to_no_config(self):
+    def test_remove_role_profile_deleted_profile_falls_through_to_no_config(self):
         # If a team's configured Role Profile is deleted, determine() can no longer
-        # resolve it (dependency validation fails) and assign() reports no_config
+        # resolve it (dependency validation fails) and remove() reports no_config
         # rather than crashing.
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
         user = self._make_system_user()
         frappe.delete_doc("Role Profile", profile, force=True)
-        result = self.team_manager.assign_role_profile(user, team)
+        result = self.team_manager.remove_role_profile(user, team)
         self.assertTrue(result["success"])
         self.assertEqual(result["action"], "no_config")
 
@@ -385,8 +372,8 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         """
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        self.team_manager.assign_role_profile(user, team)
+        user, row = self._make_user_holding_team_profile(team, profile)
+        end_team_membership_without_sync(row)
 
         fired = []
 
@@ -413,9 +400,9 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
     def test_remove_role_profile_after_assign(self):
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
+        user, row = self._make_user_holding_team_profile(team, profile)
+        end_team_membership_without_sync(row)
 
-        self.team_manager.assign_role_profile(user, team)
         result = self.team_manager.remove_role_profile(user, team)
         self.assertTrue(result["success"])
         # Recalculation runs; for a user with no remaining positions sync cannot
@@ -428,8 +415,8 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
     def test_remove_role_profile_disabled_user_rejected(self):
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        self.team_manager.assign_role_profile(user, team)
+        user, row = self._make_user_holding_team_profile(team, profile)
+        end_team_membership_without_sync(row)
         frappe.db.set_value("User", user, "enabled", 0)
 
         result = self.team_manager.remove_role_profile(user, team)
@@ -444,8 +431,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
     def test_strip_role_profile_removes_single(self):
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        self.team_manager.assign_role_profile(user, team)
+        user, _row = self._make_user_holding_team_profile(team, profile)
 
         self.team_manager._strip_role_profile(user, profile)
 
@@ -473,8 +459,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
 
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        self.team_manager.assign_role_profile(user, team)
+        user, _row = self._make_user_holding_team_profile(team, profile)
 
         failed = SecureOperationResult(success=False, operation_id="test-strip-fail")
         failed.add_error("Simulated User save failure")
@@ -498,8 +483,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         """
         profile = self._make_role_profile()
         team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        self.team_manager.assign_role_profile(user, team)
+        user, _row = self._make_user_holding_team_profile(team, profile)
 
         self.team_manager._strip_role_profile(user, profile)
 
@@ -682,16 +666,6 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         self.assertEqual(self.chapter_manager.determine_role_profile_for_member(chapter), profile)
         result = self.chapter_manager.get_entities_using_role_profile(profile)
         self.assertIn(chapter, [e["name"] for e in result])
-
-    def test_chapter_assign_role_profile_happy_path(self):
-        profile = self._make_role_profile()
-        chapter = self._make_chapter(default_profile=profile)
-        user = self._make_system_user()
-        result = self.chapter_manager.assign_role_profile(user, chapter)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "assigned")
-        assigned = self._assigned_profiles(user)
-        self.assertIn(profile, assigned)
 
     def test_chapter_config_constants(self):
         # Sanity: the two configs differ in entity_type, proving both subclasses

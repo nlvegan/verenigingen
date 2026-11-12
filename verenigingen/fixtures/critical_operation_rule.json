@@ -5872,7 +5872,7 @@
   "enabled": 1,
   "security_level": "high",
   "business_context": "System operation for cancel agreement",
-  "required_roles": "System Manager",
+  "required_roles": "Verenigingen Administrator",
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
@@ -19962,22 +19962,6 @@
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
   "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
-  "name": "get_member_home_page",
-  "operation_name": "get_member_home_page",
-  "operation_type": "reporting",
-  "description": "Retrieve member home page data",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "Member data management and lifecycle operations",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 100,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {

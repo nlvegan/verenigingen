@@ -149,6 +149,9 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/testing/check_new_test_failures.py",  # tests/test_check_new_test_failures.py
     "scripts/validation/hooks_parser.py",  # tests/backend/validation/test_import_validation_integration.py
     "scripts/validation/test_quality_enforcer.py",  # tests/integration/test_permission_bypass_elimination_validation.py
+    # #2385: tests/api/test_bool_flags_over_http_2385.py
+    "scripts/api_maintenance/fix_workspace.py",
+    "scripts/cleanup/cleanup_invalid_member_schedules.py",
 }
 
 

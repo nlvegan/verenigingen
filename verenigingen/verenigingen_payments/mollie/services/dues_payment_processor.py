@@ -23,6 +23,7 @@ from verenigingen.services.billing.coverage_calculator import calculate_coverage
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
 from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
@@ -33,6 +34,9 @@ from verenigingen.verenigingen_payments.services.bank_transaction_creator import
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
+)
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -1063,6 +1067,11 @@ class DuesPaymentProcessor:
             )
             return existing_pe
 
+        # Staff cancelled this payment's entry: do not book it again, staff decide (#2406).
+        # None, not an exception: the webhook is acknowledged and Mollie stops retrying.
+        if refuse_staff_cancelled_forward_payment(payment_id, amount, "the dues processor"):
+            return None
+
         # Determine company - prioritize invoice's company if available
         # This prevents company/account mismatches
         company = None
@@ -1323,8 +1332,9 @@ class DuesPaymentProcessor:
                 "custom_member": member_name,
             }
         )
-        payment_entry.insert()
-        payment_entry.submit()
+        # One unit: a failed submit must not leave a draft or a half-posted row holding
+        # this payment's reference and idempotency key (#2406).
+        insert_and_submit_atomically(payment_entry)
         return payment_entry
 
     @staticmethod

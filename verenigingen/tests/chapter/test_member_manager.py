@@ -696,11 +696,9 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIn("not pending", result["message"])
 
     def test_approve_member_request_promotes_row_to_active(self):
-        # The join request already wrote a Pending history row;
-        # ChapterMembershipHistoryManager deliberately refuses to add an "Active"
-        # row while a "Pending" one exists (it warns to use update_membership_status
-        # instead). So the observable, durable effect of approval is that the
-        # Chapter Member row flips to Active -- assert that rather than a new row.
+        # The join request wrote a Pending history row; approval moves that entry to Active
+        # (#2430). This test used to assert the Pending entry SURVIVED approval, which encoded the
+        # defect (add_membership_history refuses Active beside Pending and the caller ignored it).
         self.manager.request_to_join(self.member.name, notify=False)
         self._reload_chapter()
         result = self.manager.approve_member_request(self.member.name)
@@ -710,17 +708,16 @@ class TestMemberManager(VereningingenTestCase):
         row = self.manager._find_chapter_member(self.member.name)
         self.assertEqual(row.status, "Active")
 
-        # The originating Pending history row is still present (not lost on approve).
-        pending = frappe.get_all(
+        history = frappe.get_all(
             "Chapter Membership History",
             filters={
                 "parent": self.member.name,
                 "parenttype": "Member",
                 "chapter_name": self.chapter.name,
-                "status": "Pending",
             },
+            pluck="status",
         )
-        self.assertGreater(len(pending), 0)
+        self.assertEqual(history, ["Active"])
 
     # ------------------------------------------------------------------ reject_member_request
 

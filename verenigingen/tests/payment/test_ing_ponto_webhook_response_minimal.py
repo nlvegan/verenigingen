@@ -285,6 +285,80 @@ class TestPontoWebhookAck(_GuestWebhookCase):
         self.assertEqual((status, body), (200, {"status": "ok"}))
 
 
+class TestPontoWebhookEnabledFlagIsNotAnOracle(_GuestWebhookCase):
+    """#1813: ``enable_webhooks`` is honoured only AFTER the request is authenticated, so
+    an anonymous caller cannot read whether Ponto webhooks are on from the status code.
+
+    Every unauthenticated shape is posted with webhooks on and off and compared on every
+    caller-visible channel (body, HTTP status, message_log) plus the Error Log rows it
+    writes. Probe shortcut: the two settings are written with ``set_single_value``.
+    """
+
+    def setUp(self):
+        super().setUp()
+        for field in ("enable_webhooks", "require_webhook_signature"):
+            old = frappe.db.get_single_value("Ponto Settings", field)
+            self.addCleanup(frappe.db.set_single_value, "Ponto Settings", field, old)
+        frappe.db.set_single_value("Ponto Settings", "require_webhook_signature", 1)
+
+    def _enable(self, flag):
+        frappe.db.set_single_value("Ponto Settings", "enable_webhooks", flag)
+
+    def _event(self):
+        return {"data": {"id": f"evt-{uuid.uuid4().hex[:8]}", "type": "pontoConnect.nope", "attributes": {}}}
+
+    def _observe(self, flag, *, headers=None, verify=None, event=None):
+        """(body, status, message_log, error-log rows written) for one anonymous POST."""
+        self._enable(flag)
+        # Error rows are written once per hour per IP (log_error_once): reset that window so
+        # the on and off observations are not skewed by whichever ran first.
+        frappe.cache.delete_keys("webhook_error_log_once:*")
+        before = frappe.db.count("Error Log")
+        with patch(f"{PONTO}.verify_ponto_webhook", **verify or {"return_value": {"sub": "x"}}):  # Mock justified: JWKS fetch
+            body, status, messages = self._post(
+                f"{PONTO}.handle_ponto_webhook",
+                event or self._event(),
+                headers=headers or {},
+                ip="203.0.113.50",
+            )
+        return body, status, messages, frappe.db.count("Error Log") - before
+
+    def _bad_signature(self):
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
+
+        return {"side_effect": PontoWebhookError("bad signature")}
+
+    def test_bad_signature_is_refused_identically_with_webhooks_on_and_off(self):
+        bad = self._bad_signature()
+        on = self._observe(1, headers={"Signature": "forged"}, verify=bad)
+        off = self._observe(0, headers={"Signature": "forged"}, verify=bad)
+        self.assertEqual(on[:2], ({"status": "error"}, 401), "control: the refusal is real")
+        self.assertEqual(on, off)
+
+    def test_missing_signature_is_refused_identically_with_webhooks_on_and_off(self):
+        on = self._observe(1)
+        off = self._observe(0)
+        self.assertEqual(on[:2], ({"status": "error"}, 401), "control: the refusal is real")
+        self.assertEqual(on, off)
+
+    # A signed delivery with no recognisable event type: processing it answers 400 ("Unknown
+    # event format"), so a 200 ack means the handler did NOT process it. Guest cannot insert
+    # the Webhook Processing Log, so that row is not an observable.
+    _NO_EVENT = {"data": {"id": "evt-no-type"}}
+
+    def test_a_valid_signature_with_webhooks_off_is_acked_and_processes_nothing(self):
+        """The disabled integration still acks a genuine Ponto delivery (no retry storm)
+        but does not process it."""
+        body, status, _, _ = self._observe(0, headers={"Signature": "jwt"}, event=self._NO_EVENT)
+        self.assertEqual((status, body), (200, {"status": "ok"}))
+
+    def test_a_valid_signature_with_webhooks_on_is_still_processed(self):
+        """Control for the test above: the same delivery with webhooks on IS processed
+        (and refused as an unknown event format), so the off-ack means something."""
+        body, status, _, _ = self._observe(1, headers={"Signature": "jwt"}, event=self._NO_EVENT)
+        self.assertEqual((status, body), (400, {"status": "error"}))
+
+
 class _PontoJwtCase(_GuestWebhookCase):
     """Real RS512 JWT, real verification and real dispatch; only the JWKS fetch is stubbed.
 
