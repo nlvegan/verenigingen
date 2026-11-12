@@ -66,6 +66,7 @@ import os
 import tempfile
 import traceback
 from typing import Any, Dict
+from urllib.parse import urlencode
 
 import frappe
 from frappe import _
@@ -815,10 +816,40 @@ def send_chapter_notification(chapter, overdue_members):
 
 
 def generate_payment_link(member_name):
-    """Generate payment link for member"""
-    # This would generate a secure payment link - implementation depends on payment gateway
-    base_url = frappe.utils.get_url()
-    return f"{base_url}/payment/membership/{member_name}"
+    """Link a reminder mail to the served /payment_retry page for the member's OLDEST overdue invoice.
+
+    Returns None when the member has no overdue invoice, so the mail omits the button rather than
+    carrying a link that cannot pay anything (#2109). A logged-out visitor is sent to login and back
+    to this same URL by the page.
+    """
+    invoice = get_oldest_overdue_invoice(member_name)
+    if not invoice:
+        return None
+    query = urlencode({"member": member_name, "invoice": invoice})
+    return f"{frappe.utils.get_url()}/payment_retry?{query}"
+
+
+def get_oldest_overdue_invoice(member_name):
+    """Name of the member's overdue invoice with the earliest due date (posting date, then name break ties).
+
+    Same overdue definition as the Overdue Member Payments report that drives the reminders.
+    """
+    customer = frappe.db.get_value("Member", member_name, "customer")
+    if not customer:
+        return None
+    rows = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "customer": customer,
+            "docstatus": 1,
+            "status": ["in", ["Overdue", "Unpaid"]],
+            "due_date": ["<", today()],
+        },
+        fields=["name"],
+        order_by="due_date asc, posting_date asc, name asc",
+        limit=1,
+    )
+    return rows[0].name if rows else None
 
 
 def get_reminder_subject(reminder_type, payment_info):

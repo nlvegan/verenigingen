@@ -363,6 +363,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         "orphaned_found": 0,
         "orphaned_removed": 0,
         "chapters_affected": [],
+        "chapters_failed": [],
+        "chapters_cleaned": 0,
         "errors": [],
     }
 
@@ -371,9 +373,9 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         results["chapters_checked"] = len(chapters)
 
         for chapter in chapters:
+            orphaned_indices = []
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter.name)
-                orphaned_indices = []
 
                 # Find orphaned members in this chapter
                 for i, member_row in enumerate(chapter_doc.members or []):
@@ -391,16 +393,16 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                     )
 
                     if not dry_run:
-                        # Remove orphaned entries (in reverse order to preserve indices)
-                        for idx, member_name in reversed(orphaned_indices):
-                            chapter_doc.remove(chapter_doc.members[idx])
-                            results["orphaned_removed"] += 1
-
-                        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-                        chapter_doc.save(ignore_permissions=True)
+                        _remove_orphans_atomically(chapter_doc, orphaned_indices)
+                        # Count only once the save has landed: a refused save (e.g. an
+                        # unrelated dangling board link) leaves every row in place.
+                        results["orphaned_removed"] += len(orphaned_indices)
+                        results["chapters_cleaned"] += 1
 
             except Exception as e:
                 results["errors"].append(f"{chapter.name}: {str(e)}")
+                if orphaned_indices and not dry_run:
+                    results["chapters_failed"].append(chapter.name)
 
         if dry_run:
             results["summary"] = (
@@ -408,8 +410,14 @@ def cleanup_orphaned_chapter_members(dry_run=True):
             )
         else:
             results["summary"] = (
-                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+                f"Removed {results['orphaned_removed']} orphaned members from "
+                f"{results['chapters_cleaned']} chapter(s)"
             )
+            if results["chapters_failed"]:
+                results["summary"] += (
+                    f"; {len(results['chapters_failed'])} chapter(s) failed and kept their orphans: "
+                    + ", ".join(results["chapters_failed"][:5])
+                )
             frappe.db.commit()
 
     except Exception as e:
@@ -417,6 +425,37 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _remove_orphans_atomically(chapter_doc, orphaned_indices):
+    """Remove the orphan rows and save, rolling back to the pre-state if anything fails.
+
+    A save can fail after it has already written (e.g. an `on_update` handler raising),
+    and the caller's final commit would then persist the half-saved chapter. frappe's
+    `savepoint()` context manager swallows the exception, so the savepoint is explicit
+    and the error is re-raised for the caller to report.
+    """
+    savepoint_name = "orphan_chapter_cleanup"
+    frappe.db.savepoint(savepoint_name)
+    try:
+        # Remove orphaned entries (in reverse order to preserve indices)
+        for idx, _member_name in reversed(orphaned_indices):
+            chapter_doc.remove(chapter_doc.members[idx])
+
+        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
+        chapter_doc.save(ignore_permissions=True)
+    except Exception:
+        try:
+            frappe.db.rollback(save_point=savepoint_name)
+        except Exception as rollback_error:
+            # A deadlock victim has already lost the whole transaction, so the savepoint is
+            # gone (1305). Keep the ORIGINAL error for the caller; only log this one.
+            frappe.log_error(
+                title="Orphaned Chapter Cleanup Rollback Error",
+                message=f"{chapter_doc.name}: savepoint rollback failed: {rollback_error}",
+            )
+        raise
+    frappe.db.release_savepoint(savepoint_name)
 
 
 @frappe.whitelist()

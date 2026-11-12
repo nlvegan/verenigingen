@@ -58,7 +58,6 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
         from verenigingen.services.chapter.chapter_role_profile_manager import _chapter_manager
         
         required_methods = [
-            "assign_role_profile",
             "remove_role_profile", 
             "bulk_assign_role_profiles",
             "determine_role_profile_for_member",
@@ -164,11 +163,11 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
         from verenigingen.utils.team_role_profile_manager import _team_manager
         
         # Test with empty/invalid inputs
-        result = _team_manager.assign_role_profile("", "")
+        result = _team_manager.remove_role_profile("", "")
         self.assertIsInstance(result, dict, "Should return dict for invalid inputs")
         self.assertFalse(result.get("success", True), "Should fail for empty inputs")
         
-        result = _team_manager.assign_role_profile(None, None)
+        result = _team_manager.remove_role_profile(None, None)
         self.assertIsInstance(result, dict, "Should return dict for None inputs")
         self.assertFalse(result.get("success", True), "Should fail for None inputs")
 

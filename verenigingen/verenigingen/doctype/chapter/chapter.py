@@ -268,6 +268,8 @@ class Chapter(Document):
         # Emit events for significant changes to trigger background operations
         if old_doc:
             self._emit_chapter_change_events(old_doc)
+            # After the row diff is persisted, so a failed save sends no join mail (#1843)
+            self.member_manager.notify_board_of_joins(old_doc)
 
         # NOTE: Volunteer sync is handled exclusively via the event-driven
         # architecture in _emit_chapter_change_events above (2025-11-18), not here.
@@ -745,6 +747,9 @@ class Chapter(Document):
     def _handle_document_changes(self):
         """Handle changes between document versions"""
         old_doc = self.get_doc_before_save()
+        # Per-save marker (#1843): a save that failed after seating must not leave ids that
+        # would suppress a later real join on this object
+        self.flags.pop("board_seated_member_ids", None)
         if old_doc:
             # Seating a board member auto-adds them to `members`. That append has to
             # land before handle_member_additions diffs the table, or the auto-added
