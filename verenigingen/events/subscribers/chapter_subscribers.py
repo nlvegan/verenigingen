@@ -162,7 +162,10 @@ def handle_membership_notifications(event_name, event_data, is_bulk_import=False
 
         # Send notifications based on action
         if action == "joined":
-            _send_member_welcome_notification(chapter, member_doc)
+            # A disabled row (a non-Active member, written so by add_member) is not a join:
+            # the member is hidden from the roster, so no welcome (#1842).
+            if _member_row_is_enabled(chapter_name, member):
+                _send_member_welcome_notification(chapter, member_doc)
         elif action == "left":
             _send_member_farewell_notification(chapter, member_doc, reason)
 
@@ -366,6 +369,17 @@ def _membership_event_still_holds(chapter_name, member, action):
     if action == "left":
         return not row_exists
     return True
+
+
+def _member_row_is_enabled(chapter_name, member):
+    """Whether the member's Chapter Member row is enabled (read at job time, after commit)."""
+    return bool(
+        frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter_name, "parenttype": "Chapter", "member": member},
+            "enabled",
+        )
+    )
 
 
 def _sync_board_role_profile(volunteer):
