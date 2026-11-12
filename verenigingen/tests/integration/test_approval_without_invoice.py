@@ -20,6 +20,7 @@ from frappe.utils import add_days, add_months, getdate, now_datetime, today
 
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 NOTIFICATION_KEY = "member_application_approved"
 APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approval Notification Failed"]
@@ -28,6 +29,9 @@ APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approva
 class TestApprovalWithoutInvoice(ApprovalCase):
     def setUp(self):
         super().setUp()
+        # CI's fresh site has no outgoing Email Account, so every approval mail was refused and
+        # 12 tests went red in the PR census job (#1879 class).
+        ensure_outgoing_email_account(self)
         self._require_approval_notification_enabled()
 
     def _require_approval_notification_enabled(self):
