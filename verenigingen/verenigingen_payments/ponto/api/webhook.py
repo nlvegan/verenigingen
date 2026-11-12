@@ -220,6 +220,31 @@ class PontoEventTypes:
     PERIODIC_PAYMENT_EXECUTION = "pontoConnect.periodicPaymentInitiationRequest.executed"
 
 
+def is_signature_required(settings) -> bool:
+    """Whether an unsigned webhook must be refused. Fails CLOSED (#2478).
+
+    A Single's JSON default is applied only when the doctype has no ``tabSingles`` rows at all. A
+    site that saved Ponto Settings before ``require_webhook_signature`` existed has rows for the
+    other fields and none for this one, so the Document reads it as 0 ("not required"), which is
+    the insecure mode. A missing row therefore means required, while a real row of 0 is the
+    operator's explicit opt-out.
+    """
+    try:
+        has_rows, has_field_row = frappe.db.sql(
+            "SELECT COUNT(*), COALESCE(SUM(field = %s), 0) FROM tabSingles WHERE doctype = %s",
+            ("require_webhook_signature", "Ponto Settings"),
+        )[0]
+    except Exception:
+        frappe.log_error(
+            title="Ponto webhook: signature setting unreadable, requiring the signature",
+            message=frappe.get_traceback(),
+        )
+        return True
+    if has_rows and not has_field_row:
+        return True
+    return bool(getattr(settings, "require_webhook_signature", True))
+
+
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def handle_ponto_webhook():
@@ -268,7 +293,7 @@ def handle_ponto_webhook():
 
         # Verify webhook signature (JWT/JWKS)
         # SECURITY: When require_webhook_signature is enabled, reject unsigned requests
-        require_signature = getattr(settings, "require_webhook_signature", True)
+        require_signature = is_signature_required(settings)
         claims = None
 
         if signature:
