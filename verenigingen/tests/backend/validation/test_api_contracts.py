@@ -26,7 +26,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
                 CHAPTER_CONFIG,
                 ChapterRoleProfileManager
             )
-            from verenigingen.utils.base_role_profile_manager import (
+            from verenigingen.services.member.account.base_role_profile_manager import (
                 BaseRoleProfileManager,
                 EntityConfig,
                 validate_system_configuration,
@@ -80,7 +80,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
 
     def test_validation_functions_exist(self):
         """Test that validation functions exist and are callable"""
-        from verenigingen.utils.base_role_profile_manager import (
+        from verenigingen.services.member.account.base_role_profile_manager import (
             validate_system_configuration,
             validate_all_role_profiles,
             validate_doctype_fields,
@@ -101,7 +101,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
 
     def test_error_codes_defined(self):
         """Test that error codes are properly defined"""
-        from verenigingen.utils.base_role_profile_manager import ERROR_CODES
+        from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
         
         expected_codes = [
             "VALIDATION_ERROR", 
@@ -116,7 +116,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
 
     def test_validation_functions_return_correct_format(self):
         """Test that validation functions return expected data structures"""
-        from verenigingen.utils.base_role_profile_manager import (
+        from verenigingen.services.member.account.base_role_profile_manager import (
             validate_system_configuration,
             validate_all_role_profiles
         )
@@ -143,7 +143,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
 
     def test_entity_config_structure(self):
         """Test that EntityConfig dataclass has expected structure"""
-        from verenigingen.utils.base_role_profile_manager import EntityConfig
+        from verenigingen.services.member.account.base_role_profile_manager import EntityConfig
         from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG
         from verenigingen.utils.chapter_role_profile_manager import CHAPTER_CONFIG
         

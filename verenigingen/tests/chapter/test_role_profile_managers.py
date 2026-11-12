@@ -17,7 +17,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
-from verenigingen.utils.base_role_profile_manager import (
+from verenigingen.services.member.account.base_role_profile_manager import (
     BaseRoleProfileManager,
     EntityConfig,
     validate_doctype_fields,
