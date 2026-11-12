@@ -829,6 +829,34 @@ class _UnreachableClient:
         return None
 
 
+
+_SWEEP = "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep"
+
+
+class _SweepPage:
+    """One Mollie payments page, as the sweep walks it (iter + has_next)."""
+
+    def __init__(self, payments):
+        self._payments = list(payments)
+
+    def __iter__(self):
+        return iter(self._payments)
+
+    def has_next(self):
+        return False
+
+
+class _SweepMollieClient:
+    """Stand-in for the sweep's MollieClient: subscription id -> payments."""
+
+    def __init__(self, payments_by_subscription):
+        self._by_subscription = payments_by_subscription
+
+    def get_subscription(self, customer_id, subscription_id):
+        page = _SweepPage(self._by_subscription.get(subscription_id, []))
+        return SimpleNamespace(payments=SimpleNamespace(list=lambda limit=None: page))
+
+
 class TestRecurringChargeWebhookWiring(EnhancedTestCase):
     """The charge must book AND keep the refund discovery it falls through to."""
 
@@ -1233,6 +1261,135 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             frappe.db.get_value("Donation", charge_name, "journal_entry"),
             "the retry did not complete the Journal Entry",
         )
+
+    # --- #945: the recovery sweep keys on the booking, not on the Donation row ---------
+    # Probe shortcut, stated: the booking failure is injected by patching
+    # _create_donation_financial_entries to its real partial-success return (Bank
+    # Transaction, no Journal Entry), as the tests above do; the rest is real.
+
+    def _deliver_failing_booking(self, payment):
+        partial = {"bank_transaction_name": "BT-partial", "journal_entry_name": None, "partial_success": True}
+        with patch.object(
+            UnifiedWebhookWrapperService, "_create_donation_financial_entries", return_value=partial
+        ):
+            return self._deliver(payment)
+
+    def _run_recurring_sweep(self, payment):
+        from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep import (
+            sweep_recurring_donation_charges,
+        )
+
+        client = _FakeClient(payment)
+        sweep_client = _SweepMollieClient({self.subscription_id: [payment]})
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_mollie_client",
+            return_value=client,
+        ), patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_api_key",
+            return_value="test_dummy_key_for_tests",
+        ), patch("mollie.api.client.Client", return_value=client), patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient.sdk_client",
+            new_callable=lambda: property(lambda self: client),
+        ), patch(f"{_SWEEP}.MollieClient", return_value=sweep_client):
+            with self.set_user("Administrator"):
+                return sweep_recurring_donation_charges()
+
+    def _live_journal_entries(self, payment_id):
+        return frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment_id, "docstatus": ["!=", 2]}, pluck="name"
+        )
+
+    def test_945_a_charge_whose_booking_failed_is_booked_by_the_sweep(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_fail_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+
+        self._deliver_failing_booking(payment)
+        charge_name = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+        self.assertTrue(charge_name, "precondition: the failed delivery must leave the Donation row")
+        self.assertEqual(self._live_journal_entries(payment_id), [], "precondition: nothing booked")
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 1, summary)
+        self.assertEqual(summary["charges_already_booked"], 0, summary)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+        self.assertTrue(frappe.db.get_value("Donation", charge_name, "journal_entry"))
+        self.assertEqual(frappe.db.count("Donation", {"payment_id": payment_id}), 1)
+
+    def test_945_a_booked_charge_is_skipped_and_never_booked_twice(self):
+        """Control for the opposite harm: a booked charge must not be re-run."""
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_ok_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self.assertEqual(self._deliver(payment)["status"], "success")
+        booked = self._live_journal_entries(payment_id)
+        self.assertEqual(len(booked), 1, "precondition: the charge is booked")
+
+        summary = self._run_recurring_sweep(payment)
+
+        # A booked charge sent back through booking would come back as
+        # "booked" (the pipeline is idempotent and answers success).
+        self.assertEqual(summary["charges_already_booked"], 1, summary)
+        self.assertEqual(summary["charges_booked"], 0, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), booked)
+
+    def test_945_a_recovered_charge_is_not_booked_again_by_the_next_sweep(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_twice_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self._deliver_failing_booking(payment)
+
+        self.assertEqual(self._run_recurring_sweep(payment)["charges_booked"], 1)
+        second = self._run_recurring_sweep(payment)
+
+        self.assertEqual(second["charges_booked"], 0, second)
+        self.assertEqual(second["charges_already_booked"], 1, second)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+
+    def test_945_a_staff_cancelled_booking_is_not_rebooked_by_the_sweep(self):
+        """No ruling covers a cancelled donation Journal Entry; the sweep leaves it alone.
+
+        The #2406 ruling (a staff-cancelled booking is not re-booked on
+        redelivery) was made for forward Payment Entries; for donations nothing
+        has been ruled, so the sweep keeps its old behaviour of not touching a
+        charge staff have already acted on.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_cancelled_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self.assertEqual(self._deliver(payment)["status"], "success")
+        je_name = self._live_journal_entries(payment_id)[0]
+        frappe.get_doc("Journal Entry", je_name).cancel()
+        self.assertEqual(self._live_journal_entries(payment_id), [], "precondition: staff cancelled it")
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 0, summary)
+        self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [], "the sweep re-booked a cancelled entry")
+
+    def test_945_a_sweep_problem_is_reported_in_the_error_log(self):
+        """A failed subscription listing must leave a durable Error Log row, not only a file log."""
+        from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep import (
+            sweep_recurring_donation_charges,
+        )
+
+        self._setup_origin()
+        self.expectErrorLog("Recurring Donation Charge Sweep")
+
+        def _unreachable(customer_id, subscription_id):
+            raise RuntimeError(f"Mollie unreachable for {subscription_id}")
+
+        title = "Recurring Donation Charge Sweep Problems"
+        before = frappe.db.count("Error Log", {"method": title})
+        with patch(f"{_SWEEP}.MollieClient", return_value=SimpleNamespace(get_subscription=_unreachable)):
+            summary = sweep_recurring_donation_charges()
+
+        self.assertTrue(summary["errors"], summary)
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
 
 
 class TestDonorPortalRecurringList(EnhancedTestCase):

@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 
 import frappe
 
+from ...services.journal_entry_booking_support import find_journal_entry_by_reference
 from ..core.client import MollieClient
 from ..utils.common_helpers import read_payment_field
 from .donation_processor import DonationProcessor
@@ -57,6 +58,7 @@ def sweep_recurring_donation_charges() -> Dict[str, Any]:
         "subscriptions_checked": 0,
         "charges_booked": 0,
         "charges_already_booked": 0,
+        "charges_booking_cancelled": 0,
         "charges_not_paid": 0,
         "errors": [],
     }
@@ -80,8 +82,12 @@ def sweep_recurring_donation_charges() -> Dict[str, Any]:
             continue
 
     if summary["errors"]:
-        frappe.logger().warning(
-            f"Recurring donation charge sweep: {len(summary['errors'])} problem(s) -- {summary['errors']}"
+        # frappe.log_error, not frappe.logger(): a bare logger writes only to
+        # logs/frappe.log, which nobody reads, and this sweep is the last line
+        # of defence for money (#945).
+        frappe.log_error(
+            title="Recurring Donation Charge Sweep Problems",
+            message=f"{len(summary['errors'])} problem(s) -- {summary['errors']}",
         )
 
     return summary
@@ -114,8 +120,23 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
         return
 
     payment_id = read_payment_field(payment, "id")
-    if frappe.db.exists("Donation", {"payment_id": payment_id}):
+    # "Booked" means the charge reached the ledger, not that a Donation row
+    # exists: ensure_donation_for_recurring_charge inserts the row BEFORE
+    # booking runs, so a charge whose booking failed has a row and no Journal
+    # Entry, and keying on the row skipped it forever (#945). A live entry
+    # (draft included: work in flight) is the same key the booking itself uses
+    # for idempotency, so a booked charge is never sent through again.
+    if find_journal_entry_by_reference(payment_id):
         summary["charges_already_booked"] += 1
+        return
+
+    # A Journal Entry that exists only as docstatus 2 was cancelled -- by staff
+    # undoing the booking, or by the creator discarding a submit that did not
+    # post -- and the two cannot be told apart here. No ruling covers a
+    # staff-cancelled donation booking, so leave it for staff rather than
+    # re-book it automatically (cf. #2406 for forward Payment Entries).
+    if frappe.db.exists("Journal Entry", {"cheque_no": payment_id}):
+        summary["charges_booking_cancelled"] += 1
         return
 
     try:

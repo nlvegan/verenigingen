@@ -111,6 +111,35 @@ class _SweepTestBase(EnhancedTestCase):
         self.track_test_record("Donation", donation.name)
         return donation
 
+    def _book_live_journal_entry(self, payment_id):
+        """A live Journal Entry keyed by the payment id: what 'booked' means (#945).
+
+        Left as a DRAFT on purpose: find_journal_entry_by_reference counts a
+        draft as work in flight, which is exactly the state the sweep must not
+        re-run, and a draft needs no ledger posting to build.
+        """
+        accounts = frappe.get_all(
+            "Account",
+            filters={
+                "company": self.company,
+                "is_group": 0,
+                "account_type": ["not in", ["Receivable", "Payable"]],
+                "root_type": ["in", ["Asset", "Expense", "Income"]],
+            },
+            pluck="name",
+            limit=2,
+        )
+        je = frappe.new_doc("Journal Entry")
+        je.company = self.company
+        je.posting_date = frappe.utils.nowdate()
+        je.cheque_no = payment_id
+        je.cheque_date = frappe.utils.nowdate()
+        je.append("accounts", {"account": accounts[0], "debit_in_account_currency": 1})
+        je.append("accounts", {"account": accounts[1], "credit_in_account_currency": 1})
+        je.insert()
+        self.track_test_record("Journal Entry", je.name)
+        return je.name
+
     def _origin(self, tag, **kwargs):
         defaults = dict(
             mollie_subscription_id=f"sub_{tag}",
@@ -189,10 +218,12 @@ class TestSweepOnePayment(_SweepTestBase):
         mocked_processor.return_value.process_donation_payment.assert_not_called()
 
     def test_already_booked_charge_is_skipped_without_reprocessing(self):
-        # origin.payment_id IS the first payment's id, so listing it back
-        # from Mollie must not re-trigger booking.
+        # Booked = a live Journal Entry, not a Donation row (#945). Here the
+        # origin's own first payment has both, so listing it back must not
+        # re-trigger booking.
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}")]})
 
         with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
@@ -204,9 +235,27 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(summary["charges_booked"], 0)
         mocked_processor.return_value.process_donation_payment.assert_not_called()
 
+    def test_a_donation_row_without_a_journal_entry_is_not_booked_yet(self):
+        # #945: ensure_donation_for_recurring_charge inserts the row BEFORE
+        # booking, so a charge whose booking failed has a row and no entry.
+        tag = frappe.generate_hash(length=8)
+        self._origin(tag)  # carries payment_id tr_first_<tag>, no Journal Entry
+        client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}")]})
+
+        with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+
+        self.assertEqual(summary["charges_booked"], 1)
+        self.assertEqual(summary["charges_already_booked"], 0)
+        mocked_processor.return_value.process_donation_payment.assert_called_once()
+
     def test_unbooked_paid_charge_is_booked(self):
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         client = _FakeMollieClient(
             subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}"), _payment(f"tr_second_{tag}")]}
         )
@@ -286,6 +335,7 @@ class TestPagination(_SweepTestBase):
     def test_an_unbooked_charge_on_the_second_page_is_still_booked(self):
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         # Page 1 carries only the already-booked first payment; the unbooked
         # charge sits on page 2. Reading only page 1 would find nothing to
         # book and this test would see charges_booked == 0.
