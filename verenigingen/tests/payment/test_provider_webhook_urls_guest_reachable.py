@@ -670,6 +670,67 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(books["outstanding"], 0.0)
         self.assertEqual([k.payment_entry for k in books["links"]], [books["pes"][0].name])
 
+    def test_a_redelivery_after_staff_cancelled_the_payment_entry_is_acknowledged_and_not_rebooked(self):
+        """#2406 ruling through the real Guest dispatch: staff cancelled the allocated PE the
+        webhook booked, Mollie re-delivers. The matched invoice is open again, so the #1803 path
+        tries to book once more and the writer REFUSES; the webhook must still acknowledge
+        (a 5xx starts a retry storm for a payment staff decided about), book nothing new, and
+        alert staff once. Probe shortcut: none; the cancel is the real document cancel."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        test_user = frappe.session.user
+
+        def book():
+            self._post_mollie_notification(payment)
+            # The dispatch leaves the webhook user on the session; staff act as the test's own user.
+            frappe.set_user(test_user)
+            return frappe.get_all(
+                "Payment Entry", filters={"reference_no": payment_id, "docstatus": 1}, pluck="name"
+            )[0]
+
+        first = refusal.book_then_staff_cancel(self, payment_id, book)
+        self.assertEqual(self._invoice_outstanding(), float(self.invoice_total), "fixture: invoice must be open")
+
+        for _ in range(2):  # the second redelivery must not alert staff again
+            result = self._post_mollie_notification(payment)
+
+            self.assertLess(self._http_status(), 400, f"a refused redelivery must be acknowledged: {result}")
+            refusal.assert_not_rebooked(self, payment_id, first)
+            refusal.assert_refused_once(self, payment_id, f"{float(self.invoice_total):.2f}")
+            self.assertEqual(self._invoice_outstanding(), float(self.invoice_total))
+
+    def test_a_genuine_failure_to_book_the_allocated_entry_still_answers_5xx(self):
+        """Control for the #2406 acknowledgement: it is for the staff-cancel refusal ONLY. Same
+        shape (a BT exists, the invoice matches, the writer books nothing) but nobody cancelled
+        anything, so Mollie must keep retrying. Probe shortcut: the failure is made by stubbing
+        the writer to return nothing, and the BT-only row by aging the invoice out of reach for
+        the first delivery."""
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self._age_the_invoice_out_of_reach()
+        self._post_mollie_notification(payment)
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            {"custom_coverage_start_date": "2025-04-01", "custom_coverage_end_date": "2025-04-30"},
+            update_modified=False,
+        )
+        self.assertEqual(len(self._allocation_state(payment_id)["bts"]), 1, "fixture: BT-only row expected")
+
+        with patch.object(DuesPaymentProcessor, "_create_payment_entry_for_dues", return_value=None):
+            self._post_mollie_notification(payment)
+
+        self.assertEqual(self._http_status(), 500)
+        self.assertEqual(self._allocation_state(payment_id)["pes"], [])
+
     def test_two_open_invoices_the_payment_could_be_for_are_not_guessed_between(self):
         """Control: with TWO equally good candidates the payment stays a Bank Transaction,
         both invoices stay open, nothing is allocated, and the refusal is in the Error Log.

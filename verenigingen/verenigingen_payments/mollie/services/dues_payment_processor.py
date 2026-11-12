@@ -37,6 +37,7 @@ from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_
     payment_entry_service,
 )
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    forward_payment_staff_cancelled,
     refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
@@ -996,6 +997,13 @@ class DuesPaymentProcessor:
                     f"[Mollie] Successfully processed dues payment {payment_id} for member {member_name} "
                     f"(created {record_type}: {record_name})"
                 )
+            elif forward_payment_staff_cancelled(payment_id):
+                # The writer refused (#2406): staff cancelled this payment's entry, the Error Log
+                # row and the staff alert are already out. Not a failure: "error" would make the
+                # webhook answer 5xx and Mollie retry a payment staff decided about, against the
+                # ruling to acknowledge.
+                result["status"] = "skipped"
+                result["skipped_reason"] = "Payment Entry was cancelled by staff; not booked again"
             else:
                 result["status"] = "error"
                 result["error"] = f"Failed to create {record_type}"
