@@ -371,6 +371,57 @@ SCRIPT = textwrap.dedent(
         # a guest who only knows the name is sent to /app/home and gets no token
         r = get(f"{{LINK}}?payment_link={{link_done}}")
         out["name_only_location_path"] = re.sub(r"^https?://[^/]+", "", r.headers.get("Location") or "")
+
+        # #2275: Session.update is queued by sync_database AFTER the response, and writes the
+        # current session user's last_active/last_ip unless that user is Guest. werkzeug runs the
+        # after-response hooks only when the response is closed, so these requests are buffered
+        # (an unbuffered client never runs them and would pass vacuously). The spy records which
+        # user each queued Session.update really saw, as proof the hook ran.
+        import frappe.sessions as fs
+        from frappe.utils import now_datetime
+
+        update_seen = []
+        real_update = fs.Session.update
+
+        def spy_update(self, force=False):
+            update_seen.append((frappe.session.user, frappe.local.request_ip))
+            return real_update(self, force)
+
+        def webhook_trail():
+            fresh()
+            return {{
+                "user": {{
+                    k: str(v)
+                    for k, v in frappe.db.get_value(
+                        "User", EMAIL, ["last_active", "last_ip"], as_dict=True
+                    ).items()
+                }},
+                "sessions": frappe.db.count("Sessions", {{"user": EMAIL}}),
+            }}
+
+        VISITOR_IP = "198.51.100.77"
+        trail_before = webhook_trail()
+        fs.Session.update = spy_update
+        try:
+            for path in (
+                f"{{LINK}}?payment_link={{link_done}}",
+                f"{{REQ}}?payment_request={{req_other}}",
+                f"{{SHORT}}?l={{link_done}}",
+                f"{{SHORT}}?r={{req_other}}",
+            ):
+                client.get(
+                    path, headers=headers, buffered=True, environ_base={{"REMOTE_ADDR": VISITOR_IP}}
+                )
+        finally:
+            fs.Session.update = real_update
+        out["update_seen"] = update_seen
+        out["trail_before"] = trail_before
+        out["trail_after"] = webhook_trail()
+        # Control: the read-back above CAN see a write of this kind. Do the same write Session.update
+        # does for a non-Guest user, with the visitor's address, and read it back the same way.
+        fs.update_user_metadata(EMAIL, last_active=now_datetime(), last_ip=VISITOR_IP)
+        frappe.db.commit()
+        out["trail_control"] = webhook_trail()
     finally:
         frappe.destroy()
         frappe.init(site=SITE)
@@ -534,3 +585,20 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
         """The cancel token is scoped by purpose: one minted for a link of the same name verifies
         only for links. Row is a really submitted Pending request."""
         self.assertEqual(self.out["wrong_purpose_request"], "Pending")
+
+    # ---- #2275: no visitor address lands on the webhook user ------------------------------
+
+    def test_the_queued_session_update_runs_as_guest_after_each_guest_ponto_route(self):
+        """Proof the after-response hook ran for all four requests (a vacuous pass otherwise), and
+        that it saw Guest, which Session.update skips, not the webhook user."""
+        self.assertEqual(len(self.out["update_seen"]), 4)
+        self.assertEqual({user for user, _ in self.out["update_seen"]}, {"Guest"})
+
+    def test_a_visitors_address_is_not_recorded_on_the_webhook_user(self):
+        self.assertEqual(self.out["trail_after"], self.out["trail_before"])
+        self.assertNotEqual(self.out["trail_after"]["user"]["last_ip"], "198.51.100.77")
+
+    def test_the_webhook_user_trail_read_back_can_see_a_write(self):
+        """Control for the test above: the same read-back sees the write Session.update makes."""
+        self.assertEqual(self.out["trail_control"]["user"]["last_ip"], "198.51.100.77")
+        self.assertNotEqual(self.out["trail_control"], self.out["trail_before"])
