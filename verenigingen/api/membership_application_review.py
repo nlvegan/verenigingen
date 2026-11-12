@@ -20,6 +20,7 @@ from verenigingen.services.volunteer.volunteer_activation_service import activat
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
+from verenigingen.utils.secure_operations import system_privileges_after_authorisation
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
 from verenigingen.utils.security.audit_logging import log_security_event
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
@@ -536,11 +537,22 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
                     user_account_error_code
                 )
 
+    # The dues schedule step swallows its own failure (the membership stands), so the response must say so
+    # instead of claiming a complete approval (#1930).
+    dues_schedule_failed = not frappe.db.exists(
+        "Membership Dues Schedule", {"member": member.name, "is_template": 0}
+    )
+    if dues_schedule_failed:
+        message += _(
+            " Note: the dues schedule could NOT be created. See the Error Log, then create it manually."
+        )
+
     response = {
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
         "invoice_failed": invoice_failed,
+        "dues_schedule_failed": dues_schedule_failed,
         "amount": billing_amount,
         "user_account": user_creation_result,
         "user_account_status": user_account_status,
@@ -632,8 +644,10 @@ def _approve_membership_application_locked(
     # approvals where billing is handled separately). The bug was masked while
     # invoice creation failed silently; thread the parameter through so the
     # documented flag actually takes effect.
+    # The approver was authorised above (approve_application, before the lock), so the dues schedule and
+    # invoice writes run with system privileges: a chapter board approver's own DocPerms refuse them (#1930).
     membership = member.create_membership_on_approval(
-        create_invoice=create_invoice, approval_fields=approval_fields
+        create_invoice=create_invoice, approval_fields=approval_fields, system_follow_on=True
     )
 
     # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
@@ -668,7 +682,8 @@ def _approve_membership_application_locked(
     _mark_invoice_failed(application_name, create_invoice, invoice)
     billing_amount = _calculate_billing_amount(member, invoice, membership_type_doc)
     should_activate_volunteer = _activate_volunteer_if_requested(member, activate_as_volunteer)
-    user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
+    with system_privileges_after_authorisation("membership approval account request"):
+        user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
     # The approval mail carries the payment link, so when an invoice was requested but could not be created
     # it WAITS for the invoice (#1900, ruling 2026-11-03 round 2). Only create_invoice=False sends it without one.
     if invoice or not create_invoice:

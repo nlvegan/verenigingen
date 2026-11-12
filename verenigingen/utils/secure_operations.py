@@ -871,6 +871,27 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+@contextmanager
+def system_privileges_after_authorisation(description: str):
+    """Run the enclosed steps as the configured system user, for a caller ALREADY authorised for the action.
+
+    For multi-write follow-on steps (#1930: invoice, dues schedule, account request) that a chapter board
+    approver may start but whose individual writes (Item, Sales Invoice, Membership Dues Schedule, Account
+    Creation Request) the approver's own DocPerms refuse. The caller must have passed its own authorisation
+    check BEFORE entering; this does not authorise anything. Same mechanism as the public-form flows
+    (`secure_user_context_with_validation` + `get_system_user_for_operation`), so the user is always
+    restored, including on an exception, and a missing/disabled Creation User fails closed
+    (ConfigurationError, nothing runs). Administrator already holds every right and a nested elevation is
+    refused by the context, so both run the steps as they are.
+    """
+    if frappe.session.user == "Administrator" or _is_nested_impersonation():
+        yield
+        return
+    system_user = get_system_user_for_operation(description)
+    with secure_user_context_with_validation(system_user, description):
+        yield
+
+
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
     partial-write comparison. MUST NOT raise: this is a diagnostic signal,

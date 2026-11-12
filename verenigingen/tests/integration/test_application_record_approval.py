@@ -933,6 +933,123 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
 
+    def _follow_on_state(self, name, result):
+        """What an approval left behind: (member, invoice named by the response, schedules, ACR rows).
+        The schedules and requests are read from the database; the invoice is only counted when it exists."""
+        member = frappe.db.get_value(SUBMISSION, name, "member")
+        invoice = result.get("invoice") if frappe.db.exists("Sales Invoice", result.get("invoice")) else None
+        schedules = frappe.get_all(
+            "Membership Dues Schedule", {"member": member, "is_template": 0}, pluck="name"
+        ) if member else []
+        requests = frappe.get_all("Account Creation Request", {"source_record": member}, pluck="name") if member else []
+        return member, invoice, schedules, requests
+
+    def _approve_for_comparison(self, user, **kwargs):
+        """Stage an applicant of self.chapter and approve it as `user` with the invoice requested (real flow).
+
+        The membership Item is the one setUp pre-created: creating it is a different matter (the Item is made
+        lazily by the first invoice of a type, and the harness's own staff user cannot create it either)."""
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm()
+        errors = set(frappe.get_all("Error Log", pluck="name"))
+        result = self._approve_as(name, user=user, create_invoice=True, activate_as_volunteer=True, **kwargs)
+        new_errors = [
+            row.method
+            for row in frappe.get_all("Error Log", {"name": ["not in", list(errors) or [""]]}, ["method"])
+        ]
+        return name, result, new_errors
+
+    def test_board_approval_creates_invoice_schedule_and_account_request_like_admin(self):
+        """#1930: after the approver is AUTHORISED, the follow-on steps run with system privileges, so a
+        board approval ends exactly where an Administrator approval does."""
+        admin_name, admin_result, admin_errors = self._approve_for_comparison(self.admin_user.email)
+        admin_state = self._follow_on_state(admin_name, admin_result)
+        board_name, board_result, board_errors = self._approve_for_comparison(self.board.user)
+        board_state = self._follow_on_state(board_name, board_result)
+
+        self.assertTrue(admin_state[1], "control: the Administrator approval creates an invoice")
+        self.assertTrue(admin_state[2], "control: the Administrator approval creates a dues schedule")
+        self.assertTrue(admin_state[3], "control: the Administrator approval queues an account request")
+        self.assertTrue(board_result["success"], board_result)
+        self.assertFalse(board_result["dues_schedule_failed"], board_result)
+        self.assertTrue(board_state[1], f"board approval created no invoice: {board_result} {board_errors}")
+        self.assertTrue(board_state[2], f"board approval created no dues schedule: {board_errors}")
+        self.assertTrue(board_state[3], f"board approval queued no account request: {board_errors}")
+        self.assertEqual(board_result.get("invoice") is None, admin_result.get("invoice") is None)
+        self.assertEqual(
+            (board_result.get("user_account_status"), len(board_state[2])),
+            (admin_result.get("user_account_status"), len(admin_state[2])),
+        )
+        self.assertEqual(board_errors, admin_errors)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", board_state[1], ["docstatus", "grand_total"]),
+            frappe.db.get_value("Sales Invoice", admin_state[1], ["docstatus", "grand_total"]),
+        )
+
+    def test_board_approval_creates_the_membership_item_and_invoice_for_a_type_without_one(self):
+        """#1930 (the 'insert on Item' refusal): the first invoice of a membership type creates its Item.
+        A board approver cannot, so the invoice step runs as the Creation User. PROBE SHORTCUT, stated: the
+        harness's Creation User carries no Item-creating role (like its staff user), so the test grants it
+        'Item Manager' directly; what a production Creation User holds is NOT established."""
+        creation_user = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+        # A Has Role row, not User.save(): saving a user re-syncs its role profiles, which REPLACES direct roles.
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": creation_user,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Item Manager",
+            }
+        ).insert()  # as the harness's Administrator session
+        frappe.clear_cache(user=creation_user)
+        fresh_type = self.factory.ensure_membership_type(
+            f"Board Item Type {frappe.generate_hash(length=6)}", {"amount": 25.00, "billing_period": "Monthly"}
+        )
+        item_code = f"MEM-{fresh_type.membership_type_name}".upper().replace(" ", "-")
+        self.assertFalse(frappe.db.exists("Item", item_code), "precondition: no membership Item yet")
+        name = self._stage_and_confirm(selected_membership_type=fresh_type.name)
+
+        result = self._approve_as(name, user=self.board.user, create_invoice=True)
+
+        self.assertTrue(frappe.db.exists("Item", item_code), result)
+        self.assertTrue(frappe.db.exists("Sales Invoice", result.get("invoice")), result)
+        self.assertFalse(result["invoice_failed"], result)
+
+    def test_a_failed_dues_schedule_is_reported_not_claimed_as_complete(self):
+        """A step that still fails must not read as full success. The fault is injected at the schedule
+        factory's boundary (the only way to make a permitted write fail); the Error Log row is the service's own."""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        self.expectErrorLog("Dues Schedule Creation Failed")
+        name = self._stage_and_confirm()
+
+        # Mock justified: Infrastructure fault injection - a data fault that makes the factory raise.
+        with patch.object(MembershipDuesSchedule, "create_from_template", side_effect=Exception("boom")):
+            result = self._approve_as(name, user=self.board.user, create_invoice=False)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["dues_schedule_failed"], result)
+        self.assertIn("dues schedule could NOT be created", result["message"])
+
+    def test_board_member_of_another_chapter_is_refused_and_nothing_is_created(self):
+        """Control: the elevation starts only AFTER authorisation. A board member of a chapter that is not
+        the applicant's is refused, and no Member, invoice, schedule or account request appears."""
+        outsider = self.create_test_board_member(self.other_chapter.name, permissions_level="Admin")
+        name = self._stage_and_confirm()  # an application of self.chapter
+        invoices = frappe.db.count("Sales Invoice")
+        requests = frappe.db.count("Account Creation Request")
+
+        with self.assertRaises(frappe.PermissionError):
+            self._approve_as(name, user=outsider.user, create_invoice=True, activate_as_volunteer=True)
+
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        self.assertEqual(frappe.db.count("Sales Invoice"), invoices)
+        self.assertEqual(frappe.db.count("Account Creation Request"), requests)
+
     def test_board_member_cannot_place_member_in_a_chapter_they_do_not_manage(self):
         """Ruling AR / #1908: refused for an unmanaged chapter, with the shared helper's message (it used
         to be a PermissionError from the branch's own "another chapter" guard)."""
