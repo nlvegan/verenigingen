@@ -13,8 +13,10 @@ from typing import Any, Optional
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     FIELDNAME as IDEMPOTENCY_KEY_FIELD,
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
@@ -78,15 +80,18 @@ def create_unified_payment_entry(
 
         # Check if Payment Entry already exists (UNIFIED IDEMPOTENCY)
         existing_filters = {"payment_type": payment_type, "reference_no": reference_no, "party": customer}
-        if payment_type == "Pay":
-            # A cancelled reversal frees its key (find_booked_reversal's rule), so it is
-            # not "already exists" either: a submit that failed after docstatus 1 was
-            # written is cancelled by _discard_unposted_payment_entry, and the retry
-            # must book anew rather than be handed that cancelled entry (#2384).
-            existing_filters["docstatus"] = ["!=", 2]
+        # A cancelled entry is not "already exists" for either direction: a submit that
+        # failed after docstatus 1 was written is cancelled by
+        # _discard_unposted_payment_entry, and the retry must book anew rather than be
+        # handed that cancelled entry (#2384 reversals, #2406 forward payments).
+        existing_filters["docstatus"] = ["!=", 2]
         existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
-        if not existing_pe and payment_type == "Pay":
-            _free_cancelled_reversal_keys(reference_no, customer)
+        if not existing_pe:
+            if payment_type == "Pay":
+                _free_cancelled_reversal_keys(reference_no, customer)
+            elif refuse_staff_cancelled_forward_payment(reference_no, amount, "the unified creator"):
+                # A cancelled forward entry is never re-booked, a cancelled reversal is (#2406, #2384)
+                return None
 
         if existing_pe:
             frappe.logger().info(f"⚠️ Payment Entry already exists: {existing_pe}")
@@ -193,12 +198,17 @@ def create_unified_payment_entry(
         )
 
         # Insert and submit using proper webhook user permissions
-        pe.insert()
-        try:
-            pe.submit()
-        except Exception as submit_error:
-            _discard_unposted_payment_entry(pe.name, str(submit_error))
-            raise
+        if payment_type == "Receive":
+            # One unit: a failed submit leaves no row, so no CANCELLED row either. A cancelled
+            # forward row now means "staff cancelled it" and a redelivery is refused (#2406).
+            insert_and_submit_atomically(pe)
+        else:
+            pe.insert()
+            try:
+                pe.submit()
+            except Exception as submit_error:
+                _discard_unposted_payment_entry(pe.name, str(submit_error))
+                raise
 
         frappe.logger().info(f"✅ Created {payment_type} Payment Entry: {pe.name}")
         return pe

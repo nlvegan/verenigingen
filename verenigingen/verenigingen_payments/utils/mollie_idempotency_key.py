@@ -27,6 +27,8 @@ nothing is lost diagnostically.
 
 import hashlib
 
+import frappe
+
 from verenigingen.verenigingen_payments.utils.payment_services.constants import (
     MOLLIE_LIVE_PAYMENT_PREFIX,
     MOLLIE_LIVE_REFUND_PREFIX,
@@ -125,3 +127,84 @@ def set_payment_entry_idempotency_key(doc, method=None):
         return
 
     doc.set(FIELDNAME, build_idempotency_key(doc.reference_no, doc.payment_type, doc.party))
+
+
+FORWARD_REFUSED_KEY = "mollie_forward_payment_staff_cancelled"
+FORWARD_REFUSED_TITLE = "Mollie Forward Payment Refused"
+
+
+def refuse_staff_cancelled_forward_payment(reference_no, amount=None, source="") -> bool:
+    """True, after alerting staff, when this payment's forward Payment Entry was CANCELLED and
+    nothing live replaced it. The caller must then NOT book (#2406, maintainer ruling 2026-11-11).
+
+    Staff cancelled a Receive entry on purpose; Mollie re-delivering the payment is not a reason
+    to book it again, so the writer refuses and leaves the decision to staff. Nothing is raised
+    (the caller returns normally, so the webhook is acknowledged and Mollie stops retrying) and
+    no key is released: the cancelled row keeps ``custom_mollie_idempotency_key`` and stays the
+    audit record. Reversals (Pay) are not covered: they re-book (#2384).
+
+    Staff are told once per payment: a redelivery that finds an alert already delivered to
+    someone is refused silently. An alert nobody received (key not seeded, no recipient) is
+    retried, and logged again, on the next delivery.
+    """
+    cancelled = _cancelled_receive_entries_without_live_one(reference_no) if reference_no else []
+    if not cancelled:
+        return False
+    if amount is None:  # the subscription webhook payload carries no amount: use the cancelled entry's
+        amount = cancelled[0].paid_amount
+    delivered = frappe.db.exists(
+        "Staff Alert Event",
+        {
+            "notification_key": FORWARD_REFUSED_KEY,
+            "reference_name": reference_no,
+            "delivered_at": ["is", "set"],
+        },
+    )
+    if not delivered:
+        _report_forward_refusal(reference_no, amount, source)
+    return True
+
+
+def _cancelled_receive_entries_without_live_one(reference_no):
+    entries = frappe.get_all(
+        "Payment Entry",
+        filters={"reference_no": reference_no, "payment_type": "Receive"},
+        fields=["docstatus", "paid_amount"],
+    )
+    # docstatus 0 counts as live too: a draft is a pending booking staff can still submit, so a
+    # redelivery beside one is not a refusal and raises no alert. A submit that fails leaves no
+    # draft (the writers insert and submit atomically), so a draft here is staff's own (#2406).
+    if any(entry.docstatus != 2 for entry in entries):
+        return []
+    return entries
+
+
+def _report_forward_refusal(reference_no, amount, source):
+    from frappe.utils import escape_html, flt
+
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    amount_text = f"EUR {flt(amount):,.2f}" if amount is not None else "an unknown amount"
+    details = (
+        f"Mollie payment {reference_no} ({amount_text}) was delivered again, but its Payment Entry "
+        f"was cancelled by staff. It has NOT been booked again (seen in {source or 'a Mollie writer'}). "
+        f"Action required: decide by hand whether the payment should be booked."
+    )
+    frappe.log_error(title=FORWARD_REFUSED_TITLE, message=details)
+    try:
+        notify_administrators(
+            subject=f"Mollie payment {reference_no} was delivered again after its Payment Entry was cancelled",
+            message=f"<p>{escape_html(details)}</p>",
+            notification_key="mollie_forward_payment_staff_cancelled",  # literal: key discovery greps for it
+            event_reference=reference_no,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+    except Exception as exc:
+        # The refusal already holds and is in the Error Log above. The subscription webhook's parse
+        # stage calls this outside any handler: raising would answer Mollie with a 5xx, and it would
+        # retry the delivery that staff already decided not to book.
+        frappe.log_error(
+            title=f"{FORWARD_REFUSED_TITLE} Alert Failed",
+            message=f"Payment {reference_no}: the staff alert could not be sent ({exc}). {details}",
+        )

@@ -792,11 +792,20 @@
                                 </div>
                             </div>
 
+                            <div class="border border-gray-300 rounded-md p-4 bg-gray-50">
+                                <h5 class="text-sm font-semibold text-gray-900 mb-2">{{ _("SEPA Direct Debit mandate") }}</h5>
+                                <p id="sepa-mandate-consent-text" class="text-sm text-gray-700" style="white-space: pre-line;" data-text-hash="{{ mandate_consent_text_hash|e }}">{{ mandate_consent_text|e }}</p>
+                                <label for="sepa-consent" class="flex items-start gap-2 mt-4 text-sm font-medium text-gray-900">
+                                    <input type="checkbox" id="sepa-consent" class="mt-1" onchange="toggleSepaConsent()">
+                                    <span>{{ _("I have read the mandate text above and I agree to it.") }} <span class="text-red-500">*</span></span>
+                                </label>
+                            </div>
+
                             <div class="flex flex-col sm:flex-row gap-3 pt-4">
                                 <button type="button" onclick="hideBankSetupForm()" class="btn-secondary justify-center">
                                     {{ _("Cancel") }}
                                 </button>
-                                <button type="submit" class="btn-primary justify-center">
+                                <button type="submit" id="sepa-continue-btn" class="btn-primary justify-center" disabled>
                                     <i class="fa fa-save mr-2"></i>{{ _("Continue Setup") }}
                                 </button>
                             </div>
@@ -1658,6 +1667,12 @@ function downloadReceipt(paymentId) {
     });
 }
 
+// The Continue button stays disabled until the mandate text is explicitly agreed to (#2464).
+// Convenience only: the server refuses a request without consent regardless.
+function toggleSepaConsent() {
+    document.getElementById('sepa-continue-btn').disabled = !document.getElementById('sepa-consent').checked;
+}
+
 // SEPA Direct Debit setup form submission
 function submitBankDetailsForm(event) {
     event.preventDefault();
@@ -1667,6 +1682,10 @@ function submitBankDetailsForm(event) {
     const accountHolderName = document.getElementById('account_holder_name').value.trim();
 
     // Basic validation
+    if (!document.getElementById('sepa-consent').checked) {
+        showMessage(__("Please read the mandate text and tick the consent box to continue."), 'error');
+        return false;
+    }
     if (!iban) {
         showMessage(__("Please enter your IBAN"), 'error');
         return false;
@@ -1686,11 +1705,13 @@ function submitBankDetailsForm(event) {
         method: 'verenigingen.api.member.sepa_api.setup_sepa_direct_debit',
         args: {
             iban: iban,
-            account_holder_name: accountHolderName
+            account_holder_name: accountHolderName,
+            consent: 1,
+            consent_text_hash: document.getElementById('sepa-mandate-consent-text').dataset.textHash
         },
         callback: function(r) {
             submitBtn.innerHTML = originalText;
-            submitBtn.disabled = false;
+            submitBtn.disabled = !document.getElementById('sepa-consent').checked;
 
             if (r.message && r.message.success) {
                 showMessage(r.message.message || __("SEPA Direct Debit set up successfully!"), 'success');
@@ -1713,7 +1734,7 @@ function submitBankDetailsForm(event) {
         },
         error: function(r) {
             submitBtn.innerHTML = originalText;
-            submitBtn.disabled = false;
+            submitBtn.disabled = !document.getElementById("sepa-consent").checked;
             showMessage(__("An error occurred. Please try again or contact support."), 'error');
         }
     });
