@@ -7,6 +7,7 @@ Extracted from MembershipDuesSchedule to reduce complexity and improve testabili
 """
 
 from datetime import date, timedelta
+from typing import Optional, Tuple
 
 import frappe
 from frappe.utils import add_days, add_months, add_years, getdate, today
@@ -41,6 +42,101 @@ def get_nominal_period_days(billing_frequency: str) -> int:
         billing_frequency.
     """
     return NOMINAL_PERIOD_DAYS.get(billing_frequency, 30)
+
+
+# Length of one billing period as (count, unit), for every fixed billing_frequency
+# option of Membership Dues Schedule. The single source for "how many periods in a
+# year" / "how far apart are two invoices" outside the date arithmetic below (#1282).
+FIXED_PERIOD_LENGTH = {
+    "Daily": (1, "Days"),
+    "Weekly": (1, "Weeks"),
+    "Monthly": (1, "Months"),
+    "Quarterly": (3, "Months"),
+    "Semi-Annual": (6, "Months"),
+    "Annual": (1, "Years"),
+}
+
+# Periods of a given unit per year. Money convention (365 days, 52 weeks, 12 months);
+# nominal, not a calendar, which is also how the running-period model bills: a period
+# runs from the member's own anchor date and is never prorated.
+PERIODS_PER_YEAR_BY_UNIT = {"Days": 365, "Weeks": 52, "Months": 12, "Years": 1}
+
+
+def get_period_length(
+    billing_frequency: str,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> Optional[Tuple[int, str]]:
+    """
+    Length of one billing period as (count, unit), or None when it is not known.
+
+    Custom needs a positive number and a known unit. Anything else (a missing
+    interval, an unrecognised frequency) is None rather than a guessed default, so
+    a caller shows nothing instead of a wrong amount.
+    """
+    if billing_frequency == "Custom":
+        if not custom_frequency_number or custom_frequency_number < 1:
+            return None
+        if custom_frequency_unit not in PERIODS_PER_YEAR_BY_UNIT:
+            return None
+        return (int(custom_frequency_number), custom_frequency_unit)
+    return FIXED_PERIOD_LENGTH.get(billing_frequency)
+
+
+def get_periods_per_year(
+    billing_frequency: str,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> Optional[float]:
+    """Number of billing periods in a year, or None when the period is not known."""
+    length = get_period_length(billing_frequency, custom_frequency_number, custom_frequency_unit)
+    if not length:
+        return None
+    count, unit = length
+    return PERIODS_PER_YEAR_BY_UNIT[unit] / count
+
+
+def get_monthly_equivalent_amount(
+    rate,
+    billing_frequency: str,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> Optional[float]:
+    """
+    Monthly equivalent of ONE full period's rate (`qty 1, rate dues_rate` is one
+    full running period; there is no proration), or None when the period is unknown.
+    """
+    per_year = get_periods_per_year(billing_frequency, custom_frequency_number, custom_frequency_unit)
+    if per_year is None:
+        return None
+    return rate * per_year / 12
+
+
+def add_billing_periods(
+    from_date,
+    periods: int,
+    billing_frequency: str,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> Optional[date]:
+    """
+    `from_date` advanced by `periods` whole billing periods, or None when the period
+    is not known. Always measured from `from_date` (not step by step), so month-end
+    anchors do not drift, and never snapped to a calendar boundary (#884).
+    """
+    length = get_period_length(billing_frequency, custom_frequency_number, custom_frequency_unit)
+    if not length:
+        return None
+    count, unit = length
+    steps = count * periods
+    from_date = getdate(from_date)
+    if unit == "Days":
+        return add_days(from_date, steps)
+    if unit == "Weeks":
+        return add_days(from_date, steps * 7)
+    if unit == "Months":
+        return add_months(from_date, steps)
+    return add_years(from_date, steps)
 
 
 def calculate_next_invoice_date(

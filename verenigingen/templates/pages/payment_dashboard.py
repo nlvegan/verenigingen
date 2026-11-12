@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import get_monthly_equivalent_amount
 from verenigingen.services.payment.sepa_mandate_consent import (
     get_mandate_consent_text,
     hash_consent_text,
@@ -19,6 +20,8 @@ def get_current_dues_schedule(member):
             "name",
             "contribution_mode",
             "billing_frequency",
+            "custom_frequency_number",
+            "custom_frequency_unit",
             "next_invoice_date",
             "last_invoice_date",
             "dues_rate",
@@ -29,17 +32,15 @@ def get_current_dues_schedule(member):
 
     if schedule:
         dues_rate = flt(schedule.dues_rate, 2) or 0
-        # Calculate monthly amount from billing frequency
-        if schedule.billing_frequency == "Monthly":
-            schedule["monthly_amount"] = dues_rate
-        elif schedule.billing_frequency == "Quarterly":
-            schedule["monthly_amount"] = flt(dues_rate / 3, 2)
-        elif schedule.billing_frequency == "Semi-Annual":
-            schedule["monthly_amount"] = flt(dues_rate / 6, 2)
-        elif schedule.billing_frequency == "Annual":
-            schedule["monthly_amount"] = flt(dues_rate / 12, 2)
-        else:
-            schedule["monthly_amount"] = dues_rate
+        # None when the period is unknown (Custom without an interval): the page then
+        # shows no monthly figure instead of presenting the full rate as monthly (#1282).
+        monthly_amount = get_monthly_equivalent_amount(
+            dues_rate,
+            schedule.billing_frequency,
+            schedule.custom_frequency_number,
+            schedule.custom_frequency_unit,
+        )
+        schedule["monthly_amount"] = None if monthly_amount is None else flt(monthly_amount, 2)
 
     return schedule
 
@@ -77,7 +78,7 @@ def get_financial_overview(member):
     current_schedule = get_current_dues_schedule(member)
     annual_target = 0
     if current_schedule:
-        monthly_amount = current_schedule.get("monthly_amount", 0)
+        monthly_amount = current_schedule.get("monthly_amount") or 0
         annual_target = monthly_amount * 12
 
     # Calculate yearly progress

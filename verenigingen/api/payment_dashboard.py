@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import add_billing_periods, get_period_length
 from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus, Roles
 from verenigingen.utils.error_handling import cache_with_ttl
@@ -498,6 +499,8 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
                 "name",
                 "contribution_mode",
                 "billing_frequency",
+                "custom_frequency_number",
+                "custom_frequency_unit",
                 "dues_rate",
                 "next_invoice_date",
                 "last_invoice_date",
@@ -511,9 +514,13 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         dues_schedule = active_dues_schedule[0]
         schedule = []
 
-        # Generate next 12 months of payments based on billing frequency - modernized with constants
+        # Generate the next 12 months of payments, stepping by the schedule's real period
+        # (7 days for Weekly, 1 day for Daily, ...), not by a months table (#1282).
         billing_frequency = dues_schedule.billing_frequency
-        months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
+        custom_interval = (dues_schedule.custom_frequency_number, dues_schedule.custom_frequency_unit)
+        if get_period_length(billing_frequency, *custom_interval) is None:
+            # Custom without a usable interval: show nothing rather than guess a cadence.
+            return OperationResult.ok([], message=_("No active payment schedule found"))
 
         # dues_rate is already the amount per billing period (e.g., €45/quarter)
         payment_amount = flt(dues_schedule.dues_rate, 2)
@@ -524,8 +531,13 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         )
 
         # Generate schedule starting from next_invoice_date
-        for i in range(0, 12, int(months)):
-            payment_date = add_months(start_date, i)
+        horizon = add_months(start_date, 12)
+        period_index = 0
+        while True:
+            payment_date = add_billing_periods(start_date, period_index, billing_frequency, *custom_interval)
+            period_index += 1
+            if payment_date >= horizon:
+                break
 
             # Skip if payment date is in the past
             if payment_date < getdate(today()):
