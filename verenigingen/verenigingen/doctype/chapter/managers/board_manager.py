@@ -1187,6 +1187,26 @@ class BoardManager(BaseManager):
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             self._assert_board_access_withdrawn(volunteer_name)
+        self._refresh_expense_approvers(pending)
+
+    def _refresh_expense_approvers(self, volunteers):
+        """Refresh Employee/Department expense approvers for a seat change, now (#1682).
+
+        The approvers derive from these very rows, and until now only the daily scheduler
+        recomputed them, so an ended or re-roled Financial seat stayed approver for a day.
+        This is the one place every seat writer converges (Chapter save, standalone row
+        insert/update/delete, term ending, termination), after the rows are persisted. No
+        commit: it runs in the writer's transaction. A failure is logged and does not block
+        the board change; the daily run is still the safety net.
+        """
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_expense_approvers_for_chapter,
+        )
+
+        try:
+            refresh_expense_approvers_for_chapter(self.chapter_doc.name, volunteers)
+        except Exception as e:
+            self._log_or_reraise("Failed to refresh expense approvers", {"volunteers": list(volunteers)}, e)
 
     def _withdraw_board_role_if_unseated(self, volunteer_name: str):
         """Drop the Frappe board role from a volunteer who no longer holds a seat.

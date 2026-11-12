@@ -22,6 +22,7 @@ import frappe
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
@@ -105,6 +106,35 @@ def on_chapter_role_on_update(doc, method):
 
     except Exception as e:
         frappe.log_error(f"Error in chapter role update handler: {str(e)}")
+
+    _refresh_expense_approvers_for_role(doc)
+
+
+def _refresh_expense_approvers_for_role(doc):
+    """A role gaining or losing Financial (or being deactivated) re-points its chapters' approvers (#1682)."""
+    if not (doc.has_value_changed("permissions_level") or doc.has_value_changed("is_active")):
+        return
+
+    try:
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_expense_approvers_for_chapter,
+        )
+
+        seats = frappe.get_all(
+            "Chapter Board Member",
+            filters={"chapter_role": doc.name, "is_active": 1},
+            fields=["parent", "volunteer"],
+        )
+        for chapter_name in dict.fromkeys(seat.parent for seat in seats):
+            holders = [seat.volunteer for seat in seats if seat.parent == chapter_name]
+            refresh_expense_approvers_for_chapter(chapter_name, holders)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        frappe.log_error(
+            title="Chapter Role approver refresh",
+            message=f"Expense approver refresh after Chapter Role {doc.name} change failed: {e}",
+        )
 
 
 @frappe.whitelist()

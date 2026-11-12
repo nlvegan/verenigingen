@@ -20,8 +20,17 @@ def get_volunteer_expense_approver(volunteer_name):
     return volunteer.get_expense_approver_from_assignments()
 
 
-def update_employee_approver(volunteer_doc=None, method=None):
-    """Update employee record with current expense approver (called from document hooks)"""
+def update_employee_approver(
+    volunteer_doc=None, method=None, clear_if_approver_in=(), system_operation=False
+):
+    """Update employee record with current expense approver (called from document hooks)
+
+    ``clear_if_approver_in`` (#1682): users whose financial seat just ended. When no
+    approver is left for the volunteer and the Employee still names one of them, the stale
+    approver is cleared (#1650: unassigned). Any other value, e.g. one an admin set by
+    hand, is left alone. ``system_operation``: the write is bookkeeping derived from the
+    board seats, not the acting user's own Employee edit.
+    """
     try:
         # Handle both direct calls and document hook calls
         if isinstance(volunteer_doc, str):
@@ -38,7 +47,10 @@ def update_employee_approver(volunteer_doc=None, method=None):
         approver = volunteer.get_expense_approver_from_assignments()
         if not approver:
             # No financial seat exists for this volunteer (#1650 ruling): leave the Employee
-            # alone, so an approver an admin set by hand survives the refresh.
+            # alone, so an approver an admin set by hand survives the refresh. The one
+            # exception is the seat holder who just left (#1682): that value is stale.
+            if clear_if_approver_in:
+                _clear_stale_employee_approver(volunteer, clear_if_approver_in, system_operation)
             return None
 
         employee = frappe.get_doc("Employee", volunteer.employee_id)
@@ -54,6 +66,7 @@ def update_employee_approver(volunteer_doc=None, method=None):
                 doc=employee,
                 justification=f"Update expense approver for volunteer {volunteer.volunteer_name} employee record - HR management for expense workflow",
                 required_permissions=["Employee:write"],
+                system_operation=system_operation,
             )
 
             if not result.success:
@@ -71,6 +84,113 @@ def update_employee_approver(volunteer_doc=None, method=None):
     except Exception as e:
         frappe.log_error(f"Error updating employee approver: {str(e)}", "Employee Approver Update Error")
         return None
+
+
+def _clear_stale_employee_approver(volunteer, stale_users, system_operation=False):
+    """Blank Employee.expense_approver when it names one of ``stale_users``."""
+    employee = frappe.get_doc("Employee", volunteer.employee_id)
+    if employee.expense_approver not in stale_users:  # ast-skip: ERPNext HR field
+        return
+
+    employee.expense_approver = None
+    result = secure_document_operation(
+        operation="save",
+        doc=employee,
+        justification=f"Clear departed expense approver for volunteer {volunteer.volunteer_name} - no financial seat left",
+        required_permissions=["Employee:write"],
+        system_operation=system_operation,
+    )
+    if not result.success:
+        frappe.log_error(
+            title="Employee Expense Security",
+            message=f"Failed to clear stale employee expense approver: {'; '.join(result.errors)}",
+        )
+
+
+def refresh_expense_approvers_for_chapter(chapter_name, seat_volunteers=()):
+    """Refresh the approver rows a chapter's board seats feed, at the moment they change (#1682).
+
+    Same computation as the daily ``refresh_all_expense_approvers`` /
+    ``sync_all_department_approvers``, scoped to the people the chapter can affect.
+    ``seat_volunteers`` are the volunteers whose seat was added, ended, deleted or
+    re-roled: their users are the candidates for a now-stale approver. Runs inside the
+    caller's save and never commits (hook context).
+    """
+    from verenigingen.utils.department_hierarchy import DepartmentHierarchyManager
+
+    stale_users = _volunteer_users(seat_volunteers)
+    DepartmentHierarchyManager().sync_chapter_approvers_for_chapter(
+        chapter_name, remove_approvers=stale_users, system_operation=True
+    )
+    for volunteer_name in _volunteers_fed_by_chapter(chapter_name, stale_users):
+        update_employee_approver(volunteer_name, clear_if_approver_in=stale_users, system_operation=True)
+
+
+def _volunteer_users(volunteer_names):
+    """User ids (email, else personal email) the approver lookup would resolve for these volunteers."""
+    users = set()
+    for volunteer_name in volunteer_names:
+        email, personal_email = frappe.db.get_value(
+            "Volunteer", volunteer_name, ["email", "personal_email"]
+        ) or (None, None)
+        if email or personal_email:
+            users.add(email or personal_email)
+    return users
+
+
+def _volunteers_fed_by_chapter(chapter_name, stale_users):
+    """Volunteers with an Employee whose approver can depend on this chapter's seats.
+
+    A volunteer's approver comes from their own seat (board), their enabled chapter
+    memberships, their teams' chapter, and the national board as the fallback, so the
+    national chapter feeds everyone. Anyone whose Employee still names a stale user is
+    included so that value is judged too.
+    """
+    volunteers = {
+        row.name: row.employee_id
+        for row in frappe.get_all(
+            "Volunteer", filters={"employee_id": ["is", "set"]}, fields=["name", "employee_id", "member"]
+        )
+        if frappe.db.exists("Employee", row.employee_id)
+    }
+    if chapter_name == frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"):
+        return list(volunteers)
+
+    members = set(
+        frappe.get_all("Chapter Member", filters={"parent": chapter_name, "enabled": 1}, pluck="member")
+    )
+    team_volunteers = set(
+        frappe.db.sql(
+            """
+            SELECT tm.volunteer FROM `tabTeam Member` tm
+            JOIN `tabTeam` t ON t.name = tm.parent
+            WHERE t.chapter = %s AND tm.status = 'Active'
+            """,
+            chapter_name,
+            pluck=True,
+        )
+    )
+    seated = set(frappe.get_all("Chapter Board Member", filters={"parent": chapter_name}, pluck="volunteer"))
+    stale_holders = (
+        {
+            name
+            for name, employee_id in volunteers.items()
+            if frappe.db.get_value("Employee", employee_id, "expense_approver") in stale_users
+        }
+        if stale_users
+        else set()
+    )
+    member_of = (
+        {
+            row.name
+            for row in frappe.get_all("Volunteer", filters={"member": ["in", list(members)]}, fields=["name"])
+        }
+        if members
+        else set()
+    )
+
+    fed = member_of | team_volunteers | seated | stale_holders
+    return [name for name in volunteers if name in fed]
 
 
 @frappe.whitelist()

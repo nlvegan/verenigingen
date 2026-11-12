@@ -290,6 +290,10 @@ class TestFixExpenseApproverIssues(_NativeHelperFixtureMixin, EnhancedTestCase):
         emp = self._make_employee(expense_approver=None)
         self._link_volunteer_employee(self.volunteer, emp.name)
         self._seat_financial_approver_for(self.volunteer)
+        # #1682: seating now refreshes the approver at once, so the bare Employee this
+        # branch exists for (a seat made before the refresh existed, or an approver
+        # cleared by hand) is built by clearing it. PROBE SHORTCUT: a direct write.
+        frappe.db.set_value("Employee", emp.name, "expense_approver", None)
         self.assertFalse(frappe.db.get_value("Employee", emp.name, "expense_approver"))
 
         with self.assertNoErrorLog():
