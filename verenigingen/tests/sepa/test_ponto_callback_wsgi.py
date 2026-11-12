@@ -591,6 +591,8 @@ class TestPontoCallbackOverRealWsgi(EnhancedTestCase):
     def test_the_queued_session_update_runs_as_guest_after_each_guest_ponto_route(self):
         """Proof the after-response hook ran for all four requests (a vacuous pass otherwise), and
         that it saw Guest, which Session.update skips, not the webhook user."""
+        # 4 = the four request paths in the #2275 loop of SCRIPT (LINK, REQ, SHORT l=, SHORT r=);
+        # one queued Session.update per request. Change both together.
         self.assertEqual(len(self.out["update_seen"]), 4)
         self.assertEqual({user for user, _ in self.out["update_seen"]}, {"Guest"})
 
