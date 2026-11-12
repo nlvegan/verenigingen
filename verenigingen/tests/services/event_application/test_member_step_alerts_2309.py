@@ -3,7 +3,8 @@
 The event is consumed (still Applied) with only a message string, and MijnRood does not resend. Two keys:
 ``mijnrood_sync_step_failed`` (admin pair) and ``mijnrood_sync_money_step_failed`` (admin pair plus
 Verenigingen Financial Manager) for Mollie / membership / dues. Alerts are queued during the event and sent
-AFTER its commit (#2199's queue, generalised in part 1); "No Volunteer record" cascades are not alerted.
+AFTER its commit (#2199's queue, generalised in part 1); "No Volunteer record" cascades are not alerted (the two
+class F tests pin what that does and does not cover).
 
 Real flows: real admin_member Changed events applied by the real dispatcher, the real notify_administrators,
 read back from Notification Log and Staff Alert Event. Probe shortcuts, stated:
@@ -27,6 +28,7 @@ from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
     get_event_application_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.services.event_application import test_config_fault_alerts_2309 as part1
 from verenigingen.tests.services.event_application.test_config_fault_alerts_2309 import (
     _unused_division_id,
 )
@@ -69,16 +71,6 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         ).name
 
     # ---- scaffolding --------------------------------------------------------------------------------
-    def _restore_registry_rows(self):
-        config = frappe.get_single("Verenigingen Email Configuration")
-        config.notification_types = []
-        for row in self._baseline_rows:
-            config.append(
-                "notification_types",
-                {k: v for k, v in row.items() if k not in ("name", "creation", "modified", "idx")},
-            )
-        config.save()
-
     def _purge(self):
         frappe.db.delete("Staff Alert Event", {"notification_key": ["in", KEYS]})
         frappe.db.delete("Notification Log", {"subject": ["like", SUBJECT]})
@@ -89,54 +81,15 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
     def _subject(self, label, member=None):
         return f"MijnRood sync: {label} failed for {(member or self.member).name}"
 
-    def _sent(self, subject_like):
-        return frappe.db.count("Notification Log", {"subject": ["like", subject_like]})
-
-    def _recipients(self, subject_like):
-        return set(frappe.get_all("Notification Log", {"subject": ["like", subject_like]}, pluck="for_user"))
-
-    def _alert_events(self, key):
-        return frappe.get_all(
-            "Staff Alert Event", {"notification_key": key}, ["name", "subject", "outcome", "requires_action"]
-        )
-
-    def _apply(
-        self, new_data=None, old_data=None, changed_fields=None, role_mapping=None, member=None, with_id=True
-    ):
-        """A real Changed admin_member event, applied by the real dispatcher."""
-        member = member or self.member
-        mid = 6000000 + int(frappe.generate_hash(length=4), 16)
-        event = frappe.get_doc(
-            {
-                "doctype": "MijnRood Sync Event",
-                "mijnrood_table": "admin_member",
-                "event_type": "Changed",
-                "mijnrood_row_id": mid,
-                "status": "Approved",
-                "linked_member": member.name,
-                "new_data": json.dumps({**({"id": mid} if with_id else {}), **(new_data or {})}),
-                "old_data": json.dumps({**({"id": mid} if with_id else {}), **(old_data or {})}),
-                "changed_fields": json.dumps(changed_fields or []),
-            }
-        ).insert()
-        self.addCleanup(self._purge_event, event.name)
-        self.last_event_name = event.name
-        mapping = patch.object(volunteer_sync_service, "get_role_mapping", return_value=role_mapping or {})
-        # Mock justified: External Service - SMTP delivery, not business logic
-        with mapping, patch("frappe.sendmail"):
-            return get_event_application_service().apply_event(event.name)
-
-    def _purge_event(self, name):
-        if frappe.db.exists("MijnRood Sync Event", name):
-            frappe.delete_doc("MijnRood Sync Event", name, force=True)
-
-    def _member_fields(self):
-        return {
-            "first_name": self.member.first_name,
-            "last_name": self.member.last_name,
-            "email": self.member.email,
-            "current_membership_status_id": 1,
-        }
+    # The scaffolding is part 1's, shared rather than copied (the duplicate-helper gate counts copies).
+    _restore_registry_rows = part1.TestConfigFaultAlerts2309._restore_registry_rows
+    _sent = part1.TestConfigFaultAlerts2309._sent
+    _recipients = part1.TestConfigFaultAlerts2309._recipients
+    _alert_events = part1.TestConfigFaultAlerts2309._alert_events
+    _apply = part1.TestConfigFaultAlerts2309._apply
+    _purge_event = part1.TestConfigFaultAlerts2309._purge_event
+    _member_fields = part1.TestConfigFaultAlerts2309._member_fields
+    _apply_once_and_roll_back = part1.TestConfigFaultAlerts2309._apply_once_and_roll_back
 
     def _assert_applied(self, result):
         self.assertTrue(result["success"], result)
@@ -225,12 +178,16 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.assertGreater(self._sent(self._subject("address creation", other)), 0)
 
     def test_another_step_of_the_same_member_alerts_again(self):
-        self._failing_address()
-
-        self._failing_mollie()
+        """Address and volunteer are both on the member key, same member, same reason text: only the step
+        tells the two claims apart."""
+        self._failing_address(text="same-reason-2309")
+        self.expectErrorLog("MijnRood Sync - Volunteer Creation Failed")
+        # Mock justified: fault injection at the volunteer creation the step calls
+        with patch(CREATE_VOLUNTEER, side_effect=RuntimeError("same-reason-2309")):
+            self._admin_role_event(create_volunteer=True)
 
         self.assertGreater(self._sent(self._subject("address creation")), 0)
-        self.assertGreater(self._sent(self._subject("Mollie sync")), 0)
+        self.assertGreater(self._sent(self._subject("volunteer creation")), 0)
 
     def test_the_same_step_for_another_reason_alerts_again(self):
         self._failing_address(text="reason-one-2309")
@@ -270,19 +227,6 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self._assert_applied(result)
 
     # ---- after-commit: not sent inside an event that may roll back -----------------------------------
-    def _apply_once_and_roll_back(self, apply, later_fault):
-        """Apply once with a full rollback emulated (rollback to a savepoint taken before the apply: the
-        harness holds its fixtures in one uncommitted transaction; a real rollback() would delete the member).
-        Recording the failure commits, so it is stubbed."""
-        self.expectErrorLog("MijnRood Event Application Failed")
-        frappe.db.savepoint("full_rollback_2309b")
-        real_rollback = frappe.db.rollback
-        # Mock justified: recording the failure on the event commits and destroys the emulated savepoint.
-        with later_fault, patch.object(EventApplicationService, "_record_event_failure"), patch.object(
-            frappe.db, "rollback", side_effect=lambda **kw: real_rollback(save_point="full_rollback_2309b")
-        ):
-            return apply()
-
     def test_a_step_alert_survives_only_a_committed_event_and_a_rolled_back_one_re_alerts(self):
         """The address step fails, then the event itself raises (its first save) and rolls back. Sending the
         alert inline would take a claim the rollback cannot undo and the re-apply would stay silent."""
@@ -328,7 +272,7 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.assertGreater(self._sent(self._subject("address creation")), 0)
 
     # ---- the other member / money steps ---------------------------------------------------------------
-    def _member_with_membership(self, with_schedule):
+    def _member_with_membership_in_schedule_state(self, with_schedule):
         frappe.db.set_value("Member", self.member.name, "status", "Active", update_modified=False)
         membership_type = self.create_test_membership_type()
         membership = frappe.get_doc(
@@ -347,7 +291,7 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.assertEqual(has, with_schedule, "control: the fixture must leave the schedule state asked for")
         return membership
 
-    def _dues_event(self, rate_cents=1250):
+    def _dues_event_at_rate(self, rate_cents=1250):
         return self._apply(
             new_data={
                 **self._member_fields(),
@@ -361,7 +305,7 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.expectErrorLog("MijnRood Sync - Membership Creation Failed")
         # Mock justified: fault injection at the membership import service the step calls
         with patch(f"{MEMBERSHIP_SVC}.create_membership_from_csv", side_effect=RuntimeError("mship-boom-2309")):
-            result = self._dues_event()
+            result = self._dues_event_at_rate()
 
         self._assert_applied(result)
         self.assertIn("Membership creation failed", result["message"])
@@ -370,7 +314,7 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.assertEqual(len(self._alert_events(MONEY_KEY)), 1)
 
     def test_a_failed_dues_backfill_alerts_on_the_money_key(self):
-        self._member_with_membership(with_schedule=False)
+        self._member_with_membership_in_schedule_state(with_schedule=False)
         self.expectErrorLog("MijnRood Sync - Dues Schedule Backfill Failed")
         # Mock justified: fault injection. The template resolves; creating the schedule from it raises.
         with patch(
@@ -381,14 +325,14 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
             "MembershipDuesSchedule.create_from_template",
             side_effect=RuntimeError("backfill-boom-2309"),
         ):
-            result = self._dues_event()
+            result = self._dues_event_at_rate()
 
         self._assert_applied(result)
         self.assertIn("Dues schedule backfill failed", result["message"])
         self.assertIn(self.finance_user, self._recipients(self._subject("dues schedule backfill")))
 
     def test_a_failed_dues_rate_update_alerts_on_the_money_key(self):
-        self._member_with_membership(with_schedule=True)
+        self._member_with_membership_in_schedule_state(with_schedule=True)
         self.expectErrorLog("MijnRood Sync - Dues Schedule Update Failed")
         failed = SimpleNamespace(
             success=False, message="rate-boom-2309", errors=["rate-boom-2309"], method_used="none"
@@ -398,7 +342,7 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
             "verenigingen.repositories.dues_schedule_repository.DuesScheduleRepository.update_schedule_rate",
             return_value=failed,
         ):
-            result = self._dues_event(rate_cents=9900)
+            result = self._dues_event_at_rate(rate_cents=9900)
 
         self._assert_applied(result)
         self.assertIn("Dues schedule update failed", result["message"])
@@ -534,12 +478,35 @@ class TestMemberStepAlerts2309(EnhancedTestCase):
         self.assertGreater(self._sent(self._subject("account creation")), 0)
         self.assertEqual(self._sent(self._subject("volunteer creation")), 0, "control: the volunteer exists")
 
-    def test_a_member_with_no_volunteer_record_is_not_alerted_for_the_board_cascade(self):
-        """Class F: the board add finds no Volunteer. It follows a creation failure that is alerted on its
-        own; the cascade is only the applied message."""
+    def _mapped_division_chapter(self):
         chapter = self.ensure_test_chapter(f"Test 2309 F {frappe.generate_hash(length=6)}")
         division = _unused_division_id()
         frappe.db.set_value("Chapter", chapter.name, "mijnrood_division_id", division)
+        return division
+
+    def test_a_board_add_after_a_failed_volunteer_creation_alerts_once_for_the_volunteer_only(self):
+        """Class F, the real cascade: create_volunteer=1, creation fails, so the board add finds no Volunteer.
+        Exactly one alert (the volunteer step); the cascade adds none."""
+        division = self._mapped_division_chapter()
+        self.expectErrorLog("MijnRood Sync - Volunteer Creation Failed")
+        # Mock justified: fault injection at the volunteer creation the step calls
+        with patch(CREATE_VOLUNTEER, side_effect=RuntimeError("vol-cascade-2309")):
+            result = self._division_contact_event(
+                [division], create_volunteer=True, add_to_chapter_board=True, chapter_role="Chair"
+            )
+
+        self._assert_applied(result)
+        self.assertIn("Volunteer creation failed", result["message"])
+        self.assertIn("No Volunteer record", result["message"], "control: the cascade path was taken")
+        self.assertGreater(self._sent(self._subject("volunteer creation")), 0)
+        self.assertEqual(self._sent(self._subject("chapter board addition")), 0)
+        self.assertEqual(len(self._alert_events(MEMBER_KEY)), 1)
+
+    def test_a_board_add_without_create_volunteer_is_not_alerted_a_known_gap(self):
+        """Class F WITHOUT a cascade: add_to_chapter_board=1 and create_volunteer=0 (the settings validator
+        allows it) never seats a Volunteer-less member and nothing is alerted, by the #2309 ruling. Pins the
+        current silence so changing it is a decision, not an accident (issue filed for the gap)."""
+        division = self._mapped_division_chapter()
 
         result = self._division_contact_event([division], add_to_chapter_board=True, chapter_role="Chair")
 

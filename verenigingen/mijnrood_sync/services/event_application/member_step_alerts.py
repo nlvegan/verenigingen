@@ -9,7 +9,10 @@ and MijnRood does not resend. Two registered keys carry it: ``mijnrood_sync_step
 Deduplicated once per 24h per MEMBER + STEP + REASON (the same member failing the same step the same way
 on the next event stays quiet). Account creation is folded in here because the Account Creation Request
 pipeline only writes an Error Log row on failure (``mark_failed``, #2066): it never alerts staff.
-"No Volunteer record" cascades are deliberately NOT alerted: they follow a volunteer-creation failure that is.
+"No Volunteer record" cascades are deliberately NOT alerted (maintainer ruling, #2309): where the mapping has
+``create_volunteer`` the cascade follows a volunteer-creation failure that is alerted. That does NOT hold for a
+board add on a mapping WITHOUT ``create_volunteer`` (the settings validator requires it for team and role but
+not for the board): that member is never seated, on every event, and nothing alerts it (filed separately).
 
 Queueing, the claim and the after-commit timing belong to the orchestrator (``queue_alert`` /
 ``flush_pending_alerts``, #2199). Both notify_administrators calls keep a literal ``notification_key``
