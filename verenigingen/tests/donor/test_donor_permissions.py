@@ -11,10 +11,11 @@ import frappe
 
 from verenigingen.permissions import get_donor_permission_query, has_donor_permission
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.member_utils import get_member_name_for_user
 
 
-class TestDonorPermissions(EnhancedTestCase):
+class TestDonorPermissions(PortalSelfServiceTestMixin, EnhancedTestCase):
     """Security-focused test suite for donor permission system"""
 
     def setUp(self):
@@ -73,8 +74,9 @@ class TestDonorPermissions(EnhancedTestCase):
 
     def test_sql_injection_prevention_escapes_member_name(self):
         """A real member-linked user's query embeds the escaped member docname, not raw input."""
+        member_user = self._link_member_to_user(self.test_member).name
         with frappe.mock_roles(["Verenigingen Member"]):
-            query = get_donor_permission_query(self.test_member.email)
+            query = get_donor_permission_query(member_user)
 
         self.assertIn("tabDonor", query)
         self.assertIn(frappe.db.escape(self.test_member.name), query)
@@ -221,7 +223,7 @@ class TestDonorPermissions(EnhancedTestCase):
         # fixture is the authority on what that is. (Before #1254 the factory could
         # silently rewrite it, which is what made this necessary; it is now simply
         # the right habit.)
-        member_user = self.test_member.email
+        member_user = self._link_member_to_user(self.test_member).name
         with frappe.mock_roles(["Verenigingen Member"]):
             # Test with string (donor name)
             has_permission_str = has_donor_permission(self.test_donor.name, member_user)
@@ -233,6 +235,15 @@ class TestDonorPermissions(EnhancedTestCase):
             # Both should return the same result
             self.assertEqual(has_permission_str, has_permission_obj)
             self.assertTrue(has_permission_str)
+
+    def test_email_only_member_is_refused_own_donor_2205(self):
+        """Control for #2205: a login equal to the Member's email but with no Member.user link
+        is refused the member's own donor and gets the restrictive query."""
+        email_only = self.test_member.email
+        self.assertFalse(frappe.db.get_value("Member", self.test_member.name, "user"))
+        with frappe.mock_roles(["Verenigingen Member"]):
+            self.assertFalse(has_donor_permission(self.test_donor.name, email_only))
+            self.assertEqual(get_donor_permission_query(email_only), "1=0")
 
     def test_performance_with_large_datasets(self):
         """Test that permission queries perform reasonably with larger datasets"""
