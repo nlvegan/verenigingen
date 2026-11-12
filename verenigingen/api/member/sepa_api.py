@@ -324,7 +324,9 @@ def validate_mandate_creation(
 
 @frappe.whitelist(allow_guest=False)
 @self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
-def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
+def setup_sepa_direct_debit(
+    iban: str = None, account_holder_name: str = None, consent=None, consent_text_hash: str = None
+):
     """
     Set up SEPA Direct Debit for the current member.
 
@@ -333,17 +335,31 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
     Args:
         iban: International Bank Account Number
         account_holder_name: Name on the bank account
+        consent: Explicit consent to the mandate text (#2464). Anything but an
+            explicit yes is refused, before any write.
+        consent_text_hash: Hash of the mandate text the member was shown; a changed
+            Settings text is refused so consent is never recorded to unseen text.
 
     Returns:
         Dict with success status and mandate details
     """
     from frappe.utils import today
 
+    from verenigingen.services.payment.sepa_mandate_consent import (
+        check_member_consent,
+        record_member_consent,
+    )
     from verenigingen.utils.member_utils import (
         get_current_user_member_name_required,
         validate_member_ownership,
     )
     from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
+
+    # Server-side consent gate (#2464). First, so a refusal is the same whatever else is
+    # wrong with the request, and nothing below has been written yet.
+    consent_text, refusal = check_member_consent(consent, consent_text_hash)
+    if refusal:
+        return refusal
 
     # Get form data if not provided as parameters
     if not iban:
@@ -482,6 +498,7 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
                 "frequency": "Monthly",
             }
         )
+        record_member_consent(mandate, consent_text)
         mandate.insert()
 
         frappe.db.commit()

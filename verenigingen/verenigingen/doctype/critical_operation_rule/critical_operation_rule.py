@@ -95,20 +95,30 @@ class CriticalOperationRule(Document):
         if self.rate_limit_period_seconds is not None and self.rate_limit_period_seconds < 60:
             frappe.throw(_("Rate limit period must be at least 60 seconds"))
 
-        # Validate batch rate limits if configured
+        # Validate batch rate limits if configured. 0 (or blank) = no batch-specific
+        # limit (low/medium: unlimited in batch; critical/high: the interactive limit
+        # applies), as rate_limit_engine._get_effective_limits treats a falsy value.
+        # ~1,900 rows on long-lived sites carry 0 (#1656). Only negatives are invalid.
         if self.batch_rate_limit_calls is not None:
-            if self.batch_rate_limit_calls < 1:
-                frappe.throw(_("Batch rate limit calls must be at least 1"))
+            if self.batch_rate_limit_calls < 0:
+                frappe.throw(_("Batch rate limit calls cannot be negative (use 0 for no batch limit)"))
 
-            # Batch limits should be higher than or equal to interactive limits
-            if self.rate_limit_calls and self.batch_rate_limit_calls < self.rate_limit_calls:
+            # Batch limits should be higher than or equal to interactive limits;
+            # an unset (0) batch limit is not a limit, so there is nothing to compare.
+            if (
+                self.batch_rate_limit_calls
+                and self.rate_limit_calls
+                and self.batch_rate_limit_calls < self.rate_limit_calls
+            ):
                 frappe.throw(
                     _(
                         "Batch rate limit ({0}) should be greater than or equal to interactive rate limit ({1})"
                     ).format(self.batch_rate_limit_calls, self.rate_limit_calls)
                 )
 
-        if self.batch_rate_limit_period_seconds is not None and self.batch_rate_limit_period_seconds < 60:
+        # 0 means "inherit the interactive period" (the engine's `batch_period or
+        # period_seconds`); shipped rows store 0 here too, so only 1-59 and negatives fail.
+        if self.batch_rate_limit_period_seconds and self.batch_rate_limit_period_seconds < 60:
             frappe.throw(_("Batch rate limit period must be at least 60 seconds"))
 
         # Warn about very permissive rate limits for critical operations

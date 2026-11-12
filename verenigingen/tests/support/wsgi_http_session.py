@@ -126,10 +126,15 @@ def _cleanup_committed_login_users(emails):
     failures = []
     for email in filter(None, emails):
         try:
-            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
             # Creating the User also creates its Contact; remove it here rather than leaning on the drain.
-            for contact in frappe.get_all("Contact", filters={"user": email}, pluck="name"):
-                frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
+            # Found by email as well as by `user`: deleting the User first unlinks the Contact, which
+            # then matched neither filter and leaked one Contact per login user (#2385).
+            contacts = set(frappe.get_all("Contact", filters={"user": email}, pluck="name"))
+            contacts |= set(frappe.get_all("Contact Email", filters={"email_id": email}, pluck="parent"))
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            for contact in contacts:
+                if frappe.db.exists("Contact", contact):
+                    frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
             # The logins in the child process leave rows delete_doc does not remove.
             frappe.db.delete("Activity Log", {"user": email})
             frappe.db.delete("Sessions", {"user": email})  # doctype-ok: core table tabSessions, no DocType record

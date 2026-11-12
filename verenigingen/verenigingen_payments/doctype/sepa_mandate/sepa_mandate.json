@@ -37,6 +37,11 @@
     "other_purpose_description",
     "history_section",
     "usage_history",
+    "consent_section",
+    "consent_source",
+    "consent_timestamp",
+    "consent_ip",
+    "consent_text",
     "notes_section",
     "notes"
   ],
@@ -237,6 +242,39 @@
       "fieldtype": "Table",
       "label": "Usage History",
       "options": "SEPA Mandate Usage"
+    },
+    {
+      "fieldname": "consent_section",
+      "fieldtype": "Section Break",
+      "label": "Consent"
+    },
+    {
+      "description": "Member consent: the member agreed to the mandate text below on the payment dashboard. Staff entered: staff created this mandate and no consent was recorded. Empty: created before consent was recorded.",
+      "fieldname": "consent_source",
+      "fieldtype": "Select",
+      "label": "Consent Source",
+      "options": "\nMember consent\nStaff entered",
+      "read_only": 1
+    },
+    {
+      "fieldname": "consent_timestamp",
+      "fieldtype": "Datetime",
+      "label": "Consent Given At",
+      "read_only": 1
+    },
+    {
+      "description": "Requester address as seen by the server (trusted-proxy aware).",
+      "fieldname": "consent_ip",
+      "fieldtype": "Data",
+      "label": "Consent IP Address",
+      "read_only": 1
+    },
+    {
+      "description": "The exact mandate text the member agreed to, copied at the moment of consent. Later edits to Verenigingen Settings do not change it.",
+      "fieldname": "consent_text",
+      "fieldtype": "Long Text",
+      "label": "Mandate Text Agreed To",
+      "read_only": 1
     },
     {
       "fieldname": "notes_section",

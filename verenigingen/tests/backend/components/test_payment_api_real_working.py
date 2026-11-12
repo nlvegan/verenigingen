@@ -2,6 +2,7 @@ import frappe
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.api.payment_processing import get_or_create_customer, send_payment_reminder_email
 import unittest
 
@@ -81,6 +82,9 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
         # A reminder is skipped (and reported as success) when its key is unseeded or in cooldown, so
         # own the key rather than depend on the site (#2010).
         own_notification_keys(self, "payment_reminder_friendly")
+        # EmailService refuses without a DB outgoing Email Account, which a fresh site (CI's
+        # per-module PR run) lacks; only a leaked account made this pass in a full shard (#1879).
+        ensure_outgoing_email_account(self)
 
         # Create real member with real email
         real_member = self.create_test_member(

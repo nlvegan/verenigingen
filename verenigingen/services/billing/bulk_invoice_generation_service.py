@@ -664,6 +664,8 @@ class BulkInvoiceGenerationService(StatefulService):
                 frappe.log_error(error_msg, "Membership Dues Generation")
                 result.errors.append(error_msg)
 
+            _commit_schedule_progress()
+
         # Commit changes
         frappe.db.commit()
 
@@ -997,6 +999,8 @@ def process_invoice_chunk(
             _safe_log_error(f"Chunk {chunk_id} Load Error", schedule_name, outer_e)
             result.errors.append(error_msg)
 
+        _commit_schedule_progress()
+
     frappe.db.commit()
 
     frappe.logger().info(
@@ -1004,6 +1008,24 @@ def process_invoice_chunk(
     )
 
     return result
+
+
+def _commit_schedule_progress():
+    """Commit what the schedule just processed (invoice and retry tracking) (#2359).
+
+    Frappe's ``execute_job`` rolls back everything uncommitted when a job fails. Since #2235
+    an RQ job timeout propagates, so a loop that commits only at its end loses every
+    invoice built before the timeout, on every run, once a chunk outlasts the job timeout.
+    Committing per schedule bounds the loss to the schedule in flight.
+
+    Deliberately NOT in a ``finally``: on a timeout the in-flight schedule's half-built
+    state must roll back, so the commit is reached only when the schedule's handlers have
+    returned. Deliberately no retry tracking is written for the schedule a timeout lands
+    on: the timeout fires wherever the clock happens to run out, so that schedule is
+    usually innocent, and counting it would push it toward manual review. Progress is kept
+    instead, so the next run resumes after the committed schedules.
+    """
+    frappe.db.commit()
 
 
 def _safe_log_error(title: str, schedule_name: str, error: Exception):

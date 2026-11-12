@@ -336,7 +336,8 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.cancel_agreement()  # Should use default reason
         
         self.assertEqual(agreement.status, "Cancelled")
-        self.assertEqual(agreement.cancellation_date, today())
+        # #1850: the workflow path reloads the row, so the Date field is a date, not the string written
+        self.assertEqual(getdate(agreement.cancellation_date), getdate(today()))
         self.assertEqual(agreement.cancellation_reason, "Cancelled by donor request")
         self.assertEqual(agreement.cancellation_processed_by, frappe.session.user)
         

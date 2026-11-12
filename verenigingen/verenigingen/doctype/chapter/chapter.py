@@ -268,9 +268,43 @@ class Chapter(Document):
         # Emit events for significant changes to trigger background operations
         if old_doc:
             self._emit_chapter_change_events(old_doc)
+            # After the row diff is persisted, so a failed save sends no join mail (#1843)
+            self.member_manager.notify_board_of_joins(old_doc)
 
         # NOTE: Volunteer sync is handled exclusively via the event-driven
         # architecture in _emit_chapter_change_events above (2025-11-18), not here.
+
+    def on_trash(self):
+        """Remember who sits on the board; ``after_delete`` withdraws their access (#2147).
+
+        Frappe removes a parent's child rows without running the child controller, so
+        Chapter Board Member's own hooks (#1922/#1953) never fire for a Chapter delete.
+        The names must be read here: after the delete the rows are gone.
+        """
+        self.flags.board_volunteers_2147 = list(
+            dict.fromkeys(row.volunteer for row in self.get("board_members") or [] if row.volunteer)
+        )
+
+    def after_delete(self):
+        """Withdraw the board role and profile of everyone who sat on this chapter's board (#2147).
+
+        Runs once the Chapter and its rows are really gone (``on_trash`` is too early: the
+        rows would still count as live seats, #1953). A holder with a seat on another
+        chapter keeps the access: the withdrawal only drops what no live seat justifies.
+        Same helper as the orphan-row path in Chapter Board Member (#1953). An unexpected
+        error (e.g. a DB error) aborts the delete; a swallowed profile-sync or User-save
+        failure leaves an Error Log row and the delete proceeds, so an unrelated User
+        problem cannot make a chapter undeletable. ``ignore_on_trash`` skips ``on_trash``,
+        so no withdrawal happens then (no production caller does that).
+        """
+        from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+            _withdraw_access_without_chapter,
+        )
+
+        for volunteer in self.flags.board_volunteers_2147 or []:
+            if not frappe.db.exists("Volunteer", volunteer):
+                continue  # deleted first: no member, no user, nothing left to withdraw from
+            _withdraw_access_without_chapter(volunteer)
 
     def after_rename(self, old_name, new_name, merge=False):
         """Handle department renaming when chapter is renamed.
@@ -713,6 +747,9 @@ class Chapter(Document):
     def _handle_document_changes(self):
         """Handle changes between document versions"""
         old_doc = self.get_doc_before_save()
+        # Per-save marker (#1843): a save that failed after seating must not leave ids that
+        # would suppress a later real join on this object
+        self.flags.pop("board_seated_member_ids", None)
         if old_doc:
             # Seating a board member auto-adds them to `members`. That append has to
             # land before handle_member_additions diffs the table, or the auto-added
