@@ -75,8 +75,47 @@ def process_approved_account_creation_request(request_name: str) -> OperationRes
                 "params": {"request_name": request_name},
             },
         )
+    if not _may_apply_profile_from_approval(request_name):
+        return _refuse_elevated_approval_request(request_name)
     with authorised_follow_on_steps():
         return _run_account_creation_job(request_name)
+
+
+# The only Role Profiles an approval's job may apply (#1930). The profile comes from the Membership Type the
+# APPROVER picked, so it is approver-influenced input; a board approver holds none of the staff roles, so
+# anything above a member/volunteer profile would be an escalation. A fixed allowlist, not
+# validate_may_assign_profile: that guard's roles-held rule would also refuse a board member the plain
+# member profile if they do not hold its roles, and an approval must always be able to create the member.
+_APPROVAL_JOB_PROFILES = frozenset({Roles.VERENIGINGEN_MEMBER, Roles.VOLUNTEER})
+
+
+def _may_apply_profile_from_approval(request_name) -> bool:
+    """Staff and administrators are already allowed to run this pipeline with any profile it accepts (the
+    standard job's own gate), so only an approver who holds none of those roles is held to member level."""
+    if set(frappe.get_roles()) & Roles.ADMIN_ROLES:
+        return True
+    return frappe.db.get_value("Account Creation Request", request_name, "role_profile") in (
+        _APPROVAL_JOB_PROFILES
+    )
+
+
+def _refuse_elevated_approval_request(request_name) -> OperationResult:
+    """Fail the request visibly (status Failed, reason, Error Log row); the member approval stays done."""
+    profile = frappe.db.get_value("Account Creation Request", request_name, "role_profile")
+    reason = (
+        f"Role Profile '{profile}' is above member level; an approval cannot create an account with it. "
+        "Staff must process this request."
+    )
+    frappe.log_error(
+        title="Approved Account Creation Refused",
+        message=f"{request_name}: {reason} (approver {frappe.session.user})",
+    )
+    frappe.get_doc("Account Creation Request", request_name).mark_failed(reason, "Validation")
+    return OperationResult.fail(
+        _("Account creation request needs staff processing."),
+        errors=[reason],
+        context={"operation": "process_approved_account_creation", "params": {"request_name": request_name}},
+    )
 
 
 def _is_own_approved_member_request(request_name) -> bool:
@@ -337,9 +376,10 @@ def queue_account_creation_for_member(
         create_employee = role_profile == "Verenigingen Volunteer"
 
         # `role_profile` is caller-supplied and NOT checked with validate_may_assign_profile (#1654):
-        # safe only because the gate above admits System Manager, or the approval flow (#1930) that builds
-        # role_profile and roles itself (membership type / volunteer status, never request input), so no
-        # Treasurer / Staff caller reaches this line. Add the call if that gate ever widens.
+        # safe only because the gate above admits System Manager, or the approval flow (#1930). The approval
+        # flow takes role_profile from the Membership Type, which the APPROVER chooses, so it is not trusted:
+        # the approval's job (process_approved_account_creation_request) refuses any profile above member
+        # level. No Treasurer / Staff caller reaches this line. Add the call if that gate ever widens.
         # Create request
         request = frappe.get_doc(
             {

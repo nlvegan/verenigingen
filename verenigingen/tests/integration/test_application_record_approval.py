@@ -986,6 +986,17 @@ class TestApproveApplicationBoard(ApprovalCase):
             frappe.db.get_value("Sales Invoice", admin_state[1], ["docstatus", "grand_total"]),
         )
 
+    def _typed(self, role_profile):
+        """A membership type carrying `role_profile`. The harness gives every type the Staff profile, which
+        is NOT what a real member type carries, so a job test must pick its profile on purpose."""
+        self.assertTrue(frappe.db.exists("Role Profile", role_profile), role_profile)
+        membership_type = self.factory.ensure_membership_type(
+            f"Profiled Type {frappe.generate_hash(length=6)}",
+            {"amount": 25.00, "billing_period": "Monthly", "role_profile": role_profile},
+        )
+        membership_type.get_or_create_membership_item()
+        return membership_type.name
+
     def _approve_capturing_jobs(self, user, **kwargs):
         """(response, [(method, kwargs)] of every job the approval enqueued). The RQ push is the only thing
         stubbed, so the test can run the account job itself, as the enqueuing user, the way a worker does."""
@@ -1025,7 +1036,9 @@ class TestApproveApplicationBoard(ApprovalCase):
     def test_board_approval_account_request_is_processed_by_its_own_job_as_the_approver(self):
         """#1930: queuing the request is not enough, the JOB runs as the approver and the standard job and the
         pipeline's role gate need an administrator. The approval's job proves the approval and completes it."""
-        response, jobs = self._approve_capturing_jobs(self.board.user)
+        response, jobs = self._approve_capturing_jobs(
+            self.board.user, membership_type=self._typed("Verenigingen Member")
+        )
         member = response["member"]
 
         result, request_name = self._run_account_job_as(self.board.user, jobs)
@@ -1047,6 +1060,97 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertFalse(result.success, result)
         self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Queued")
         self.assertFalse(frappe.db.exists("User", self.email), "no account was created for the outsider's run")
+
+    def _created_roles(self):
+        return set(frappe.get_all("Has Role", {"parenttype": "User", "parent": self.email}, pluck="role"))
+
+    def test_a_board_approver_cannot_mint_a_staff_account_by_picking_a_staff_membership_type(self):
+        """#1930 round 3: the approver chooses the Membership Type and its role_profile rides onto the
+        request. The approval's job must refuse a profile above member level: no User is created, the request
+        is Failed with a reason and an Error Log row, and the approval itself stays done."""
+        staff_type = self._typed("Verenigingen Staff")
+        self.expectErrorLog("Approved Account Creation Refused")
+        response, jobs = self._approve_capturing_jobs(self.board.user, membership_type=staff_type)
+
+        result, request_name = self._run_account_job_as(self.board.user, jobs)
+
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request_name, "role_profile"),
+            "Verenigingen Staff",
+            "precondition: the approver's type put the Staff profile on the request",
+        )
+        self.assertFalse(result.success, result)
+        self.assertFalse(frappe.db.exists("User", self.email), "a User was created from the elevated profile")
+        status, reason = frappe.db.get_value(
+            "Account Creation Request", request_name, ["status", "failure_reason"]
+        )
+        self.assertEqual(status, "Failed")
+        self.assertIn("Verenigingen Staff", reason)
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"method": "Approved Account Creation Refused"}),
+            "the refusal left no Error Log row",
+        )
+        self.assertEqual(frappe.db.get_value("Member", response["member"], "status"), "Active")
+
+    def test_an_administrator_approval_with_the_same_staff_type_still_creates_the_account(self):
+        """Control for the guard above: the same Staff-profile type approved by an Administrator goes through
+        the standard job (not the approval's), exactly as before, and the user gets the Staff profile roles."""
+        staff_type = self._typed("Verenigingen Staff")
+        response, jobs = self._approve_capturing_jobs(self.admin_user.email, membership_type=staff_type)
+
+        result, request_name = self._run_account_job_as(self.admin_user.email, jobs)
+
+        self.assertTrue(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Completed")
+        self.assertIn("Verenigingen Staff", self._created_roles())
+
+    def _board_request(self):
+        """A board approval's account request and its queued job, for the ownership-leg controls."""
+        response, jobs = self._approve_capturing_jobs(
+            self.board.user, membership_type=self._typed("Verenigingen Member")
+        )
+        return response["member"], jobs
+
+    def _expect_refused_untouched(self, user, jobs):
+        self.expectErrorLog("Approved Account Creation Refused")
+        result, request_name = self._run_account_job_as(user, jobs)
+        self.assertFalse(result.success, result)
+        self.assertIn("not backed by your approval", str(result.error_message))
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Queued")
+        self.assertFalse(frappe.db.exists("User", self.email))
+
+    def test_leg_requested_by_a_request_filed_by_someone_else_is_refused(self):
+        """(a) the caller approved the member's application, but somebody else filed the request."""
+        member, jobs = self._board_request()
+        request_name = frappe.db.get_value("Account Creation Request", {"source_record": member}, "name")
+        frappe.db.set_value(  # probe shortcut: stands in for a request filed by another user
+            "Account Creation Request", request_name, "requested_by", self.admin_user.email
+        )
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_reviewed_by_a_request_filed_by_the_caller_for_a_member_someone_else_approved(self):
+        """(b) the caller filed the request, but another user approved the application."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        frappe.db.set_value(  # probe shortcut: stands in for another reviewer
+            SUBMISSION, application, "reviewed_by", self.admin_user.email
+        )
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_member_a_request_for_a_different_member_than_the_approved_one_is_refused(self):
+        """(c) the application the caller approved names another member than the request's."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        other = self.factory.create_test_member(email=self._fresh_applicant_email()).name
+        frappe.db.set_value(SUBMISSION, application, "member", other)  # probe shortcut
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_status_a_request_whose_application_is_not_approved_is_refused(self):
+        """(d) the caller reviewed the member's application but it is not Approved."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        frappe.db.set_value(SUBMISSION, application, "status", "Rejected")  # probe shortcut
+        self._expect_refused_untouched(self.board.user, jobs)
 
     def test_board_approval_creates_the_membership_item_and_invoice_for_a_type_without_one(self):
         """#1930 (the 'insert on Item' refusal): the first invoice of a membership type creates its Item.
