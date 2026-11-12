@@ -489,6 +489,19 @@ class UnifiedWebhookWrapperService:
 
                 payment_type = classification["payment_type"]
 
+                # AMBIGUOUS: a Mollie id shared by several Members/Donors. Do NOT fall
+                # through to the donation path below; report failure so Mollie
+                # re-delivers once staff have fixed the duplicate (#1497).
+                if payment_type == PaymentType.AMBIGUOUS:
+                    duration = time.time() - start_time
+                    record_operation_performance("unified_webhook_processing", duration, False)
+                    return {
+                        "status": "error",
+                        "message": "More than one member/donor carries this payment's Mollie id; not booked",
+                        "payment_id": payment_id,
+                        "duration_seconds": duration,
+                    }
+
                 # ORDER payments: Create Bank Transactions for reconciliation
                 if payment_type == PaymentType.ORDER:
                     self.logger.info(f"🛒 Routing {payment_id} to OrderPaymentProcessor")

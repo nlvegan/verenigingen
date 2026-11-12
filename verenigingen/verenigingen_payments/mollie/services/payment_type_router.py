@@ -150,6 +150,16 @@ class PaymentTypeRouter:
                 donation_result = self.donation_processor.process_donation_payment(payment_id, payment)
                 result.update(donation_result)
 
+            elif classification["payment_type"] == PaymentType.AMBIGUOUS:
+                # A shared Mollie id: the classifier logged it and attributed it to nobody.
+                frappe.logger().warning(f"Payment {payment_id} matches more than one party - not routed")
+                result["status"] = "error"
+                result["processor"] = "none"
+                result["message"] = (
+                    f"More than one member/donor carries this payment's Mollie id; not booked. "
+                    f"Classification: {classification['matched_by']}"
+                )
+
             else:
                 # Unknown payment type
                 frappe.logger().warning(f"⚠️ Payment {payment_id} has unknown type - cannot process")
