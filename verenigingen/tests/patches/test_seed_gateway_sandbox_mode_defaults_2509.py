@@ -235,3 +235,21 @@ class TestSeedGatewaySandboxModeDefaults(FrappeTestCase):
         self._run_patch_2509()
         self.assertEqual(_stored_value_2509(*MOLLIE), "")
         self.assertEqual(len(self._error_logs_2509("test_mode")), 1)
+
+    def _assert_ponto_row_left_and_alerted_2509(self):
+        self._run_patch_2509()
+        self.assertIsNone(_stored_value_2509(*PONTO), "one live credential half is enough to leave the row")
+        self.assertEqual(len(self._error_logs_2509(PONTO[1])), 1)
+
+    def test_a_ponto_production_client_id_alone_counts_as_a_live_credential(self):
+        self._drop_row_2509(PONTO)
+        frappe.db.sql(
+            "insert into tabSingles (doctype, field, value) values (%s, 'production_client_id', 'live-id')",
+            PONTO[0],
+        )
+        self._assert_ponto_row_left_and_alerted_2509()
+
+    def test_a_ponto_production_client_secret_alone_counts_as_a_live_credential(self):
+        self._drop_row_2509(PONTO)
+        set_encrypted_password(PONTO[0], PONTO[0], "live-test-value", "production_client_secret")
+        self._assert_ponto_row_left_and_alerted_2509()
