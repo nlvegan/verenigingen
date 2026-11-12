@@ -50,14 +50,23 @@ def send_overdue_reminders(days_overdue: int = 7):
         "docstatus": ["<", 2],
         "posting_date": ["<=", cutoff],
     }
+    or_filters = None
     if not any(role in frappe.get_roles() for role in _ORG_WIDE_REMINDER_ROLES):
         # A board member answers for their own chapter(s) only: the counts and the mails must
-        # not reach other chapters' claims. Claims with no chapter are staff-only.
-        filters["custom_chapter"] = ["in", _own_board_chapters_or_refuse()]
+        # not reach other chapters' claims. Claims with no chapter are national claims, covered
+        # only by a seat on the national board chapter (as permissions.py attributes them).
+        chapters = _own_board_chapters_or_refuse()
+        or_filters = [["custom_chapter", "in", chapters]]
+        if (
+            chapters
+            and frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter") in chapters
+        ):
+            or_filters.append(["custom_chapter", "is", "not set"])
 
     claims = frappe.get_all(
         "Expense Claim",
         filters=filters,
+        or_filters=or_filters,
         fields=[
             "name",
             "posting_date",
@@ -95,7 +104,7 @@ def send_overdue_reminders(days_overdue: int = 7):
 
 
 def _own_board_chapters_or_refuse() -> list:
-    """Chapters where the caller holds an ACTIVE board seat (identity: Member.user only, #1546).
+    """Chapters where the caller holds an `is_active=1` board seat (identity: Member.user only, #1546).
 
     No seat means nothing to remind about: refuse with the same message as the role gate.
     """

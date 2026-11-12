@@ -357,9 +357,55 @@ class TestSendOverdueReminders(EnhancedTestCase):
         self._two_chapters_with_claims()
         frappe.db.set_value("Chapter Board Member", {"parent": self.chapter_a.name}, "is_active", 0)
         frappe.set_user(self.board_a.user)
+        log_len = len(frappe.message_log)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            send_overdue_reminders(days_overdue=7)
+        self.assertEqual(str(ctx.exception), "You are not permitted to send expense reminders")
+        # frappe.throw appends to message_log before raising: it must carry only that message
+        self.assertEqual(len(frappe.message_log) - log_len, 1)
+        self.assertIn("not permitted to send expense reminders", str(frappe.message_log[-1]))
+        del frappe.message_log[log_len:]
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), set())
+
+    def test_ordinary_chapter_member_without_a_seat_gets_nothing(self):
+        """A plain Chapter Member of B (no board seat) holding the board role: refused, nothing mailed.
+        Catches a fix that resolves chapters by membership instead of board seats."""
+        self._two_chapters_with_claims()
+        other = self.create_test_board_member(self.chapter_a.name)
+        frappe.db.set_value("Chapter Board Member", {"volunteer": other.volunteer}, "is_active", 0)
+        self.add_member_to_test_chapter(other.member, self.chapter_b.name)
+        frappe.set_user(other.user)
         with self.assertRaises(frappe.ValidationError):
             send_overdue_reminders(days_overdue=7)
         self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), set())
+
+    def test_national_board_seat_also_covers_chapterless_claims(self):
+        self._two_chapters_with_claims()
+        national = self.create_test_chapter()
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        national_approver = self._make_approver()
+        national_claim = self._make_overdue_claim(national_approver)  # no custom_chapter
+        board = self.create_test_board_member(national.name)
+        frappe.set_user(board.user)
+        result = send_overdue_reminders(days_overdue=7)
+        # the chapterless claim(s): national_claim plus the fixture's unassigned one; none of A/B
+        self.assertGreaterEqual(result["claims_found"], 2)
+        self.assertEqual(self._approvers_mailed(national_approver, self.approver_a, self.approver_b),
+                         {national_approver})
+        self.assertIn(national_claim, str(self.get_sent_emails(to=national_approver)))
+
+    def test_non_national_board_member_never_sees_chapterless_claims(self):
+        """Control for the national rule: a national board chapter exists and a chapterless claim
+        with an approver exists, but chapter A's board member gets neither."""
+        self._two_chapters_with_claims()
+        national = self.create_test_chapter()
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        national_approver = self._make_approver()
+        self._make_overdue_claim(national_approver)
+        frappe.set_user(self.board_a.user)
+        result = send_overdue_reminders(days_overdue=7)
+        self.assertEqual(result["claims_found"], 3)
+        self.assertEqual(self._approvers_mailed(national_approver), set())
 
     def test_foreign_chapter_data_leaves_no_trace_on_any_channel(self):
         """A seat on a chapter with NO overdue claims, while another chapter has some: the answer is
