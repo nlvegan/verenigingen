@@ -17,9 +17,19 @@ Mollie and Pay.nl webhook adapters only translate the payload and call
 finalize_payment_plan_installment, which is what is driven here.
 """
 
+import importlib
+from pathlib import Path
+
 import frappe
 from frappe.utils import cint
 
+from verenigingen.notification_registry import NOTIFICATION_KEYS
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment.test_sepa_literal_recipients import (
+    _put_key_row,
+    _restore_rows,
+    _snapshot_rows,
+)
 from verenigingen.tests.support.invoice_payments import member_with_customer
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.support.verenigingen_settings import own_settings_company
@@ -62,8 +72,20 @@ def _create_chartless_company_1330():
     return company.name
 
 
+def _create_user_with_role(email, role):
+    user = frappe.get_doc(
+        {"doctype": "User", "email": email, "first_name": "Pp1330", "send_welcome_email": 0}
+    ).insert(ignore_permissions=True)
+    user.add_roles(role)
+    frappe.db.commit()
+    return user.name
+
+
 def _create_alert_mail_state():
-    """Registry row enabled, cooldown 0 and cleared, committed (the finalizer rolls back fully)."""
+    """The key's row freshly SEEDED from the registry (a seeded site), enabled, cooldown 0 and
+    cleared, committed (the finalizer rolls back fully)."""
+    frappe.db.delete("Email Notification Type", {"parent": "Verenigingen Email Configuration", "notification_key": ALERT_KEY})
+    frappe.clear_document_cache("Verenigingen Email Configuration", "Verenigingen Email Configuration")
     allow_reminder_sends(keys=(ALERT_KEY,))
     frappe.db.commit()
 
@@ -79,6 +101,11 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
         super().setUpClass()
         cls.broken_company = _create_chartless_company_1330()
         cls.addClassCleanup(_cleanup_committed, "Company", cls.broken_company)
+        suffix = frappe.generate_hash(length=6)
+        cls.finance_email = f"fm-1330-{suffix}@example.org"
+        cls.admin_only_email = f"sm-only-1330-{suffix}@example.org"
+        for email, role in ((cls.finance_email, "Verenigingen Financial Manager"), (cls.admin_only_email, "System Manager")):
+            cls.addClassCleanup(_cleanup_committed, "User", _create_user_with_role(email, role))
         own_settings_company(cls, cls.broken_company)
 
     def setUp(self):
@@ -146,10 +173,11 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
         body = frappe.db.get_value("Email Queue", rows[0], "message")
         self.assertIn(self.payment_id, body)
         self.assertIn(frappe.utils.escape_html(cause)[:60], body)
-        # Audience is the key's own configured recipients first (finance role holders only as the
-        # last fallback, as for every key-first staff alert): assert it reached someone, never Administrator.
+        # Maintainer ruling: finance staff. The key's seeded row is Financial Manager, so a holder
+        # gets it and an admin-only user (System Manager, no finance role) does not.
         recipients = self._alert_mail_recipients()
-        self.assertTrue(recipients)
+        self.assertIn(self.finance_email, recipients)
+        self.assertNotIn(self.admin_only_email, recipients)
         self.assertNotIn("Administrator", recipients)
 
         logged = self._alert_log_rows()
@@ -200,3 +228,52 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
         pe = frappe.get_all("Payment Entry", filters={"reference_no": self.payment_id}, pluck="name")
         self.assertEqual(len(pe), 1)
         self.track_doc("Payment Entry", pe[0])
+
+
+PATCH = "verenigingen.patches.v2_2.move_payment_alert_failure_to_financial_manager_1330"
+CONFIG = "Verenigingen Email Configuration"
+OLD_STOCK_ROLES = "System Manager, Verenigingen Administrator"
+FINANCE_ROLE = "Verenigingen Financial Manager"
+
+
+class TestAlertKeyAudiencePatch(EnhancedTestCase):
+    """The registry default reaches fresh installs; the patch moves an untouched stock row (#1330,
+    the #2093 rule: only a row still holding EXACTLY the old stock value moves)."""
+
+    def setUp(self):
+        super().setUp()
+        rows = _snapshot_rows()
+        self.addCleanup(_restore_rows, rows)
+
+    def _roles(self, key=ALERT_KEY):
+        frappe.clear_document_cache(CONFIG, CONFIG)
+        return next(r for r in frappe.get_single(CONFIG).notification_types if r.notification_key == key).recipient_roles
+
+    def test_registry_names_financial_manager_for_the_key(self):
+        self.assertEqual(NOTIFICATION_KEYS[ALERT_KEY].get("recipient_roles"), FINANCE_ROLE)
+
+    def test_patch_moves_an_untouched_stock_row(self):
+        _put_key_row(ALERT_KEY, "Role-Based", recipient_roles=OLD_STOCK_ROLES)
+        importlib.import_module(PATCH).execute()
+        self.assertEqual(self._roles(), FINANCE_ROLE)
+
+    def test_patch_leaves_a_customised_row_alone(self):
+        _put_key_row(ALERT_KEY, "Role-Based", recipient_roles="Chapter Board Member")
+        importlib.import_module(PATCH).execute()
+        self.assertEqual(self._roles(), "Chapter Board Member")
+
+    def test_patch_leaves_other_keys_with_the_old_stock_roles_alone(self):
+        _put_key_row(ALERT_KEY, "Role-Based", recipient_roles=OLD_STOCK_ROLES)
+        _put_key_row("payment_alert_overpayment", "Role-Based", recipient_roles=OLD_STOCK_ROLES)
+        importlib.import_module(PATCH).execute()
+        self.assertEqual(self._roles("payment_alert_overpayment"), OLD_STOCK_ROLES)
+        self.assertEqual(self._roles(), FINANCE_ROLE)  # control: the target did move
+
+    def test_patch_is_idempotent_and_registered_as_a_fragment(self):
+        _put_key_row(ALERT_KEY, "Role-Based", recipient_roles=OLD_STOCK_ROLES)
+        patch_module = importlib.import_module(PATCH)
+        patch_module.execute()
+        patch_module.execute()
+        self.assertEqual(self._roles(), FINANCE_ROLE)
+        fragments = Path(frappe.get_app_path("verenigingen", "patches.d", "post_model_sync")).glob("*.txt")
+        self.assertTrue(any(PATCH in f.read_text() for f in fragments))

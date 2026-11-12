@@ -864,6 +864,8 @@ NOTIFICATION_KEYS = {
         "description": "Alert sent when automatic Payment Entry creation fails.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Finance staff, not the admin pair (maintainer ruling on #1330). Also moves the ING Checkout alerts on this key.
+        "recipient_roles": "Verenigingen Financial Manager",
     },
     "payment_alert_reconciliation": {
         "label": "Payment Reconciliation Alert",
