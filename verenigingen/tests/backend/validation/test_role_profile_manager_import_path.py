@@ -5,6 +5,10 @@ used to be left at the old path, which kept stale importers working silently. Th
 deleted, so a stale importer would now fail at import time; this scan finds them first,
 in both ``verenigingen/`` and ``scripts/`` (the latter is not covered by the import-path
 validator, which only looks at the files pre-commit hands it).
+
+Out of scope: string imports (``importlib.import_module(...)``) and relative imports. The
+deleted shim is the runtime guard for module-level imports; a generic validator is tracked
+in issue 2510.
 """
 
 import ast
