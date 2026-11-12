@@ -146,7 +146,7 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
     # (a draft included) is the same key the booking itself uses for
     # idempotency, so a booked charge is never sent through again. A draft
     # stranded before its submit is therefore NOT recovered here (nor by the
-    # webhook).
+    # webhook; #2535).
     if find_journal_entry_by_reference(payment_id):
         summary["charges_already_booked"] += 1
         return
