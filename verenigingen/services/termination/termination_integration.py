@@ -23,7 +23,7 @@ from frappe.utils import today
 from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
@@ -650,11 +650,18 @@ def end_board_positions_safe(member_name, end_date, reason, failures=None):
         # reported to the caller as ended (#476).
         positions_ended = 0
         for chapter_name, chapter_doc in chapters_to_save.items():
+            # Per-chapter savepoint (#832): a save that fails AFTER the board rows were
+            # written (e.g. in on_update) must not leave them half-ended in the transaction
+            # the termination commits, while the failure message says they were not ended.
+            savepoint_name = "end_board_positions_chapter"
+            frappe.db.savepoint(savepoint_name)
             try:
                 chapter_doc.save()
+                frappe.db.release_savepoint(savepoint_name)
                 frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
                 positions_ended += positions_marked_by_chapter.get(chapter_name, 0)
             except frappe.PermissionError as pe:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
                 _record_board_position_failure(
                     failures,
@@ -663,8 +670,10 @@ def end_board_positions_safe(member_name, end_date, reason, failures=None):
                     f"Board position(s) at {chapter_name} were NOT ended: permission denied saving the chapter",
                 )
             except NON_RESUMABLE_DB_ERRORS:
+                # Ahead of the rollback: a 1213 has already destroyed the savepoint.
                 raise
             except Exception as e:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
                 _record_board_position_failure(
                     failures,

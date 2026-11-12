@@ -421,12 +421,41 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         from verenigingen.services.termination.termination_integration import end_board_positions_safe
 
         failures = []
+        before = frappe.db.count(
+            "Error Log", {"method": "Termination: board positions not saved (permission)"}
+        )
         with self._exploding_chapter_save(frappe.PermissionError("no")):
             result = end_board_positions_safe(self.member.name, today(), "perm", failures=failures)
 
         self.assertEqual(result, 0)
         self.assertEqual(len(failures), 1)
         self.assertIn(self.chapter.name, failures[0])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Termination: board positions not saved (permission)"}),
+            before + 1,
+        )
+
+    def test_a_failure_after_the_row_write_leaves_the_seat_active_and_is_reported_832(self):
+        """The Chapter save fails in on_update, AFTER the board row was written. Without a
+        per-chapter savepoint the row stays is_active=0 in the transaction the termination
+        commits, while the failure message claims the seat was NOT ended."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        failures = []
+        with patch.object(Chapter, "on_update", side_effect=Exception("late failure"), create=True):
+            result = end_board_positions_safe(self.member.name, today(), "late", failures=failures)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(failures), 1, failures)
+        row = frappe.db.get_value(
+            "Chapter Board Member",
+            {"parent": self.chapter.name, "volunteer": self.volunteer.name},
+            ["is_active", "to_date"],
+            as_dict=True,
+        )
+        self.assertEqual(row.is_active, 1, "a failed chapter save left the seat half-ended")
+        self.assertFalse(row.to_date, "a failed chapter save left a to_date on the seat")
 
     def test_a_successful_end_of_board_positions_reports_no_failures_832(self):
         """CONTROL: a clean helper run reports no failure."""
