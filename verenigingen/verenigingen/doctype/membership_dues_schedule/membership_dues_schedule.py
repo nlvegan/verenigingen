@@ -836,14 +836,6 @@ class MembershipDuesSchedule(Document):
             if income_acct:
                 item.income_account = income_acct
 
-            # Expense account from Company's default cost of goods sold account
-            try:
-                company_doc = frappe.get_cached_doc("Company", settings.company)
-                if company_doc.default_cost_of_goods_sold:
-                    item.expense_account = company_doc.default_cost_of_goods_sold
-            except Exception:
-                pass  # Use defaults if not available
-
             item.insert()
             # Let Frappe handle transaction management automatically
 
