@@ -105,6 +105,7 @@ class DepartmentHierarchyManager:
             # Parents are referenced by their human-readable name but stored
             # abbreviated, so resolve to the actual record name.
             dept.parent_department = self._resolve_department_name(parent) or parent
+            self._ensure_group(dept.parent_department)
 
         result = secure_document_operation(
             operation="insert",
@@ -121,6 +122,31 @@ class DepartmentHierarchyManager:
             frappe.throw(_("Unable to create department: Security validation failed"))
 
         return dept
+
+    def _ensure_group(self, dept_name):
+        """Make an existing leaf Department a group so a child can attach to it.
+
+        erpnext version-16 (01da148d49) rejects a child whose parent has
+        ``is_group=0``. Departments are inserted as leaves, and sites that ran
+        this setup before that rule hold their parents as leaves, so the parent
+        is promoted when it first gains a child rather than at creation time.
+        """
+        if frappe.db.get_value("Department", dept_name, "is_group") != 0:
+            return
+        parent_doc = frappe.get_doc("Department", dept_name)
+        parent_doc.is_group = 1
+        result = secure_document_operation(
+            operation="save",
+            doc=parent_doc,
+            justification=f"Make department {dept_name} a group so child departments can attach",
+            required_permissions=["Department:write"],
+        )
+        if not result.success:
+            frappe.log_error(
+                title="Department Creation Security",
+                message=f"Failed to make department {dept_name} a group: {'; '.join(result.errors)}",
+            )
+            frappe.throw(_("Unable to create department: Security validation failed"))
 
     def get_volunteer_department(self, volunteer_name):
         """Determine appropriate department for a volunteer based on their assignments"""

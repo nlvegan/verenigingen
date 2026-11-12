@@ -267,6 +267,24 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         again = mgr._ensure_department(created.department_name, parent=None)
         self.assertEqual(again.name, created.name)
 
+    def test_ensure_department_promotes_an_existing_leaf_parent_to_a_group(self):
+        """A site that ran setup before erpnext 01da148d49 holds its parents as
+        leaves; attaching a child must turn the parent into a group, because
+        version-16 refuses "Parent Department must be a group"."""
+        self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        parent = mgr._ensure_department(f"DH Leaf Parent {frappe.generate_hash(length=6)}", parent=None)
+        self.assertEqual(parent.is_group, 0, "precondition: the parent starts as a leaf")
+
+        child = mgr._ensure_department(
+            f"DH Child {frappe.generate_hash(length=6)}", parent=parent.department_name
+        )
+
+        self.assertEqual(child.parent_department, parent.name)
+        self.assertEqual(frappe.db.get_value("Department", parent.name, "is_group"), 1)
+        # Control: the child itself is still created as a leaf.
+        self.assertEqual(frappe.db.get_value("Department", child.name, "is_group"), 0)
+
     # --------------------------------------------------- _get_financial_approvers
     def test_financial_approvers_empty_when_no_board(self):
         self._ensure_company()
