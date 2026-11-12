@@ -13,6 +13,7 @@ then run directly, the way a worker would run them. Real flow: the chapter's own
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 JOB_PREFIX = "verenigingen.events.subscribers.chapter_subscribers."
 
@@ -20,6 +21,9 @@ JOB_PREFIX = "verenigingen.events.subscribers.chapter_subscribers."
 class TestChapterMembershipEventsRollback(VereningingenTestCase):
     def setUp(self):
         super().setUp()
+        # Without a default outgoing account a send is refused and every "a mail was queued"
+        # assertion below reads 0 (a fresh CI site has none; this bench has one, so it passed here).
+        ensure_outgoing_email_account(self)
         self.chapter = self.create_test_chapter(
             chapter_name=f"Rollback Chapter {frappe.generate_hash(length=6)}",
             postal_codes="1000-9999",
