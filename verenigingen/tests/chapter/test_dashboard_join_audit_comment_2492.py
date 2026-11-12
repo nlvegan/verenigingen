@@ -71,6 +71,54 @@ class TestDashboardJoinAuditComment2492(EnhancedTestCase):
         self.assertEqual(rows[0].comment_email, self.board.user)
         self.assertIn(frappe.utils.get_fullname(self.board.user), rows[0].content)
 
+    def _refused_writes_no_comment(self, board):
+        self.expectErrorLog()
+        with self.as_user(board.user):
+            self.assertNotIn("System Manager", frappe.get_roles())
+            try:
+                result = quick_approve_join_request(self.member.name, self.chapter.name)
+            except frappe.PermissionError:
+                result = {"success": False}
+            self.assertFalse(result.get("success"), result)
+        self.assertEqual(self._member_comments(), [])
+        self.assertEqual(
+            frappe.db.get_value(
+                "Chapter Member", {"parent": self.chapter.name, "member": self.member.name}, "status"
+            ),
+            "Pending",
+        )
+
+    def test_board_member_of_another_chapter_is_refused_and_writes_no_comment(self):
+        """Gate-order control: the elevated insert must come AFTER the access gates, so a caller who
+        is refused leaves no audit Comment (an early elevated write would pass every approval test)."""
+        other_chapter = self.create_test_chapter()
+        outsider = self.create_test_board_member(
+            other_chapter.name, permissions_level="Admin", role_name="Chapter Head"
+        )
+        self._refused_writes_no_comment(outsider)
+
+    def test_board_member_without_approve_permission_is_refused_and_writes_no_comment(self):
+        """Same control for a seat on THIS chapter whose role lacks can_approve_members."""
+        non_approver = self.create_test_board_member(
+            self.chapter.name, permissions_level="Basic", role_name="Test NonApprover 2492"
+        )
+        self._refused_writes_no_comment(non_approver)
+
+    def test_approver_name_markup_is_escaped_in_the_elevated_comment(self):
+        """The elevated insert must not let a mention span in the approver's name through."""
+        evil = '<span class="mention" data-id="Administrator">x</span>'
+        frappe.db.set_value("User", self.board.user, "first_name", evil)
+        frappe.local.fullnames = {}  # get_fullname memoises per request
+        self.addCleanup(lambda: setattr(frappe.local, "fullnames", {}))
+        self.assertIn("mention", frappe.utils.get_fullname(self.board.user))
+        result = self._approve()
+        self.assertTrue(result.get("success"), result)
+        rows = self._member_comments()
+        self.assertEqual(len(rows), 1, rows)
+        # The markup is stored as inert text: no tag survives for notify_mentions to parse.
+        self.assertNotIn("<span", rows[0].content)
+        self.assertIn("&lt;span", rows[0].content)
+
     def test_comment_permissions_are_not_widened(self):
         """Control: after the approval the board user still cannot create a Comment directly, and
         the endpoint's only elevated write is that one audit insert (the Member is untouched)."""

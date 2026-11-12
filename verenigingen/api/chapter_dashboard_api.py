@@ -258,7 +258,9 @@ def quick_approve_join_request(member_name: str, chapter_name: str | None = None
             # by the broad except below and surfaced as {"success": False}, so the
             # caller saw a *failure* even though the membership approval had already
             # committed. Use frappe.utils.get_fullname(session.user) instead.
-            approver_full_name = frappe.utils.get_fullname(frappe.session.user)
+            # escape_html: the name is user-editable and this insert is elevated, so a mention span in it
+            # would otherwise survive sanitising and Comment.after_insert would notify the mentioned user.
+            approver_full_name = frappe.utils.escape_html(frappe.utils.get_fullname(frappe.session.user))
             comment_doc = frappe.get_doc(
                 {
                     "doctype": "Comment",
