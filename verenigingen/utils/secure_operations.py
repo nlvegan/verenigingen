@@ -871,25 +871,39 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
-@contextmanager
-def system_privileges_after_authorisation(description: str):
-    """Run the enclosed steps as the configured system user, for a caller ALREADY authorised for the action.
+_FOLLOW_ON_FLAG = "authorised_follow_on_steps"
 
-    For multi-write follow-on steps (#1930: invoice, dues schedule, account request) that a chapter board
-    approver may start but whose individual writes (Item, Sales Invoice, Membership Dues Schedule, Account
-    Creation Request) the approver's own DocPerms refuse. The caller must have passed its own authorisation
-    check BEFORE entering; this does not authorise anything. Same mechanism as the public-form flows
-    (`secure_user_context_with_validation` + `get_system_user_for_operation`), so the user is always
-    restored, including on an exception, and a missing/disabled Creation User fails closed
-    (ConfigurationError, nothing runs). Administrator already holds every right and a nested elevation is
-    refused by the context, so both run the steps as they are.
+
+@contextmanager
+def authorised_follow_on_steps():
+    """Run the enclosed steps with permission checks bypassed, still AS the acting user (#1930).
+
+    For the follow-on steps of an approval whose approver the caller has ALREADY authorised (dues schedule,
+    membership invoice and its lazily created Item, account creation request): a chapter board approver may
+    start them, but their own DocPerms refuse the individual writes. Maintainer ruling 2026-11-12: bypass the
+    checks for exactly those steps; do NOT impersonate the configured Creation User (it holds no rights on
+    these records). The session user, and so `owner`, stay the approver.
+
+    This authorises nothing: the caller checks the approver BEFORE entering. The write sites that belong to
+    those steps read `follow_on_ignore_permissions()`; `secure_document_operation` treats a call made inside
+    the scope as a system_operation. The flag lives on the request's local flags and is restored in
+    `finally`, so it never outlives the block (nested scopes restore the outer value).
     """
-    if frappe.session.user == "Administrator" or _is_nested_impersonation():
+    flags = frappe.local.flags
+    previous = flags.get(_FOLLOW_ON_FLAG)
+    flags[_FOLLOW_ON_FLAG] = True
+    try:
         yield
-        return
-    system_user = get_system_user_for_operation(description)
-    with secure_user_context_with_validation(system_user, description):
-        yield
+    finally:
+        if previous is None:
+            flags.pop(_FOLLOW_ON_FLAG, None)
+        else:
+            flags[_FOLLOW_ON_FLAG] = previous
+
+
+def follow_on_ignore_permissions():
+    """True inside `authorised_follow_on_steps`, else None (insert/save then keep their normal check)."""
+    return True if frappe.local.flags.get(_FOLLOW_ON_FLAG) else None
 
 
 def _read_persisted_docstatus_best_effort(doctype, name):
@@ -977,6 +991,8 @@ def secure_document_operation(
         frappe.PermissionError: If user cannot request escalation or bypass_validations
         ConfigurationError: If system user is not properly configured
     """
+    # Inside authorised_follow_on_steps (#1930) the caller was already authorised: a system_operation.
+    system_operation = system_operation or bool(follow_on_ignore_permissions())
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
     original_user = frappe.session.user

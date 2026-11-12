@@ -146,7 +146,8 @@ class MembershipCreationService(StatelessService):
             custom_rate_reason: Reason for custom dues rate
             is_csv_import: Flag indicating CSV import with historic date
             approval_fields: Dict of approval fields to set
-            system_follow_on: Run the dues schedule and invoice steps (4 and 5) with system privileges.
+            system_follow_on: Run the dues schedule and invoice steps (4 and 5) with permission checks
+                bypassed, as the acting user.
                 Only for a caller that has already authorised the approver (#1930: a chapter board
                 approver); every other caller keeps its own permissions for those steps.
 
@@ -572,12 +573,12 @@ class MembershipCreationService(StatelessService):
 
     @staticmethod
     def _follow_on_privileges(system_follow_on):
-        """System privileges for one follow-on step when the caller asked for them, else no change."""
+        """Permission bypass for one follow-on step when the caller asked for it, else no change."""
         if not system_follow_on:
             return contextlib.nullcontext()
-        from verenigingen.utils.secure_operations import system_privileges_after_authorisation
+        from verenigingen.utils.secure_operations import authorised_follow_on_steps
 
-        return system_privileges_after_authorisation("membership approval follow-on step")
+        return authorised_follow_on_steps()
 
     def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
         """

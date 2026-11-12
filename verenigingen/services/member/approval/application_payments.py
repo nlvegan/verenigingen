@@ -11,7 +11,7 @@ from frappe.utils import add_days, cint, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions, secure_document_operation
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
@@ -380,7 +380,7 @@ def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
         savepoint = f"cust_insert_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(savepoint)
         try:
-            customer_doc.insert()
+            customer_doc.insert(ignore_permissions=follow_on_ignore_permissions())
             frappe.db.release_savepoint(savepoint)
             return customer_doc
         except frappe.exceptions.DuplicateEntryError:
@@ -549,8 +549,8 @@ def create_contact_for_customer(customer, member):
         # Link to customer
         contact.append("links", {"link_doctype": "Customer", "link_name": customer.name})
 
-        # Insert with proper permissions (no bypass)
-        contact.insert()
+        # Insert with the caller's permissions, except inside an authorised approval follow-on (#1930)
+        contact.insert(ignore_permissions=follow_on_ignore_permissions())
 
         frappe.logger().info(
             f"Created Contact {contact.name} for Customer {customer.name} (Member: {member.name})"

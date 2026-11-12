@@ -25,6 +25,7 @@ from frappe.utils import now
 from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 # Background job entry points
@@ -46,6 +47,59 @@ def process_account_creation_request(request_name: str) -> OperationResult[Dict[
     Returns:
         OperationResult[Dict[str, Any]]: Result with success status and message
     """
+    return _run_account_creation_job(request_name)
+
+
+def process_approved_account_creation_request(request_name: str) -> OperationResult[Dict[str, Any]]:
+    """Job entry for the account request of an authorised approval (#1930). NOT whitelisted.
+
+    The approver is a chapter board member, who holds none of the administrator roles the standard job
+    and the pipeline's role gate demand. This entry runs the same pipeline for exactly one kind of request:
+    the one the SESSION USER'S OWN approval created, proved from the database (the application is Approved,
+    was reviewed by this user, and names the request's member; the request was filed by this user).
+    Anything else is refused and processes nothing, so a board member cannot use it on another request.
+    The proof is read here rather than passed in: a job argument could be forged, these rows cannot.
+    """
+    from verenigingen.utils.secure_operations import authorised_follow_on_steps
+
+    if not _is_own_approved_member_request(request_name):
+        frappe.log_error(
+            title="Approved Account Creation Refused",
+            message=f"{request_name}: no approval by {frappe.session.user} backs this request; nothing processed",
+        )
+        return OperationResult.fail(
+            _("Account creation request is not backed by your approval."),
+            errors=["Not authorised"],
+            context={
+                "operation": "process_approved_account_creation",
+                "params": {"request_name": request_name},
+            },
+        )
+    with authorised_follow_on_steps():
+        return _run_account_creation_job(request_name)
+
+
+def _is_own_approved_member_request(request_name) -> bool:
+    """True when `request_name` is a Member request filed by the session user, for a member whose
+    application the session user approved (an Approved Membership Application Submission naming that member).
+    """
+    request = frappe.db.get_value(
+        "Account Creation Request",
+        request_name,
+        ["request_type", "source_record", "requested_by"],
+        as_dict=True,
+    )
+    if not request or request.request_type != "Member" or request.requested_by != frappe.session.user:
+        return False
+    return bool(
+        frappe.db.exists(
+            "Membership Application Submission",
+            {"member": request.source_record, "status": "Approved", "reviewed_by": frappe.session.user},
+        )
+    )
+
+
+def _run_account_creation_job(request_name: str) -> OperationResult[Dict[str, Any]]:
     # Mark as background job to exempt from rate limits
     frappe.flags.in_background_job = True
 
@@ -216,7 +270,9 @@ def queue_account_creation_for_member(
         OperationResult[Dict[str, Any]]: Result with request name and status
     """
     try:
-        if not frappe.has_permission("User", "create"):
+        # An approval whose approver was already authorised (#1930) queues its own account request inside
+        # `authorised_follow_on_steps`; any other caller still needs the User-create right.
+        if not (follow_on_ignore_permissions() or frappe.has_permission("User", "create")):
             return OperationResult.fail(
                 _("Insufficient permissions to create user accounts"),
                 errors=["Permission denied"],
@@ -281,7 +337,8 @@ def queue_account_creation_for_member(
         create_employee = role_profile == "Verenigingen Volunteer"
 
         # `role_profile` is caller-supplied and NOT checked with validate_may_assign_profile (#1654):
-        # safe only because the User-create permission gate above is System Manager only, so no
+        # safe only because the gate above admits System Manager, or the approval flow (#1930) that builds
+        # role_profile and roles itself (membership type / volunteer status, never request input), so no
         # Treasurer / Staff caller reaches this line. Add the call if that gate ever widens.
         # Create request
         request = frappe.get_doc(
@@ -302,10 +359,14 @@ def queue_account_creation_for_member(
         for role in roles:
             request.append("requested_roles", {"role": role})
 
-        request.insert()
+        request.insert(ignore_permissions=follow_on_ignore_permissions())
 
         # Queue for processing
-        queue_result = request.queue_processing()
+        # Inside an authorised approval the request is queued without the ADMIN security tier the approver
+        # does not hold; the job it queues proves the approval itself (process_approved_account_creation_request).
+        queue_result = (
+            request._queue_for_processing() if follow_on_ignore_permissions() else request.queue_processing()
+        )
 
         return OperationResult.ok(
             {

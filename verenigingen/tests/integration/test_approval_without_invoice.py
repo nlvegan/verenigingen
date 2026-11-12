@@ -312,6 +312,26 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertEqual(len(self._invoices_of(member)), 1)
         self.assertEqual(len(mails), 1)
 
+    def test_board_member_retry_creates_the_membership_item_the_approval_never_got_to_make(self):
+        """#1930/#2538: the retry creates the invoice as the CALLER, and the first invoice of a membership
+        type creates its Item, which a board member cannot. After the retry's own authorisation the invoice
+        step runs with permission checks bypassed, as the approver. The Item is removed after the failed
+        approval (the approval's own attempt got as far as making it before the invoice insert failed)."""
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        application, member = self._approved_with_failed_invoice()
+        item_code = f"MEM-{self.membership_type.membership_type_name}".upper().replace(" ", "-")
+        frappe.delete_doc("Item", item_code, force=True, ignore_permissions=True)
+        self.assertFalse(frappe.db.exists("Item", item_code), "precondition: the membership Item is absent")
+        self._fix_invoicing()
+
+        response, mails = self._retry(application, user=board.user)
+
+        self.assertTrue(response["success"], response)
+        self.assertFalse(response["invoice_failed"], response)
+        self.assertTrue(frappe.db.exists("Item", item_code))
+        self.assertEqual(len(self._invoices_of(member)), 1)
+        self.assertEqual(len(mails), 1)
+
     def test_a_board_member_of_another_chapter_is_refused_like_an_unknown_application(self):
         other = self.factory.ensure_test_chapter(
             f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}

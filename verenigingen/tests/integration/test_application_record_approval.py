@@ -971,7 +971,7 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(admin_state[2], "control: the Administrator approval creates a dues schedule")
         self.assertTrue(admin_state[3], "control: the Administrator approval queues an account request")
         self.assertTrue(board_result["success"], board_result)
-        self.assertFalse(board_result["dues_schedule_failed"], board_result)
+        self.assertFalse(board_result.get("dues_schedule_failed"), board_result)
         self.assertTrue(board_state[1], f"board approval created no invoice: {board_result} {board_errors}")
         self.assertTrue(board_state[2], f"board approval created no dues schedule: {board_errors}")
         self.assertTrue(board_state[3], f"board approval queued no account request: {board_errors}")
@@ -986,23 +986,73 @@ class TestApproveApplicationBoard(ApprovalCase):
             frappe.db.get_value("Sales Invoice", admin_state[1], ["docstatus", "grand_total"]),
         )
 
+    def _approve_capturing_jobs(self, user, **kwargs):
+        """(response, [(method, kwargs)] of every job the approval enqueued). The RQ push is the only thing
+        stubbed, so the test can run the account job itself, as the enqueuing user, the way a worker does."""
+        jobs = []
+
+        # Mock justified: Infrastructure - the RQ push; the captured call is executed by the test below.
+        def capture(method, queue=None, timeout=None, job_name=None, enqueue_after_commit=False, **job_kwargs):
+            jobs.append((method, job_kwargs))
+
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm()
+        with patch("frappe.enqueue", side_effect=capture):
+            response = self._approve_as(name, user=user, create_invoice=False, **kwargs)
+        return response, jobs
+
+    def _run_account_job_as(self, user, jobs):
+        """Run the queued account creation job as `user`, like execute_job: set the user, call the method."""
+        from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+            ACCOUNT_JOB,
+            APPROVED_ACCOUNT_JOB,
+        )
+
+        account_jobs = [(m, kw) for m, kw in jobs if m in (ACCOUNT_JOB, APPROVED_ACCOUNT_JOB)]
+        self.assertEqual(len(account_jobs), 1, jobs)
+        method, kwargs = account_jobs[0]
+        # The job entry sets these three process-wide flags for the life of a worker process and never clears
+        # them; here they would outlive the test (in_import alone breaks every later application staging).
+        names = ("in_background_job", "bulk_account_creation", "in_import")
+        before = {name: frappe.flags.get(name) for name in names}
+        try:
+            with self.as_user(user):
+                return frappe.get_attr(method)(**kwargs), kwargs["request_name"]
+        finally:
+            for name, value in before.items():
+                frappe.flags[name] = value
+
+    def test_board_approval_account_request_is_processed_by_its_own_job_as_the_approver(self):
+        """#1930: queuing the request is not enough, the JOB runs as the approver and the standard job and the
+        pipeline's role gate need an administrator. The approval's job proves the approval and completes it."""
+        response, jobs = self._approve_capturing_jobs(self.board.user)
+        member = response["member"]
+
+        result, request_name = self._run_account_job_as(self.board.user, jobs)
+
+        self.assertTrue(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Completed")
+        self.assertTrue(frappe.db.exists("User", self.email), "the member's user account exists")
+        self.assertEqual(frappe.db.get_value("Member", member, "user"), self.email)
+
+    def test_a_board_member_cannot_run_the_approval_job_for_a_request_they_did_not_approve(self):
+        """Control: the approval's job is not a general ACR processor. A board member who did NOT approve
+        the application is refused (their own approval is the proof), and nothing is processed."""
+        response, jobs = self._approve_capturing_jobs(self.admin_user.email)
+        outsider = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        self.expectErrorLog("Approved Account Creation Refused")
+
+        result, request_name = self._run_account_job_as(outsider.user, jobs)
+
+        self.assertFalse(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Queued")
+        self.assertFalse(frappe.db.exists("User", self.email), "no account was created for the outsider's run")
+
     def test_board_approval_creates_the_membership_item_and_invoice_for_a_type_without_one(self):
         """#1930 (the 'insert on Item' refusal): the first invoice of a membership type creates its Item.
-        A board approver cannot, so the invoice step runs as the Creation User. PROBE SHORTCUT, stated: the
-        harness's Creation User carries no Item-creating role (like its staff user), so the test grants it
-        'Item Manager' directly; what a production Creation User holds is NOT established."""
-        creation_user = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
-        # A Has Role row, not User.save(): saving a user re-syncs its role profiles, which REPLACES direct roles.
-        frappe.get_doc(
-            {
-                "doctype": "Has Role",
-                "parent": creation_user,
-                "parenttype": "User",
-                "parentfield": "roles",
-                "role": "Item Manager",
-            }
-        ).insert()  # as the harness's Administrator session
-        frappe.clear_cache(user=creation_user)
+        A board approver cannot create an Item, so that step runs with permission checks bypassed, as the
+        approver (maintainer ruling 2026-11-12). No role is granted to anyone: the harness's Creation User is
+        left as it is, so a pass proves the Item is made by the approver's own bypassed write."""
         fresh_type = self.factory.ensure_membership_type(
             f"Board Item Type {frappe.generate_hash(length=6)}", {"amount": 25.00, "billing_period": "Monthly"}
         )
@@ -1015,6 +1065,48 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(frappe.db.exists("Item", item_code), result)
         self.assertTrue(frappe.db.exists("Sales Invoice", result.get("invoice")), result)
         self.assertFalse(result["invoice_failed"], result)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", result["invoice"], "owner"),
+            self.board.user,
+            "the approver stays the owner of what the follow-on steps create",
+        )
+
+    def test_the_bypass_never_outlives_its_scope(self):
+        """The permission bypass is a request-local flag: it is restored when the block ends, on an exception
+        too, and a nested scope hands back the outer one. After a real approval it is off again."""
+        from verenigingen.utils.secure_operations import authorised_follow_on_steps, follow_on_ignore_permissions
+
+        self.assertIsNone(follow_on_ignore_permissions())
+        with self.assertRaises(RuntimeError):
+            with authorised_follow_on_steps():
+                self.assertTrue(follow_on_ignore_permissions())
+                with authorised_follow_on_steps():
+                    pass
+                self.assertTrue(follow_on_ignore_permissions(), "the inner scope ended, the outer one has not")
+                raise RuntimeError("a failing step")
+        self.assertIsNone(follow_on_ignore_permissions())
+
+        name = self._stage_and_confirm()
+        self._approve_as(name, user=self.board.user, create_invoice=True)
+        self.assertIsNone(follow_on_ignore_permissions(), "left on after a real approval")
+
+    def test_without_the_bypass_a_board_member_still_cannot_write_those_records(self):
+        """Control for the whole file: the records the follow-on steps create are refused to the board
+        approver outside the scope (this is what the bypass exists for), so the green tests above are not
+        green because the board member could always write them."""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        name = self._stage_and_confirm()
+        member = self._approve_as(name, user=self.admin_user.email)["member"]
+        schedule = frappe.get_value("Membership Dues Schedule", {"member": member, "is_template": 0}, "name")
+        frappe.db.delete("Membership Dues Schedule", {"name": schedule})
+        with self.as_user(self.board.user):
+            with self.assertRaises(frappe.PermissionError):
+                MembershipDuesSchedule.create_from_template(
+                    member, membership_type=self.membership_type.name
+                )
 
     def test_a_failed_dues_schedule_is_reported_not_claimed_as_complete(self):
         """A step that still fails must not read as full success. The fault is injected at the schedule
@@ -1035,16 +1127,28 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertIn("dues schedule could NOT be created", result["message"])
 
     def test_board_member_of_another_chapter_is_refused_and_nothing_is_created(self):
-        """Control: the elevation starts only AFTER authorisation. A board member of a chapter that is not
-        the applicant's is refused, and no Member, invoice, schedule or account request appears."""
+        """Control: the bypass starts only AFTER authorisation. A board member of a chapter that is not the
+        applicant's is refused BY THE AUTHORISATION CHECK (its own message), the approval core is never
+        reached, and no Member, invoice, schedule or account request appears.
+
+        The refusal text and the never-reached core are asserted because a downstream step that happened to
+        refuse the outsider would pass a bare assertRaises even if the authorisation itself were bypassed."""
         outsider = self.create_test_board_member(self.other_chapter.name, permissions_level="Admin")
         name = self._stage_and_confirm()  # an application of self.chapter
         invoices = frappe.db.count("Sales Invoice")
         requests = frappe.db.count("Account Creation Request")
+        errors = frappe.db.count("Error Log")
+        # Mock justified: tripwire on an internal boundary - the test only needs to know the core ran.
+        with patch(
+            "verenigingen.services.member.application.application_materialiser.materialise_member",
+            side_effect=AssertionError("the approval core ran for an unauthorised approver"),
+        ) as core:
+            with self.assertRaises(frappe.PermissionError) as refused:
+                self._approve_as(name, user=outsider.user, create_invoice=True, activate_as_volunteer=True)
 
-        with self.assertRaises(frappe.PermissionError):
-            self._approve_as(name, user=outsider.user, create_invoice=True, activate_as_volunteer=True)
-
+        self.assertIn("You don't have permission to approve this application", str(refused.exception))
+        core.assert_not_called()
+        self.assertEqual(frappe.db.count("Error Log"), errors)
         self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
         self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
         self.assertEqual(frappe.db.count("Sales Invoice"), invoices)

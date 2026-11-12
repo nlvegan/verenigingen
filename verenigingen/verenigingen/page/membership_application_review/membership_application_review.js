@@ -910,6 +910,15 @@ class MembershipApplicationReview {
 						this.load_applications();
 						this.load_statistics();
 						this.load_retry_invoice_section();
+					} else if (response.message?.success && response.message.dues_schedule_failed) {
+						// Approved, but no dues schedule was created (#1930): the message says what to do.
+						frappe.msgprint({
+							title: __('Approved without dues schedule'),
+							message: frappe.utils.escape_html(response.message.message),
+							indicator: 'orange'
+						});
+						this.load_applications();
+						this.load_statistics();
 					} else if (response.message?.success) {
 						frappe.show_alert({
 							message: __('Application approved for {0}', [frappe.utils.escape_html(app.applicant_name)]),
