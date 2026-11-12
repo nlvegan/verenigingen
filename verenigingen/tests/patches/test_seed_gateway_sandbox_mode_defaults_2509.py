@@ -13,6 +13,7 @@ import importlib
 import frappe
 from frappe.modules import patch_handler
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils.password import set_encrypted_password
 
 from verenigingen.setup import patch_fragments
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import PontoConfigurationService
@@ -24,6 +25,11 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
 PATCH = "verenigingen.patches.v2_2.seed_gateway_sandbox_mode_defaults_2509"
 PONTO = ("Ponto Settings", "sandbox_mode")
 MOLLIE = ("Mollie Settings", "test_mode")
+LIVE_PASSWORDS = {
+    "Ponto Settings": ("production_client_secret",),
+    "Mollie Settings": ("live_secret_key",),
+}
+ERROR_TITLE = "%.% has no stored value but live credentials are configured%"
 
 
 def _stored_value_2509(doctype, field):
@@ -42,6 +48,51 @@ class TestSeedGatewaySandboxModeDefaults(FrappeTestCase):
                 "insert into tabSingles (doctype, field, value) values (%s, 'profile_id', 'x')", doctype
             )
         self.addCleanup(self._clear_caches_2509)
+        # this bench carries live gateway credentials and CI does not: start from "none" explicitly
+        auth = frappe.db.sql(
+            "select doctype, name, fieldname, password, encrypted from __Auth where doctype in %s",
+            (("Ponto Settings", "Mollie Settings"),),
+        )
+        self.addCleanup(self._restore_auth_2509, auth)
+        frappe.db.sql(
+            "delete from __Auth where doctype in %s and fieldname in %s",
+            (("Ponto Settings", "Mollie Settings"), tuple(f for fs in LIVE_PASSWORDS.values() for f in fs)),
+        )
+        frappe.db.sql("delete from tabSingles where doctype='Ponto Settings' and field='production_client_id'")
+        self.addCleanup(self._purge_error_logs_2509)
+
+    def _restore_auth_2509(self, auth):
+        frappe.db.sql(
+            "delete from __Auth where doctype in %s and fieldname in %s",
+            (("Ponto Settings", "Mollie Settings"), tuple(f for fs in LIVE_PASSWORDS.values() for f in fs)),
+        )
+        for row in auth:
+            if row[2] in tuple(f for fs in LIVE_PASSWORDS.values() for f in fs):
+                frappe.db.sql(
+                    "insert into __Auth (doctype, name, fieldname, password, encrypted) values (%s,%s,%s,%s,%s)",
+                    row,
+                )
+
+    @staticmethod
+    def _purge_error_logs_2509():
+        # Error Log is MyISAM: a rollback would not remove what the patch wrote
+        frappe.db.sql("delete from `tabError Log` where method like %s", ERROR_TITLE)
+
+    @staticmethod
+    def _error_logs_2509(field):
+        return frappe.db.sql(
+            "select name from `tabError Log` where method like %s", f"%.{field} has no stored value%"
+        )
+
+    @staticmethod
+    def _set_live_credentials_2509(doctype):
+        for field in LIVE_PASSWORDS[doctype]:
+            set_encrypted_password(doctype, doctype, "live-test-value", field)
+        if doctype == "Ponto Settings":
+            frappe.db.sql(
+                "insert into tabSingles (doctype, field, value) values (%s, 'production_client_id', 'live-id')",
+                doctype,
+            )
 
     def _restore_rows_2509(self, doctype, rows):
         frappe.db.sql("delete from tabSingles where doctype=%s", doctype)
@@ -125,3 +176,62 @@ class TestSeedGatewaySandboxModeDefaults(FrappeTestCase):
     def test_the_patch_is_registered_as_a_fragment(self):
         patch_fragments.install()
         self.assertIn(PATCH, patch_handler.get_patches_from_app("verenigingen"))
+
+    def test_a_missing_row_with_live_credentials_is_left_and_one_error_log_is_written(self):
+        for target in (PONTO, MOLLIE):
+            self._drop_row_2509(target)
+            self._set_live_credentials_2509(target[0])
+        self._run_patch_2509()
+        for target in (PONTO, MOLLIE):
+            self.assertIsNone(_stored_value_2509(*target), "the live site is not flipped to test mode")
+            self.assertEqual(len(self._error_logs_2509(target[1])), 1, target)
+        self.assertFalse(MollieConfigurationService.is_test_mode(), "still reads live, as before")
+        self._run_patch_2509()
+        # a second run alerts again by design (a patch runs once); the first run wrote exactly one each
+        self.assertEqual(len(self._error_logs_2509("test_mode")), 2)
+
+    def test_an_error_log_names_the_doctype_and_field(self):
+        self._drop_row_2509(MOLLIE)
+        self._set_live_credentials_2509(MOLLIE[0])
+        self._run_patch_2509()
+        message = frappe.db.sql(
+            "select error from `tabError Log` where method like %s", "%.test_mode has no stored value%"
+        )[0][0]
+        self.assertIn("Mollie Settings.test_mode", message)
+
+    def test_a_present_row_with_live_credentials_is_untouched(self):
+        for target in (PONTO, MOLLIE):
+            self._drop_row_2509(target)
+            frappe.db.sql("insert into tabSingles (doctype, field, value) values (%s, %s, '0')", target)
+            self._set_live_credentials_2509(target[0])
+        self._run_patch_2509()
+        for target in (PONTO, MOLLIE):
+            self.assertEqual(_stored_value_2509(*target), "0")
+            self.assertEqual(self._error_logs_2509(target[1]), ())
+
+    def test_live_credentials_of_one_gateway_do_not_block_the_other(self):
+        for target in (PONTO, MOLLIE):
+            self._drop_row_2509(target)
+        self._set_live_credentials_2509(MOLLIE[0])
+        self._run_patch_2509()
+        self.assertEqual(_stored_value_2509(*PONTO), "1")
+        self.assertIsNone(_stored_value_2509(*MOLLIE))
+
+    def test_a_blank_or_null_row_is_seeded_without_live_credentials(self):
+        for blank in ("", None):
+            for target in (PONTO, MOLLIE):
+                self._drop_row_2509(target)
+                frappe.db.sql(
+                    "insert into tabSingles (doctype, field, value) values (%s, %s, %s)", (*target, blank)
+                )
+            self._run_patch_2509()
+            for target in (PONTO, MOLLIE):
+                self.assertEqual(_stored_value_2509(*target), "1", (target, blank))
+
+    def test_a_blank_row_with_live_credentials_is_left_and_alerted(self):
+        self._drop_row_2509(MOLLIE)
+        frappe.db.sql("insert into tabSingles (doctype, field, value) values (%s, %s, '')", MOLLIE)
+        self._set_live_credentials_2509(MOLLIE[0])
+        self._run_patch_2509()
+        self.assertEqual(_stored_value_2509(*MOLLIE), "")
+        self.assertEqual(len(self._error_logs_2509("test_mode")), 1)
