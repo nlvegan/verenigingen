@@ -162,6 +162,33 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mijnrood_division_unmapped": {
+        "label": "MijnRood Division Not Mapped (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event names a division id that no Chapter answers to, or whose "
+        "mapped Chapter is gone (the event is applied without its chapter step and MijnRood will not "
+        "resend it). At most once per 24h per division and reason. The mail names the division.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_role_mapping_invalid": {
+        "label": "MijnRood Role Mapping Invalid (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when the MijnRood role mapping points at a Role, Chapter Role or Team that is "
+        "missing or (for a Team) not active, so the event was applied without that step. At most once a "
+        "day per object and reason. The mail names the object.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_dues_template_unresolved": {
+        "label": "MijnRood Dues Template Unresolved (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a synced member's payment period has no dues schedule template in "
+        "Verenigingen Settings, so the dues schedule was skipped. At most once per 24h per payment period. "
+        "The mail names the period.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -925,6 +952,9 @@ REQUIRES_ACTION_KEYS = frozenset(
         "zabbix_system_alert",
         "mijnrood_disabled_default_type",
         "mijnrood_chapter_move_failed",
+        "mijnrood_division_unmapped",
+        "mijnrood_role_mapping_invalid",
+        "mijnrood_dues_template_unresolved",
     }
 )
 
