@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -103,6 +104,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     Returns:
         dict: Results of the cleanup operation
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_cleanup = is_confirmed(confirm_nuclear_cleanup)
+    dry_run = is_dry_run(dry_run)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
     validate_nuclear_confirmation(confirm_nuclear_cleanup)
@@ -159,6 +163,8 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -347,6 +353,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -355,6 +363,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         "orphaned_found": 0,
         "orphaned_removed": 0,
         "chapters_affected": [],
+        "chapters_failed": [],
+        "chapters_cleaned": 0,
         "errors": [],
     }
 
@@ -363,9 +373,9 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         results["chapters_checked"] = len(chapters)
 
         for chapter in chapters:
+            orphaned_indices = []
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter.name)
-                orphaned_indices = []
 
                 # Find orphaned members in this chapter
                 for i, member_row in enumerate(chapter_doc.members or []):
@@ -383,16 +393,16 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                     )
 
                     if not dry_run:
-                        # Remove orphaned entries (in reverse order to preserve indices)
-                        for idx, member_name in reversed(orphaned_indices):
-                            chapter_doc.remove(chapter_doc.members[idx])
-                            results["orphaned_removed"] += 1
-
-                        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-                        chapter_doc.save(ignore_permissions=True)
+                        _remove_orphans_atomically(chapter_doc, orphaned_indices)
+                        # Count only once the save has landed: a refused save (e.g. an
+                        # unrelated dangling board link) leaves every row in place.
+                        results["orphaned_removed"] += len(orphaned_indices)
+                        results["chapters_cleaned"] += 1
 
             except Exception as e:
                 results["errors"].append(f"{chapter.name}: {str(e)}")
+                if orphaned_indices and not dry_run:
+                    results["chapters_failed"].append(chapter.name)
 
         if dry_run:
             results["summary"] = (
@@ -400,8 +410,14 @@ def cleanup_orphaned_chapter_members(dry_run=True):
             )
         else:
             results["summary"] = (
-                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+                f"Removed {results['orphaned_removed']} orphaned members from "
+                f"{results['chapters_cleaned']} chapter(s)"
             )
+            if results["chapters_failed"]:
+                results["summary"] += (
+                    f"; {len(results['chapters_failed'])} chapter(s) failed and kept their orphans: "
+                    + ", ".join(results["chapters_failed"][:5])
+                )
             frappe.db.commit()
 
     except Exception as e:
@@ -409,6 +425,37 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _remove_orphans_atomically(chapter_doc, orphaned_indices):
+    """Remove the orphan rows and save, rolling back to the pre-state if anything fails.
+
+    A save can fail after it has already written (e.g. an `on_update` handler raising),
+    and the caller's final commit would then persist the half-saved chapter. frappe's
+    `savepoint()` context manager swallows the exception, so the savepoint is explicit
+    and the error is re-raised for the caller to report.
+    """
+    savepoint_name = "orphan_chapter_cleanup"
+    frappe.db.savepoint(savepoint_name)
+    try:
+        # Remove orphaned entries (in reverse order to preserve indices)
+        for idx, _member_name in reversed(orphaned_indices):
+            chapter_doc.remove(chapter_doc.members[idx])
+
+        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
+        chapter_doc.save(ignore_permissions=True)
+    except Exception:
+        try:
+            frappe.db.rollback(save_point=savepoint_name)
+        except Exception as rollback_error:
+            # A deadlock victim has already lost the whole transaction, so the savepoint is
+            # gone (1305). Keep the ORIGINAL error for the caller; only log this one.
+            frappe.log_error(
+                title="Orphaned Chapter Cleanup Rollback Error",
+                message=f"{chapter_doc.name}: savepoint rollback failed: {rollback_error}",
+            )
+        raise
+    frappe.db.release_savepoint(savepoint_name)
 
 
 @frappe.whitelist()
@@ -423,6 +470,8 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -1478,6 +1527,8 @@ def cleanup_all_test_data(dry_run=True):
         # Actually delete
         bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data --kwargs '{"dry_run": False}'
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = _new_cleanup_results(dry_run)
@@ -1546,8 +1597,8 @@ def cleanup_test_members_only(email_patterns: list | None = None, dry_run=False)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     if not email_patterns:
         email_patterns = ["%test@example.com", "%@test.com", "test_%@%", "%example.%", "%@test.%"]
@@ -1719,6 +1770,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         - Requires Verenigingen Administrator role
         - Rate limited to 2 uses per hour per user (via COR)
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_truncate = is_confirmed(confirm_nuclear_truncate)
+    dry_run = is_dry_run(dry_run)
     # Security validation - Verenigingen Administrator only
     _validate_verenigingen_admin_permissions()
 
@@ -2117,8 +2171,8 @@ def scan_and_clear_broken_links(
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     # Default target doctypes - common ones that get truncated
     default_targets = [

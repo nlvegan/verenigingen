@@ -573,6 +573,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mollie_forward_payment_staff_cancelled": {
+        "label": "Mollie Payment Delivered After Its Payment Entry Was Cancelled (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Mollie delivers a payment again after staff cancelled its Payment Entry. "
+        "The payment is NOT booked again; staff decide by hand. Sent once per payment. The mail names the "
+        "Mollie payment id and the amount.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "door_unavailable": {
         "label": "Application Door Unavailable (Admin)",
         "category": CATEGORY_ADMIN,
@@ -883,6 +892,7 @@ REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
         "ponto_executed_unbookable",
+        "mollie_forward_payment_staff_cancelled",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",

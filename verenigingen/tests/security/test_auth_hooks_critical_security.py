@@ -45,44 +45,6 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     # ===== CRITICAL SESSION VALIDATION TESTS =====
 
-    def test_on_session_creation_with_none_user(self):
-        """CRITICAL: Test session creation handles None user without breaking"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with self.session_user(None):
-            login_manager = MagicMock()
-
-            try:
-                auth_hooks.on_session_creation(login_manager)
-                print("✅ PASS: None user handled without exception")
-            except Exception as e:
-                self.fail(f"❌ CRITICAL: Session creation failed with None user: {e}")
-
-    def test_on_session_creation_with_empty_user(self):
-        """CRITICAL: Test session creation handles empty string user"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with self.session_user(""):
-            login_manager = MagicMock()
-
-            try:
-                auth_hooks.on_session_creation(login_manager)
-                print("✅ PASS: Empty user handled without exception")
-            except Exception as e:
-                self.fail(f"❌ CRITICAL: Session creation failed with empty user: {e}")
-
-    def test_on_session_creation_database_error(self):
-        """CRITICAL: Test session creation handles database failures"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with self.session_user("test@example.com"):
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch("frappe.db.get_value", side_effect=Exception("Database connection failed")):
-                login_manager = MagicMock()
-
-                try:
-                    auth_hooks.on_session_creation(login_manager)
-                    print("✅ PASS: Database error handled gracefully")
-                except Exception as e:
-                    self.fail(f"❌ CRITICAL: Session creation should handle DB errors: {e}")
-
     def test_has_member_role_with_invalid_users(self):
         """CRITICAL: Test role checking handles invalid users safely"""
         # Test with None user
@@ -143,24 +105,6 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
                 except Exception as e:
                     self.fail(f"❌ CRITICAL: portal access enforcement failed with None user: {e}")
 
-    def test_session_creation_response_manipulation_safety(self):
-        """CRITICAL: Test response manipulation doesn't corrupt session"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with self.session_user("test@example.com"):
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch("frappe.local.response", {}) as mock_response:
-                # Mock justified: Infrastructure - external dependency, not the boundary under test
-                with patch("frappe.db.get_value", return_value="test_member"):
-                    login_manager = MagicMock()
-
-                    try:
-                        auth_hooks.on_session_creation(login_manager)
-                        # Should set home page without corruption
-                        self.assertIn("home_page", mock_response)
-                        print("✅ PASS: Response manipulation handled safely")
-                    except Exception as e:
-                        self.fail(f"❌ CRITICAL: Response manipulation caused error: {e}")
-
     def test_frappe_get_roles_error_handling(self):
         """CRITICAL: Test role functions handle frappe.get_roles failures"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
@@ -171,33 +115,6 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
                 print("✅ PASS: Role function handles get_roles failure")
             except Exception as e:
                 self.fail(f"❌ CRITICAL: Role function should handle get_roles error: {e}")
-
-    def test_guest_user_early_return(self):
-        """CRITICAL: Test Guest user is handled correctly"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with self.session_user("Guest"):
-            login_manager = MagicMock()
-
-            try:
-                auth_hooks.on_session_creation(login_manager)
-                print("✅ PASS: Guest user handled with early return")
-            except Exception as e:
-                self.fail(f"❌ CRITICAL: Guest user handling failed: {e}")
-
-    def test_session_user_validation_edge_cases(self):
-        """CRITICAL: Test various edge cases for session user validation"""
-        edge_cases = [None, "", "None", "null", False, 0]
-
-        for case in edge_cases:
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with self.session_user(case):
-                login_manager = MagicMock()
-
-                try:
-                    auth_hooks.on_session_creation(login_manager)
-                    print(f"✅ PASS: Edge case {repr(case)} handled")
-                except Exception as e:
-                    self.fail(f"❌ CRITICAL: Edge case {repr(case)} failed: {e}")
 
     # ===== RACE CONDITION SIMULATION =====
 

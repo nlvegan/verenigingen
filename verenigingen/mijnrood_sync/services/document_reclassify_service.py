@@ -13,6 +13,7 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import is_dry_run
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.service_logger import get_service_logger
 
@@ -111,8 +112,7 @@ def reclassify_documents(names: str | list, dry_run: bool = True) -> dict:
         frappe.throw(_("`names` must be a list of Organization Document names"))
 
     # Coerce dry_run when called via HTTP (it arrives as str "true"/"false")
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() == "true"
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     if len(names) > MAX_BATCH:
         frappe.throw(

@@ -18,6 +18,7 @@ HTTP-calling branches live in ``test_ponto_doctype_unit.py``.
 
 import frappe
 
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -422,7 +423,7 @@ class TestPontoPaymentRequestExtra(EnhancedTestCase):
 
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = f"Ponto Test Supplier {frappe.generate_hash(length=6)}"
-        supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+        supplier.supplier_group = resolve_non_group_supplier_group()
         supplier.save()
         self.track_doc("Supplier", supplier.name)
 

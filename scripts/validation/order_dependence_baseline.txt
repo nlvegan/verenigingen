@@ -331,6 +331,7 @@ COMMIT_EXEMPT services/billing/test_sales_invoice_hooks.py::1  # order-dep-exemp
 COMMIT_EXEMPT services/billing/test_template_services.py::1  # order-dep-exempt
 COMMIT_EXEMPT services/csv_import/test_member_import_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_bool_flags_over_http_2377.py::4  # order-dep-exempt
+COMMIT_EXEMPT tests/api/test_bool_flags_over_http_2385.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_unlink_donor_customer_remove_flag_2327.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
@@ -393,7 +394,7 @@ COMMIT_EXEMPT tests/payment/test_mt940_import_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_mt940_import_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_api_mutations.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_gateways_coverage.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt

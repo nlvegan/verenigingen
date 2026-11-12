@@ -887,9 +887,8 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "rate_limit_calls": 5,
             "rate_limit_period_seconds": 3600,
             # Leave batch limits unset (None) to disable them. The COR controller
-            # now rejects batch_rate_limit_calls < 1, so 0 is no longer a valid way
-            # to express "no batch limits"; an unset value is treated as disabled
-            # by the engine (falsy batch_calls).
+            # accepts 0/blank as "no batch limit" (#1656; only negatives are
+            # refused), and the engine treats a falsy batch_calls as disabled.
             "batch_rate_limit_calls": None
         })
         cor.insert()
@@ -937,10 +936,9 @@ class TestScopedRateLimiting(VereningingenTestCase):
             frappe.db.commit()
 
         # Create a COR representing "no batch limits configured" - HIGH security.
-        # The COR controller rejects batch_rate_limit_calls < 1, AND the DocType
-        # applies a default of 5000 when the field is left unset, so we cannot
-        # express "unconfigured" at insert time. Insert with a valid batch value,
-        # then clear it directly in the DB (bypassing the default + validation) so
+        # The DocType applies a default of 5000 when the field is left unset, so
+        # "unconfigured" cannot be expressed at insert time. Insert with a valid
+        # batch value, then clear it directly in the DB (bypassing the default) so
         # the engine sees no batch limit and must inherit the interactive limit.
         cor = frappe.get_doc({
             "doctype": "Critical Operation Rule",
@@ -953,8 +951,7 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "batch_rate_limit_calls": 5000,
         })
         cor.insert()
-        # Set the batch limit to 0 directly (bypassing the controller's >=1
-        # validation and the field's 5000 default). The engine treats a falsy
+        # Set the batch limit to 0 directly (bypassing the field's 5000 default). The engine treats a falsy
         # batch_rate_limit_calls as "no batch limits configured", which is the
         # scenario under test. The column is NOT NULL, so 0 (not None) is used.
         frappe.db.set_value(

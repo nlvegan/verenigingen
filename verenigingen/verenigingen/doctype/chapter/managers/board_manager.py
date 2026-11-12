@@ -905,6 +905,10 @@ class BoardManager(BaseManager):
                 volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
                 if volunteer_doc.member:
                     self._add_to_chapter_members(volunteer_doc.member)
+                    # Seating a board member is not an application or a join the board is
+                    # told about (#1843): notify_board_of_joins skips these ids.
+                    seated = self.chapter_doc.flags.setdefault("board_seated_member_ids", set())
+                    seated.add(volunteer_doc.member)
                     self.log_action(
                         "Auto-added board member to chapter members",
                         {
