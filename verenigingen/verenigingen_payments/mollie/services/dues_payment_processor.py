@@ -784,11 +784,15 @@ class DuesPaymentProcessor:
                 result["skipped_reason"] = "Both Payment Entry and Bank Transaction already exist"
                 return result
 
-            # Only Payment Entry exists (legacy mode) - fully processed
+            # A Payment Entry exists (check_already_processed reports it without the Bank
+            # Transaction): the payment is booked. But the BT -> PE link is a separate step
+            # that can fail after the PE is submitted (#1803), leaving the cash both booked
+            # and in the reconciliation pool; a redelivery is the only retry there is.
             if has_payment_entry and not has_bank_transaction:
                 result["status"] = "already_processed"
                 result["payment_entry"] = idempotency_check["payment_entry"]
                 result["skipped_reason"] = "Payment Entry already exists (legacy mode)"
+                self._relink_unlinked_bank_transaction(payment_id, idempotency_check["payment_entry"], result)
                 return result
 
             # Identify payment type
@@ -874,7 +878,7 @@ class DuesPaymentProcessor:
                     # BT<->PE; partial processing must do the same or the existing
                     # BT and the new PE are left unlinked.
                     result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
-                        existing_bt, record_name
+                        existing_bt, record_name, payment_id=payment_id
                     )
                     result["message"] = (
                         f"Completed partial processing: Created Payment Entry {record_name} "
@@ -922,7 +926,7 @@ class DuesPaymentProcessor:
 
                             # Link BT to PE using ERPNext's reconciliation pattern
                             result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
-                                bt_name, pe_name
+                                bt_name, pe_name, payment_id=payment_id
                             )
                         else:
                             result["payment_entry"] = None
@@ -1035,12 +1039,39 @@ class DuesPaymentProcessor:
         )
         return match.invoice_name
 
-    def _reconcile_bank_transaction_with_payment_entry(self, bt_name: str, pe_name: str) -> bool:
+    def _relink_unlinked_bank_transaction(self, payment_id: str, pe_name: str, result: dict) -> None:
+        """Retry a BT -> PE link that failed earlier for an already-booked payment.
+
+        Acts only on a SUBMITTED Payment Entry and a SUBMITTED Bank Transaction of this
+        payment that carry no link row between them; anything else is left alone (a
+        cancelled or draft document is staff's or the retry path's business). Idempotent:
+        a linked pair is not touched, so no second Payment Entry or link row appears.
+        """
+        if frappe.db.get_value("Payment Entry", pe_name, "docstatus") != 1:
+            return
+        bt_name = frappe.db.get_value(
+            "Bank Transaction", {"reference_number": payment_id, "docstatus": 1}, "name"
+        )
+        if not bt_name:
+            return
+        if frappe.db.exists("Bank Transaction Payments", {"parent": bt_name, "payment_entry": pe_name}):
+            return
+        result["bank_transaction"] = bt_name
+        result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
+            bt_name, pe_name, payment_id=payment_id
+        )
+
+    def _reconcile_bank_transaction_with_payment_entry(
+        self, bt_name: str, pe_name: str, payment_id: Optional[str] = None
+    ) -> bool:
         """Link a Bank Transaction to a Payment Entry via ERPNext's reconciliation.
 
         Shared by the full-creation path (new BT + new PE) and partial processing
         (existing BT + new PE) so both leave the BT and PE reconciled. Returns
-        True on success, False (logged, non-fatal) on failure.
+        True on success, False on failure. A failure is non-fatal for the webhook (the
+        Payment Entry is already booked) but is written to the Error Log: the Bank
+        Transaction then stays in the reconciliation pool next to booked cash, and
+        frappe.logger() output is never read.
         """
         try:
             bt_doc = frappe.get_doc("Bank Transaction", bt_name)
@@ -1053,7 +1084,15 @@ class DuesPaymentProcessor:
             frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
             return True
         except Exception as e:
-            frappe.logger().warning(f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}")
+            frappe.log_error(
+                title="Mollie dues: Bank Transaction not linked to Payment Entry",
+                message=(
+                    f"Mollie payment {payment_id}: Payment Entry {pe_name} is booked but could not be "
+                    f"linked to Bank Transaction {bt_name}; the Bank Transaction stays unreconciled "
+                    f"and a redelivery will retry the link. Do not book it by hand again. Error: {e}\n\n"
+                    f"{frappe.get_traceback()}"
+                ),
+            )
             return False
 
     def _create_payment_entry_for_dues(

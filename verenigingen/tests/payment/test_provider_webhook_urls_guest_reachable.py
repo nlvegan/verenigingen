@@ -701,6 +701,120 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
             refusal.assert_refused_once(self, payment_id, f"{float(self.invoice_total):.2f}")
             self.assertEqual(self._invoice_outstanding(), float(self.invoice_total))
 
+    def _error_log_rows(self, title, payment_id):
+        """Error Log rows (MyISAM, so they survive rollback) naming this payment."""
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": title, "error": ["like", f"%{payment_id}%"]},
+            fields=["name", "error"],
+        )
+
+    def _force_the_bank_transaction_link_to_fail(self):
+        """Make ERPNext's ``add_payment_entries`` raise, the step the reviewer forced on #1803."""
+        from unittest.mock import patch
+
+        from erpnext.accounts.doctype.bank_transaction.bank_transaction import BankTransaction
+
+        return patch.object(BankTransaction, "add_payment_entries", side_effect=RuntimeError("link boom"))
+
+    LINK_FAILURE_TITLE = "Mollie dues: Bank Transaction not linked to Payment Entry"
+
+    def test_a_failed_bank_transaction_link_is_written_to_the_error_log(self):
+        """#1803 review F1: the PE is booked, the BT stays Unreconciled and the failure must
+        be VISIBLE (frappe.logger() writes nothing anyone reads). Probe shortcut: the failure is
+        forced by making ``add_payment_entries`` raise."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": self.LINK_FAILURE_TITLE, "error": ["like", f"%{payment_id}%"]})
+        self.expectErrorLog(self.LINK_FAILURE_TITLE)
+
+        with self._force_the_bank_transaction_link_to_fail():
+            self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual([p.docstatus for p in books["pes"]], [1], "fixture: the PE must be booked")
+        self.assertEqual(books["links"], [], "fixture: the link must have failed")
+        rows = self._error_log_rows(self.LINK_FAILURE_TITLE, payment_id)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn(books["pes"][0].name, rows[0].error)
+        self.assertIn(books["bts"][0].name, rows[0].error)
+        self.assertIn("link boom", rows[0].error)
+
+    def test_a_redelivery_links_the_bank_transaction_a_failed_link_left_behind(self):
+        """#1803 review F1: without this the booked cash sits in the reconciliation pool and
+        staff book it a second time. The redelivery links BT to the EXISTING PE: no second PE,
+        no second BT, one link row. A further redelivery changes nothing."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": self.LINK_FAILURE_TITLE, "error": ["like", f"%{payment_id}%"]})
+        self.expectErrorLog(self.LINK_FAILURE_TITLE)
+        with self._force_the_bank_transaction_link_to_fail():
+            self._post_mollie_notification(payment)
+        failed = self._allocation_state(payment_id)
+        self.assertEqual(len(failed["pes"]), 1, "fixture: the PE must be booked")
+        self.assertEqual(failed["links"], [], "fixture: the link must have failed")
+
+        result = self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertLess(self._http_status(), 400, result)
+        self.assertEqual([p.name for p in books["pes"]], [p.name for p in failed["pes"]], "a second PE was booked")
+        self.assertEqual([b.name for b in books["bts"]], [b.name for b in failed["bts"]])
+        self.assertEqual([k.payment_entry for k in books["links"]], [books["pes"][0].name])
+        self.assertEqual(books["bts"][0].status, "Reconciled")
+        self.assertEqual(books["bts"][0].allocated_amount, books["bts"][0].deposit)
+        settled = self._allocation_state(payment_id)
+
+        self._post_mollie_notification(payment)
+
+        self.assertEqual(self._allocation_state(payment_id), settled)
+
+    def test_a_redelivery_after_staff_cancelled_both_the_entry_and_the_bank_transaction_books_nothing(self):
+        """#1803 review F4: staff cancel the PE AND the BT, Mollie redelivers. Pins what happens:
+        nothing is booked, the webhook acknowledges (200), and the Error Log names the cancelled
+        Bank Transaction that holds the unique reference instead of claiming a lost "race condition". Probe shortcut: none; both cancels are real document cancels."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+        test_user = frappe.session.user
+
+        def book():
+            self._post_mollie_notification(payment)
+            frappe.set_user(test_user)
+            return frappe.get_all(
+                "Payment Entry", filters={"reference_no": payment_id, "docstatus": 1}, pluck="name"
+            )[0]
+
+        first = refusal.book_then_staff_cancel(self, payment_id, book)
+        bt_name = frappe.get_all("Bank Transaction", filters={"reference_number": payment_id}, pluck="name")[0]
+        bt = frappe.get_doc("Bank Transaction", bt_name)
+        if bt.docstatus == 1:
+            bt.cancel()
+        self.assertEqual(frappe.db.get_value("Bank Transaction", bt_name, "docstatus"), 2, "fixture")
+        held = "Bank Transaction Reference Held By Cancelled Row"
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": held, "error": ["like", f"%{payment_id}%"]})
+        self.expectErrorLog(held)
+        self.expectErrorLog("Secure Operation Failed")
+
+        result = self._post_mollie_notification(payment)
+
+        self.assertLess(self._http_status(), 400, result)
+        refusal.assert_not_rebooked(self, payment_id, first)
+        live_bts = frappe.get_all(
+            "Bank Transaction", filters={"reference_number": payment_id, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        self.assertEqual(live_bts, [], "a Bank Transaction was booked again")
+        self.assertEqual(self._invoice_outstanding(), float(self.invoice_total))
+        rows = self._error_log_rows(held, payment_id)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn(bt_name, rows[0].error)
+        self.assertEqual(
+            self._error_log_rows("Bank Transaction Race Condition Error", payment_id),
+            [],
+            "a cancelled Bank Transaction was reported as a lost race",
+        )
+
     def test_a_genuine_failure_to_book_the_allocated_entry_still_answers_5xx(self):
         """Control for the #2406 acknowledgement: it is for the staff-cancel refusal ONLY. Same
         shape (a BT exists, the invoice matches, the writer books nothing) but nobody cancelled

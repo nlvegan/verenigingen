@@ -845,6 +845,24 @@ class BankTransactionCreator:
                             )
                             return existing_match.name
 
+                        # The unique key also covers CANCELLED rows, which the lookup above
+                        # rightly skips. Say so instead of reporting a race nobody lost (#1803):
+                        # the reference belongs to a Bank Transaction staff cancelled.
+                        cancelled_bt = frappe.db.get_value(
+                            "Bank Transaction", {"reference_number": reference_number, "docstatus": 2}, "name"
+                        )
+                        if cancelled_bt:
+                            frappe.log_error(
+                                title="Bank Transaction Reference Held By Cancelled Row",
+                                message=(
+                                    f"Not booking {reference_number} again: its Bank Transaction "
+                                    f"{cancelled_bt} was cancelled and still holds the unique "
+                                    f"reference (bank_account={bank_account}). Staff decide whether "
+                                    f"to book it by hand."
+                                ),
+                            )
+                            return None
+
                         frappe.logger().error(
                             f"❌ CRITICAL: Bank Transaction create failed on a duplicate "
                             f"key for {reference_number} but cannot find existing record"
