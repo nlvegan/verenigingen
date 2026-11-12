@@ -273,6 +273,7 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(called_payment_id, f"tr_second_{tag}")
 
     def test_booking_failure_is_recorded_not_raised(self):
+        self.expectErrorLog("Recurring Donation Charge Sweep")
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
         client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_second_{tag}")]})
@@ -291,6 +292,7 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(summary["errors"][0]["payment_id"], f"tr_second_{tag}")
 
     def test_one_subscription_failing_does_not_stop_the_sweep(self):
+        self.expectErrorLog("Recurring Donation Charge Sweep")
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
         tag2 = frappe.generate_hash(length=8)

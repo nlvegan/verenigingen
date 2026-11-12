@@ -1350,12 +1350,12 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
 
     def test_945_a_staff_cancelled_booking_is_not_rebooked_by_the_sweep(self):
-        """No ruling covers a cancelled donation Journal Entry; the sweep leaves it alone.
+        """Control for the discard test below: a booking staff cancelled stays cancelled.
 
-        The #2406 ruling (a staff-cancelled booking is not re-booked on
-        redelivery) was made for forward Payment Entries; for donations nothing
-        has been ruled, so the sweep keeps its old behaviour of not touching a
-        charge staff have already acted on.
+        No ruling covers a cancelled donation Journal Entry; the #2406 ruling is
+        about forward Payment Entries. What tells this apart from a discarded
+        submit is Donation.journal_entry, which still points at the cancelled
+        entry here (asserted, so the control cannot drift into the other case).
         """
         origin = self._setup_origin()
         payment_id = f"tr_sweep_cancelled_{self.tag}"
@@ -1364,12 +1364,96 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         je_name = self._live_journal_entries(payment_id)[0]
         frappe.get_doc("Journal Entry", je_name).cancel()
         self.assertEqual(self._live_journal_entries(payment_id), [], "precondition: staff cancelled it")
+        self.assertEqual(
+            frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"),
+            je_name,
+            "precondition: a staff cancel leaves the Donation pointing at the cancelled entry",
+        )
+        self.expectErrorLog("Recurring Donation Sweep Skipped Cancelled Bookings")
+        title = "Recurring Donation Sweep Skipped Cancelled Bookings"
+        before = frappe.db.count("Error Log", {"method": title})
 
         summary = self._run_recurring_sweep(payment)
 
         self.assertEqual(summary["charges_booked"], 0, summary)
         self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
         self.assertEqual(self._live_journal_entries(payment_id), [], "the sweep re-booked a cancelled entry")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+        row = frappe.get_all(
+            "Error Log", filters={"method": title}, fields=["error"], order_by="creation desc", limit=1
+        )[0]
+        self.assertIn(payment_id, row.error)
+
+    def test_945_a_booking_discarded_at_submit_is_booked_by_the_sweep(self):
+        """The real discard route: a submit that fails to post leaves a CANCELLED entry.
+
+        DonationJournalEntryCreator cancels the entry it could not post, so the
+        key is free again and nothing was ever booked; unlike a staff cancel,
+        Donation.journal_entry stays empty. Reproduced through the real creator
+        by giving the donation income account balance_must_be=Debit.
+        """
+        from verenigingen.tests.fixtures.ledger_failure_accounts import make_balance_restricted_account
+
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_discard_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        good_account = frappe.db.get_single_value("Verenigingen Settings", "unrestricted_donation_account")
+        self.expectErrorLog(
+            "Secure Operation Failed: submit on Journal Entry",
+            "Mollie Journal Entry Not Posted",
+            "financial_entry_error",
+        )
+        frappe.db.set_single_value(
+            "Verenigingen Settings",
+            "unrestricted_donation_account",
+            make_balance_restricted_account(COMPANY, "Income", "Debit"),
+        )
+        try:
+            self._deliver(payment)
+        finally:
+            frappe.db.set_single_value("Verenigingen Settings", "unrestricted_donation_account", good_account)
+
+        cancelled = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment_id, "docstatus": 2}, pluck="name"
+        )
+        self.assertEqual(len(cancelled), 1, "precondition: the creator discarded the unposted entry")
+        self.assertEqual(self._live_journal_entries(payment_id), [])
+        self.assertFalse(frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"))
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 1, summary)
+        self.assertEqual(summary["charges_booking_cancelled"], 0, summary)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+
+    def test_945_a_charge_younger_than_the_webhook_retry_window_is_left_to_its_webhook(self):
+        """The sweep must not race a webhook that may still be retrying (double-booking window)."""
+        from datetime import datetime, timedelta, timezone
+
+        from verenigingen.verenigingen_payments.mollie.services import recurring_donation_charge_sweep
+
+        window = recurring_donation_charge_sweep._WEBHOOK_RETRY_WINDOW
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_young_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self._deliver_failing_booking(payment)
+
+        def _paid_at(age):
+            stamp = (datetime.now(timezone.utc) - age).isoformat()
+            payment["paidAt"] = stamp
+            payment.paid_at = stamp
+
+        _paid_at(window - timedelta(hours=1))
+        young = self._run_recurring_sweep(payment)
+        self.assertEqual(young["charges_too_recent"], 1, young)
+        self.assertEqual(young["charges_booked"], 0, young)
+        self.assertEqual(self._live_journal_entries(payment_id), [], "a young charge was swept")
+
+        _paid_at(window + timedelta(hours=1))
+        old = self._run_recurring_sweep(payment)
+        self.assertEqual(old["charges_too_recent"], 0, old)
+        self.assertEqual(old["charges_booked"], 1, old)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
 
     def test_945_a_sweep_problem_is_reported_in_the_error_log(self):
         """A failed subscription listing must leave a durable Error Log row, not only a file log."""
