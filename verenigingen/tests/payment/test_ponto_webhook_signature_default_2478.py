@@ -68,6 +68,19 @@ class TestPontoWebhookSignatureDefault(sibling._GuestWebhookCase):
         self._seed_row(FIELD, "0")
         self.assertEqual(self._post_unsigned(), PROCESSED)
 
+    def test_a_blank_or_null_row_requires_the_signature(self):
+        """Only an explicit '0' is an opt-out: the Document reads a blank or NULL value as 0 too.
+        Probe shortcut: the blank/NULL rows are hand-written (a save never produces them)."""
+        for value in ("", None):
+            with self.subTest(value=value):
+                self._seed_row(FIELD, "x")
+                frappe.db.sql(
+                    "update tabSingles set value = %s where doctype=%s and field=%s", (value, DT, FIELD)
+                )
+                frappe.clear_document_cache(DT, DT)
+                self.assertEqual(frappe.get_single(DT).get(FIELD), 0, "control: the Document reads it as 0")
+                self.assertEqual(self._post_unsigned(), REFUSED)
+
     def test_an_explicit_one_requires_the_signature(self):
         self._seed_row(FIELD, "1")
         self.assertEqual(self._post_unsigned(), REFUSED)

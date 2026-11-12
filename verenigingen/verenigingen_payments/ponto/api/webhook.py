@@ -226,12 +226,16 @@ def is_signature_required(settings) -> bool:
     A Single's JSON default is applied only when the doctype has no ``tabSingles`` rows at all. A
     site that saved Ponto Settings before ``require_webhook_signature`` existed has rows for the
     other fields and none for this one, so the Document reads it as 0 ("not required"), which is
-    the insecure mode. A missing row therefore means required, while a real row of 0 is the
-    operator's explicit opt-out.
+    the insecure mode. The Document also reads a blank or NULL value as 0. Only an explicit "0" row
+    is the operator's opt-out; a missing, blank or NULL row means required.
+
+    With no rows at all the Document applies the JSON default 1, so its value is trusted: only a
+    Property Setter could make it 0 there, and that is an explicit operator choice.
     """
     try:
-        has_rows, has_field_row = frappe.db.sql(
-            "SELECT COUNT(*), COALESCE(SUM(field = %s), 0) FROM tabSingles WHERE doctype = %s",
+        has_rows, has_field_value = frappe.db.sql(
+            "SELECT COUNT(*), COALESCE(SUM(field = %s AND value IS NOT NULL AND value != ''), 0) "
+            "FROM tabSingles WHERE doctype = %s",
             ("require_webhook_signature", "Ponto Settings"),
         )[0]
     except Exception:
@@ -240,7 +244,7 @@ def is_signature_required(settings) -> bool:
             message=frappe.get_traceback(),
         )
         return True
-    if has_rows and not has_field_row:
+    if has_rows and not has_field_value:
         return True
     return bool(getattr(settings, "require_webhook_signature", True))
 
