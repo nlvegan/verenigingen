@@ -25,6 +25,7 @@ from frappe.utils import add_days, getdate, now_datetime, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.services.communication.email_service import get_email_service, EmailService
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
@@ -541,6 +542,8 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         """Test complete member status change notification flow"""
         # A skipped send is invisible to the handler; own the key so the send is real (#2010).
         own_notification_keys(self, "member_application_approved")
+        # EmailService refuses to send without an outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
         # The job re-checks that the approval it was queued for still holds (#2144).
         self.test_member.db_set("application_status", "Approved", update_modified=False)
         # Mock justified: External Service - SMTP delivery, not business logic

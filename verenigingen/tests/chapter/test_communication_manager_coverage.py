@@ -24,6 +24,8 @@ from verenigingen.tests.utils.reminder_mail_state import (
 class TestCommunicationManagerCoverage(VereningingenTestCase):
     def setUp(self):
         super().setUp()
+        # EmailService refuses to queue without an outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
         self.chapter = self.create_test_chapter(
             chapter_name=f"CommCov Chapter {frappe.generate_hash(length=6)}",
             postal_codes="1000-9999",

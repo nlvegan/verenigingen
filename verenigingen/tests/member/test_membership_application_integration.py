@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestMembershipApplicationIntegration(EnhancedTestCase):
@@ -244,6 +245,8 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         
         # A skipped send is also success=True; own the key so the fallback send is proven (#2010).
         own_notification_keys(self, "member_application_approved")
+        # EmailService refuses to send without an outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
 
         # Only mock actual email infrastructure to prevent sending during tests
         # Mock justified: External Service - SMTP delivery, not business logic
