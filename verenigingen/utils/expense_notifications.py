@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, escape_html, flt, fmt_money, formatdate, today
 
+from verenigingen.permissions import _get_board_chapters_for_member
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Mirrors the roles allowed on the Chapter Expense Report (its ref_doctype is
@@ -18,6 +19,8 @@ _REMINDER_ROLES = (
     "Verenigingen Administrator",
     "Verenigingen Chapter Board Member",
 )
+# Staff/admin roles run the reminder org-wide; a board member only for their own chapter(s) (#1809).
+_ORG_WIDE_REMINDER_ROLES = ("System Manager", "Verenigingen Administrator")
 
 
 @frappe.whitelist()
@@ -42,13 +45,19 @@ def send_overdue_reminders(days_overdue: int = 7):
     days_overdue = cint(days_overdue) or 7
     cutoff = add_days(today(), -days_overdue)
 
+    filters = {
+        "approval_status": "Draft",
+        "docstatus": ["<", 2],
+        "posting_date": ["<=", cutoff],
+    }
+    if not any(role in frappe.get_roles() for role in _ORG_WIDE_REMINDER_ROLES):
+        # A board member answers for their own chapter(s) only: the counts and the mails must
+        # not reach other chapters' claims. Claims with no chapter are staff-only.
+        filters["custom_chapter"] = ["in", _own_board_chapters_or_refuse()]
+
     claims = frappe.get_all(
         "Expense Claim",
-        filters={
-            "approval_status": "Draft",
-            "docstatus": ["<", 2],
-            "posting_date": ["<=", cutoff],
-        },
+        filters=filters,
         fields=[
             "name",
             "posting_date",
@@ -83,6 +92,18 @@ def send_overdue_reminders(days_overdue: int = 7):
             approvers_notified, len(claims) - unassigned
         ),
     }
+
+
+def _own_board_chapters_or_refuse() -> list:
+    """Chapters where the caller holds an ACTIVE board seat (identity: Member.user only, #1546).
+
+    No seat means nothing to remind about: refuse with the same message as the role gate.
+    """
+    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+    chapters = _get_board_chapters_for_member(member)
+    if not chapters:
+        frappe.throw(_("You are not permitted to send expense reminders"))
+    return chapters
 
 
 def _send_reminder_email(approver: str, claims: list, days_overdue: int) -> None:
