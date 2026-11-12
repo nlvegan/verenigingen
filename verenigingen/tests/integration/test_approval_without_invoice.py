@@ -543,7 +543,9 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         def fail_submit(*args, **kwargs):
             if kwargs.get("operation") == "submit":
-                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+                return SimpleNamespace(
+                    success=False, errors=["forced submit failure"], doc_name=None, partial_write=False
+                )
             return real(*args, **kwargs)
 
         self.expectErrorLog("Membership Invoice Creation Failed", "Membership Invoice Security")
@@ -553,6 +555,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
     def test_a_draft_left_by_a_failed_submit_is_refused_and_no_second_invoice_is_created(self):
         application = self._stage_and_confirm()
+        still_submitted_before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
         response, mails, _outcomes, _errors = self._approve_with_failing_submit(application)
         member = response["member"]
         self.assertTrue(response["invoice_failed"], response)
@@ -564,6 +567,11 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
             pluck="name",
         )
         self.assertEqual(len(drafts), 1, "control: the failed submit left a draft membership invoice")
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}),
+            still_submitted_before,
+            "a clean failure (nothing written) is not compensated: no cancel was attempted",
+        )
 
         with self.assertRaises(frappe.ValidationError) as refused:
             self._retry(application)
@@ -571,6 +579,76 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertIn("draft membership invoice exists", str(refused.exception))
         self.assertEqual(self._invoices_of(member), drafts, "no second invoice")
         self.assertTrue(self._marker(application), "the marker is kept")
+
+    def _approve_with_on_submit_failing_after_the_write(self, application):
+        """Approve with a REAL submit whose ``on_submit`` raises AFTER the real one ran (#938): ``save()``
+        has by then written docstatus=1 and the GL rows, so the invoice is submitted and posted, and the
+        submit still reports failure. The fault is injected on the doctype class, below
+        ``secure_document_operation`` and every other layer that could swallow it."""
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+
+        real_on_submit = SalesInvoice.on_submit
+
+        def on_submit_then_fail(doc, *args, **kwargs):
+            real_on_submit(doc, *args, **kwargs)
+            raise frappe.ValidationError("forced on_submit failure after the ledger posting")
+
+        self.expectErrorLog(
+            "Membership Invoice Creation Failed",
+            "Membership Invoice Security",
+            "Secure Operation Failed",
+        )
+        # Mock justified: fault injection on the doctype's own hook; the real on_submit still runs first
+        with patch.object(SalesInvoice, "on_submit", on_submit_then_fail):
+            return self._approve_capturing_mail(application, create_invoice=True)
+
+    def _membership_invoices(self, member):
+        return frappe.get_all(
+            "Sales Invoice",
+            {"customer": frappe.db.get_value("Member", member, "customer"), "is_membership_invoice": 1},
+            ["name", "docstatus"],
+        )
+
+    def _live_gl_rows(self, invoice):
+        return frappe.db.count("GL Entry", {"voucher_no": invoice, "is_cancelled": 0})
+
+    def test_a_submit_that_fails_after_its_write_leaves_no_submitted_invoice_and_the_retry_creates_a_fresh_one(
+        self,
+    ):
+        application = self._stage_and_confirm()
+        response, mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(application)
+        member = response["member"]
+
+        self.assertTrue(response["invoice_failed"], response)
+        self.assertEqual(mails, [], "the held approval mail is not sent")
+        self.assertTrue(self._marker(application), "the #1900 retry marker is set")
+        stranded = self._membership_invoices(member)
+        self.assertEqual(len(stranded), 1, "the failed submit left its invoice row behind")
+        self.assertEqual(
+            stranded[0].docstatus, 2, "the invoice is cancelled, not left submitted with a posted ledger"
+        )
+        self.assertEqual(self._live_gl_rows(stranded[0].name), 0, "no live GL row of the failed invoice")
+        self.assertEqual(self._invoices_of(member), [], "no live invoice: the member is un-invoiced")
+
+        response, mails = self._retry(application)
+
+        self.assertTrue(response["success"], response)
+        self.assertNotEqual(response["invoice"], stranded[0].name, "a FRESH invoice, not the stranded one")
+        self.assertEqual(self._invoices_of(member), [response["invoice"]])
+        self.assertEqual(frappe.db.get_value("Sales Invoice", response["invoice"], "docstatus"), 1)
+        self.assertEqual(len(mails), 1, "the held mail goes out once, with the fresh invoice's link")
+        self.assertIn(f"/payment/membership/{member}/{response['invoice']}", mails[0]["content"])
+        self.assertFalse(self._marker(application), "success clears the marker")
+
+    def test_control_a_submit_that_succeeds_stays_submitted_and_posted(self):
+        application = self._stage_and_confirm()
+        response, mails, _outcomes, _errors = self._approve_capturing_mail(application, create_invoice=True)
+
+        self.assertFalse(response["invoice_failed"], response)
+        rows = self._membership_invoices(response["member"])
+        self.assertEqual([(r.name, r.docstatus) for r in rows], [(response["invoice"], 1)])
+        self.assertGreater(self._live_gl_rows(response["invoice"]), 0, "control: a posted ledger")
+        self.assertFalse(self._marker(application))
 
     def test_a_submitted_invoice_created_another_way_is_mailed_not_duplicated(self):
         """PROBE SHORTCUT, stated: the 'other route' (scheduler or manual) is stood in for by calling the
@@ -658,7 +736,9 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         def fail_submit(*args, **kwargs):
             if kwargs.get("operation") == "submit":
-                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+                return SimpleNamespace(
+                    success=False, errors=["forced submit failure"], doc_name=None, partial_write=False
+                )
             return real(*args, **kwargs)
 
         service = MembershipCreationService()

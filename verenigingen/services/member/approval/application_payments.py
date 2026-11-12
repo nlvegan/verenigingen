@@ -147,14 +147,44 @@ def create_membership_invoice_with_amount(member, membership, amount, period_sta
 
     if not submit_result.success:
         frappe.log_error(
-            message=f"Failed to submit membership invoice {invoice.name}: {'; '.join(submit_result.errors)}",
             title="Membership Invoice Security",
+            message=f"Failed to submit membership invoice {invoice.name}: {'; '.join(submit_result.errors)}",
         )
+        if submit_result.partial_write:
+            _cancel_unposted_membership_invoice(invoice.name, member.name)
         frappe.throw(_("Failed to submit membership invoice. Please contact support."))
 
     invoice.reload()
 
     return invoice
+
+
+def _cancel_unposted_membership_invoice(invoice_name, member_name):
+    """Cancel a membership invoice whose submit failed AFTER writing docstatus=1 (#938).
+
+    ``Document.save()`` writes docstatus before ``on_submit`` posts the ledger, and
+    ``secure_document_operation`` does not roll back, so a failed submit can leave a submitted invoice
+    with GL rows that nobody intended to post. Left alone, the approval's retry (#1900) finds it as a
+    live submitted invoice and mails its payment link. Cancelled, not deleted: cancelling reverses
+    whatever was posted and keeps the record of the failed attempt; the retry ignores a cancelled
+    invoice and creates a fresh one. Escalated like the submit, because the approver need not hold
+    Sales Invoice permissions. A failure here is reported, never raised over the original error.
+    """
+    cancel_result = secure_document_operation(
+        operation="cancel",
+        doc=frappe.get_doc("Sales Invoice", invoice_name),
+        justification=f"Cancel membership invoice {invoice_name} for member {member_name} - its submit failed after docstatus was written",
+        required_permissions=["Sales Invoice:cancel"],
+    )
+    docstatus = frappe.db.get_value("Sales Invoice", invoice_name, "docstatus")
+    if not cancel_result.success or docstatus != 2:
+        errors = "; ".join(cancel_result.errors or [])
+        frappe.log_error(
+            title="Membership Invoice Still Submitted",
+            message=f"Membership invoice {invoice_name} for member {member_name} failed to submit but is at "
+            f"docstatus={docstatus} and could not be cancelled ({errors}). Cancel it by hand before "
+            "retrying the application's invoice.",
+        )
 
 
 def _first_coverage_period(member, membership_type, period_start):
