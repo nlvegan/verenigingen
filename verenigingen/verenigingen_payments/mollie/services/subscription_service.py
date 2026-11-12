@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
 
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
@@ -478,26 +477,29 @@ class SubscriptionService:
         )
 
     def _update_member_subscription_canceled(self, member_id: str, subscription_id: str, reason: str):
-        """Update member record when subscription is canceled.
+        """Record the cancel on the Member (status + cancelled date).
 
-        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        Neither Member nor Donor has a field for the reason, so it is only logged.
+        Security: system write, called from authenticated webhook or role-restricted sync API.
         """
-        member = frappe.get_doc("Member", member_id)
-        member.subscription_status = "canceled"
-        member.subscription_cancel_reason = reason
-        member.subscription_canceled_at = now_datetime()
-        member.save(ignore_permissions=True)
+        self._record_owner_cancel("Member", member_id, subscription_id, reason)
 
     def _update_donor_subscription_canceled(self, donor_id: str, subscription_id: str, reason: str):
-        """Update donor record when subscription is canceled.
+        """Record the cancel on the Donor.
 
-        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        Donor declares no subscription fields, so the shared writer skips them all.
+        Security: system write, called from authenticated webhook or role-restricted sync API.
         """
-        donor = frappe.get_doc("Donor", donor_id)
-        donor.subscription_status = "canceled"
-        donor.subscription_cancel_reason = reason
-        donor.subscription_canceled_at = now_datetime()
-        donor.save(ignore_permissions=True)
+        self._record_owner_cancel("Donor", donor_id, subscription_id, reason)
+
+    def _record_owner_cancel(self, owner_doctype: str, owner_name: str, subscription_id: str, reason: str):
+        """Delegate to CompletePaymentService, which writes only fields the DocType declares (#873)."""
+        # Local import: complete_payment_service pulls in the webhook stack.
+        from .complete_payment_service import CompletePaymentService
+
+        CompletePaymentService(self.client)._update_subscription_status(
+            subscription_id, "canceled", reason, owner_doctype, owner_name
+        )
 
     def _find_subscription_for_payment(self, customer_id: str, payment) -> Dict[str, Any]:
         """Find which subscription a payment belongs to."""

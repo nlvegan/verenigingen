@@ -24,7 +24,9 @@ reading the subscription back from Mollie afterwards
 for: a real recurring payment (here, its governing subscription) is cancelled
 against Mollie's live test API, not a mock.
 
-What is NOT proven -- a documented existing bug, not a gap in this test
+What is NOT proven -- (history: this was bug #873, now fixed; Member records
+status + subscription_cancelled_date, Donor has no fields so nothing is written;
+the reason is only logged. The paragraph below describes the pre-fix state.)
 -------------------------------------------------------------------------
 `_update_member_subscription_canceled` sets `member.subscription_cancel_reason`
 and `member.subscription_canceled_at`. Neither is a declared field on Member
@@ -56,6 +58,7 @@ cancelled, customers deleted) best-effort in tearDown.
 from datetime import datetime, timezone
 
 import frappe
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
@@ -175,9 +178,14 @@ class TestSubscriptionCancelBookkeepingLive(EnhancedTestCase):
         # hold vacuously regardless of what production code does -- that
         # attribute was never set on THIS object either way. Instead: assert
         # the real Member field the fix should actually populate
-        # (subscription_cancelled_date) is still untouched today. This flips
-        # to a real date once #873 lands.
-        self.assertIsNone(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
+        # (subscription_cancelled_date) now carries the cancel date (#873 landed;
+        # this used to pin None, as its own comment said it would flip).
+        self.assertEqual(
+            str(frappe.db.get_value("Member", member.name, "subscription_cancelled_date")), today()
+        )
+        # Control: the two names the old code wrote are still not Member fields.
+        self.assertFalse(frappe.get_meta("Member").has_field("subscription_cancel_reason"))
+        self.assertFalse(frappe.get_meta("Member").has_field("subscription_canceled_at"))
 
     def test_cancel_subscription_recurring_donation_cancels_at_mollie(self):
         """cancel_subscription() with recurring_donation metadata against a real
@@ -216,9 +224,8 @@ class TestSubscriptionCancelBookkeepingLive(EnhancedTestCase):
         status = self.service.get_subscription_status(customer_id, subscription_id)
         self.assertEqual(status["status"], "canceled")
 
+        # #873: Donor declares none of the subscription fields, so nothing is
+        # written and the Donor is no longer re-saved for nothing. The branch
+        # itself running is proven by the offline test_subscription_cancel_bookkeeping.
         donor_modified_after = frappe.db.get_value("Donor", donor.name, "modified")
-        self.assertNotEqual(
-            donor_modified_after,
-            donor_modified_before,
-            "Donor was never re-saved -- the recurring_donation metadata branch did not run",
-        )
+        self.assertEqual(donor_modified_after, donor_modified_before)
