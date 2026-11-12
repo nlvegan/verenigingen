@@ -299,7 +299,7 @@ class PaymentReconciliationManager:
             f"{self.match_threshold:.2f}. Reason: {best_match.get('match_reason')}"
         )
         try:
-            if self._last_near_miss_comment(name) == content:
+            if self._near_miss_already_recorded(name, content):
                 return
             bank_trans = frappe.get_doc("Bank Transaction", name)
         except Exception as e:
@@ -310,21 +310,27 @@ class PaymentReconciliationManager:
             return
         self._add_comment_without_failing(bank_trans, content)
 
-    def _last_near_miss_comment(self, bank_transaction_name):
-        """Content of the newest near-miss Comment on this transaction, or None."""
-        rows = frappe.get_all(
-            "Comment",
-            filters={
-                "reference_doctype": "Bank Transaction",
-                "reference_name": bank_transaction_name,
-                "comment_type": "Comment",
-                "content": ["like", f"{self.NEAR_MISS_COMMENT_MARKER}%"],
-            },
-            fields=["content"],
-            order_by="creation desc, name desc",
-            limit_page_length=1,
+    def _near_miss_already_recorded(self, bank_transaction_name, content):
+        """True when ANY earlier near-miss Comment on this transaction has this content.
+
+        Any, not just the newest: a candidate that alternates A, B, A would otherwise be
+        rewritten every run. Compared in the form Comment.validate stores (it sanitises
+        content, so '&' is stored as '&amp;').
+        """
+        stored_form = frappe.utils.sanitize_html(
+            content, always_sanitize=True, disallowed_tags=["form", "input", "button"]
         )
-        return rows[0].content if rows else None
+        return bool(
+            frappe.db.exists(
+                "Comment",
+                {
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                    "comment_type": "Comment",
+                    "content": stored_form,
+                },
+            )
+        )
 
     def match_by_batch_reference(self, transaction):
         """Match transaction by SEPA batch reference"""

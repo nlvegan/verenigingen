@@ -1027,6 +1027,38 @@ class TestMatchTransactionAndReconcile(BTRBase):
         self.assertEqual(len(comments), 2)
         self.assertIn(other["invoice"].name, " ".join(comments))
 
+    def test_alternating_near_misses_are_recorded_once_each(self):
+        """A, B, A, A: the A comment already exists, so only A and B are written. Dedupe
+        compares against EVERY earlier near-miss comment, not just the newest."""
+        _it, bt = self._near_miss_fixture("NearMissAlt", 64.0)
+        txn_a = self._txn_dict(bt)
+        other = self._make_member_with_invoice(first_name="NearMissAltB", grand_total=64.0)
+        frappe.db.set_value(
+            "Sales Invoice",
+            other["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 64.0},
+            update_modified=False,
+        )
+        txn_b = dict(txn_a, description=other["member"].full_name.upper()[:-5] + "QXQXQ")
+        for txn in (txn_a, txn_b, txn_a, txn_a):
+            self.assertFalse(self.mgr.match_transaction(txn))
+        self.assertEqual(len(self._near_miss_comments(bt)), 2)
+
+    def test_near_miss_with_html_special_characters_is_still_deduplicated(self):
+        """Comment.validate sanitises content ('&' -> '&amp;'), so the stored text never
+        equals the freshly built text; the comparison must allow for that."""
+        _it, bt = self._near_miss_fixture("NearMissEsc", 65.0)
+        txn = self._txn_dict(bt)
+        match = {
+            "type": "invoice",
+            "reference": "SINV-X",
+            "confidence": 0.7,
+            "match_reason": "Name match: A & B <C> (score: 0.78)",
+        }
+        for _ in range(2):
+            self.mgr._record_near_miss(txn, match)
+        self.assertEqual(len(self._near_miss_comments(bt)), 1)
+
     def test_above_threshold_match_reconciles_and_writes_no_near_miss_comment(self):
         """Control: the trace is only for refusals."""
         it = self._make_member_with_invoice(first_name="NearMissCtl", grand_total=31.0)
