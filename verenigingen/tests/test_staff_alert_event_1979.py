@@ -463,6 +463,8 @@ class TestStaffAlertEvent(FrappeTestCase):
                 "ponto_executed_unbookable",
                 # "mollie_forward_payment_staff_cancelled" (#2406) likewise: literal key, staff_alert=True.
                 "mollie_forward_payment_staff_cancelled",
+                # "mollie_ambiguous_party" (#1497): literal key, staff_alert=True.
+                "mollie_ambiguous_party",
             },
             "control: every literal-key call site was found",
         )

@@ -68,7 +68,8 @@ class PaymentTypeRouter:
 
         Returns:
             Dict with classification details:
-                - payment_type: "dues", "donation", or "unknown"
+                - payment_type: "dues", "donation", "order", "unknown" or "ambiguous"
+                  (a Mollie id held by several Members; route_payment refuses it)
                 - confidence: Confidence level of classification
                 - matched_by: Which rule produced the classification
                 - member_id: Associated member (if dues)

@@ -128,7 +128,8 @@ class DuesPaymentProcessor:
             payment: Mollie payment object
 
         Returns:
-            str: "dues", "donation", or "unknown"
+            str: "dues", "donation", "order", "unknown", or "ambiguous" (a Mollie id several
+            Members hold; callers that act only on "dues" or "donation" refuse it)
         """
         result = self.classifier.classify(payment)
         return result.payment_type

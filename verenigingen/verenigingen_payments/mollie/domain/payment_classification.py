@@ -48,6 +48,11 @@ class PaymentPatterns:
 
 
 # Payment type constants (replaces magic strings)
+MEMBER_LOG_TITLE = "Mollie payment classification: ambiguous party"
+DONOR_LOG_TITLE = "Mollie payment classification: duplicate donors"
+AMBIGUOUS_ALERT_KEY = "mollie_ambiguous_party"
+
+
 class PaymentType:
     """Constants for payment types"""
 
@@ -135,7 +140,9 @@ class DatabaseLookupClassification(PaymentClassificationRule):
         # Check Member records first (membership dues)
         members = self._names_with_value("Member", field_name, field_value)
         if len(members) > 1:
-            return _ambiguous_result("Member", field_name, field_value, members, payment, match_type)
+            return _ambiguous_result(
+                "Member", field_name, field_value, members, payment, match_type, confidence
+            )
         if members:
             member = members[0]
             frappe.logger().debug(
@@ -151,7 +158,9 @@ class DatabaseLookupClassification(PaymentClassificationRule):
         # Check Donor records (donations)
         donors = self._names_with_value("Donor", field_name, field_value)
         if len(donors) > 1:
-            return _ambiguous_result("Donor", field_name, field_value, donors, payment, match_type)
+            return _ambiguous_result(
+                "Donor", field_name, field_value, donors, payment, match_type, confidence
+            )
         if donors:
             donor = donors[0]
             frappe.logger().debug(
@@ -178,26 +187,94 @@ class DatabaseLookupClassification(PaymentClassificationRule):
 
 
 def _ambiguous_result(
-    doctype: str, field_name: str, field_value: str, names: List[str], payment, match_type: str
+    doctype: str,
+    field_name: str,
+    field_value: str,
+    names: List[str],
+    payment,
+    match_type: str,
+    confidence: str,
 ) -> ClassificationResult:
-    """Refuse a shared Mollie id: attribute to no row and leave an Error Log row.
+    """A Mollie id several rows share (#1497); never attribute the payment to one of them.
 
-    The result carries no member_id/donor_id, and its type is neither dues nor
-    donation, so no caller books it or creates a party for it (#1497).
+    MEMBERS: refused (type AMBIGUOUS, no ids), logged once per payment and staff alerted once.
+    The type is neither dues nor donation, so no caller books it or creates a party for it.
+
+    DONORS: develop's behaviour stays, the donation books via its payment id (the donation path
+    never reads ``donor_id``). Only the id is withheld, and staff get one Error Log row so they
+    can merge the donors.
     """
-    frappe.log_error(
-        title="Mollie payment classification: ambiguous party",
-        message=(
-            f"Payment {getattr(payment, 'id', 'unknown')} carries {field_name} {field_value}, "
-            f"which more than one {doctype} row holds ({', '.join(names)}). The payment was "
-            f"attributed to none of them. Remove the id from all but the right {doctype}."
-        ),
-    )
+    payment_id = str(getattr(payment, "id", "unknown"))
+    if doctype == "Donor":
+        _log_once(DONOR_LOG_TITLE, payment_id, field_name, field_value, names, doctype)
+        return ClassificationResult(
+            payment_type=PaymentType.DONATION,
+            confidence=confidence,
+            matched_by=f"{match_type}_ambiguous_donor",
+        )
+    _log_once(MEMBER_LOG_TITLE, payment_id, field_name, field_value, names, doctype)
+    _alert_staff_once(payment_id, field_name, field_value, names)
     return ClassificationResult(
         payment_type=PaymentType.AMBIGUOUS,
         confidence=ConfidenceLevel.NONE,
-        matched_by=f"{match_type}_ambiguous_{doctype.lower()}",
+        matched_by=f"{match_type}_ambiguous_member",
     )
+
+
+def _ambiguity_details(payment_id: str, field_name: str, field_value: str, names: List[str], doctype: str):
+    return (
+        f"Payment {payment_id} carries {field_name} {field_value}, which more than one {doctype} row "
+        f"holds ({', '.join(names)}). The payment was attributed to none of them. "
+        f"Remove the id from all but the right {doctype}."
+    )
+
+
+def _log_once(title: str, payment_id: str, field_name, field_value, names, doctype) -> None:
+    """One Error Log row per payment: Mollie redelivers, and the sweep re-reads, the same payment.
+
+    Read from the table itself (MyISAM, so it survives a rollback) rather than a Redis claim, so
+    "once" holds across the cache's expiry.
+    """
+    if frappe.db.exists("Error Log", {"method": title, "error": ["like", f"%Payment {payment_id} %"]}):
+        return
+    frappe.log_error(
+        title=title, message=_ambiguity_details(payment_id, field_name, field_value, names, doctype)
+    )
+
+
+def _alert_staff_once(payment_id: str, field_name, field_value, names) -> None:
+    """The registered staff alert, on first sight; a redelivery after one reached someone is silent."""
+    delivered = frappe.db.exists(
+        "Staff Alert Event",
+        {
+            "notification_key": AMBIGUOUS_ALERT_KEY,
+            "reference_name": payment_id,
+            "delivered_at": ["is", "set"],
+        },
+    )
+    if delivered:
+        return
+    from frappe.utils import escape_html
+
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    details = _ambiguity_details(payment_id, field_name, field_value, names, "Member")
+    try:
+        notify_administrators(
+            subject=f"Mollie payment {payment_id} matches more than one Member",
+            message=f"<p>{escape_html(details)}</p><p>Action required: fix the duplicate ids; "
+            "Mollie keeps retrying and the payment books once the id is unique.</p>",
+            notification_key="mollie_ambiguous_party",  # literal: key discovery greps for it
+            event_reference=payment_id,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+    except Exception as exc:
+        # The refusal holds and the Error Log row exists; the webhook must still answer.
+        frappe.log_error(
+            title=f"{MEMBER_LOG_TITLE} Alert Failed",
+            message=f"Payment {payment_id}: the staff alert could not be sent ({exc}).",
+        )
 
 
 class SubscriptionBasedClassification(DatabaseLookupClassification):
@@ -555,7 +632,9 @@ class PaymentClassifier:
             field_name = f"mollie_{id_attr}"
             members = by_member.get(value, [])
             if len(members) > 1:
-                return _ambiguous_result("Member", field_name, value, members, payment, match_type)
+                return _ambiguous_result(
+                    "Member", field_name, value, members, payment, match_type, confidence
+                )
             if members:
                 return ClassificationResult(
                     payment_type=PaymentType.DUES,
@@ -566,7 +645,7 @@ class PaymentClassifier:
 
             donors = by_donor.get(value, [])
             if len(donors) > 1:
-                return _ambiguous_result("Donor", field_name, value, donors, payment, match_type)
+                return _ambiguous_result("Donor", field_name, value, donors, payment, match_type, confidence)
             if donors:
                 return ClassificationResult(
                     payment_type=PaymentType.DONATION,
