@@ -1569,6 +1569,29 @@ def get_active_sepa_mandate_choice(
     return MandateChoice(mandates[0], 1)
 
 
+def member_needs_mandate_signature(member_name: str) -> bool:
+    """True when a SEPA Direct Debit member has no Active membership mandate to collect under (#1836).
+
+    Approval of a SEPA applicant never creates a mandate (a mandate is the member's own authorisation,
+    maintainer ruling on #1836): it asks the member to sign one. This is the state that request, the
+    payment dashboard and the dues page all read, so they cannot disagree. Several Active mandates is
+    NOT "needs a signature" (#607): that member is being collected from and the office must sort it out.
+
+    Assumption, stated (#1836 review): ANY Active membership mandate means "no signature needed",
+    whatever its IBAN. A mandate for an older IBAN is not reached through a real flow today (termination
+    cancels the member's mandates, and an applicant who was never terminated has none unless imported),
+    so a mismatch is not treated here; it is the IBAN-change gap of #1213.
+    """
+    payment_method, iban = frappe.db.get_value("Member", member_name, ["payment_method", "iban"]) or (
+        None,
+        None,
+    )
+    if payment_method != "SEPA Direct Debit" or not iban:
+        return False
+    choice = get_active_sepa_mandate_choice(member_name)
+    return choice.mandate is None and not choice.is_ambiguous
+
+
 def determine_mandate_action(
     current_mandate: Optional[Dict], current_payment_method: str, enable_dd: bool, bank_details_changed: bool
 ) -> str:

@@ -2,6 +2,7 @@
 API endpoints for reviewing and managing membership applications
 """
 
+import html
 import json
 
 import frappe
@@ -95,6 +96,28 @@ def _sanitize_text_fields(text_fields):
             sanitized[field_name] = value
 
     return sanitized
+
+
+def _raw_text_fields(text_fields):
+    """Free text that is stored raw and escaped ONCE, where it is rendered (mail body, status page, timeline).
+
+    Args:
+        text_fields: Dict of {field_name: (value, max_length)}.
+
+    The @high_security_api wrapper has already HTML-escaped every keyword argument (it decodes entities
+    first, then escapes), so the entities are decoded here: left as they are they would be escaped again at
+    render and the applicant would read "&amp;#x27;" for an apostrophe (#2391). ONLY for text that is
+    escaped at every sink. Identifiers (membership type, chapter, template name) reach `frappe.throw`
+    messages that Desk renders as HTML, so they stay on the decorator's escaping.
+    """
+    return {
+        field_name: (
+            APIValidator.sanitize_text(html.unescape(str(value)), max_length=max_length, allow_html=True)
+            if value
+            else value
+        )
+        for field_name, (value, max_length) in text_fields.items()
+    }
 
 
 def _activate_pending_chapter_memberships(member, applied_chapter):
@@ -427,6 +450,48 @@ def _send_approval_email_safe(member, invoice, membership_type_doc):
     return sent, skipped_reason
 
 
+def _request_mandate_signature_safe(member):
+    """Mail a SEPA Direct Debit applicant that their authorisation waits for their signature (#1836).
+
+    Fire-and-forget for the approval, like the approval mail: a failure is logged and never undoes the
+    approval. Sends nothing when the member already has an Active membership mandate (or several, #607).
+    """
+    from verenigingen.services.communication.email_service import get_email_service
+    from verenigingen.services.payment.sepa_mandate_manager import member_needs_mandate_signature
+
+    try:
+        if not member.email or not member_needs_mandate_signature(member.name):
+            return False
+        result = get_email_service().send_templated_email(
+            template_name="sepa_mandate_signature_request",
+            recipients=[member.email],
+            context={
+                "member": member,
+                "dashboard_url": frappe.utils.get_url("/payment_dashboard"),
+                "company": frappe.defaults.get_global_default("company"),
+                "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")
+                or "info@verenigingen.nl",
+            },
+            reference_doctype="Member",
+            reference_name=member.name,
+            notification_key="member_sepa_mandate_signature_requested",
+        )
+        if not result.success:
+            frappe.log_error(
+                title="SEPA Mandate Signature Request Failed",
+                message=f"Could not mail {member.name} the mandate signature request: {'; '.join(result.errors or [])}",
+            )
+        return bool(result.success)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:  # swallow-ok: best-effort (logged below; the approval must stand)
+        frappe.log_error(
+            title="SEPA Mandate Signature Request Exception",
+            message=f"{member.name}: {frappe.get_traceback()}",
+        )
+        return False
+
+
 def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
     """Build approval response dict with 5-way user account status branching.
 
@@ -631,6 +696,9 @@ def _approve_membership_application_locked(
     # it WAITS for the invoice (#1900, ruling 2026-11-03 round 2). Only create_invoice=False sends it without one.
     if invoice or not create_invoice:
         _send_approval_email_safe(member, invoice, membership_type_doc)
+    # A SEPA applicant gets NO mandate from approval: a mandate is the member's own authorisation (#1836
+    # ruling). Approval asks them to sign one instead; until then the first invoice is paid by transfer.
+    _request_mandate_signature_safe(member)
 
     # Queue background job to update payment history with initial invoice
     if invoice:
@@ -682,9 +750,8 @@ def approve_application(
     from verenigingen.utils.db_advisory_lock import advisory_lock
 
     application_name = _sanitize_application_name(application_name, "approval")
-    sanitized = _sanitize_text_fields(
-        {"membership_type": (membership_type, 255), "chapter": (chapter, 255), "notes": (notes, 2000, False)}
-    )
+    sanitized = _sanitize_text_fields({"membership_type": (membership_type, 255), "chapter": (chapter, 255)})
+    sanitized.update(_raw_text_fields({"notes": (notes, 2000)}))
     validate_application_permission_or_throw(application_name, "approve")
     with advisory_lock(f"approve_application:{application_name}", timeout=30):
         return _approve_application_locked(
@@ -841,13 +908,9 @@ def reject_application(
 
     application_name = _sanitize_application_name(application_name, "rejection")
     sanitized = _sanitize_text_fields(
-        {
-            "reason": (reason, 1000, False),
-            "email_template": (email_template, 255),
-            "rejection_category": (rejection_category, 255),
-            "internal_notes": (internal_notes, 2000, False),
-        }
+        {"email_template": (email_template, 255), "rejection_category": (rejection_category, 255)}
     )
+    sanitized.update(_raw_text_fields({"reason": (reason, 1000), "internal_notes": (internal_notes, 2000)}))
     validate_application_permission_or_throw(application_name, "reject")
     if sanitized["email_template"] and not frappe.db.exists("Email Template", sanitized["email_template"]):
         frappe.throw(_("Invalid email template specified"))
@@ -891,7 +954,7 @@ def request_more_info(application_name: str, info_needed: str):
 
     application_name = _sanitize_application_name(application_name, "information request")
     # allow_html: the text is kept raw and escaped once, where it is rendered (mail body, timeline note)
-    info_needed = _sanitize_text_fields({"info_needed": (info_needed, 2000, True)})["info_needed"]
+    info_needed = _raw_text_fields({"info_needed": (info_needed, 2000)})["info_needed"]
     validate_application_permission_or_throw(application_name, "manage")
     if not info_needed:
         frappe.throw(_("Describe the information you need from the applicant"))

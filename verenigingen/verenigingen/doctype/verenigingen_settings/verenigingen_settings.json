@@ -42,6 +42,7 @@
   "monitoring_section",
   "stuck_schedule_notification_emails",
   "sepa_strict_mandate_validation",
+  "sepa_mandate_consent_text",
   "column_break_ybid",
   "payment_history_failure_threshold",
   "max_payment_history_entries",
@@ -506,6 +507,12 @@
    "fieldname": "sepa_strict_mandate_validation",
    "fieldtype": "Check",
    "label": "SEPA Strict Mandate Validation"
+  },
+  {
+   "description": "Plain text members must read and agree to before a SEPA mandate is created (shown on the payment dashboard, newlines kept, no HTML, no placeholders). Leave empty to use the built-in default wording. A copy of the exact text is stored on every mandate a member signs.",
+   "fieldname": "sepa_mandate_consent_text",
+   "fieldtype": "Text",
+   "label": "SEPA Mandate Consent Text"
   },
   {
    "default": "10",

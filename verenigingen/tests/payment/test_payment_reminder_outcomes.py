@@ -10,6 +10,7 @@ loops.
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import add_days, today
 
 from verenigingen.api.payment_processing import (
     execute_bulk_payment_action,
@@ -33,7 +34,7 @@ LOG_MARKER = "Payment reminder sent"
 FINAL_MARKER = "Final Payment Notice"
 BULK_MARKER = "You have outstanding membership payments"
 CHAPTER_MARKER = "Overdue Member Payment"
-PAYMENT_LINK_PATH = "/payment/membership/"
+PAYMENT_LINK_PATH = "/payment_retry?"
 
 
 class TestPaymentReminderOutcomes(EnhancedTestCase):
@@ -330,6 +331,12 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
 
     def test_true_flag_strings_still_copy_the_board_and_add_a_payment_link(self):
         """Control: the same run with "1"/"true" must show both, so the test above can fail."""
+        # The link names the member's oldest overdue invoice (#2109), so the member needs one.
+        self.create_test_sales_invoice(
+            customer=self.member.name,
+            posting_date=add_days(today(), -60),
+            due_date=add_days(today(), -30),
+        )
         for flag in ("1", "true"):
             clear_email_cooldowns()
             chapter = self._make_reminder_chapter()

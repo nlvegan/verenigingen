@@ -2,6 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.services.payment.sepa_mandate_consent import (
+    get_mandate_consent_text,
+    hash_consent_text,
+)
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name, get_member_customer, require_login
 
@@ -251,6 +255,7 @@ def _add_bank_details_context(context):
     # Import helpers from their new locations
     from verenigingen.services.payment.sepa_mandate_manager import (
         get_active_sepa_mandate_choice,
+        member_needs_mandate_signature,
     )
     from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 
@@ -275,6 +280,12 @@ def _add_bank_details_context(context):
     mandate_choice = get_active_sepa_mandate_choice(context.member)
     context.current_mandate = mandate_choice.mandate
     context.mandate_ambiguous = mandate_choice.is_ambiguous
+    # Approved as a SEPA applicant who has not signed yet (#1836): the dashboard asks for the signature
+    context.mandate_to_sign = member_needs_mandate_signature(context.member)
+    # The text the member must agree to before a mandate is created (#2464). The hash goes
+    # back with the consent so the server can tell if the text changed after this render.
+    context.mandate_consent_text = get_mandate_consent_text()
+    context.mandate_consent_text_hash = hash_consent_text(context.mandate_consent_text)
 
     # Get Mollie subscription information from MEMBER record only (not donor)
     # Dues/payment dashboard should only check membership payment methods, not donation methods

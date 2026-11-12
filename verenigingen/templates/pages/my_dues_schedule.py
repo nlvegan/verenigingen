@@ -31,6 +31,11 @@ def get_context(context):
         )
         payment_method = "SEPA Direct Debit" if active_mandate else "Bank Transfer"
 
+    # Approved as a SEPA applicant who has not signed yet (#1836): until then dues are paid by transfer
+    from verenigingen.services.payment.sepa_mandate_manager import member_needs_mandate_signature
+
+    mandate_to_sign = member_needs_mandate_signature(member)
+
     # Get payment data
     payment_data = get_payment_data(member)
     payment_timeline = get_payment_timeline(member)
@@ -54,6 +59,7 @@ def get_context(context):
             "member": member,
             "current_schedule": current_schedule,
             "payment_method": payment_method,
+            "mandate_to_sign": mandate_to_sign,
             "payment_data": payment_data,
             "payment_timeline": payment_timeline,
             "next_payment": next_payment,

@@ -302,27 +302,9 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         role_profile = self.manager.determine_role_profile_for_member("Test Team No Config")
         self.assertIsNone(role_profile)
     
-    def test_assign_role_profile_success(self):
-        """Test successful role profile assignment"""
-        result = self.manager.assign_role_profile(
-            "test.volunteer@example.com", 
-            "Test Team Valid"
-        )
-        
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "assigned")
-        self.assertEqual(result["role_profile"], "Test Team Profile")
-
-        # Verify user has the role profile. Frappe v16 moves the legacy role_profile_name
-        # Link into the role_profiles child table on save (and clears role_profile_name),
-        # so assert against the child table.
-        user_doc = frappe.get_doc("User", "test.volunteer@example.com")
-        role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
-        self.assertIn("Test Team Profile", role_profiles)
-    
-    def test_assign_role_profile_no_config(self):
-        """Test role profile assignment with no config"""
-        result = self.manager.assign_role_profile(
+    def test_remove_role_profile_no_config(self):
+        """Test role profile removal with no config"""
+        result = self.manager.remove_role_profile(
             "test.volunteer@example.com",
             "Test Team No Config"
         )
@@ -331,9 +313,9 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         self.assertEqual(result["action"], "no_config")
         self.assertIn("No role profile configured", result["message"])
     
-    def test_assign_role_profile_invalid_user(self):
-        """Test role profile assignment with invalid user"""
-        result = self.manager.assign_role_profile(
+    def test_remove_role_profile_invalid_user(self):
+        """Test role profile removal with invalid user"""
+        result = self.manager.remove_role_profile(
             "nonexistent@example.com",
             "Test Team Valid"
         )
@@ -344,8 +326,20 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
     
     def test_remove_role_profile_success(self):
         """Test successful role profile removal"""
-        # First assign a role profile
-        self.manager.assign_role_profile("test.volunteer@example.com", "Test Team Valid")
+        # Grant the team profile the way production does: the volunteer joins the team
+        # and the real sync derives it. Then the membership ends (without a sync, so the
+        # user still holds the profile), which is the state removal is called in.
+        from verenigingen.tests.support.role_profile_grant import (
+            end_team_membership_without_sync,
+            grant_team_profile_via_sync,
+        )
+
+        row = grant_team_profile_via_sync(
+            "test.volunteer@example.com", self.test_volunteer_name, "Test Team Valid"
+        )
+        held = frappe.get_doc("User", "test.volunteer@example.com")
+        self.assertIn("Test Team Profile", [rp.role_profile for rp in held.role_profiles or []])
+        end_team_membership_without_sync(row)
         
         # Then remove it
         result = self.manager.remove_role_profile(
@@ -483,24 +477,6 @@ class TestChapterRoleProfileManager(EnhancedTestCase):
         """Test determining role profile with default config"""
         role_profile = self.manager.determine_role_profile_for_member("Test Chapter Valid")
         self.assertEqual(role_profile, "Test Board Profile")
-    
-    def test_assign_chapter_board_role_profile_success(self):
-        """Test successful chapter board role profile assignment"""
-        result = self.manager.assign_role_profile(
-            "test.board@example.com",
-            "Test Chapter Valid"
-        )
-        
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "assigned")
-        self.assertEqual(result["role_profile"], "Test Board Profile")
-
-        # Verify user has the role profile. Frappe v16 moves the legacy role_profile_name
-        # Link into the role_profiles child table on save (and clears role_profile_name),
-        # so assert against the child table.
-        user_doc = frappe.get_doc("User", "test.board@example.com")
-        role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
-        self.assertIn("Test Board Profile", role_profiles)
 
 
 class TestSystemValidation(EnhancedTestCase):

@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.boolean_utils import is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import (
@@ -743,8 +744,7 @@ def sync_membership_end_dates_from_mollie(dry_run=True):
             frappe.throw(_("Access denied"))
 
         # Convert string boolean from form data
-        if isinstance(dry_run, str):
-            dry_run = dry_run.lower() in ("true", "1", "yes")
+        dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
         service = MollieDebugService()
         return service.sync_membership_end_dates_from_mollie(dry_run=dry_run)
@@ -979,8 +979,7 @@ def process_discovered_payments(payment_ids, dry_run=False):
             )
 
         # Convert string boolean from form data
-        if isinstance(dry_run, str):
-            dry_run = dry_run.lower() in ("true", "1", "yes")
+        dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
         # Rate limiting: ALWAYS enforce, even for dry runs (prevents API abuse)
         # Different rate limits for dry run vs actual processing
