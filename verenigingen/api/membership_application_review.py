@@ -1296,8 +1296,25 @@ def _retry_application_invoice_locked(application_name):
     return _retry_response(application_name, member, invoice, mail_sent, message)
 
 
-def _invoices_of_this_membership(member, membership):
-    """Non-cancelled membership invoices that belong to THIS membership, first period first.
+def _refuse_while_a_cancelled_invoice_has_a_live_ledger(member, membership):
+    """A failed cancel can write docstatus=2 and still leave the GL rows live (#938, #926's shape). A fresh
+    invoice would then sit beside a second live ledger, so staff must reverse the cancelled one first."""
+    for row in _invoices_of_this_membership(member, membership, docstatus=2):
+        if frappe.db.exists(
+            "GL Entry", {"voucher_type": "Sales Invoice", "voucher_no": row.name, "is_cancelled": 0}
+        ):
+            frappe.throw(
+                _(
+                    "Invoice {0} was cancelled but its ledger entries are still live. Reverse them by hand "
+                    "(or cancel the invoice again), then retry; creating a new invoice now would leave two "
+                    "live ledgers."
+                ).format(row.name)
+            )
+
+
+def _invoices_of_this_membership(member, membership, docstatus=None):
+    """Non-cancelled (or, with `docstatus`, exactly that docstatus) membership invoices of THIS membership,
+    first period first.
 
     A rejoining member keeps the same Customer and its older (often paid) invoices, so the Customer alone says
     nothing. The key is the invoice's own `membership` link: approval sets it (`create_membership_invoice_with_
@@ -1308,7 +1325,11 @@ def _invoices_of_this_membership(member, membership):
     """
     if not member.customer:
         return []
-    base = {"customer": member.customer, "is_membership_invoice": 1, "docstatus": ["<", 2]}
+    base = {
+        "customer": member.customer,
+        "is_membership_invoice": 1,
+        "docstatus": ["<", 2] if docstatus is None else docstatus,
+    }
     fields = ["name", "docstatus", "custom_coverage_start_date"]
     # LOCKING reads (#2090): the retry runs under an advisory lock, but a plain read returns this
     # transaction's snapshot, taken before a racing winner committed its invoice. When the winner's mail
@@ -1361,6 +1382,8 @@ def _existing_or_new_membership_invoice(member, membership, membership_type):
                 existing[0].name
             )
         )
+
+    _refuse_while_a_cancelled_invoice_has_a_live_ledger(member, membership)
 
     savepoint = f"retry_invoice_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)

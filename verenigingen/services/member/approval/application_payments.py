@@ -181,9 +181,10 @@ def _cancel_unposted_membership_invoice(invoice_name, member_name):
         errors = "; ".join(cancel_result.errors or [])
         frappe.log_error(
             title="Membership Invoice Still Submitted",
-            message=f"Membership invoice {invoice_name} for member {member_name} failed to submit but is at "
-            f"docstatus={docstatus} and could not be cancelled ({errors}). Cancel it by hand before "
-            "retrying the application's invoice.",
+            message=f"Membership invoice {invoice_name} for member {member_name} failed to submit and its "
+            f"compensating cancel FAILED ({errors}); it is now at docstatus={docstatus}. "
+            "At docstatus 2 its ledger entries may still be live: the retry refuses until they are "
+            "reversed. At docstatus 1 the retry reuses and mails it. Check its GL entries by hand.",
         )
 
 

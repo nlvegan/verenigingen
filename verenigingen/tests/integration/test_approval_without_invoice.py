@@ -580,7 +580,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertEqual(self._invoices_of(member), drafts, "no second invoice")
         self.assertTrue(self._marker(application), "the marker is kept")
 
-    def _approve_with_on_submit_failing_after_the_write(self, application):
+    def _approve_with_on_submit_failing_after_the_write(self, application, break_cancel=None):
         """Approve with a REAL submit whose ``on_submit`` raises AFTER the real one ran (#938): ``save()``
         has by then written docstatus=1 and the GL rows, so the invoice is submitted and posted, and the
         submit still reports failure. The fault is injected on the doctype class, below
@@ -599,8 +599,40 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
             "Secure Operation Failed",
         )
         # Mock justified: fault injection on the doctype's own hook; the real on_submit still runs first
-        with patch.object(SalesInvoice, "on_submit", on_submit_then_fail):
+        with patch.object(SalesInvoice, "on_submit", on_submit_then_fail), self._cancel_broken(break_cancel):
             return self._approve_capturing_mail(application, create_invoice=True)
+
+    def _cancel_broken(self, how):
+        """The compensating cancel, made to fail. "after_write": the doctype's ``on_cancel`` raises, below
+        every wrapper, AFTER ``save()`` wrote docstatus=2 (#926's shape: cancelled, ledger still live).
+        "refused": ``secure_document_operation`` reports a clean cancel refusal and writes nothing."""
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+
+        from verenigingen.services.member.approval import application_payments
+
+        if how == "after_write":
+
+            def on_cancel_fails(doc, *args, **kwargs):
+                raise frappe.ValidationError("forced on_cancel failure")
+
+            # Mock justified: fault injection on the doctype's own hook
+            return patch.object(SalesInvoice, "on_cancel", on_cancel_fails)
+        if how == "refused":
+            real = application_payments.secure_document_operation
+
+            def refuse_cancel(*args, **kwargs):
+                if kwargs.get("operation") == "cancel":
+                    return SimpleNamespace(
+                        success=False, errors=["forced cancel refusal"], doc_name=None, partial_write=False
+                    )
+                return real(*args, **kwargs)
+
+            # Mock justified: External Service boundary - only the cancel step is refused
+            return patch.object(application_payments, "secure_document_operation", refuse_cancel)
+        return nullcontext()
 
     def _membership_invoices(self, member):
         return frappe.get_all(
@@ -639,6 +671,77 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertEqual(len(mails), 1, "the held mail goes out once, with the fresh invoice's link")
         self.assertIn(f"/payment/membership/{member}/{response['invoice']}", mails[0]["content"])
         self.assertFalse(self._marker(application), "success clears the marker")
+
+    def test_a_cancel_that_fails_after_its_write_leaves_a_live_ledger_and_the_retry_refuses(self):
+        """F1: on_cancel raises after docstatus=2 was written, so the invoice is cancelled with its GL rows
+        still live. A fresh invoice would put a second live ledger beside it, so the retry refuses."""
+        application = self._stage_and_confirm()
+        before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
+        self.expectErrorLog("Membership Invoice Still Submitted", "Secure Operation Failed")
+        response, mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(
+            application, break_cancel="after_write"
+        )
+        member = response["member"]
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}),
+            before + 1,
+            "a failed cancel is reported even though docstatus reads 2",
+        )
+        self.assertTrue(response["invoice_failed"], response)
+        stranded = self._membership_invoices(member)
+        self.assertEqual([r.docstatus for r in stranded], [2], "control: cancelled by the failed cancel")
+        self.assertGreater(self._live_gl_rows(stranded[0].name), 0, "control: the ledger is still live")
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self._retry(application)
+        _response, mails = self._retry_mails_after_refusal(application)
+
+        self.assertIn(stranded[0].name, str(refused.exception))
+        self.assertIn("live ledger", str(refused.exception))
+        self.assertEqual(self._membership_invoices(member), stranded, "no second invoice")
+        self.assertEqual(mails, [], "no mail")
+        self.assertTrue(self._marker(application), "the marker is kept")
+
+    def test_a_cleanly_refused_cancel_leaves_a_submitted_invoice_that_the_retry_reuses(self):
+        """F2, accepted behaviour: the cancel was refused and wrote nothing, so the invoice is submitted with
+        its on_submit fully run (here the fault fired after it). It is a valid invoice, indistinguishable from
+        a normal one, so the retry mails it. Residual risk: an invoice half-posted by a partial on_submit
+        would be mailed too. The Error Log row is what tells staff."""
+        application = self._stage_and_confirm()
+        before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
+        self.expectErrorLog("Membership Invoice Still Submitted", "Secure Operation Failed")
+        response, _mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(
+            application, break_cancel="refused"
+        )
+        member = response["member"]
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}), before + 1
+        )
+        stranded = self._membership_invoices(member)
+        self.assertEqual([r.docstatus for r in stranded], [1])
+
+        response, mails = self._retry(application)
+
+        self.assertEqual(response["invoice"], stranded[0].name, "the retry reuses it")
+        self.assertEqual(len(mails), 1)
+        self.assertFalse(self._marker(application))
+
+    def _retry_mails_after_refusal(self, application):
+        """The mails a refused retry sent (none expected): the same spy as _retry, around a refusing call."""
+        mails = []
+        real = EmailService._send_email_internal
+
+        def spy(service, *args, **kw):
+            mails.append(kw)
+            return real(service, *args, **kw)
+
+        # Mock justified: spy on the mail boundary
+        with patch.object(EmailService, "_send_email_internal", spy):
+            try:
+                self._retry(application)
+            except frappe.ValidationError:
+                pass  # the refusal is asserted by the caller; only the mails matter here
+        return None, [m for m in mails if self.email in (m.get("recipients") or [])]
 
     def test_control_a_submit_that_succeeds_stays_submitted_and_posted(self):
         application = self._stage_and_confirm()
