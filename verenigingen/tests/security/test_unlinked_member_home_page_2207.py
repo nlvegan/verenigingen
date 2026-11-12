@@ -182,7 +182,7 @@ class TestUnlinkedMemberHomePage2207(EnhancedTestCase):
         self.assertEqual(out["Guest"]["endpoint"]["status"], 403, out["Guest"]["endpoint"])
 
     def test_wsgi_login_lands_a_user_with_no_member_on_a_readable_portal(self):
-        """The REAL login outcome (the on_session_creation hook is not registered): Frappe returns
+        """The REAL login outcome (no on_session_creation hook exists): Frappe returns
         home_page member_portal, and that page and its portal siblings say 'not linked'."""
         out = self._wsgi([self.no_member], self.PAGES)[self.no_member]
         self.assertEqual(out["login"]["home_page"], "member_portal")

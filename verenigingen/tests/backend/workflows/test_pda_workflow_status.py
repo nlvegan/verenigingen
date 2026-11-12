@@ -259,3 +259,230 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         self.assertIsNone(getattr(frappe.local, "request", None))
         self._button_save()
         self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "status"), "Active")
+
+    # --- #1850: Completed/Cancelled only through the workflow. Accounts User holds doctype
+    # write but no workflow transition, so a plain status write used to bypass the workflow's
+    # roles and its end_date condition. Callers below are real least-privileged users, and the
+    # entry points are the real dispatchers (frappe.client.*, run_doc_method), not doc.save().
+
+    def _create_pda_user(self, role=None, profile=None):
+        """A user holding `role`, or the roles of Role Profile `profile`.
+
+        cancel_agreement sits behind a HIGH security tier that needs a role profile, so the
+        realistic writer for it is Verenigingen Staff (its profile carries Accounts User).
+        """
+        name = (profile or role).lower().replace(" ", "-")
+        email = f"pda-1850-{name}@example.com"
+        if not frappe.db.exists("User", email):
+            data = {"doctype": "User", "email": email, "first_name": "PDA1850", "send_welcome_email": 0}
+            if profile:
+                data["role_profile_name"] = profile
+            else:
+                data["roles"] = [{"role": role}]
+            user = frappe.get_doc(data)
+            user.flags.ignore_permissions = True
+            user.insert()
+            self.track_doc("User", email)
+        return email
+
+    def _as_admin_1850(self):
+        frappe.set_user("Administrator")
+
+    def _as_request(self, user):
+        """Dispatcher-style call context: a POST request, then the given session user."""
+        previous = getattr(frappe.local, "request", None)
+        frappe.local.request = frappe._dict(  # Mock justified: Infrastructure - simulate a web request
+            path="/api/method/x", method="POST", headers={}, environ={"REMOTE_ADDR": "127.0.0.1"}
+        )
+        self.addCleanup(lambda: setattr(frappe.local, "request", previous))
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user(user)
+
+    def _pda_status(self):
+        return frappe.db.get_value(DOCTYPE, self.agreement.name, ["status", "workflow_state"], as_dict=True)
+
+    def _cancel_via_dispatcher(self, reason="donor request"):
+        from frappe.handler import run_doc_method
+
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        frappe.response.pop("message", None)
+        run_doc_method(method="cancel_agreement", docs=doc.as_json(), args={"reason": reason})
+        return frappe.response.get("message")
+
+    def _make_end_date_reached(self):
+        self._prepare(start_date=add_days(today(), -400), end_date=add_days(today(), -1))
+
+    def _writer_refused(self, call):
+        """Accounts User must be refused by the guard, and the row must not move."""
+        before = self._pda_status()
+        user = self._create_pda_user(role="Accounts User")
+        self._as_request(user)
+        with self.assertRaisesRegex(frappe.ValidationError, "matching workflow action"):
+            call()
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status(), before)
+
+    def test_set_value_to_cancelled_refused_for_accounts_user(self):
+        self._active()
+        self._writer_refused(
+            lambda: frappe.client.set_value(DOCTYPE, self.agreement.name, "status", "Cancelled")
+        )
+
+    def test_set_value_to_completed_refused_for_accounts_user(self):
+        self._active()
+        self._make_end_date_reached()
+        self._writer_refused(
+            lambda: frappe.client.set_value(DOCTYPE, self.agreement.name, "status", "Completed")
+        )
+
+    def test_client_save_to_cancelled_refused_for_accounts_user(self):
+        self._active()
+
+        def call():
+            doc = frappe.get_doc(DOCTYPE, self.agreement.name).as_dict()
+            doc["status"] = "Cancelled"
+            frappe.client.save(doc)
+
+        self._writer_refused(call)
+
+    def test_flags_in_a_client_body_do_not_bypass(self):
+        """A REST/client body can carry `flags`; they must not be an escape hatch.
+
+        Measured: Frappe drops a body `flags` key when it builds the doc (the control below
+        pins that), so a flags-keyed bypass in the guard would be unreachable from a body
+        anyway; the refusal is asserted regardless."""
+        self._active()
+        probe = frappe.get_doc({"doctype": DOCTYPE, "flags": {"ignore_permissions": True, "in_import": True}})
+        self.assertFalse(probe.flags.get("ignore_permissions") or probe.flags.get("in_import"))
+
+        def call():
+            doc = frappe.get_doc(DOCTYPE, self.agreement.name).as_dict()
+            doc.update({"status": "Cancelled", "flags": {"ignore_permissions": True, "in_import": True}})
+            frappe.client.save(doc)
+
+        self._writer_refused(call)
+
+    def test_cancel_agreement_refused_for_staff_with_accounts_user_write(self):
+        """The whitelisted method used to cancel with a plain save for anyone with write."""
+        self._active()
+        before = self._pda_status()
+        self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
+        with self.assertRaises(frappe.ValidationError):
+            self._cancel_via_dispatcher()
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status(), before)
+
+    def test_cancel_agreement_works_for_verenigingen_administrator_from_active(self):
+        """Control, real row: the workflow's own role cancels an Active agreement."""
+        self._active()
+        self._as_request(self._create_pda_user(profile="Verenigingen Administrator"))
+        self.assertTrue(self._cancel_via_dispatcher("moved abroad"))
+        self._as_admin_1850()
+        state = self._pda_status()
+        self.assertEqual((state.status, state.workflow_state), ("Cancelled", "Cancelled"))
+        row = frappe.db.get_value(
+            DOCTYPE,
+            self.agreement.name,
+            ["cancellation_reason", "cancellation_date", "cancellation_processed_by"],
+            as_dict=True,
+        )
+        self.assertEqual(row.cancellation_reason, "moved abroad")
+        self.assertEqual(str(row.cancellation_date), today())
+        self.assertEqual(row.cancellation_processed_by, "pda-1850-verenigingen-administrator@example.com")
+
+    def test_cancel_agreement_from_draft_needs_system_manager(self):
+        """Workflow roles apply per source state: Draft -> Cancelled is System Manager only.
+        Staff holds Accounts User write and passes the security tier, so only the workflow stops it."""
+        self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
+        with self.assertRaises(frappe.ValidationError):
+            self._cancel_via_dispatcher()
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status().status, "Draft")
+        self._as_request(self._create_pda_user(profile="Verenigingen System Administrator"))
+        self.assertTrue(self._cancel_via_dispatcher())
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status().status, "Cancelled")
+
+    def test_owner_va_can_cancel_own_active_agreement(self):
+        """Maintainer ruling: allow self-cancel. The agreement is OWNED by the very user who
+        cancels it (the setUp owner is replaced by a stranger, so this must be set explicitly)."""
+        va = self._create_pda_user(profile="Verenigingen Administrator")
+        self._active()
+        frappe.db.set_value(DOCTYPE, self.agreement.name, "owner", va, update_modified=False)
+        self._as_request(va)
+        self.assertTrue(self._cancel_via_dispatcher())
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status().status, "Cancelled")
+
+    def test_status_and_workflow_state_that_disagree_are_refused(self):
+        """N1: workflow_state moved (to Cancelled) but status says Completed. Only an exact
+        match passes; 'workflow_state changed at all' is the wrong guard."""
+        self._active()
+        self._make_end_date_reached()
+        self._prepare(cancellation_reason="donor request")
+        self._as_request(self._create_pda_user(profile="Verenigingen Administrator"))
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name).as_dict()
+        doc.update({"status": "Completed", "workflow_state": "Cancelled"})
+        with self.assertRaisesRegex(frappe.ValidationError, "matching workflow action"):
+            frappe.client.save(doc)
+        self._as_admin_1850()
+        state = self._pda_status()
+        self.assertEqual((state.status, state.workflow_state), ("Active", "Active"))
+
+    def test_system_manager_completes_after_end_date_through_the_workflow(self):
+        self._active()
+        self._make_end_date_reached()
+        self._as_request(self._create_pda_user(profile="Verenigingen System Administrator"))
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        apply_workflow(doc, "Complete Agreement")
+        self._as_admin_1850()
+        state = self._pda_status()
+        self.assertEqual((state.status, state.workflow_state), ("Completed", "Completed"))
+
+    def test_internal_python_may_still_write_closing_statuses(self):
+        """Scope control: no request, no guard (jobs, scripts, the existing suite)."""
+        self.assertIsNone(getattr(frappe.local, "request", None))
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        doc.status = "Completed"
+        doc.save()
+        self.assertEqual(self._pda_status().status, "Completed")
+
+    def test_saving_without_a_status_change_is_unaffected(self):
+        """Control: a Cancelled agreement edited again (status unchanged) is not re-refused."""
+        self._prepare(cancellation_reason="donor request")
+        self._step("Cancel Agreement")
+        self._as_request(self._create_pda_user(role="Accounts User"))
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        doc.annual_amount = 1300
+        doc.save()
+        self._as_admin_1850()
+        self.assertEqual(frappe.db.get_value(DOCTYPE, self.agreement.name, "annual_amount"), 1300)
+
+    def test_insert_as_cancelled_refused_in_a_request(self):
+        self._as_request(self._create_pda_user(profile="Verenigingen Administrator"))
+        agreement = frappe.new_doc(DOCTYPE)
+        agreement.update(
+            {
+                "donor": self.agreement.donor,
+                "start_date": today(),
+                "annual_amount": 1200,
+                "payment_frequency": "Monthly",
+                "payment_method": "Bank Transfer",
+                "agreement_duration_years": "1 Year (Pledge - No ANBI benefits)",
+                "anbi_eligible": 0,
+                "status": "Cancelled",
+            }
+        )
+        with self.assertRaisesRegex(frappe.ValidationError, "matching workflow action"):
+            agreement.insert()
+
+    def test_without_an_active_workflow_cancel_agreement_still_works(self):
+        """The workflow-less fallback keeps the old direct save, as the activation guard does."""
+        frappe.db.set_value("Workflow", WORKFLOW, "is_active", 0)
+        frappe.clear_document_cache("Workflow", WORKFLOW)
+        frappe.cache.hdel("workflow", DOCTYPE)
+        frappe.clear_cache(doctype=DOCTYPE)
+        self._as_request(self._create_pda_user(profile="Verenigingen Staff"))
+        self.assertTrue(self._cancel_via_dispatcher())
+        self._as_admin_1850()
+        self.assertEqual(self._pda_status().status, "Cancelled")

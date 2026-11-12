@@ -267,6 +267,47 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         again = mgr._ensure_department(created.department_name, parent=None)
         self.assertEqual(again.name, created.name)
 
+    def test_ensure_department_promotes_an_existing_leaf_parent_to_a_group(self):
+        """A site that ran setup before erpnext 01da148d49 holds its parents as
+        leaves; attaching a child must turn the parent into a group, because
+        version-16 refuses "Parent Department must be a group"."""
+        self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        parent = mgr._ensure_department(f"DH Leaf Parent {frappe.generate_hash(length=6)}", parent=None)
+        self.assertEqual(parent.is_group, 0, "precondition: the parent starts as a leaf")
+
+        child = mgr._ensure_department(
+            f"DH Child {frappe.generate_hash(length=6)}", parent=parent.department_name
+        )
+
+        self.assertEqual(child.parent_department, parent.name)
+        self.assertEqual(frappe.db.get_value("Department", parent.name, "is_group"), 1)
+        # Control: the child itself is still created as a leaf.
+        self.assertEqual(frappe.db.get_value("Department", child.name, "is_group"), 0)
+
+    def test_ensure_department_promotes_every_leaf_ancestor_of_a_legacy_tree(self):
+        """On a legacy site the whole chain is leaves (National Organization ->
+        Chapters -> ...). Saving the parent as a group re-validates ITS parent,
+        so promoting only the direct parent fails one level up; every leaf
+        ancestor must be promoted, top-down."""
+        self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        top = mgr._ensure_department(f"DH Legacy Top {frappe.generate_hash(length=6)}", parent=None)
+        mid = mgr._ensure_department(
+            f"DH Legacy Mid {frappe.generate_hash(length=6)}", parent=top.department_name
+        )
+        # Reproduce the pre-01da148d49 state: a parent that is still a leaf.
+        frappe.db.set_value("Department", top.name, "is_group", 0)
+        self.assertEqual(frappe.db.get_value("Department", mid.name, "is_group"), 0)
+
+        child = mgr._ensure_department(
+            f"DH Legacy Child {frappe.generate_hash(length=6)}", parent=mid.department_name
+        )
+
+        self.assertEqual(child.parent_department, mid.name)
+        self.assertEqual(frappe.db.get_value("Department", mid.name, "is_group"), 1)
+        self.assertEqual(frappe.db.get_value("Department", top.name, "is_group"), 1)
+
     # --------------------------------------------------- _get_financial_approvers
     def test_financial_approvers_empty_when_no_board(self):
         self._ensure_company()

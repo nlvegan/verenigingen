@@ -33,6 +33,30 @@ def pool_filters():
     }
 
 
+RECONCILED_STATE = "reconciled"
+UNRECONCILED_STATE = "unreconciled"
+PENDING_STATE = "pending"
+
+
+def row_outcome(docstatus, status, marker):
+    """Classify one Bank Transaction for display: reconciled, unreconciled or pending (#2396).
+
+    A submitted row's state is ERPNext's ``status``; a draft's is the pool's marker, because
+    ERPNext keeps every draft at "Pending". A draft with no terminal marker (none, or an
+    in-progress label such as "Partial - Manual Review Required") is still pending.
+    """
+    if docstatus == 2:
+        return PENDING_STATE  # cancelled: no outcome, whatever marker it still carries
+    if docstatus == 1:
+        # A submitted "Settled" (or any other) status is deliberately pending, as in the counts.
+        return {"Reconciled": RECONCILED_STATE, "Unreconciled": UNRECONCILED_STATE}.get(status, PENDING_STATE)
+    if marker in RECONCILED_OUTCOMES:
+        return RECONCILED_STATE
+    if marker == FAILED:
+        return UNRECONCILED_STATE
+    return PENDING_STATE
+
+
 def record_pool_outcome(bank_transaction, outcome):
     """Record ``outcome`` on a DRAFT ``bank_transaction``; no-op once submitted.
 

@@ -26,6 +26,9 @@ from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
 )
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
+)
 
 
 def is_payment_successful(payment) -> bool:
@@ -1032,6 +1035,14 @@ class MolliePaymentOrchestrator:
             payment_amount = extractor.extract_amount(payment)
             payment_date = extractor.extract_date(payment, field_name="paid_at")
 
+            # Staff cancelled this payment's entry: do not book it again (#2406). Refused before any
+            # invoice or Bank Transaction exists, so a refused redelivery leaves nothing behind;
+            # "skipped" is acknowledged (no retry) and the alert names the payment for staff.
+            if refuse_staff_cancelled_forward_payment(payment_id, payment_amount, "the orphan payment flow"):
+                result.status = "skipped"
+                result.skipped_reason = "Payment Entry was cancelled by staff; not booked again"
+                return result
+
             result.actions_taken.append("WARNING: Processing as ORPHANED payment - no member match found")
 
             # Get or create orphaned payments customer
@@ -1299,6 +1310,11 @@ class MolliePaymentOrchestrator:
         regenerates remarks from the amount and party - which is what used to discard
         the "requires manual review" banner this entry exists to carry.
         """
+        # The writer guards too, not only its caller: the key hashes the party, so a different
+        # party is not stopped by the unique index and would book the payment again (#2406).
+        if refuse_staff_cancelled_forward_payment(payment_id, amount, "the orphan Payment Entry writer"):
+            return None
+
         try:
             from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
                 get_mollie_config,

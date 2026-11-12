@@ -251,6 +251,7 @@ def _add_bank_details_context(context):
     # Import helpers from their new locations
     from verenigingen.services.payment.sepa_mandate_manager import (
         get_active_sepa_mandate_choice,
+        member_needs_mandate_signature,
     )
     from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 
@@ -275,6 +276,8 @@ def _add_bank_details_context(context):
     mandate_choice = get_active_sepa_mandate_choice(context.member)
     context.current_mandate = mandate_choice.mandate
     context.mandate_ambiguous = mandate_choice.is_ambiguous
+    # Approved as a SEPA applicant who has not signed yet (#1836): the dashboard asks for the signature
+    context.mandate_to_sign = member_needs_mandate_signature(context.member)
 
     # Get Mollie subscription information from MEMBER record only (not donor)
     # Dues/payment dashboard should only check membership payment methods, not donation methods

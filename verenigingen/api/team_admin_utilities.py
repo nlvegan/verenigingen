@@ -21,6 +21,9 @@ from verenigingen.utils.validation.api_validators import require_roles
 def fix_all_missing_assignment_history():
     """Fix missing assignment history for all teams - admin utility function"""
 
+    # Import here to avoid circular imports
+    from verenigingen.services.team_service import TeamService
+
     teams_fixed = 0
     volunteers_fixed = 0
 
@@ -36,26 +39,15 @@ def fix_all_missing_assignment_history():
                 # the Volunteer's `assignment_history` child table ("Volunteer
                 # Assignment"), keyed by the parent Volunteer -- there is no
                 # standalone "Assignment History" doctype nor a `volunteer` column.
-                history_exists = frappe.db.exists(
-                    "Volunteer Assignment",
-                    {
-                        "parent": member.volunteer,
-                        "parenttype": "Volunteer",
-                        "reference_doctype": "Team",
-                        "reference_name": team.name,
-                        "status": "Active",
-                    },
-                )
+                history_exists = TeamService.has_active_history(member.volunteer, team.name, member.name)
 
                 if not history_exists:
-                    # Import here to avoid circular imports
-                    from verenigingen.services.team_service import TeamService
-
                     success = TeamService().add_assignment_history(
                         team_doc=team,
                         volunteer_id=member.volunteer,
                         team_role=member.team_role or member.role or "Team Member",
                         start_date=member.from_date or frappe.utils.today(),
+                        row_name=member.name,
                     )
 
                     if success:
@@ -107,6 +99,8 @@ def fix_missing_assignment_history(team_name: str = None, volunteer_name: str = 
     validate_document_exists("Team", team_name)
     validate_document_exists("Volunteer", volunteer_name)
 
+    from verenigingen.services.team_service import TeamService
+
     team = frappe.get_doc("Team", team_name)
 
     for member in team.team_members:
@@ -117,25 +111,15 @@ def fix_missing_assignment_history(team_name: str = None, volunteer_name: str = 
             # in the Volunteer's `assignment_history` child table ("Volunteer
             # Assignment"), keyed by the parent Volunteer -- there is no standalone
             # "Assignment History" doctype nor a `volunteer` column.
-            history_exists = frappe.db.exists(
-                "Volunteer Assignment",
-                {
-                    "parent": volunteer_name,
-                    "parenttype": "Volunteer",
-                    "reference_doctype": "Team",
-                    "reference_name": team_name,
-                    "status": "Active",
-                },
-            )
+            history_exists = TeamService.has_active_history(volunteer_name, team_name, member.name)
 
             if not history_exists:
-                from verenigingen.services.team_service import TeamService
-
                 success = TeamService().add_assignment_history(
                     team_doc=team,
                     volunteer_id=volunteer_name,
                     team_role=member.team_role or member.role or "Team Member",
                     start_date=member.from_date or frappe.utils.today(),
+                    row_name=member.name,
                 )
 
                 if success:

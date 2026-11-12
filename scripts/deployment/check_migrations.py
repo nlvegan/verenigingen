@@ -229,7 +229,7 @@ def execute():
             
             migration_file = f"migrate_{timestamp}.py"
             print(f"\n  Save this as: verenigingen/patches/{migration_file}")
-            print(f"  Add to patches.txt: verenigingen.patches.{migration_file}")
+            print(f"  Register it as a fragment (#2407): verenigingen/patches.d/post_model_sync/{datetime.now().strftime('%Y%m%dT%H%M')}-<slug>.txt")
             print("\n" + "="*50)
             print(template)
             print("="*50)

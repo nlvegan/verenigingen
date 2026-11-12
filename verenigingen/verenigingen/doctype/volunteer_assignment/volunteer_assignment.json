@@ -8,6 +8,7 @@
     "title",
     "reference_doctype",
     "reference_name",
+    "reference_row",
     "assignment_type",
     "role",
     "column_break_4",
@@ -53,6 +54,14 @@
       "options": "reference_doctype",
       "in_list_view": 1,
       "columns": 2
+    },
+    {
+      "fieldname": "reference_row",
+      "fieldtype": "Data",
+      "label": "Reference Row",
+      "description": "Name of the row of the referenced document this entry describes (a Team Member row)",
+      "read_only": 1,
+      "hidden": 1
     },
     {
       "fieldname": "role",
