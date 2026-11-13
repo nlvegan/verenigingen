@@ -84,12 +84,16 @@ class DepartmentHierarchyManager:
         _ensure_department would re-insert and hit a duplicate-PK error).
 
         Returns the real record name if a Department with this department_name
-        exists, otherwise None.
+        exists FOR THIS MANAGER'S COMPANY, otherwise None. Both lookups are
+        company-scoped: another company's same-named department must never be
+        resolved, or ``_ensure_group`` would promote it (#2551).
         """
         # Exact record-name match first (already-abbreviated / no-company sites)
-        if frappe.db.exists("Department", dept_name):
+        if frappe.db.exists("Department", {"name": dept_name, "company": self.company}):
             return dept_name
-        return frappe.db.get_value("Department", {"department_name": dept_name}, "name")
+        return frappe.db.get_value(
+            "Department", {"department_name": dept_name, "company": self.company}, "name"
+        )
 
     def _ensure_department(self, dept_name, parent=None):
         """Create department if it doesn't exist"""
@@ -104,8 +108,13 @@ class DepartmentHierarchyManager:
         if parent:
             # Parents are referenced by their human-readable name but stored
             # abbreviated, so resolve to the actual record name.
-            dept.parent_department = self._resolve_department_name(parent) or parent
-            self._ensure_group(dept.parent_department)
+            resolved_parent = self._resolve_department_name(parent)
+            dept.parent_department = resolved_parent or parent
+            # Only promote a parent that belongs to this company. An unresolved
+            # name may still be another company's record name, which must not be
+            # touched; the insert below then refuses it (#2551).
+            if resolved_parent:
+                self._ensure_group(resolved_parent)
 
         result = secure_document_operation(
             operation="insert",

@@ -308,6 +308,86 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Department", mid.name, "is_group"), 1)
         self.assertEqual(frappe.db.get_value("Department", top.name, "is_group"), 1)
 
+    # ------------------------------------- company scoping of department lookup (#2551)
+    def _other_company_department(self, company, department_name):
+        """A leaf Department of a company OTHER than the manager's, created as a
+        fixture row. Returns the Department doc (record name carries the other
+        company's abbreviation)."""
+        other = frappe.db.get_value("Company", {"name": ["!=", company]}, "name", order_by="name")
+        self.assertIsNotNone(other, "Need a second Company to test cross-company department lookup")
+        dept = frappe.get_doc(
+            {"doctype": "Department", "department_name": department_name, "company": other}
+        ).insert()
+        self.assertEqual(dept.is_group, 0, "precondition: the other company's department is a leaf")
+        return dept
+
+    def test_ensure_department_never_promotes_another_companys_parent(self):
+        """Both companies hold a department of the same name; the manager's own
+        must be the parent, and the other company's must stay untouched."""
+        company = self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        shared_name = f"DH Shared {frappe.generate_hash(length=6)}"
+        own_parent = mgr._ensure_department(shared_name, parent=None)
+        # Created second, so an unscoped get_value (creation DESC) finds it first.
+        other_parent = self._other_company_department(company, shared_name)
+        self.assertNotEqual(own_parent.name, other_parent.name)
+
+        child = mgr._ensure_department(f"DH Child {frappe.generate_hash(length=6)}", parent=shared_name)
+
+        self.assertEqual(child.parent_department, own_parent.name)
+        self.assertEqual(child.company, company)
+        self.assertEqual(frappe.db.get_value("Department", own_parent.name, "is_group"), 1)
+        self.assertEqual(
+            frappe.db.get_value("Department", other_parent.name, "is_group"),
+            0,
+            "the other company's department must not be promoted to a group",
+        )
+
+    def test_ensure_department_leaves_other_company_untouched_when_parent_exists_only_there(self):
+        """The #2551 reproduction: the parent name exists only for another
+        company. The manager must not touch it, whatever happens to the insert."""
+        company = self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        other_parent = self._other_company_department(
+            company, f"DH Only Other {frappe.generate_hash(length=6)}"
+        )
+
+        try:
+            mgr._ensure_department(
+                f"DH Orphan {frappe.generate_hash(length=6)}", parent=other_parent.department_name
+            )
+        except frappe.ValidationError:
+            pass  # no parent in the manager's company: the insert is refused
+
+        self.assertEqual(frappe.db.get_value("Department", other_parent.name, "is_group"), 0)
+
+    def test_ensure_department_ignores_another_companys_abbreviated_record_name(self):
+        """The exact-record-name branch must be company-scoped too: a parent given
+        as ANOTHER company's stored name ("<name> - <abbr>") is not the manager's."""
+        company = self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        other_parent = self._other_company_department(company, f"DH Exact {frappe.generate_hash(length=6)}")
+
+        self.assertIsNone(mgr._resolve_department_name(other_parent.name))
+        try:
+            mgr._ensure_department(f"DH Orphan {frappe.generate_hash(length=6)}", parent=other_parent.name)
+        except frappe.ValidationError:
+            pass
+
+        self.assertEqual(frappe.db.get_value("Department", other_parent.name, "is_group"), 0)
+
+    def test_resolve_department_name_same_company_forms_still_resolve(self):
+        """Control: the manager's own department resolves by bare name and by
+        its stored (abbreviated) name, while a missing name resolves to None."""
+        self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        own = mgr._ensure_department(f"DH Own {frappe.generate_hash(length=6)}", parent=None)
+        self.assertTrue(own.name.endswith(frappe.get_cached_value("Company", own.company, "abbr")))
+
+        self.assertEqual(mgr._resolve_department_name(own.department_name), own.name)
+        self.assertEqual(mgr._resolve_department_name(own.name), own.name)
+        self.assertIsNone(mgr._resolve_department_name(f"DH Missing {frappe.generate_hash(length=6)}"))
+
     # --------------------------------------------------- _get_financial_approvers
     def test_financial_approvers_empty_when_no_board(self):
         self._ensure_company()
