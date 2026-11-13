@@ -13,6 +13,7 @@ from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager
 
 
@@ -24,8 +25,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
     Stage 2: A membership invoice is left unpaid (the collection failed)
     Stage 3: The payment retry is scheduled through the real API
     Stage 4: Retries are exhausted and the failure is escalated
-    Stage 5: The member is suspended
-    Stage 6: The invoice is paid and the member is reactivated
+    Stage 5: The member is suspended (staff action; not triggered by escalation in production)
+    Stage 6: The invoice is paid and the member is reactivated (not triggered by payment in production)
 
     Every stage drives production code (retry_failed_payment, PaymentRetryManager,
     suspend_member_safe, unsuspend_member_safe) and asserts what that code wrote.
@@ -47,16 +48,17 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
 
         # Create test environment with proper permissions
         self.test_chapter = self.create_test_chapter(
-            chapter_name="Payment Test Chapter",
+            chapter_name=f"Payment Test Chapter {frappe.generate_hash(length=6)}",
             postal_codes="3000-7999",
             introduction="Test chapter for payment failure testing",
         )
 
-        # Ensure a Membership Type exists (the hardcoded "Annual" type is not
-        # seeded on isolated test sites, which raised LinkValidationError).
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="Annual", amount=120.0
-        )
+        # A uniquely named type: "Annual" is get-or-created by other modules' fixtures, so a
+        # literal name collides in setUp when they run first in a shard.
+        self.membership_type = self.create_test_membership_type()
+
+        # The escalation mail is queued only when a default outgoing account exists (CI has none).
+        ensure_outgoing_email_account(self)
 
     def tearDown(self):
         # Seating a profile that carries Employee creates one for the user (#1694); drain it.
@@ -250,13 +252,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         self.assertEqual(sepa_mandate.status, "Active")
         self.assertEqual(sepa_mandate.member, member_name)
 
-    # Stage 2: Invoice left unpaid
-    def _stage_2_unpaid_invoice(self, context):
-        """Stage 2: A membership invoice that nobody has paid (the collection failed).
-
-        Only the ERPNext scaffolding runs here; the app behaviour under test starts at Stage 3.
-        """
-        customer_name = context.get("customer_name")
+    def _make_invoice(self, customer_name):
+        """Submit a EUR-safe membership invoice for the customer (ERPNext scaffolding)"""
         infra = self.erpnext_infra
 
         with self.as_user(self.admin_user.name):
@@ -265,6 +262,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                     "doctype": "Sales Invoice",
                     "customer": customer_name,
                     "company": infra["company"],
+                    "currency": frappe.db.get_value("Company", infra["company"], "default_currency"),
+                    "selling_price_list": None,
                     "posting_date": today(),
                     "due_date": add_days(today(), 30),
                     "payment_terms_template": None,
@@ -282,6 +281,15 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             invoice.insert()
             invoice.submit()
         self.track_doc("Sales Invoice", invoice.name)
+        return invoice
+
+    # Stage 2: Invoice left unpaid
+    def _stage_2_unpaid_invoice(self, context):
+        """Stage 2: A membership invoice that nobody has paid (the collection failed).
+
+        Only the ERPNext scaffolding runs here; the app behaviour under test starts at Stage 3.
+        """
+        invoice = self._make_invoice(context.get("customer_name"))
 
         self.state_manager.record_state("Payment", invoice.name, "Failed")
         return {"invoice_name": invoice.name}
@@ -304,8 +312,12 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             first = retry_failed_payment(invoice_name)
             # A second request while the first is Scheduled must be refused, not queue a duplicate.
             second = retry_failed_payment(invoice_name)
+            # A different invoice of the same member is a separate retry: the duplicate guard is
+            # per invoice, not per member.
+            other_invoice = self._make_invoice(context.get("customer_name"))
+            other = retry_failed_payment(other_invoice.name)
 
-        return {"first_retry": first, "second_retry": second}
+        return {"first_retry": first, "second_retry": second, "other_retry": other, "other_invoice_name": other_invoice.name}
 
     def _validate_retry_scheduled(self, context):
         """The first call scheduled a retry record; the second was refused"""
@@ -315,6 +327,10 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         self.assertTrue(first["success"], f"retry_failed_payment refused: {first}")
         self.assertFalse(second["success"], "A second retry request must be refused while one is Scheduled")
         self.assertIn("already scheduled", second["error"]["message"])
+        self.assertTrue(
+            context.get("other_retry")["success"],
+            f"A second invoice of the same member must still be retryable: {context.get('other_retry')}",
+        )
 
         retry = self._get_retry_record(context)
         self.assertEqual(retry.status, "Scheduled")
@@ -331,32 +347,45 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
 
     # Stage 4: Retries exhausted
     def _stage_4_escalate(self, context):
-        """Stage 4: The retries run out and the next failure is escalated.
+        """Stage 4: Retries run out through real schedule_retry calls, then the next one escalates.
 
-        Probe shortcut: retry_count is set to the configured maximum with db_set instead of
-        running the retry job max_retries times (that job charges Mollie). The escalation itself
-        is the real PaymentRetryManager.schedule_retry call.
+        Stage 3 made attempt 1 through the API; the loop makes the remaining max_retries - 1 real
+        attempts, then one more call hits the limit.
         """
         from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
 
-        retry = self._get_retry_record(context)
+        invoice_name = context.get("invoice_name")
         manager = PaymentRetryManager()
-        retry.db_set("retry_count", manager.retry_config["max_retries"])
+        max_retries = manager.retry_config["max_retries"]
 
         with self.as_user(self.admin_user.name):
-            result = manager.schedule_retry(context.get("invoice_name"), "AM04", "Insufficient funds")
+            attempts = [
+                manager.schedule_retry(invoice_name, "AM04", f"Insufficient funds {n}")
+                for n in range(2, max_retries + 1)
+            ]
+            result = manager.schedule_retry(invoice_name, "AM04", "Insufficient funds")
 
-        self.state_manager.record_state("Payment", context.get("invoice_name"), "Retry Failed")
-        return {"escalation_result": result}
+        self.state_manager.record_state("Payment", invoice_name, "Retry Failed")
+        return {"retry_attempts": attempts, "escalation_result": result, "max_retries": max_retries}
 
     def _validate_escalated(self, context):
-        """The manager refuses further retries, marks the record Escalated and notes the membership"""
+        """The manager refuses further retries, marks the record Escalated, notes the membership
+        and queues the escalation mail"""
+        max_retries = context.get("max_retries")
+        attempts = context.get("retry_attempts")
+        self.assertEqual(len(attempts), max_retries - 1)
+        for number, attempt in enumerate(attempts, start=2):
+            self.assertTrue(attempt["scheduled"], f"attempt {number} should have been scheduled")
+            self.assertEqual(attempt["attempt_number"], number)
+
         result = context.get("escalation_result")
         self.assertFalse(result["scheduled"])
         self.assertIn("escalated", result["message"].lower())
 
         retry = self._get_retry_record(context)
         self.assertEqual(retry.status, "Escalated")
+        self.assertEqual(retry.retry_count, max_retries)
+        self.assertEqual(len(retry.retry_log), max_retries)
         self.assertTrue(retry.escalated_on)
 
         comments = frappe.get_all(
@@ -369,12 +398,23 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             f"Membership should carry the escalation comment, got {comments}",
         )
 
+        queued = frappe.get_all(
+            "Email Queue",
+            filters={"reference_doctype": "Member", "reference_name": context.get("member_name")},
+            pluck="name",
+        )
+        self.assertTrue(queued, "The escalation mail to staff should be queued")
+
         invoice = frappe.get_doc("Sales Invoice", context.get("invoice_name"))
         self.assertIn(invoice.status, ["Overdue", "Unpaid"])
 
     # Stage 5: Suspension
     def _stage_5_multiple_failures_suspension(self, context):
-        """Stage 5: Suspend the member through the real termination-integration service"""
+        """Stage 5: Suspend the member through the real termination-integration service.
+
+        Hand-sequenced: nothing in production suspends a member when a retry escalates. This
+        stage checks the suspend service itself, in the order a staff member would run it.
+        """
         from verenigingen.services.termination.termination_integration import suspend_member_safe
 
         member_name = context.get("member_name")
@@ -400,7 +440,11 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
 
     # Stage 6: Recovery
     def _stage_6_payment_recovery(self, context):
-        """Stage 6: The invoice is paid with a real Payment Entry, then the member is reactivated"""
+        """Stage 6: The invoice is paid with a real Payment Entry, then the member is reactivated.
+
+        Hand-sequenced: nothing in production reactivates a member (or closes the retry record)
+        when the invoice is paid. This checks the unsuspend service and the invoice settlement.
+        """
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
         from verenigingen.services.termination.termination_integration import unsuspend_member_safe
@@ -455,4 +499,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
 
         self.assertEqual(frappe.db.get_value("Member", member_name, "status"), "Active")
         self.assertEqual(frappe.db.get_value("Sales Invoice", invoice_name, "status"), "Paid")
-        self.assertEqual(frappe.db.get_value("SEPA Payment Retry", {"invoice": invoice_name}, "status"), "Escalated")
+        # Characterisation of CURRENT behaviour, not a requirement: paying the invoice does not
+        # close the retry record. Drop this line if a payment hook ever starts to.
+        self.assertEqual(
+            frappe.db.get_value("SEPA Payment Retry", {"invoice": invoice_name}, "status"), "Escalated"
+        )
