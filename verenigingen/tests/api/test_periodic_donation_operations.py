@@ -20,6 +20,7 @@ controller for those calculations.
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, add_years, flt, today
@@ -36,7 +37,8 @@ from verenigingen.api.periodic_donation_operations import (
 )
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends, ensure_outgoing_email_account
+from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestPeriodicDonationOperations(VereningingenTestCase):
@@ -546,7 +548,7 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         # The reminder counts only a mail really queued (#2044): with the key disabled or in
         # cooldown this test used to pass on a skipped send, so put the key in a sending state.
         ensure_outgoing_email_account(self)
-        allow_reminder_sends(keys=("periodic_donation_expiry",))
+        own_notification_keys(self, "periodic_donation_expiry")
         # Expiring soon (end_date within the window) and Active.
         donor_soon = self._make_donor(anbi_consent=1)
         expiring = self.create_anbi_compliant_agreement(donor=donor_soon.name, status="Active")
@@ -559,7 +561,11 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         far = self.create_anbi_compliant_agreement(donor=donor_far.name, status="Active")
         frappe.db.set_value("Periodic Donation Agreement", far.name, "end_date", add_days(today(), 400))
 
-        result = send_renewal_reminders(days_before_expiry=90)
+        # Mock justified: send_renewal_reminders commits; a commit here would make the seeded
+        # notification row and master switch permanent for every later class (#2053). Everything
+        # the test reads back is in the same transaction.
+        with patch.object(frappe.db, "commit"):
+            result = send_renewal_reminders(days_before_expiry=90)
         self.assertTrue(self._ok(result), self._errors(result))
 
         # The expiring Active agreement is reminded, so sent_count is at least 1.

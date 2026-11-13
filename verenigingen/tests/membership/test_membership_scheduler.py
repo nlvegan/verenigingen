@@ -26,6 +26,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys, queued_mail_count
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.verenigingen.doctype.membership import scheduler
 
 
@@ -138,6 +139,8 @@ class TestMembershipScheduler(VereningingenTestCase):
         # With a generic renewal Email Template present, our windowed membership
         # is processed through the send path and counted. EmailService queues the
         # mail under frappe.flags.in_test (no real send, no global commit).
+        # EmailService refuses to queue without an outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
         if not frappe.db.exists("Email Template", "membership_renewal_reminder"):
             tmpl = frappe.get_doc(
                 {

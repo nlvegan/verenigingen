@@ -18,6 +18,7 @@ from frappe.utils import add_to_date, now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.singleton_backup import FlagBackupMixin, singleton_backup
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 import unittest
 
 
@@ -348,6 +349,8 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
 
         # A skipped send is also success=True, and a missing template is a failure: own the key and
         # the template so the assertions below can only pass on a real send (#2010).
+        # A fresh CI site has no outgoing Email Account and EmailService refuses without one.
+        ensure_outgoing_email_account(self)
         own_notification_keys(self, "team_member_added")
         template = frappe.get_doc(
             {
