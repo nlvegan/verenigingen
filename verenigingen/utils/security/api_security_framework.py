@@ -348,9 +348,15 @@ class APISecurityFramework:
                 )
 
             if invalid_mappings:
-                frappe.logger("verenigingen.api_security").error(
-                    f"Invalid security level mappings found: {invalid_mappings}"
-                )
+                # Recorded in Error Log (#2445): frappe.logger() output is not captured anywhere
+                # readable. Best-effort, so a failing log_error can never fail initialisation.
+                try:
+                    frappe.log_error(
+                        title="Security framework: invalid security level mappings",
+                        message=f"Entries that are not a SecurityLevel: {invalid_mappings}",
+                    )
+                except Exception:
+                    pass
 
             # Log successful validation
             valid_profiles = [
@@ -361,11 +367,15 @@ class APISecurityFramework:
                     f"Security framework initialized with {len(valid_profiles)} valid role profile mappings"
                 )
 
-        except Exception as e:
-            # Don't fail initialization, but log the error
-            frappe.logger("verenigingen.api_security").error(
-                f"Error validating role profile configuration: {str(e)}"
-            )
+        except Exception:
+            # Don't fail initialization, but record the error (#2445), not only in frappe.logger()
+            try:
+                frappe.log_error(
+                    title="Security framework: role profile configuration validation failed",
+                    message=frappe.get_traceback(),
+                )
+            except Exception:
+                pass
 
     def _get_user_role_profiles(self, user: str = None) -> List[str]:
         """
