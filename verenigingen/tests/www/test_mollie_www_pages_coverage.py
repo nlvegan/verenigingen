@@ -19,6 +19,8 @@ Permission paths use REAL users + roles via set_user(); no business-logic mockin
 External Mollie connectivity is NOT mocked -- we test the real "no key" branch.
 """
 
+import time
+
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -47,19 +49,18 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         """Delete the Error Log rows of these titles that THIS test causes (#1174).
 
         ``tabError Log`` is MyISAM, so the harness rollback cannot reach the rows these
-        tests deliberately provoke and one would survive per run. Scoped to rows created
-        after this call whose title is one of ``titles``, and excluding names that
-        existed already, so a sibling's or a real row is never touched. addCleanup runs
-        after tearDown, so the automatic tearDown Error Log check still sees the rows.
+        tests deliberately provoke and one would survive per run. Scoped to rows with one
+        of ``titles`` created at or after this call, so a row that already existed (a
+        sibling's, or a real one) is never touched. addCleanup runs after tearDown, so
+        the automatic tearDown Error Log check still sees the rows.
         """
         marker = frappe.utils.now_datetime()
         filters = {"method": ["in", list(titles)], "creation": [">=", marker]}
-        existing = set(frappe.get_all("Error Log", filters=filters, pluck="name"))
 
         def _delete():
-            caused = set(frappe.get_all("Error Log", filters=filters, pluck="name")) - existing
+            caused = frappe.get_all("Error Log", filters=filters, pluck="name")
             if caused:
-                frappe.db.delete("Error Log", {"name": ["in", list(caused)]})
+                frappe.db.delete("Error Log", {"name": ["in", caused]})
 
         self.addCleanup(_delete)
 
@@ -119,6 +120,30 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         self.track_doc("User Permission", user_permission.name)
 
     # ===== mollie_subscription_audit.get_context =====
+
+    def test_1174_cleanup_helper_removes_the_rows_it_caused_and_keeps_older_ones(self):
+        """The helper deletes the provoked row, and only that one (#1174)."""
+        title = f"1174 helper probe {frappe.generate_hash()[:8]}"
+        # An older row of the same title, created before the helper is armed.
+        frappe.log_error(title=title, message="pre-existing")
+        time.sleep(1.1)  # creation has second resolution; get strictly past the seed
+        seeded = frappe.db.count("Error Log", {"method": title})
+        self.assertEqual(seeded, 1)
+
+        def _assert_gone_after_helper_cleanup():
+            # Registered FIRST, so cleanups (LIFO) run it AFTER the helper's delete.
+            self.assertEqual(
+                frappe.db.count("Error Log", {"method": title}),
+                seeded,
+                "helper must remove the row the test caused and keep the older one",
+            )
+            frappe.db.delete("Error Log", {"method": title})
+
+        self.addCleanup(_assert_gone_after_helper_cleanup)
+        self._1174_cleanup_error_logs(title)
+        self.expectErrorLog(title)
+        frappe.log_error(title=title, message="caused by this test")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), seeded + 1)
 
     def test_audit_get_context_sets_page_flags_for_admin(self):
         # Administrator is a real user that satisfies every has_permission gate
