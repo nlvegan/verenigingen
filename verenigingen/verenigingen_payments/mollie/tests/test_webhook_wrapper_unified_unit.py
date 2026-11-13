@@ -371,7 +371,9 @@ class TestProcessPaymentWebhookRouting(WebhookTestBase):
             def fetch_payment(self_inner, pid):
                 return object()
 
-            def classify_payment(self_inner, payment):
+            def classify_payment(self_inner, payment, alert_staff=False):
+                # The webhook is a delivery path and must ask for the staff alert (#1497 (2)).
+                self.alert_staff_seen = alert_staff
                 return {
                     "payment_type": type_const,
                     "confidence": "high",
@@ -393,6 +395,7 @@ class TestProcessPaymentWebhookRouting(WebhookTestBase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["payment_entry"], "PE-1")
         self.assertIn("duration_seconds", result)
+        self.assertTrue(self.alert_staff_seen, "the webhook must classify with alert_staff=True")
 
     def test_order_payment_routed_to_order_processor(self):
         self._stub_router("order", {"status": "success", "bank_transaction": "BT-1"})

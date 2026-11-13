@@ -622,6 +622,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mollie_ambiguous_party": {
+        "label": "Mollie Payment Matches Several Members (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a Mollie customer or subscription id is held by more than one Member, so the "
+        "payment cannot be attributed and is NOT booked (Mollie keeps retrying). Sent once per payment. The mail "
+        "names the Mollie payment id, the id and the Members that hold it; staff remove it from all but one.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "door_unavailable": {
         "label": "Application Door Unavailable (Admin)",
         "category": CATEGORY_ADMIN,
@@ -936,6 +945,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "ponto_executed_unbookable",
         "ponto_orphaned_payment",
         "mollie_forward_payment_staff_cancelled",
+        "mollie_ambiguous_party",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",

@@ -48,6 +48,11 @@ class PaymentPatterns:
 
 
 # Payment type constants (replaces magic strings)
+MEMBER_LOG_TITLE = "Mollie payment classification: ambiguous party"
+DONOR_LOG_TITLE = "Mollie payment classification: duplicate donors"
+AMBIGUOUS_ALERT_KEY = "mollie_ambiguous_party"
+
+
 class PaymentType:
     """Constants for payment types"""
 
@@ -55,6 +60,10 @@ class PaymentType:
     DONATION = "donation"
     ORDER = "order"  # WooCommerce/shop orders requiring bank reconciliation
     UNKNOWN = "unknown"
+    # A Mollie id that more than one Member (or Donor) row carries. Deliberately NOT
+    # UNKNOWN: the webhook continues UNKNOWN payments down the donation path, and a
+    # caller that creates a party for "no match" would create a duplicate here.
+    AMBIGUOUS = "ambiguous"
 
 
 # Confidence level constants
@@ -91,12 +100,14 @@ class PaymentClassificationRule(ABC):
     """Base class for payment classification rules"""
 
     @abstractmethod
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         """
         Attempt to classify the payment using this rule.
 
         Args:
             payment: Mollie payment object
+            alert_staff: True ONLY from a real delivery/booking path (#1497 (2)); a shared
+                Member id then raises the staff alert as well as the Error Log row
 
         Returns:
             ClassificationResult if this rule matches, None otherwise
@@ -113,7 +124,13 @@ class DatabaseLookupClassification(PaymentClassificationRule):
     """
 
     def _check_member_donor_match(
-        self, payment, field_name: str, field_value: str, confidence: str, match_type: str
+        self,
+        payment,
+        field_name: str,
+        field_value: str,
+        confidence: str,
+        match_type: str,
+        alert_staff: bool = False,
     ) -> Optional[ClassificationResult]:
         """
         Check if field value matches Member or Donor records.
@@ -129,8 +146,13 @@ class DatabaseLookupClassification(PaymentClassificationRule):
             ClassificationResult if match found, None otherwise
         """
         # Check Member records first (membership dues)
-        member = frappe.db.get_value("Member", {field_name: field_value}, "name")
-        if member:
+        members = self._names_with_value("Member", field_name, field_value)
+        if len(members) > 1:
+            return _ambiguous_result(
+                "Member", field_name, field_value, members, payment, match_type, confidence, alert_staff
+            )
+        if members:
+            member = members[0]
             frappe.logger().debug(
                 f"Payment {payment.id} matched Member {member} via {match_type} {field_value}"
             )
@@ -142,8 +164,13 @@ class DatabaseLookupClassification(PaymentClassificationRule):
             )
 
         # Check Donor records (donations)
-        donor = frappe.db.get_value("Donor", {field_name: field_value}, "name")
-        if donor:
+        donors = self._names_with_value("Donor", field_name, field_value)
+        if len(donors) > 1:
+            return _ambiguous_result(
+                "Donor", field_name, field_value, donors, payment, match_type, confidence
+            )
+        if donors:
+            donor = donors[0]
             frappe.logger().debug(
                 f"Payment {payment.id} matched Donor {donor} via {match_type} {field_value}"
             )
@@ -156,6 +183,111 @@ class DatabaseLookupClassification(PaymentClassificationRule):
 
         return None
 
+    @staticmethod
+    def _names_with_value(doctype: str, field_name: str, field_value: str) -> List[str]:
+        """Every row carrying the value (3 is enough to say "more than one").
+
+        Neither Mollie id field is unique, so get_value would silently pick one.
+        """
+        return frappe.get_all(
+            doctype, filters={field_name: field_value}, pluck="name", order_by="name asc", limit=3
+        )
+
+
+def _ambiguous_result(
+    doctype: str,
+    field_name: str,
+    field_value: str,
+    names: List[str],
+    payment,
+    match_type: str,
+    confidence: str,
+    alert_staff: bool = False,
+) -> ClassificationResult:
+    """A Mollie id several rows share (#1497); never attribute the payment to one of them.
+
+    MEMBERS: refused (type AMBIGUOUS, no ids), logged once per payment. Staff are alerted once only
+    when ``alert_staff`` (#1497 (2)): a read-only caller (bulk check, dry run, debug page) would
+    mail once per historic payment, and "Mollie keeps retrying" is false for it.
+    The type is neither dues nor donation, so no caller books it or creates a party for it.
+
+    DONORS: develop's behaviour stays, the donation books via its payment id (the donation path
+    never reads ``donor_id``). Only the id is withheld, and staff get one Error Log row so they
+    can merge the donors.
+    """
+    payment_id = str(getattr(payment, "id", "unknown"))
+    if doctype == "Donor":
+        _log_once(DONOR_LOG_TITLE, payment_id, field_name, field_value, names, doctype)
+        return ClassificationResult(
+            payment_type=PaymentType.DONATION,
+            confidence=confidence,
+            matched_by=f"{match_type}_ambiguous_donor",
+        )
+    _log_once(MEMBER_LOG_TITLE, payment_id, field_name, field_value, names, doctype)
+    if alert_staff:
+        _alert_staff_once(payment_id, field_name, field_value, names)
+    return ClassificationResult(
+        payment_type=PaymentType.AMBIGUOUS,
+        confidence=ConfidenceLevel.NONE,
+        matched_by=f"{match_type}_ambiguous_member",
+    )
+
+
+def _ambiguity_details(payment_id: str, field_name: str, field_value: str, names: List[str], doctype: str):
+    return (
+        f"Payment {payment_id} carries {field_name} {field_value}, which more than one {doctype} row "
+        f"holds ({', '.join(names)}). The payment was attributed to none of them. "
+        f"Remove the id from all but the right {doctype}."
+    )
+
+
+def _log_once(title: str, payment_id: str, field_name, field_value, names, doctype) -> None:
+    """One Error Log row per payment: Mollie redelivers, and the sweep re-reads, the same payment.
+
+    Read from the table itself (MyISAM, so it survives a rollback) rather than a Redis claim, so
+    "once" holds across the cache's expiry.
+    """
+    if frappe.db.exists("Error Log", {"method": title, "error": ["like", f"%Payment {payment_id} %"]}):
+        return
+    frappe.log_error(
+        title=title, message=_ambiguity_details(payment_id, field_name, field_value, names, doctype)
+    )
+
+
+def _alert_staff_once(payment_id: str, field_name, field_value, names) -> None:
+    """The registered staff alert, on first sight; a redelivery after one reached someone is silent."""
+    delivered = frappe.db.exists(
+        "Staff Alert Event",
+        {
+            "notification_key": AMBIGUOUS_ALERT_KEY,
+            "reference_name": payment_id,
+            "delivered_at": ["is", "set"],
+        },
+    )
+    if delivered:
+        return
+    from frappe.utils import escape_html
+
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    details = _ambiguity_details(payment_id, field_name, field_value, names, "Member")
+    try:
+        notify_administrators(
+            subject=f"Mollie payment {payment_id} matches more than one Member",
+            message=f"<p>{escape_html(details)}</p><p>Action required: fix the duplicate ids; "
+            "Mollie keeps retrying and the payment books once the id is unique.</p>",
+            notification_key="mollie_ambiguous_party",  # literal: key discovery greps for it
+            event_reference=payment_id,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+    except Exception as exc:
+        # The refusal holds and the Error Log row exists; the webhook must still answer.
+        frappe.log_error(
+            title=f"{MEMBER_LOG_TITLE} Alert Failed",
+            message=f"Payment {payment_id}: the staff alert could not be sent ({exc}).",
+        )
+
 
 class SubscriptionBasedClassification(DatabaseLookupClassification):
     """
@@ -164,7 +296,7 @@ class SubscriptionBasedClassification(DatabaseLookupClassification):
     Checks if subscription ID matches Member or Donor records in database.
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         subscription_id = getattr(payment, "subscription_id", None)
         if not subscription_id:
             return None
@@ -175,6 +307,7 @@ class SubscriptionBasedClassification(DatabaseLookupClassification):
             field_value=subscription_id,
             confidence=ConfidenceLevel.HIGH,
             match_type="subscription_id",
+            alert_staff=alert_staff,
         )
 
         if not result:
@@ -194,7 +327,7 @@ class CustomerBasedClassification(DatabaseLookupClassification):
     balance transactions).
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         customer_id = getattr(payment, "customer_id", None)
         if not customer_id:
             return None
@@ -205,6 +338,7 @@ class CustomerBasedClassification(DatabaseLookupClassification):
             field_value=customer_id,
             confidence=ConfidenceLevel.MEDIUM,
             match_type="customer_id",
+            alert_staff=alert_staff,
         )
 
 
@@ -219,7 +353,7 @@ class OrderBasedClassification(PaymentClassificationRule):
     Pattern: "Bestelling YYYY-NNNNN" where NNNNN is the invoice number
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         description = getattr(payment, "description", "")
         if not description or not isinstance(description, str):
             return None
@@ -305,7 +439,7 @@ class DescriptionKeywordClassification(PaymentClassificationRule):
             )
             return self.DEFAULT_KEYWORD_MAP
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         description = getattr(payment, "description", "")
         if not description or not isinstance(description, str):
             return None
@@ -359,12 +493,13 @@ class PaymentClassifier:
         else:
             self.rules = rules
 
-    def classify(self, payment) -> ClassificationResult:
+    def classify(self, payment, alert_staff: bool = False) -> ClassificationResult:
         """
         Run payment through classification rules in priority order.
 
         Args:
             payment: Mollie payment object
+            alert_staff: default False (fail quiet). True only from a delivery/booking path.
 
         Returns:
             ClassificationResult with payment type, confidence, and audit info
@@ -372,7 +507,7 @@ class PaymentClassifier:
         payment_id = getattr(payment, "id", "unknown")
 
         for rule in self.rules:
-            result = rule.classify(payment)
+            result = rule.classify(payment, alert_staff)
             if result:
                 frappe.logger().info(
                     f"Payment {payment_id} classified as '{result.payment_type}' "
@@ -386,7 +521,7 @@ class PaymentClassifier:
             payment_type=PaymentType.UNKNOWN, confidence=ConfidenceLevel.NONE, matched_by="no_rule_matched"
         )
 
-    def classify_batch(self, payments: List) -> List[ClassificationResult]:
+    def classify_batch(self, payments: List, alert_staff: bool = False) -> List[ClassificationResult]:
         """
         Classify multiple payments efficiently with batch database queries.
 
@@ -435,9 +570,9 @@ class PaymentClassifier:
 
             for member in members:
                 if member.mollie_subscription_id:
-                    member_by_subscription[member.mollie_subscription_id] = member.name
+                    member_by_subscription.setdefault(member.mollie_subscription_id, []).append(member.name)
                 if member.mollie_customer_id:
-                    member_by_customer[member.mollie_customer_id] = member.name
+                    member_by_customer.setdefault(member.mollie_customer_id, []).append(member.name)
 
         # Pre-fetch Donor lookups in batch (single query)
         donor_by_subscription = {}
@@ -459,15 +594,20 @@ class PaymentClassifier:
 
             for donor in donors:
                 if donor.mollie_subscription_id:
-                    donor_by_subscription[donor.mollie_subscription_id] = donor.name
+                    donor_by_subscription.setdefault(donor.mollie_subscription_id, []).append(donor.name)
                 if donor.mollie_customer_id:
-                    donor_by_customer[donor.mollie_customer_id] = donor.name
+                    donor_by_customer.setdefault(donor.mollie_customer_id, []).append(donor.name)
 
         # Now classify each payment using pre-fetched data
         results = []
         for payment in payments:
             result = self._classify_with_cache(
-                payment, member_by_subscription, member_by_customer, donor_by_subscription, donor_by_customer
+                payment,
+                member_by_subscription,
+                member_by_customer,
+                donor_by_subscription,
+                donor_by_customer,
+                alert_staff,
             )
             results.append(result)
 
@@ -480,64 +620,61 @@ class PaymentClassifier:
         member_by_customer: Dict,
         donor_by_subscription: Dict,
         donor_by_customer: Dict,
+        alert_staff: bool = False,
     ) -> ClassificationResult:
         """
         Classify payment using pre-fetched lookup caches.
 
         Args:
             payment: Mollie payment object
-            member_by_subscription: Dict mapping subscription_id -> member name
-            member_by_customer: Dict mapping customer_id -> member name
-            donor_by_subscription: Dict mapping subscription_id -> donor name
-            donor_by_customer: Dict mapping customer_id -> donor name
+            member_by_subscription: Dict mapping subscription_id -> member names
+            member_by_customer: Dict mapping customer_id -> member names
+            donor_by_subscription: Dict mapping subscription_id -> donor names
+            donor_by_customer: Dict mapping customer_id -> donor names
 
         Returns:
             ClassificationResult
         """
         # payment_id = getattr(payment, "id", "unknown")  # Unused - for future logging
 
-        # Try subscription-based classification first (HIGH confidence)
-        subscription_id = getattr(payment, "subscription_id", None)
-        if subscription_id:
-            member = member_by_subscription.get(subscription_id)
-            if member:
+        for id_attr, match_type, confidence, by_member, by_donor in (
+            (
+                "subscription_id",
+                "subscription_id",
+                ConfidenceLevel.HIGH,
+                member_by_subscription,
+                donor_by_subscription,
+            ),
+            ("customer_id", "customer_id", ConfidenceLevel.MEDIUM, member_by_customer, donor_by_customer),
+        ):
+            value = getattr(payment, id_attr, None)
+            if not value:
+                continue
+            field_name = f"mollie_{id_attr}"
+            members = by_member.get(value, [])
+            if len(members) > 1:
+                return _ambiguous_result(
+                    "Member", field_name, value, members, payment, match_type, confidence, alert_staff
+                )
+            if members:
                 return ClassificationResult(
                     payment_type=PaymentType.DUES,
-                    confidence=ConfidenceLevel.HIGH,
-                    matched_by="subscription_id_member_match",
-                    member_id=member,
+                    confidence=confidence,
+                    matched_by=f"{match_type}_member_match",
+                    member_id=members[0],
                 )
 
-            donor = donor_by_subscription.get(subscription_id)
-            if donor:
+            donors = by_donor.get(value, [])
+            if len(donors) > 1:
+                return _ambiguous_result("Donor", field_name, value, donors, payment, match_type, confidence)
+            if donors:
                 return ClassificationResult(
                     payment_type=PaymentType.DONATION,
-                    confidence=ConfidenceLevel.HIGH,
-                    matched_by="subscription_id_donor_match",
-                    donor_id=donor,
-                )
-
-        # Try customer-based classification (MEDIUM confidence)
-        customer_id = getattr(payment, "customer_id", None)
-        if customer_id:
-            member = member_by_customer.get(customer_id)
-            if member:
-                return ClassificationResult(
-                    payment_type=PaymentType.DUES,
-                    confidence=ConfidenceLevel.MEDIUM,
-                    matched_by="customer_id_member_match",
-                    member_id=member,
-                )
-
-            donor = donor_by_customer.get(customer_id)
-            if donor:
-                return ClassificationResult(
-                    payment_type=PaymentType.DONATION,
-                    confidence=ConfidenceLevel.MEDIUM,
-                    matched_by="customer_id_donor_match",
-                    donor_id=donor,
+                    confidence=confidence,
+                    matched_by=f"{match_type}_donor_match",
+                    donor_id=donors[0],
                 )
 
         # Fall back to single-payment classification for order/keyword rules
         # (These don't benefit from batch caching)
-        return self.classify(payment)
+        return self.classify(payment, alert_staff)
