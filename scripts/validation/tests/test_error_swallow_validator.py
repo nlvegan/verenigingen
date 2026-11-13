@@ -6,12 +6,16 @@ file and run through scan_file(). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_error_swallow_validator.py
 """
 import ast
+import contextlib
 import importlib.util
+import io
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _MOD_PATH = Path(__file__).resolve().parents[1] / "error_swallow_validator.py"
 _spec = importlib.util.spec_from_file_location("error_swallow_validator", _MOD_PATH)
@@ -2040,6 +2044,8 @@ class SelfCheckControlTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             broken_path = Path(tmp) / "error_swallow_validator_broken.py"
             broken_path.write_text(broken_source, encoding="utf-8")
+            # the validator imports its shrink_relocation sibling from its own directory (#1858)
+            shutil.copy(_MOD_PATH.with_name("shrink_relocation.py"), Path(tmp) / "shrink_relocation.py")
             result = subprocess.run(
                 [sys.executable, str(broken_path), "--stats"],
                 capture_output=True,
@@ -2048,6 +2054,186 @@ class SelfCheckControlTest(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SWALLOW GUARD SELF-CHECK FAILED", result.stdout + result.stderr)
+
+
+class RelocatedSwallowTest(unittest.TestCase):
+    """`explain_shrink(..., base_root=...)` must see a handler that MOVED instead of being fixed (#1858).
+
+    `explain_shrink` used to read a vanished file or function name as "deleted or renamed:
+    explained". Each case is a base checkout plus a head checkout in temp dirs, with
+    `REPO_ROOT` pointed at the head.
+    """
+
+    SWALLOW = (
+        "def {fn}(x):\n"
+        "    try:\n"
+        "        return compute(x)\n"
+        "    except Exception:\n"
+        "        frappe.log_error('boom')\n"
+        "        return None\n"
+    )
+    FIXED = (
+        "def {fn}(x):\n"
+        "    try:\n"
+        "        return compute(x)\n"
+        "    except Exception as e:\n"
+        "        frappe.log_error('boom')\n"
+        "        return str(e)\n"
+    )
+
+    def _src(self, template: str, fn: str = "f") -> str:
+        return template.format(fn=fn)
+
+    def _explain(self, base: dict, head: dict, baseline: dict):
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            for root, files in ((Path(b), base), (Path(h), head)):
+                for rel, src in files.items():
+                    f = root / rel
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_text(src)
+            with mock.patch.object(esv, "REPO_ROOT", Path(h)):
+                found = esv.explain_shrink(
+                    baseline, [str(Path(h) / "verenigingen"), str(Path(h) / "scripts")], base_root=Path(b)
+                )
+        return [(u.key, u.reason) for u in found]
+
+    def test_control_the_base_handler_really_is_a_counted_finding(self):
+        """Without this, every 'not reported' case below could be 'nothing was ever a finding'."""
+        with tempfile.TemporaryDirectory() as b:
+            f = Path(b) / "verenigingen" / "mod.py"
+            f.parent.mkdir()
+            f.write_text(self._src(self.SWALLOW))
+            counts, _ = esv._counts([str(f.parent)])
+        self.assertEqual(sum(counts.values()), 1)
+
+    # -- the gaps: each exited 0 before (`continue  # the file is gone`) ------------------------
+
+    def test_file_moved_under_tests_is_reported(self):
+        src = self._src(self.SWALLOW)
+        got = self._explain(
+            {"verenigingen/mod.py": src},
+            {"verenigingen/tests/test_mod.py": src},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_renamed_to_test_prefix_is_reported(self):
+        src = self._src(self.SWALLOW)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/test_mod.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_moved_out_of_scan_roots_is_reported(self):
+        src = self._src(self.SWALLOW)
+        got = self._explain({"verenigingen/mod.py": src}, {"docs/mod.py": src}, {"verenigingen/mod.py::f": 1})
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_moved_into_archived_is_reported(self):
+        src = self._src(self.SWALLOW)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/archived/mod.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_function_renamed_and_moved_out_of_the_count_is_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.SWALLOW)},
+            {"verenigingen/tests/test_mod.py": self._src(self.SWALLOW, fn="g")},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    # -- the controls: none of these may be reported --------------------------------------------
+
+    def test_a_genuine_fix_is_not_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.SWALLOW)},
+            {"verenigingen/mod.py": self._src(self.FIXED)},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_a_genuine_file_deletion_is_not_reported(self):
+        got = self._explain({"verenigingen/mod.py": self._src(self.SWALLOW)}, {}, {"verenigingen/mod.py::f": 1})
+        self.assertEqual(got, [])
+
+    def test_a_move_inside_scan_roots_is_not_reported_the_handler_is_still_counted(self):
+        src = self._src(self.SWALLOW)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/sub/moved.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [])
+
+    def test_a_function_rename_that_stays_counted_is_not_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.SWALLOW)},
+            {"verenigingen/mod.py": self._src(self.SWALLOW, fn="g")},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_a_fix_beside_an_identical_handler_that_was_already_uncounted_is_not_reported(self):
+        """The same text sits in a test file in BOTH trees: it did not newly appear, so it hides nothing."""
+        probe = self._src(self.SWALLOW, fn="probe")
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.SWALLOW), "verenigingen/tests/test_probe.py": probe},
+            # The probe file CHANGES (an unrelated function is added), so it is re-scanned in both trees.
+            {"verenigingen/mod.py": self._src(self.FIXED), "verenigingen/tests/test_probe.py": probe + "\ndef extra():\n    return 1\n"},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_counted_by_path_agrees_with_counts(self):
+        """`_swallow_counted_by_path` is a copy of `_counts`' path rules; they must not drift."""
+        src = self._src(self.SWALLOW)
+        rels = [
+            "verenigingen/a.py",
+            "verenigingen/tests/test_a.py",
+            "verenigingen/sub/tests/helper.py",
+            "verenigingen/test_b.py",
+            "verenigingen/archived/c.py",
+            "scripts/d.py",
+            "docs/e.py",
+        ]
+        with tempfile.TemporaryDirectory() as h, mock.patch.object(esv, "REPO_ROOT", Path(h)):
+            for rel in rels:
+                f = Path(h) / rel
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(src)
+            counts, _ = esv._counts([str(Path(h) / "verenigingen"), str(Path(h) / "scripts")])
+            for rel in rels:
+                self.assertEqual(esv._swallow_counted_by_path(rel), f"{rel}::f" in counts, rel)
+
+
+    def test_the_relocated_report_says_how_a_fix_pr_gets_out_without_suggesting_a_pragma(self):
+        src = self._src(self.SWALLOW)
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(b) / "verenigingen").mkdir()
+            (Path(b) / "verenigingen" / "mod.py").write_text(src)
+            (Path(h) / "verenigingen" / "tests").mkdir(parents=True)
+            (Path(h) / "verenigingen" / "tests" / "test_mod.py").write_text(src)
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("verenigingen/mod.py::f::1\n")
+            out = io.StringIO()
+            with mock.patch.object(esv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = esv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
+        text = " ".join(out.getvalue().split())
+        self.assertEqual(rc, 1)
+        self.assertIn("[relocated]", text)
+        self.assertIn("reword the test's copy", text)
+        self.assertNotIn("pragma", text)  # a `# swallow-ok` reason would be untrue for a fix PR
+
+    def test_without_a_base_tree_the_success_line_does_not_claim_moves_were_checked(self):
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(h) / "verenigingen").mkdir()
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("")
+            out = io.StringIO()
+            with mock.patch.object(esv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = esv.main(["x", "--check-shrink", str(base_baseline)])
+        self.assertEqual(rc, 0)
+        self.assertIn("was NOT checked", " ".join(out.getvalue().split()))
 
 
 if __name__ == "__main__":
