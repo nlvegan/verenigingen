@@ -1220,6 +1220,7 @@ class BoardManager(BaseManager):
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             self._assert_board_access_withdrawn(volunteer_name)
+            self._refresh_volunteer_status(volunteer_name)
         self._refresh_expense_approvers(departed)
 
     def _refresh_expense_approvers(self, departed_volunteers):
@@ -1247,6 +1248,23 @@ class BoardManager(BaseManager):
             self._log_or_reraise(
                 "Failed to refresh expense approvers", {"volunteers": list(departed_volunteers)}, e
             )
+
+    def _refresh_volunteer_status(self, volunteer_name: str):
+        """Re-derive Volunteer.status once the seat change is in the database (#2540).
+
+        The history writes in validate() refresh the status too, but they run before the
+        Chapter Board Member rows are persisted: has_current_assignment() still finds the
+        seat being ended in `tabChapter Board Member` and keeps the volunteer Active. This
+        is the first frame where that read is truthful, same reason as the profile sync.
+        The derivation only moves status on real assignment evidence (never writes
+        Retired or Onboarding), so a volunteer who still holds another seat stays Active.
+        """
+        try:
+            from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_name)
+        except Exception as e:
+            self._log_or_reraise("Failed to refresh volunteer status", {"volunteer": volunteer_name}, e)
 
     def _withdraw_board_role_if_unseated(self, volunteer_name: str):
         """Drop the Frappe board role from a volunteer who no longer holds a seat.
