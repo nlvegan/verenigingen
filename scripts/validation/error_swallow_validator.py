@@ -1298,7 +1298,7 @@ def main(argv: list[str]) -> int:
             "unscanned": "the file stopped being SCANNED; the handler never changed",
             "relocated": "the same handler now sits under tests/ or outside SCAN_ROOTS, where it "
             "is not counted (moved, not fixed; line is from the base tree). "
-            + shrink_relocation.RELOCATED_HINT,
+            + shrink_relocation.relocated_hint(False),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")
         for u in unexplained:

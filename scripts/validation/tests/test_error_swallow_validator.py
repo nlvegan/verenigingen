@@ -6,7 +6,9 @@ file and run through scan_file(). Run with:  python -m pytest this_file.py
 or plain:  python scripts/validation/tests/test_error_swallow_validator.py
 """
 import ast
+import contextlib
 import importlib.util
+import io
 import shutil
 import subprocess
 import sys
@@ -2202,6 +2204,36 @@ class RelocatedSwallowTest(unittest.TestCase):
             counts, _ = esv._counts([str(Path(h) / "verenigingen"), str(Path(h) / "scripts")])
             for rel in rels:
                 self.assertEqual(esv._swallow_counted_by_path(rel), f"{rel}::f" in counts, rel)
+
+
+    def test_the_relocated_report_says_how_a_fix_pr_gets_out_without_suggesting_a_pragma(self):
+        src = self._src(self.SWALLOW)
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(b) / "verenigingen").mkdir()
+            (Path(b) / "verenigingen" / "mod.py").write_text(src)
+            (Path(h) / "verenigingen" / "tests").mkdir(parents=True)
+            (Path(h) / "verenigingen" / "tests" / "test_mod.py").write_text(src)
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("verenigingen/mod.py::f::1\n")
+            out = io.StringIO()
+            with mock.patch.object(esv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = esv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
+        text = " ".join(out.getvalue().split())
+        self.assertEqual(rc, 1)
+        self.assertIn("[relocated]", text)
+        self.assertIn("reword the test's copy", text)
+        self.assertNotIn("pragma", text)  # a `# swallow-ok` reason would be untrue for a fix PR
+
+    def test_without_a_base_tree_the_success_line_does_not_claim_moves_were_checked(self):
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(h) / "verenigingen").mkdir()
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("")
+            out = io.StringIO()
+            with mock.patch.object(esv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = esv.main(["x", "--check-shrink", str(base_baseline)])
+        self.assertEqual(rc, 0)
+        self.assertIn("was NOT checked", " ".join(out.getvalue().split()))
 
 
 if __name__ == "__main__":

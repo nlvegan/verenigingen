@@ -525,7 +525,7 @@ class RelocatedPredicateTest(unittest.TestCase):
                 rc = dcv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
         self.assertEqual(rc, 1)
         self.assertIn("[relocated]", out.getvalue())
-        self.assertIn("reword the", out.getvalue())
+        self.assertIn("reword the", " ".join(out.getvalue().split()))
 
     def test_without_a_base_tree_the_success_line_does_not_claim_moves_were_checked(self):
         with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
@@ -537,7 +537,7 @@ class RelocatedPredicateTest(unittest.TestCase):
                 rc = dcv.main(["x", "--check-shrink", str(base_baseline)])
         self.assertEqual(rc, 0)
         self.assertNotIn("moved out of scan range", out.getvalue())
-        self.assertIn("NOT\nchecked", out.getvalue())
+        self.assertIn("was NOT checked", " ".join(out.getvalue().split()))
 
 
 if __name__ == "__main__":

@@ -655,7 +655,7 @@ def main(argv: list[str]) -> int:
             "unscanned": "the file left SCAN_ROOTS; the call itself never changed",
             "relocated": "the same call is now pragma'd, under tests/ or outside SCAN_ROOTS, "
             "and no longer counted (moved, not fixed; line is from the base tree). "
-            + shrink_relocation.RELOCATED_HINT,
+            + shrink_relocation.relocated_hint(),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swap being fixed\n")
         for u in unexplained:

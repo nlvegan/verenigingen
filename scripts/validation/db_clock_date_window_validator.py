@@ -498,7 +498,7 @@ def main(argv: list[str]) -> int:
             "suppressed": "a `# db-clock-window-ok:` pragma was added -- the line still matches",
             "unscanned": "the file left SCAN_ROOTS; the predicate itself never changed",
             "relocated": "the same predicate text is now pragma'd, under tests/ or outside "
-            "SCAN_ROOTS, and no longer counted (moved, not fixed). " + shrink_relocation.RELOCATED_HINT,
+            "SCAN_ROOTS, and no longer counted (moved, not fixed). " + shrink_relocation.relocated_hint(),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the predicate being fixed\n")
         for u in unexplained:

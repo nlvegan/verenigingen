@@ -25,10 +25,14 @@ from pathlib import Path
 # census has to be able to see it there.
 CENSUS_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude"}
 
-RELOCATED_HINT = (
-    "If this is a genuine fix whose regression test copies the exact buggy text, reword the\n"
-    "      test's copy or mark it with the validator's pragma; the match is on site text."
-)
+_HINT_REWORD = "If this is a genuine fix whose regression test copies the exact buggy text, reword the\n      test's copy; the match is on site text."
+_HINT_PRAGMA = " Or mark it with the validator's pragma."
+
+
+def relocated_hint(pragma_ok: bool = True) -> str:
+    """How a fix PR gets out of a `relocated` report. `pragma_ok=False` where a pragma would be an untrue reason."""
+    return _HINT_REWORD + (_HINT_PRAGMA if pragma_ok else "")
+
 
 NO_BASE_TREE_SUCCESS = (
     "No unexplained shrink visible from the head tree alone. Code that MOVED or was renamed was NOT\n"
