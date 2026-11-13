@@ -1426,6 +1426,121 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         self.assertEqual(summary["charges_booking_cancelled"], 0, summary)
         self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
 
+    # --- #2535: a draft Journal Entry must not claim the payment id forever ----------------
+    # Probe shortcut, stated: the draft is produced by making ERPNext's own
+    # JournalEntry.before_submit raise, i.e. a submit refused BEFORE anything is
+    # written (the only shape that leaves docstatus 0; every GL-time refusal leaves
+    # docstatus 1 and is discard_unposted_journal_entry's). Everything above and
+    # below that hook is the real creator, webhook and sweep. Whether production
+    # strands drafts this way (rather than a worker killed between insert and
+    # submit) is NOT established; both end in the same row.
+
+    _STRAND_ERRORS = (
+        "Secure Operation Failed: submit on Journal Entry",
+        "Mollie Journal Entry Not Posted",
+        "Mollie Journal Entry Still Claims Its Key",
+        "financial_entry_error",
+    )
+
+    def _strand_a_draft(self, payment):
+        """Deliver the charge with the submit refused before it writes: leaves a DRAFT."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        self.expectErrorLog(*self._STRAND_ERRORS)
+        with patch.object(
+            JournalEntry, "before_submit", side_effect=frappe.ValidationError("period refused")
+        ):
+            self._deliver(payment)
+        drafts = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment["id"], "docstatus": 0}, pluck="name"
+        )
+        self.assertEqual(len(drafts), 1, "precondition: the refused submit must leave exactly one draft")
+        self.assertFalse(
+            frappe.db.get_value("Donation", {"payment_id": payment["id"]}, "journal_entry"),
+            "precondition: nothing was linked to the Donation",
+        )
+        return drafts[0]
+
+    def test_2535_a_redelivered_webhook_finishes_a_stranded_draft(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_hook_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+
+        result = self._deliver(payment)
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 1)
+        self.assertEqual(self._live_journal_entries(payment_id), [draft], "a second entry was created")
+        self.assertEqual(
+            frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"),
+            draft,
+            "the finished entry was not linked to the Donation",
+        )
+        self.assertTrue(
+            frappe.db.exists("GL Entry", {"voucher_type": "Journal Entry", "voucher_no": draft, "is_cancelled": 0}),
+            "the finished entry never reached the ledger",
+        )
+
+    def test_2535_the_sweep_finishes_a_stranded_draft(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_sweep_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [draft])
+        self.assertTrue(
+            frappe.db.exists("GL Entry", {"voucher_type": "Journal Entry", "voucher_no": draft, "is_cancelled": 0}),
+        )
+
+    def test_2535_a_draft_that_still_cannot_submit_is_reported_and_not_duplicated(self):
+        """Control for the opposite harm: refusing again must not mint a second entry, and must say so."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_still_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        title = "Journal Entry Draft Resubmit Error"
+        self.expectErrorLog(title, "Secure Operation Failed: submit on Journal Entry")
+        before = frappe.db.count("Error Log", {"method": title})
+
+        with patch.object(JournalEntry, "before_submit", side_effect=frappe.ValidationError("still refused")):
+            self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 0)
+        self.assertEqual(
+            frappe.get_all("Journal Entry", filters={"cheque_no": payment_id, "docstatus": ["!=", 2]}, pluck="name"),
+            [draft],
+        )
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+        row = frappe.get_all(
+            "Error Log", filters={"method": title}, fields=["error"], order_by="creation desc", limit=1
+        )[0]
+        self.assertIn(draft, row.error)
+
+    def test_2535_a_finished_draft_cancelled_by_staff_is_not_rebooked(self):
+        """Writer check: the resubmit path must set Donation.journal_entry (#945's marker).
+
+        Without it a staff cancel of the finished entry reads as a discarded
+        submit (marker empty) and the sweep re-books what staff just undid.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_cancel_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        self._deliver(payment)
+        frappe.get_doc("Journal Entry", draft).cancel()
+        self.expectErrorLog("Recurring Donation Sweep Skipped Cancelled Bookings")
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [])
+
     def test_945_a_charge_younger_than_the_webhook_retry_window_is_left_to_its_webhook(self):
         """The sweep must not race a webhook that may still be retrying (double-booking window)."""
         from datetime import datetime, timedelta, timezone

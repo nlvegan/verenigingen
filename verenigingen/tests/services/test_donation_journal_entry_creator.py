@@ -123,7 +123,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         self.assertIsNone(result)
         mock_frappe.db.get_value.assert_not_called()
 
-    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="ACC-JV-2025-00001")
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.resolve_journal_entry_by_reference", return_value="ACC-JV-2025-00001")
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_mollie_payment_idempotency(self, mock_frappe, _mock_existing):
         """Test that duplicate Mollie payments are rejected"""
@@ -141,7 +141,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert - should return existing JE name
         self.assertEqual(result, "ACC-JV-2025-00001")
 
-    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value=None)
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.resolve_journal_entry_by_reference", return_value=None)
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_mollie_payment_no_company_fails(self, mock_frappe, _mock_existing):
         """Test that missing company configuration fails gracefully"""
@@ -162,7 +162,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
-    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="ACC-JV-2025-00002")
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.resolve_journal_entry_by_reference", return_value="ACC-JV-2025-00002")
     @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_dict_idempotency(self, mock_frappe, _mock_existing):
         """Test that duplicate dict transactions are rejected"""

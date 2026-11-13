@@ -26,11 +26,66 @@ def find_journal_entry_by_reference(reference_number: str) -> Optional[str]:
     ``docstatus != 2``: a cancelled entry is one that was explicitly undone, so
     the key is free again, while a *draft* is work already in flight and counting
     it as absent is what produces the second booking.
+
+    A pure lookup. A booker asking "has this been booked?" must call
+    :func:`resolve_journal_entry_by_reference` instead, which also tries to
+    finish a draft: this one answers "a draft claims the key" forever (#2535).
     """
     if not reference_number:
         return None
     return frappe.db.get_value(
         "Journal Entry", {"cheque_no": reference_number, "docstatus": ["!=", 2]}, "name"
+    )
+
+
+def resolve_journal_entry_by_reference(reference_number: str) -> Optional[str]:
+    """Like ``find_journal_entry_by_reference``, but a stranded draft is finished first.
+
+    A draft claims the key, so without this a charge whose Journal Entry never
+    got past insert (a worker killed between insert and submit, or a submit
+    refused before anything was written) read as booked forever: the webhook and
+    the recovery sweep both answered "already processed" and nothing posted
+    (#2535). Same shape as ``BankTransactionCreator._resolve_existing_bank_transaction``
+    (#383): retry the submit of the existing draft, then answer with whatever the
+    lookup now says.
+
+    The retry is a real submit, so the outcome is one of three, all reported:
+    it posts (the key stays claimed, now by a live entry); it fails after the
+    docstatus write (``discard_unposted_journal_entry`` cancels it, the key is
+    free and this returns None so the caller books afresh); or it fails before
+    anything is written (the draft stays, an Error Log row says so, and this
+    still returns its name so a second entry is never created beside it).
+    """
+    name = find_journal_entry_by_reference(reference_number)
+    if name and frappe.db.get_value("Journal Entry", name, "docstatus") == 0:
+        _resubmit_stranded_draft(name, reference_number)
+        name = find_journal_entry_by_reference(reference_number)
+    return name
+
+
+def _resubmit_stranded_draft(journal_entry_name: str, reference_number: str) -> None:
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    je = frappe.get_doc("Journal Entry", journal_entry_name)
+    result = secure_document_operation(
+        operation="submit",
+        doc=je,
+        justification=f"Resubmit stranded draft Journal Entry {journal_entry_name} ({reference_number})",
+        required_permissions=["Journal Entry:submit"],
+        allow_system_user=True,
+    )
+    if result.success:
+        return
+    error_message = ", ".join(result.errors) if result.errors else "Unknown error"
+    if result.partial_write:
+        discard_unposted_journal_entry(
+            journal_entry_name, subject=f"stranded draft for {reference_number}", error_message=error_message
+        )
+        return
+    frappe.log_error(
+        title="Journal Entry Draft Resubmit Error",
+        message=f"Draft Journal Entry {journal_entry_name} (reference {reference_number}) could not be "
+        f"submitted and is still a draft, so this booking is still not on the ledger: {error_message}",
     )
 
 

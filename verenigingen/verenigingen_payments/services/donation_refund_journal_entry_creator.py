@@ -20,8 +20,8 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
     discard_unposted_journal_entry,
-    find_journal_entry_by_reference,
     reconcile_bank_transaction_with_journal_entry,
+    resolve_journal_entry_by_reference,
 )
 
 
@@ -103,7 +103,7 @@ class DonationRefundJournalEntryCreator:
         reference_number = build_reversal_key(original_payment_id, reversal_type, refund_id)
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = find_journal_entry_by_reference(reference_number)
+        existing_je = resolve_journal_entry_by_reference(reference_number)
         if existing_je:
             frappe.logger().info(f"Refund Journal Entry already exists for {refund_id}: {existing_je}")
             # Still attempt reconciliation in case it wasn't done previously

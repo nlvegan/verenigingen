@@ -22,7 +22,7 @@ from verenigingen.verenigingen_payments.services.donation_journal_entry_creator 
     get_donation_journal_entry_creator,
 )
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
-    find_journal_entry_by_reference,
+    resolve_journal_entry_by_reference,
 )
 
 # Import payment data extraction utilities
@@ -1271,7 +1271,7 @@ class UnifiedWebhookWrapperService:
                 # "Unknown column 'reference_no'" and aborted the whole partial-processing
                 # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
-                    journal_entry_name = find_journal_entry_by_reference(payment_id)
+                    journal_entry_name = resolve_journal_entry_by_reference(payment_id)
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                     results.append("Donation payment history updated")
                 else:
