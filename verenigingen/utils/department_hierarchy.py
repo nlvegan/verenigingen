@@ -14,6 +14,9 @@ class DepartmentHierarchyManager:
         if not settings.company:
             frappe.throw(_("Company not configured in Verenigingen Settings"))
         self.company = settings.company
+        # Departments an approver sync could not find for self.company (#2551);
+        # the daily sync reports these instead of claiming a clean success.
+        self.skipped_departments = []
 
     def setup_association_departments(self):
         """Create complete department structure mirroring association hierarchy"""
@@ -109,12 +112,14 @@ class DepartmentHierarchyManager:
             # Parents are referenced by their human-readable name but stored
             # abbreviated, so resolve to the actual record name.
             resolved_parent = self._resolve_department_name(parent)
-            dept.parent_department = resolved_parent or parent
-            # Only promote a parent that belongs to this company. An unresolved
-            # name may still be another company's record name, which must not be
-            # touched; the insert below then refuses it (#2551).
-            if resolved_parent:
-                self._ensure_group(resolved_parent)
+            if not resolved_parent:
+                # Never fall back to the raw name: it may be another company's
+                # record, which must be neither promoted nor attached to (#2551).
+                frappe.throw(
+                    _("Parent department {0} not found for company {1}").format(parent, self.company)
+                )
+            dept.parent_department = resolved_parent
+            self._ensure_group(resolved_parent)
 
         result = secure_document_operation(
             operation="insert",
@@ -350,7 +355,10 @@ class DepartmentHierarchyManager:
         """Update department's expense approvers"""
         resolved = self._resolve_department_name(dept_name)
         if not resolved:
-            frappe.logger().debug(f"Department {dept_name} does not exist, skipping approver sync")
+            # Visible skip (#2551): the caller reports it in the sync result.
+            skipped = {"department": dept_name, "company": self.company}
+            if skipped not in self.skipped_departments:
+                self.skipped_departments.append(skipped)
             return
 
         dept = frappe.get_doc("Department", resolved)

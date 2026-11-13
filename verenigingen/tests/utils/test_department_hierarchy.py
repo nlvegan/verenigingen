@@ -352,14 +352,15 @@ class TestDepartmentHierarchy(EnhancedTestCase):
             company, f"DH Only Other {frappe.generate_hash(length=6)}"
         )
 
-        try:
-            mgr._ensure_department(
-                f"DH Orphan {frappe.generate_hash(length=6)}", parent=other_parent.department_name
-            )
-        except frappe.ValidationError:
-            pass  # no parent in the manager's company: the insert is refused
+        child_name = f"DH Orphan {frappe.generate_hash(length=6)}"
 
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            mgr._ensure_department(child_name, parent=other_parent.department_name)
+
+        self.assertIn(other_parent.department_name, str(ctx.exception))
+        self.assertIn(company, str(ctx.exception))
         self.assertEqual(frappe.db.get_value("Department", other_parent.name, "is_group"), 0)
+        self.assertFalse(frappe.db.exists("Department", {"department_name": child_name}))
 
     def test_ensure_department_ignores_another_companys_abbreviated_record_name(self):
         """The exact-record-name branch must be company-scoped too: a parent given
@@ -369,12 +370,13 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         other_parent = self._other_company_department(company, f"DH Exact {frappe.generate_hash(length=6)}")
 
         self.assertIsNone(mgr._resolve_department_name(other_parent.name))
-        try:
-            mgr._ensure_department(f"DH Orphan {frappe.generate_hash(length=6)}", parent=other_parent.name)
-        except frappe.ValidationError:
-            pass
+        child_name = f"DH Orphan {frappe.generate_hash(length=6)}"
+
+        with self.assertRaises(frappe.ValidationError):
+            mgr._ensure_department(child_name, parent=other_parent.name)
 
         self.assertEqual(frappe.db.get_value("Department", other_parent.name, "is_group"), 0)
+        self.assertFalse(frappe.db.exists("Department", {"department_name": child_name}))
 
     def test_resolve_department_name_same_company_forms_still_resolve(self):
         """Control: the manager's own department resolves by bare name and by
@@ -512,9 +514,42 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         self._ensure_company()
         mgr = DepartmentHierarchyManager()
         # Non-existent department: returns without error
-        mgr._update_department_approvers(
-            f"Nonexistent Dept {frappe.generate_hash(length=6)}", ["x@example.invalid"]
+        missing = f"Nonexistent Dept {frappe.generate_hash(length=6)}"
+        mgr._update_department_approvers(missing, ["x@example.invalid"])
+        # The skip is recorded, naming the company (#2551), not only debug-logged.
+        self.assertEqual(mgr.skipped_departments, [{"department": missing, "company": mgr.company}])
+
+    def test_daily_sync_reports_departments_skipped_for_the_configured_company(self):
+        """A hierarchy that exists only under ANOTHER company (company changed after
+        setup) must not read as a clean sync: the result names the skipped
+        departments and the company, and the other company's rows are not written."""
+        from verenigingen.services.volunteer.department_approver_sync import (
+            sync_all_department_approvers,
         )
+
+        company = self._ensure_company()
+        treasurer_role = self._ensure_chapter_role("Treasurer")
+        chapter = self._make_chapter()
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        member = self.factory.create_member(email=user.email)
+        member.user = user.email
+        member.save()
+        vol = self.factory.create_volunteer(member_name=member.name, email=user.email, _exact_email=True)
+        self._add_board_member(chapter.name, vol.name, treasurer_role)
+        other_board = self._other_company_department(company, f"Chapter {chapter.name} Board")
+
+        result = sync_all_department_approvers()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["company"], company)
+        self.assertIn(
+            {"department": f"Chapter {chapter.name} Board", "company": company},
+            result["skipped_departments"],
+        )
+        self.assertIn(company, result["message"])
+        self.assertIn("skipped", result["message"])
+        other_board.reload()
+        self.assertEqual(list(other_board.expense_approvers), [])
 
     def test_update_department_approvers_sets_valid_approvers(self):
         company = self._ensure_company()
