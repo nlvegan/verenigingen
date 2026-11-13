@@ -819,15 +819,29 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
 
         gone = {"Verenigingen Member", "Verenigingen Volunteer", "Employee", "Projects User"}
-        self.assertFalse(gone & self._has_role_rows(user.name))
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "roles survived the disciplinary strip itself (role_profiles not cleared, "
+            "so populate_role_profile_roles() re-derived them on the same save)",
+        )
         self.assertFalse(frappe.get_doc("User", user.name).role_profiles)
 
         # Stays gone: an unrelated later save, and the (default) role-profile
         # resync, which skips a disabled account -- neither may re-grant roles.
         frappe.get_doc("User", user.name).save()
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "an unrelated later save of the disabled user re-granted roles",
+        )
         sync_user_role_profile(user.name)
-        self.assertFalse(gone & self._has_role_rows(user.name))
-        self.assertFalse(gone & set(frappe.get_roles(user.name)))
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "sync_user_role_profile re-granted Has Role rows to the disabled user",
+        )
+        self.assertFalse(
+            gone & set(frappe.get_roles(user.name)),
+            "frappe.get_roles still returns stripped roles after the resync",
+        )
 
     def test_deactivate_user_account_safe_non_disciplinary_keeps_role_profile_roles(self):
         """Control (#1203): a Voluntary termination only disables the account;
