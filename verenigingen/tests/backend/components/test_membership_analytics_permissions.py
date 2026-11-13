@@ -33,7 +33,28 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         ])
         
         cls.no_role_user = cls._create_analytics_test_user("norole@test.com", [])
-        
+
+        # #2592: these Users are committed above, so the class has to delete them again itself.
+        cls.addClassCleanup(cls._cleanup_analytics_users)
+
+    #: Every User `setUpClass` creates; the class cleanup deletes exactly these.
+    ANALYTICS_USERS = (
+        "admin@test.com",
+        "manager@test.com",
+        "board@test.com",
+        "member@test.com",
+        "norole@test.com",
+    )
+
+    @classmethod
+    def _cleanup_analytics_users(cls):
+        for email in cls.ANALYTICS_USERS:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        # The delete only persists if something commits after it; commit here so it does not
+        # depend on a later class cleanup happening to do so.
+        frappe.db.commit()
+
     @classmethod
     def _create_analytics_test_user(cls, email, roles):
         """Create a test user with specified roles.
