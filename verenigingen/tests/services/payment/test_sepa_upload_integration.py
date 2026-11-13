@@ -712,11 +712,9 @@ class TestGenerateSepaXmlPreservesNonResumableErrors(FrappeTestCase):
         _ensure_sepa_settings_for_xml_generation()
         self.service = SEPAXMLGenerationService()
         frappe.db.delete("SEPA Batch Upload Log", {})
-        frappe.db.commit()
 
     def tearDown(self):
         frappe.db.delete("SEPA Batch Upload Log", {})
-        frappe.db.commit()
         super().tearDown()
 
     def _generate_with_failing_finalize_write(self, error):
