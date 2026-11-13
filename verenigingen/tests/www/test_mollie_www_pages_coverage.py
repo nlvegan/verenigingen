@@ -43,6 +43,26 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         self.plain_email = f"mollie-plain-{frappe.generate_hash()[:8]}@example.com"
         self.plain_user = self._make_user(self.plain_email, roles=["Verenigingen Member"])
 
+    def _1174_cleanup_error_logs(self, *titles):
+        """Delete the Error Log rows of these titles that THIS test causes (#1174).
+
+        ``tabError Log`` is MyISAM, so the harness rollback cannot reach the rows these
+        tests deliberately provoke and one would survive per run. Scoped to rows created
+        after this call whose title is one of ``titles``, and excluding names that
+        existed already, so a sibling's or a real row is never touched. addCleanup runs
+        after tearDown, so the automatic tearDown Error Log check still sees the rows.
+        """
+        marker = frappe.utils.now_datetime()
+        filters = {"method": ["in", list(titles)], "creation": [">=", marker]}
+        existing = set(frappe.get_all("Error Log", filters=filters, pluck="name"))
+
+        def _delete():
+            caused = set(frappe.get_all("Error Log", filters=filters, pluck="name")) - existing
+            if caused:
+                frappe.db.delete("Error Log", {"name": ["in", list(caused)]})
+
+        self.addCleanup(_delete)
+
     def _make_user(self, email, roles):
         if not frappe.db.exists("User", email):
             user = frappe.get_doc(
@@ -147,6 +167,7 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         """Without a live Mollie key the audit fails gracefully and logs once."""
         with self.set_user(self.admin_email):
             self.expectErrorLog("Subscription Audit Error")
+            self._1174_cleanup_error_logs("Subscription Audit Error")
             with self.assertErrorLog("Subscription Audit Error"):
                 result = msa.run_audit()
         self.assertIsInstance(result, dict)
@@ -164,6 +185,7 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         """
         with self.set_user(self.admin_email):
             self.expectErrorLog("Subscription Audit Error")
+            self._1174_cleanup_error_logs("Subscription Audit Error")
             marker = frappe.utils.now_datetime()
             before = {
                 r.name
@@ -190,6 +212,7 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         """Admin passes the gate; result is a success OR a clean handled failure."""
         with self.set_user(self.admin_email):
             self.expectErrorLog("Failed to get default webhook URL")
+            self._1174_cleanup_error_logs("Failed to get default webhook URL")
             result = msa.get_default_webhook_url()
         self.assertIsInstance(result, dict)
         self.assertIn("success", result)
@@ -217,6 +240,7 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
     def test_recon_data_no_mollie_key_returns_failure(self):
         with self.set_user(self.admin_email):
             self.expectErrorLog("Member Reconciliation Error")
+            self._1174_cleanup_error_logs("Member Reconciliation Error")
             result = mmr.get_member_reconciliation_data()
         self.assertIsInstance(result, dict)
         self.assertFalse(result.get("success"))
@@ -269,6 +293,7 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
         try:
             with self.set_user(self.admin_email):
                 self.expectErrorLog("Member Reconciliation Error")
+                self._1174_cleanup_error_logs("Member Reconciliation Error")
                 marker = frappe.utils.now_datetime()
                 before = {
                     r.name
