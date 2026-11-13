@@ -93,4 +93,25 @@ describe('bulk approve buckets', () => {
 		expect(shown[0].message).toContain('Failed: 1');
 		expect(shown[0].message).toContain('APP-X: nope');
 	});
+
+	test('an invoice-only failure also turns the result orange', async () => {
+		const { page, shown, done } = loadPage({
+			'APP-INV': { message: { success: true, invoice_failed: true, message: 'no invoice' } }
+		});
+		page.bulk_approve();
+		await done();
+		expect(shown[0].message).toContain('Approved, but the invoice could NOT be created: 1');
+		expect(shown[0].indicator).toBe('orange');
+	});
+
+	test('control: application names and server messages are escaped in every list', async () => {
+		const evil = '<img src=x onerror=alert(1)>';
+		const { page, shown, done } = loadPage({
+			[evil]: { message: { success: true, dues_schedule_failed: true, message: evil } }
+		});
+		page.bulk_approve();
+		await done();
+		expect(shown[0].message).not.toContain('<img');
+		expect(shown[0].message).toContain('&lt;img');
+	});
 });
