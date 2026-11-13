@@ -29,13 +29,6 @@ class TestStaffKeepsProfileOnSeat1969(VereningingenTestCase):
             chapter_name=f"Staff1969 {frappe.generate_hash(length=6)}", postal_codes="4000-4999", published=1
         )
 
-    def tearDown(self):
-        users = [d["name"] for d in self._test_docs if d["doctype"] == "User"]
-        for user in users:  # seating applies a profile carrying Employee; see #1694
-            for employee in frappe.get_all("Employee", filters={"user_id": user}, pluck="name"):
-                self.track_doc("Employee", employee)
-        super().tearDown()
-
     # ------------------------------------------------------------------ helpers
 
     def _chapter_role_1969(self, label):
