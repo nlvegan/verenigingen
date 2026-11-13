@@ -430,6 +430,16 @@ class TestAlertOnlyOnDeliveryPaths(AmbiguousPartyBase):
         self.assertEqual(len(self._alert_events(self.payment_id)), 1)
         self.assertEqual(len(self._alert_events(self.other_id)), 1)
 
+    def test_subscription_rule_alerts_only_when_asked(self):
+        """The subscription rule threads the switch itself (a mutant dropping it stayed green)."""
+        sub = self._share("Member", "mollie_subscription_id", self.members)
+        quiet = SubscriptionBasedClassification().classify(self.payment(subscription_id=sub))
+        self.assertEqual(quiet.payment_type, PaymentType.AMBIGUOUS)
+        self.assertEqual(self._alert_events(), [])
+        self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE)), 1)
+        SubscriptionBasedClassification().classify(self.payment(subscription_id=sub), alert_staff=True)
+        self.assertEqual(len(self._alert_events()), 1)
+
     def test_batch_with_true_alerts(self):
         PaymentClassifier().classify_batch([self.payment(customer_id=self.cust)], alert_staff=True)
         self.assertEqual(len(self._alert_events()), 1)
