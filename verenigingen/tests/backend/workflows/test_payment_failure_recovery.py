@@ -13,8 +13,8 @@ from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
-from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
@@ -77,7 +77,9 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         email = f"payrecovery.admin.{frappe.generate_hash(length=8)}@test.invalid"
         user = self.create_test_user(email)
         self.track_doc("User", user.name)
-        member = self.create_test_member(first_name="PayAdmin", last_name="Staff", email=email, status="Active")
+        member = self.create_test_member(
+            first_name="PayAdmin", last_name="Staff", email=email, status="Active"
+        )
         member.db_set("user", user.name, update_modified=False)
         volunteer = self.create_test_volunteer(member=member.name)
 
@@ -95,7 +97,12 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         )
         team.append(
             "team_members",
-            {"volunteer": volunteer.name, "team_role": "Team Member", "from_date": today(), "status": "Active"},
+            {
+                "volunteer": volunteer.name,
+                "team_role": "Team Member",
+                "from_date": today(),
+                "status": "Active",
+            },
         )
         team.insert()
         self.track_doc("Team", team.name)
@@ -317,7 +324,12 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             other_invoice = self._make_invoice(context.get("customer_name"))
             other = retry_failed_payment(other_invoice.name)
 
-        return {"first_retry": first, "second_retry": second, "other_retry": other, "other_invoice_name": other_invoice.name}
+        return {
+            "first_retry": first,
+            "second_retry": second,
+            "other_retry": other,
+            "other_invoice_name": other_invoice.name,
+        }
 
     def _validate_retry_scheduled(self, context):
         """The first call scheduled a retry record; the second was refused"""
