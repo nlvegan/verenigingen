@@ -2583,10 +2583,14 @@ def resolve_invoice_from_reference(reference):
     ``SINV-``/``ACC-SINV-``/``INV-`` reference-to-invoice logic lives in one
     place.
 
-    Resolution order (behavior identical to the original inline implementation):
+    Resolution order:
     1. A direct match where the whole reference is itself a Sales Invoice name.
     2. The first ``INVOICE_REFERENCE_PATTERNS`` substring that names an existing
        Sales Invoice.
+
+    Only a SUBMITTED invoice (docstatus 1) resolves (#939, the class of #856/#209):
+    a draft or cancelled invoice is not payable, so a reference naming one returns
+    ``None`` and the caller reports the bank line as unmatched.
 
     Args:
         reference: Raw reference text from the bank transaction.
@@ -2598,13 +2602,13 @@ def resolve_invoice_from_reference(reference):
         return None
 
     # Direct reference match (the reference is itself an invoice name).
-    if frappe.db.exists("Sales Invoice", reference):
+    if frappe.db.exists("Sales Invoice", {"name": reference, "docstatus": 1}):
         return reference
 
     # Extract an invoice number embedded in the reference text.
     for pattern in INVOICE_REFERENCE_PATTERNS:
         match = re.search(pattern, reference)
-        if match and frappe.db.exists("Sales Invoice", match.group(1)):
+        if match and frappe.db.exists("Sales Invoice", {"name": match.group(1), "docstatus": 1}):
             return match.group(1)
 
     return None

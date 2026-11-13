@@ -561,6 +561,9 @@ NOTIFICATION_KEYS = {
         "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # The money has moved: every unbookable payment must reach staff (#2248). Guard only; these
+        # alerts go through Notification Log, which applies no cooldown.
+        "cooldown_minutes": 0,
     },
     "ponto_executed_unbookable": {
         "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
@@ -572,6 +575,7 @@ NOTIFICATION_KEYS = {
         "more than one). The money has moved: check the bank and book the payment by hand.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,  # see ponto_executed_on_cancelled_row (#2248)
     },
     "mollie_forward_payment_staff_cancelled": {
         "label": "Mollie Payment Delivered After Its Payment Entry Was Cancelled (Admin)",

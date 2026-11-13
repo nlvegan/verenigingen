@@ -269,7 +269,10 @@ class MemberIDService(StatelessService):
                 return OperationResult.fail(
                     "No member IDs were assigned",
                     errors=errors if errors else ["No eligible members found"],
-                    **results,
+                    # not **results: it holds "errors", which fail() takes as a named
+                    # parameter (duplicate keyword -> TypeError, #2424)
+                    total_checked=total_checked,
+                    assigned=assigned_count,
                 )
 
         except Exception as e:

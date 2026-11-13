@@ -115,11 +115,9 @@ class TestChapterRejoinAfterLeave2210(EnhancedTestCase):
             [(ended[0].start_date, ended[0].end_date, "moving")],
             "the earlier period must stay recorded untouched",
         )
-        self.assertEqual(len(after), len(requested), "approval adds no entry (see #2430)")
-        # Not asserted to be "Active": approve_member_request leaves the history entry Pending
-        # for a first-time join too (add_membership_history refuses Active beside a Pending
-        # entry); a separate defect, not this rejoin's.
-        self.assertIn(after[-1].status, ("Pending", "Active"), after)
+        self.assertEqual(len(after), len(requested), "approval adds no entry")
+        # #2430: approval moves the rejoin's Pending entry to Active (it used to stay Pending).
+        self.assertEqual(after[-1].status, "Active", after)
         self.assertEqual(after[-1].start_date, frappe.utils.getdate(frappe.utils.today()))
 
     def test_second_rejoin_after_second_leave_still_one_row(self):

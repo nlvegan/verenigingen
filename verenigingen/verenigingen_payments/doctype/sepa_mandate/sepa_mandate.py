@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.services.payment.sepa_mandate_consent import enforce_consent_provenance
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_name_for_board_access
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -33,6 +34,7 @@ from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
 
 class SEPAMandate(Document):
     def validate(self):
+        enforce_consent_provenance(self)
         self.set_scheme_default()
         self.auto_generate_mandate_id()
         self.enforce_terminal_status()

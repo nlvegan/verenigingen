@@ -464,8 +464,9 @@ def send_batch_creation_notification(result):
                 recipients=[email],
                 subject=subject,
                 message=message,
-                delayed=False,
                 notification_key="sepa_batch_scheduler_alert",
+                # Per set of created batches: a second run within the hour is a different incident (#2310).
+                cooldown_scope=",".join(sorted(b["name"] for b in batch_details)) or None,
             )
 
     except Exception as e:
