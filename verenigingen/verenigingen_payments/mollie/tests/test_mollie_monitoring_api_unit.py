@@ -294,6 +294,18 @@ class TestHealthAndPerformanceEndpoints(EnhancedTestCase):
         self.assertIn("payment_creation", ops)
         self.assertNotIn("_1315_stale_op", ops)
 
+    def test_1315_any_recorded_name_appears_in_the_breakdown(self):
+        """The breakdown follows what was recorded, not a list of known names."""
+        from verenigingen.verenigingen_payments.mollie.utils.monitoring import (
+            record_operation_performance,
+        )
+
+        record_operation_performance("_1315_any_name", 0.5, True)
+        with self.set_user("Administrator"):
+            ops = monitoring_api.get_performance_metrics()["operations"]
+        self.assertIn("_1315_any_name", ops)
+        self.assertEqual(ops["_1315_any_name"]["total_calls"], 1)
+
     def _1315_live_webhook_operation_names(self):
         """Operation names the live webhook service passes to the recorder,
         read from its source so the test follows the real path's name."""

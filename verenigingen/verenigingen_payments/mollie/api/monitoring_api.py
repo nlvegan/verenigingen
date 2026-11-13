@@ -59,6 +59,10 @@ def get_performance_metrics():
     Query Parameters:
     - hours: Number of hours to look back (default: 24)
 
+    The breakdown comes from a process-local singleton: it shows only this
+    worker's recorded operations since its start, within the MAX_METRICS_SIZE
+    window.
+
     Returns:
         Dict with performance metrics
     """
