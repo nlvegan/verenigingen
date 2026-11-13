@@ -905,6 +905,10 @@ class BoardManager(BaseManager):
                 volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
                 if volunteer_doc.member:
                     self._add_to_chapter_members(volunteer_doc.member)
+                    # Seating a board member is not an application or a join the board is
+                    # told about (#1843): notify_board_of_joins skips these ids.
+                    seated = self.chapter_doc.flags.setdefault("board_seated_member_ids", set())
+                    seated.add(volunteer_doc.member)
                     self.log_action(
                         "Auto-added board member to chapter members",
                         {
@@ -1140,7 +1144,7 @@ class BoardManager(BaseManager):
         except frappe.DoesNotExistError:
             return False
 
-    def _defer_board_access_recalculation(self, volunteer_name: str):
+    def _defer_board_access_recalculation(self, volunteer_name: str, held_financial_before=None):
         """Queue a volunteer's board access to be recalculated after this save.
 
         Every board change — seating, unseating, deactivating, changing role — is
@@ -1157,13 +1161,40 @@ class BoardManager(BaseManager):
         only frame in the save where those reads are truthful. Additions were deferred
         for this reason already; removals were not, which is why vacating a seat never
         withdrew the board role profile (issue #211).
+
+        ``held_financial_before`` (#1682): whether the volunteer held an active Financial seat
+        on this chapter BEFORE the change, so only a seat that was Financial can leave a stale
+        expense approver behind. A Chapter save defers from validate(), where the database
+        still shows the previous board, so ``None`` reads it from there. A standalone row
+        write defers after the database changed, so it must say (see ChapterBoardMember).
         """
         if not volunteer_name:
             return
+        if held_financial_before is None:
+            held_financial_before = self._holds_financial_seat_in_db(volunteer_name)
+        if held_financial_before:
+            if not hasattr(self.chapter_doc, "_pending_financial_departures"):
+                self.chapter_doc._pending_financial_departures = set()
+            self.chapter_doc._pending_financial_departures.add(volunteer_name)
         if not hasattr(self.chapter_doc, "_pending_board_profile_syncs"):
             self.chapter_doc._pending_board_profile_syncs = []
         if volunteer_name not in self.chapter_doc._pending_board_profile_syncs:
             self.chapter_doc._pending_board_profile_syncs.append(volunteer_name)
+
+    def _holds_financial_seat_in_db(self, volunteer_name: str) -> bool:
+        """Whether the database shows an active Financial seat for the volunteer on this chapter."""
+        return bool(
+            frappe.db.sql(
+                """
+                SELECT 1 FROM `tabChapter Board Member` cbm
+                JOIN `tabChapter Role` cr ON cr.name = cbm.chapter_role
+                WHERE cbm.parent = %s AND cbm.volunteer = %s AND cbm.is_active = 1
+                    AND cr.permissions_level = 'Financial' AND cr.is_active = 1
+                LIMIT 1
+                """,
+                (self.chapter_doc.name, volunteer_name),
+            )
+        )
 
     def flush_pending_board_profile_syncs(self):
         """Recalculate deferred board access for everyone whose seat changed in this save.
@@ -1183,10 +1214,39 @@ class BoardManager(BaseManager):
             return
         # Clear first so a re-entrant save doesn't double-process.
         self.chapter_doc._pending_board_profile_syncs = []
+        departed = sorted(getattr(self.chapter_doc, "_pending_financial_departures", None) or ())
+        self.chapter_doc._pending_financial_departures = set()
         for volunteer_name in pending:
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             self._assert_board_access_withdrawn(volunteer_name)
+        self._refresh_expense_approvers(departed)
+
+    def _refresh_expense_approvers(self, departed_volunteers):
+        """Refresh Employee/Department expense approvers for a seat change, now (#1682).
+
+        The approvers derive from these very rows, and until now only the daily scheduler
+        recomputed them, so an ended or re-roled Financial seat stayed approver for a day.
+        This is the one place every seat writer converges (Chapter save, standalone row
+        insert/update/delete, term ending, termination), after the rows are persisted. No
+        commit: it runs in the writer's transaction. A failure other than a deadlock or lock
+        timeout is logged and does not block the board change; the daily run recomputes
+        approvers but never clears one, so it does not repair a missed clearing.
+
+        ``departed_volunteers``: those who held a Financial seat here before this change.
+        Those who no longer hold one lose their approver rows; anyone else's hand-set
+        approver is left alone (#1650).
+        """
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_expense_approvers_for_chapter,
+        )
+
+        try:
+            refresh_expense_approvers_for_chapter(self.chapter_doc.name, departed_volunteers)
+        except Exception as e:
+            self._log_or_reraise(
+                "Failed to refresh expense approvers", {"volunteers": list(departed_volunteers)}, e
+            )
 
     def _withdraw_board_role_if_unseated(self, volunteer_name: str):
         """Drop the Frappe board role from a volunteer who no longer holds a seat.

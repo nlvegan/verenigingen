@@ -530,6 +530,10 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         """Set up test environment"""
         super().setUp()
 
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the handler sent 0 mails (#1879).
+        ensure_outgoing_email_account(self)
+
         self.test_member = self.create_test_member(
             first_name="EventTest",
             last_name="Member",

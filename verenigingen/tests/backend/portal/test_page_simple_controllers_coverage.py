@@ -43,13 +43,13 @@ class TestSimplePortalControllers(EnhancedTestCase):
         from verenigingen.templates.pages import application_success
 
         frappe.local.form_dict.id = "MEMBER-0001"
-        frappe.local.form_dict.payment_url = "https://pay.example.invalid/abc"
+        frappe.local.form_dict.payment_url = "/payment/membership/MEMBER-0001/INV-0001"
         try:
             context = frappe._dict()
             with self.assertNoErrorLog():
                 application_success.get_context(context)
             self.assertEqual(context.member_id, "MEMBER-0001")
-            self.assertEqual(context.payment_url, "https://pay.example.invalid/abc")
+            self.assertEqual(context.payment_url, "/payment/membership/MEMBER-0001/INV-0001")
             self.assertEqual(context.no_cache, 1)
             self.assertFalse(context.show_sidebar)
             self.assertTrue(context.title)

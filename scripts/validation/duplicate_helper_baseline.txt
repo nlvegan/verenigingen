@@ -58,7 +58,7 @@ _base_row::2
 _batch_fetch_with_chunking::2  # clone family, 1 near-identical pair(s)
 _batch_with_one_invoice::2  # clone family, 1 near-identical pair(s)
 _bind_request::4
-_board_lifecycle_notifications_enabled::2  # clone family, 1 near-identical pair(s)
+_board_lifecycle_notifications_enabled::2
 _build::3
 _build_caches::2
 _build_chapter_info::2  # clone family, 1 near-identical pair(s)

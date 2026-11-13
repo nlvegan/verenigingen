@@ -525,7 +525,6 @@
  "verenigingen.tests.integration.test_account_creation_real": 31,
  "verenigingen.tests.integration.test_account_creation_service_orchestration": 7,
  "verenigingen.tests.integration.test_api_authentication_decorators_integration": 32,
- "verenigingen.tests.integration.test_api_security_phase3": 1,
  "verenigingen.tests.integration.test_application_payments_invoice_paths": 4,
  "verenigingen.tests.integration.test_authentication_flows": 33,
  "verenigingen.tests.integration.test_bank_transaction_security": 7,

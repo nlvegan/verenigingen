@@ -111,11 +111,16 @@ def execute_safe_termination(
                 results["errors"].append(f"Failed to cancel SEPA mandate {mandate.mandate_id}")
 
         # 3. End board positions
+        board_failures = []
         positions_ended = end_board_positions_safe(
-            member_name, termination_date, f"Member terminated - Request: {request_name or 'Direct'}"
+            member_name,
+            termination_date,
+            f"Member terminated - Request: {request_name or 'Direct'}",
+            failures=board_failures,
         )
         if positions_ended > 0:
             results["actions_taken"].append(f"Ended {positions_ended} board position(s)")
+        results["errors"].extend(board_failures)
 
         # 4. Suspend team memberships
         teams_suspended = suspend_team_memberships_safe(

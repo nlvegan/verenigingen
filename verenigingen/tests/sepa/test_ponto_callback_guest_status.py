@@ -339,11 +339,97 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
                     self.assertEqual(one["session_user"], "Guest")
 
     def test_a_configured_webhook_user_is_the_identity_the_callback_runs_as(self):
-        """Control for the test above: with a real webhook_user the identity IS switched, so
-        the 'stays Guest' assertion there can fail."""
+        """Control for the test above: with a real webhook_user the identity IS switched while the
+        callback works (so the 'stays Guest' assertion there can fail), and it is switched back
+        before the response ends (#2275)."""
         doc = self._make_ppr("Pending")
-        seen = self._guest_get(REQ_CMD, payment_request=doc.name)
-        self.assertEqual(seen["session_user"], self.webhook_user)
+        switched = []
+        real_set_user = frappe.set_user
+
+        def spy(user):
+            switched.append(user)
+            real_set_user(user)
+
+        with patch("frappe.set_user", spy):
+            seen = self._guest_get(REQ_CMD, payment_request=doc.name)
+        self.assertIn(self.webhook_user, switched)
+        self.assertEqual(seen["session_user"], "Guest")
+
+    # ---- #2275: the webhook identity must not outlive the callback -------------------------
+    #
+    # frappe/app.py::sync_database queues Session.update after the response; it writes the
+    # CURRENT session user's last_active/last_ip (frappe/sessions.py::update_user_metadata)
+    # and returns early only for Guest. Measured over WSGI on test_site_5 (2026-11-12): all
+    # three guest routes left session.user as the webhook user and the visitor's address
+    # landed in tabUser.last_ip of the webhook user.
+
+    def _direct_call(self, cmd, user="Guest", **args):
+        """execute_cmd as ``user`` WITHOUT _guest_get's restore, so the session the callback
+        leaves behind can be read."""
+        env = EnvironBuilder(path=f"/api/method/{cmd}", query_string=args, method="GET").get_environ()
+        frappe.set_user(user)
+        frappe.local.request = Request(env)
+        frappe.local.form_dict = frappe._dict(args)
+        frappe.local.response = frappe._dict()
+        frappe.local.message_log = []
+        frappe.handler.execute_cmd(cmd)
+
+    def test_every_guest_ponto_route_restores_the_session_user_when_it_returns(self):
+        req, link = self._make_ppr("Pending"), self._make_ppl()
+        for label, seen in (
+            ("payment_callback", self._guest_get(REQ_CMD, payment_request=req.name)),
+            ("payment_link_callback", self._guest_get(LINK_CMD, payment_link=link.name)),
+            ("unknown request", self._guest_get(REQ_CMD, payment_request="NOPE-2275")),
+            ("/ponto-return (request)", self._guest_short(r=req.name)),
+            ("/ponto-return (link)", self._guest_short(l=link.name)),
+        ):
+            with self.subTest(route=label):
+                self.assertEqual(seen["session_user"], "Guest")
+
+    def test_a_proved_cancel_still_runs_as_the_webhook_user_but_ends_as_guest(self):
+        doc = self._make_ppr("Pending")
+        seen = self._guest_get(
+            REQ_CMD, payment_request=doc.name, error="access_denied", cancel_token=self._req_token(doc)
+        )
+        row = self._modified_by("Ponto Payment Request", doc.name)
+        self.assertEqual(row.status, "Cancelled")
+        self.assertEqual(row.modified_by, self.webhook_user)
+        self.assertEqual(seen["session_user"], "Guest")
+
+    def test_a_logged_in_visitor_keeps_their_own_session_after_the_callback(self):
+        """A non-Guest visitor's user, sid and session data come back intact: set_user alone would
+        leave sid == username and wipe the data, so a restore through it is not enough."""
+        doc = self._make_ppr("Pending")
+        visitor = "Administrator"  # any non-Guest session; not the webhook user
+        frappe.set_user(visitor)
+        frappe.local.session.sid = "real-sid-2275"
+        frappe.local.session.data = frappe._dict(marker="kept")
+        env = EnvironBuilder(
+            path=f"/api/method/{REQ_CMD}", query_string={"payment_request": doc.name}, method="GET"
+        ).get_environ()
+        frappe.local.request = Request(env)
+        frappe.local.form_dict = frappe._dict(payment_request=doc.name)
+        frappe.local.response = frappe._dict()
+        frappe.local.message_log = []
+        frappe.handler.execute_cmd(REQ_CMD)
+        self.assertEqual(frappe.session.user, visitor)
+        self.assertEqual(frappe.session.sid, "real-sid-2275")
+        self.assertEqual(frappe.session.data.get("marker"), "kept")
+
+    def test_the_session_user_is_restored_even_when_the_work_raises_past_its_own_handler(self):
+        class _Abort(BaseException):
+            pass
+
+        doc = self._make_ppr("Pending")
+        for cmd, patched, args in (
+            (REQ_CMD, payment_callback, {"payment_request": doc.name}),
+            (LINK_CMD, betaalverzoek_callback, {"payment_link": self._make_ppl().name}),
+        ):
+            attr = "_cancel_if_proved" if patched is payment_callback else "_cancel_link_if_proved"
+            with self.subTest(cmd=cmd), patch.object(patched, attr, side_effect=_Abort):
+                with self.assertRaises(_Abort):
+                    self._direct_call(cmd, **args)
+                self.assertEqual(frappe.session.user, "Guest")
 
     def test_known_name_answers_the_same_whether_or_not_webhook_user_is_configured(self):
         """No guest-visible difference between a configured and an unconfigured site."""
@@ -377,7 +463,9 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
         row = self._modified_by("Ponto Payment Request", doc.name)
         self.assertEqual(row.status, "Cancelled")
         self.assertEqual(row.modified_by, self.webhook_user)
-        self.assertEqual(seen["session_user"], self.webhook_user)
+        # The cancel ran as the webhook user (modified_by above), and the session is Guest again
+        # when the response ends (#2275).
+        self.assertEqual(seen["session_user"], "Guest")
 
     def test_valid_token_access_denied_cancels_a_pending_link_as_the_webhook_user(self):
         doc = self._make_ppl("Pending Authorization")

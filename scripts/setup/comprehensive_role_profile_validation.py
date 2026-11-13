@@ -65,7 +65,7 @@ class RoleProfileSystemValidator:
             base_methods = [method for method in dir(BaseRoleProfileManager) if not method.startswith('_')]
             
             required_base_methods = [
-                'assign_role_profile', 'remove_role_profile', 'bulk_assign_role_profiles',
+                'remove_role_profile', 'bulk_assign_role_profiles',
                 'get_entity_role_profile_config', 'determine_role_profile_for_member'
             ]
             

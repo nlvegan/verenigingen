@@ -7,9 +7,8 @@
 doc-level ``has_permission`` alike -- resolves the CALLING board user's own
 identity via ``Member.user`` ONLY. ``get_member_name_for_user``'s
 ``Member.email`` fallback must never be an authorization path for board
-access, even though it stays the resolver for a member's OWN-record access
-(deliberately unaffected by this fix -- see #1546's follow-up comment for the
-list of own-record branches this does NOT touch).
+access. (Originally the own-record branches were left on the fallback; #2205,
+2026-11-11, moved them to Member.user only too -- the tests below say so.)
 
 Covered here: Member (list), Membership (list; doc via the
 ``_make_member_linked_permission`` factory), Donor (list + doc via the
@@ -203,8 +202,7 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
     # ---- its siblings, but is unreachable in practice until that DocPerm gap is
     # ---- closed.
 
-    # ---- Address (split shared-variable fix: own-record lookup stays --------
-    # ---- fallback-inclusive, board lookup is now strict) -----------------------
+    # ---- Address (board lookup strict since #1546; own-record lookup strict since #2205) --
 
     def _make_1546_address_for(self, member_name):
         # Named distinctly from `_make_address_for` -- that name already has 2
@@ -403,13 +401,20 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
             _matches(target_row, self.board.user),
             "unlinked board user's query condition must not match a chapter peer's row",
         )
-        self.assertTrue(
+        # #2205 (maintainer ruling 2026-11-11): own-record identity is Member.user ONLY, so
+        # an unlinked user's OWN row no longer matches either. This used to assert the
+        # opposite ("own-record keeps the email fallback"); that premise is overturned.
+        self.assertFalse(
             _matches(own_row, self.board.user),
-            "unlinked board user's query condition must still match their OWN row "
-            "(own-record branch keeps the email fallback, unaffected by this fix)",
+            "unlinked user's query condition must NOT match their own row (#2205: no email fallback)",
         )
 
         self._relink_board_user()
+        # Control: the properly linked user still matches their own row.
+        self.assertTrue(
+            _matches(own_row, self.board.user),
+            "linked user's query condition must match their OWN row",
+        )
         self.assertTrue(
             _matches(target_row, self.board.user),
             "linked board user's query condition must match a chapter peer's row",
@@ -435,17 +440,23 @@ class TestBoardIdentityResolution1546(EnhancedTestCase):
             "linked board user must reach a chapter peer's Volunteer record",
         )
 
-    def test_volunteer_doc_own_record_unaffected_by_unlinking(self):
-        """Control: the board user's OWN Volunteer record (own-record
-        access, still resolved via the fallback) must remain reachable even
-        while Member.user is unset -- only BOARD access to a peer's
-        Volunteer (above) is refused."""
+    def test_volunteer_doc_own_record_follows_identity_rule(self):
+        """#2205 (maintainer ruling 2026-11-11, overturning this test's old premise that the
+        board user's OWN Volunteer record stays reachable via the Member.email fallback):
+        own-record access is Member.user ONLY. Unlinked -> refused; relinked -> allowed
+        (the control that the thing taught here cannot silently disappear)."""
         from verenigingen.permissions import has_volunteer_permission
 
         self._unlink_board_user()
+        self.assertFalse(
+            has_volunteer_permission(self.board.volunteer, user=self.board.user),
+            "unlinked user must NOT reach their OWN Volunteer record via the email fallback",
+        )
+
+        self._relink_board_user()
         self.assertTrue(
             has_volunteer_permission(self.board.volunteer, user=self.board.user),
-            "board user's OWN Volunteer record must stay reachable via the email fallback",
+            "linked user must reach their OWN Volunteer record",
         )
 
     # ---- get_user_accessible_chapters (Expense Claim's shared resolver) -------
