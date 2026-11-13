@@ -42,11 +42,11 @@ NOTIFICATION_KEY = {
 
 
 class TestUrgentReminderCustomMessage(MailBodyEscapingBase):
-    def _send(self, reminder_type):
+    def _send_reminder(self, reminder_type, message=MESSAGE):
         template = REMINDERS[reminder_type]
         _cleanup_stock_email_templates([template])
         self.addCleanup(_cleanup_stock_email_templates, [template])
-        slug = reminder_type.split()[0].lower()
+        slug = reminder_type.split()[0].lower() + ("" if message else "empty")
         email_addr = f"msg-2442-{slug}-{self.token}@example.org"
         member = self.create_test_member(
             first_name="Msg", last_name=f"Msg{slug}{self.token}", email=email_addr, birth_date="1990-01-01"
@@ -62,7 +62,7 @@ class TestUrgentReminderCustomMessage(MailBodyEscapingBase):
         }
         with patch(REPORT, return_value=[row]):
             result = send_overdue_payment_reminders(
-                reminder_type=reminder_type, include_payment_link=False, custom_message=MESSAGE
+                reminder_type=reminder_type, include_payment_link=False, custom_message=message
             )
         self.assertEqual(result.get("count"), 1, f"one reminder must really be sent: {result}")
         return self.html_to(email_addr)
@@ -74,13 +74,18 @@ class TestUrgentReminderCustomMessage(MailBodyEscapingBase):
         self.assertIn(MESSAGE, html.unescape(body))
 
     def test_urgent_notice_prints_the_typed_message_escaped_once(self):
-        self._assert_message_once(self._send("Urgent Notice"))
+        self._assert_message_once(self._send_reminder("Urgent Notice"))
 
     def test_every_reminder_type_prints_the_typed_message(self):
         """Class sweep: no reminder template may drop the message its sender passes."""
         for reminder_type in REMINDERS:
             with self.subTest(reminder_type):
-                self._assert_message_once(self._send(reminder_type))
+                self._assert_message_once(self._send_reminder(reminder_type))
+
+    def test_urgent_notice_with_an_empty_message_has_no_message_box(self):
+        """Behavioural guard check: no message, no empty box. Control: with a message the box is there."""
+        self.assertIn("email-content-box", self._send_reminder("Urgent Notice"))
+        self.assertNotIn("email-content-box", self._send_reminder("Urgent Notice", message=""))
 
     def test_urgent_fixture_guards_and_escapes_the_message(self):
         """The block is conditional (no message, no empty box) and escaped, like its siblings."""
