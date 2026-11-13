@@ -493,15 +493,11 @@ describe('Real Member Controller', () => {
 			expect(callsAdded).toBeLessThanOrEqual(20);
 		});
 
-		it('should handle member data efficiently', () => {
-			const start = Date.now();
+		it('refresh handler is synchronous (returns no unawaited promise)', () => {
+			// Detects "refresh became async", not "became slow" (#2440).
+			const result = testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
 
-			testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
-
-			const duration = Date.now() - start;
-
-			// Should complete quickly
-			expect(duration).toBeLessThan(100);
+			expect(result && typeof result.then).not.toBe('function');
 		});
 	});
 

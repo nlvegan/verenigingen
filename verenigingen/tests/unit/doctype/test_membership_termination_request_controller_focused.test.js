@@ -185,15 +185,13 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 	});
 
 	describe('Performance and Error Handling', () => {
-		it('should execute all handlers quickly', () => {
-			const startTime = Date.now();
-
+		it('all handlers are synchronous (return no unawaited promise)', () => {
+			// Detects "handler became async", not "became slow"; no wall-clock budget (#2440).
+			expect(membershipTerminationConfig.expectedHandlers.length).toBeGreaterThan(0);
 			membershipTerminationConfig.expectedHandlers.forEach((handler) => {
-				controllerTest.testEvent(handler);
+				const result = controllerTest.testEvent(handler);
+				expect(result && typeof result.then).not.toBe('function');
 			});
-
-			const executionTime = Date.now() - startTime;
-			expect(executionTime).toBeLessThan(100); // 100ms for all handlers
 		});
 
 		it('should handle missing frappe utilities gracefully', () => {

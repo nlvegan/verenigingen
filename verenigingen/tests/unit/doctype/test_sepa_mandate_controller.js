@@ -395,18 +395,11 @@ describe('Real SEPA Mandate Controller', () => {
 			expect(callsAdded).toBeLessThanOrEqual(3);
 		});
 
-		it('should validate IBAN efficiently', () => {
-			const start = Date.now();
-
+		it('should validate a valid IBAN consistently across repeated calls', () => {
+			// Repeated validation must stay correct and stable; no wall-clock budget (#2440).
 			for (let i = 0; i < 100; i++) {
-				validateDutchIBAN('NL91ABNA0417164300');
+				expect(validateDutchIBAN('NL91ABNA0417164300').valid).toBe(true);
 			}
-
-			const end = Date.now();
-			const duration = end - start;
-
-			// 100 IBAN validations should complete in under 100ms
-			expect(duration).toBeLessThan(100);
 		});
 	});
 

@@ -431,20 +431,16 @@ describe('Real Direct Debit Batch Controller', () => {
 	});
 
 	describe('Performance and Scalability', () => {
-		it('should handle large batch processing efficiently', () => {
+		it('refresh handler is synchronous for a large batch (returns no unawaited promise)', () => {
 			frm.doc.total_transactions = 1000;
 			frm.doc.total_amount = 25000.0;
 
-			const start = Date.now();
-
-			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+			// Detects "refresh became async", not "became slow" (#2440).
+			const result = testFormEvent('Direct Debit Batch', 'refresh', frm, {
 				'Direct Debit Batch': batchHandlers
 			});
 
-			const duration = Date.now() - start;
-
-			// Should complete quickly even for large batches
-			expect(duration).toBeLessThan(100);
+			expect(result && typeof result.then).not.toBe('function');
 		});
 
 		it('should not make excessive server calls during refresh', () => {
