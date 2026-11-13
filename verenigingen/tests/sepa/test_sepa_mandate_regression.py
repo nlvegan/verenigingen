@@ -7,6 +7,7 @@ Ensures compatibility with existing systems and edge cases
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.utils.base import VereningingenTestCase
+import re
 import unittest
 
 
@@ -237,35 +238,81 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             payments_settings.sepa_mandate_starting_counter = original_counter
             payments_settings.save()
 
-    def test_pattern_validation_edge_cases(self):
-        """Test various pattern formats and edge cases"""
+    def _942_expected_mandate_id_regex(self, pattern):
+        """Shape a mandate_id for `pattern` must have, derived from the pattern
+        itself (not hardcoded per case): date tokens -> today's values, the
+        counter run of '#' -> that many digits, literal prefix escaped."""
+        from frappe.utils import now_datetime
 
+        now = now_datetime()
+        tokens = {
+            ".YY.": str(now.year)[-2:],
+            ".MM.": f"{now.month:02d}",
+            ".DD.": f"{now.day:02d}",
+        }
+        shape = pattern
+        for token, value in tokens.items():
+            shape = shape.replace(token, value)
+        shape = shape.replace("-.#", "-#")
+        digits = shape.count("#")
+        prefix = shape.split("#", 1)[0]
+        return re.compile(r"^" + re.escape(prefix) + r"(\d{%d})$" % digits), prefix
+
+    def _942_next_counter_expected(self, prefix, starting_counter):
+        """Counter the generator must emit: starting counter when nothing carries
+        the prefix yet, else the highest existing counter + 1."""
+        existing = frappe.get_all(
+            "SEPA Mandate",
+            filters={"mandate_id": ["like", prefix + "%"]},
+            pluck="mandate_id",
+        )
+        counters = [int(m[len(prefix):]) for m in existing if m[len(prefix):].isdigit()]
+        return max(counters) + 1 if counters else starting_counter
+
+    def test_pattern_validation_edge_cases(self):
+        """Each configured naming pattern must drive the REAL generator.
+
+        The mandate is created WITHOUT a mandate_id (the factory would assign its
+        own TST id and bypass the pattern; see #942), so SEPAMandate's
+        auto_generate_mandate_id applies the pattern. The id must match the shape
+        derived from the pattern and carry the configured starting counter.
+        """
         test_patterns = [
             ("SIMPLE-.####", "Simple pattern"),
             ("COMPLEX-.YY.-.MM.-.DD.-.####", "Complex date pattern"),
             ("NO-DATE-.####", "Pattern without dates"),
             ("SINGLE-.#", "Single digit counter"),
-            ("LONG-.########", "Long counter")
+            ("LONG-.########", "Long counter"),
         ]
+        starting_counter = 7  # not 1: a generator ignoring the setting would show
 
         for pattern, description in test_patterns:
             with self.subTest(pattern=pattern, description=description):
                 payments_settings = frappe.get_single("Verenigingen Payments Settings")
                 payments_settings.sepa_mandate_naming_pattern = pattern
-                payments_settings.sepa_mandate_starting_counter = 1
+                payments_settings.sepa_mandate_starting_counter = starting_counter
                 payments_settings.save()
-                
+
                 member = self.create_test_member(
                     first_name="Pattern",
-                    last_name=f"Test{hash(pattern) % 1000}",
-                    email=f"pattern{hash(pattern) % 1000}@example.com"
+                    last_name=f"Test{frappe.generate_hash(length=6)}",
                 )
 
-                mandate = self.create_test_sepa_mandate(member=member.name)
+                regex, prefix = self._942_expected_mandate_id_regex(pattern)
+                expected_counter = self._942_next_counter_expected(prefix, starting_counter)
+                mandate = self._create_mandate_autogen_id(member.name)
 
-                # Should generate some mandate_id
-                self.assertTrue(mandate.mandate_id,
-                               f"Should generate mandate_id for pattern: {pattern}")
+                match = regex.match(mandate.mandate_id)
+                self.assertIsNotNone(
+                    match,
+                    f"mandate_id {mandate.mandate_id!r} does not match pattern {pattern!r} "
+                    f"(expected {regex.pattern})",
+                )
+                self.assertEqual(
+                    int(match.group(1)),
+                    expected_counter,
+                    f"counter in {mandate.mandate_id!r} for pattern {pattern!r}",
+                )
 
     def test_data_migration_compatibility(self):
         """Test that naming system works with data migration scenarios"""
