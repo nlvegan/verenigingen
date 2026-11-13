@@ -45,7 +45,9 @@ class OptimizedChapterLookup:
                 self._chapter_management_enabled = cint(getattr(settings, "enable_chapter_management", 0))
             except Exception:
                 frappe.log_error("Failed to check chapter management setting")
-                self._chapter_management_enabled = False
+                # Disabled for THIS call only; caching False would switch the
+                # feature off for the life of the object (#733).
+                return False
 
         return self._chapter_management_enabled
 

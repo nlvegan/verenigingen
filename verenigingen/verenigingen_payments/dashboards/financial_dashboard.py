@@ -74,18 +74,24 @@ class FinancialDashboard:
         """Get settlements data with caching to prevent redundant API calls"""
         if self._settlements_cache is None:
             try:
-                self._settlements_cache = self.settlements_client.get("settlements", paginated=True)
-                frappe.logger().info(f"Cached settlements data: {len(self._settlements_cache)} items")
-
-                # Debug: Log first few settlements to see what data structure we have
-                for i, settlement in enumerate(self._settlements_cache[:2]):
-                    frappe.logger().info(
-                        f"Settlement {i}: ID={settlement.get('id')}, Status={settlement.get('status')}, Amount={settlement.get('amount')}, Created={settlement.get('createdAt')}, Settled={settlement.get('settledAt')}"
-                    )
-
+                settlements = self.settlements_client.get("settlements", paginated=True)
             except Exception as e:
-                frappe.logger().error(f"Failed to fetch settlements data: {e}")
-                self._settlements_cache = []
+                # Fallback for THIS call only: caching [] would make one transient
+                # API failure permanent for the life of the object (#733).
+                frappe.log_error(
+                    title="Financial dashboard: settlements fetch failed",
+                    message=f"Failed to fetch settlements data: {e}\n{frappe.get_traceback()}",
+                )
+                return []
+
+            self._settlements_cache = settlements
+            frappe.logger().info(f"Cached settlements data: {len(self._settlements_cache)} items")
+
+            # Debug: Log first few settlements to see what data structure we have
+            for i, settlement in enumerate(self._settlements_cache[:2]):
+                frappe.logger().info(
+                    f"Settlement {i}: ID={settlement.get('id')}, Status={settlement.get('status')}, Amount={settlement.get('amount')}, Created={settlement.get('createdAt')}, Settled={settlement.get('settledAt')}"
+                )
 
         return self._settlements_cache
 
@@ -94,13 +100,17 @@ class FinancialDashboard:
         if self._payments_cache is None and self.payments_client is not None:
             try:
                 # Fetch all payments once, without date filtering
-                self._payments_cache = self.payments_client.get(
-                    "payments", params={"limit": 250}, paginated=True
-                )
-                frappe.logger().info(f"Cached payments data: {len(self._payments_cache)} items")
+                payments = self.payments_client.get("payments", params={"limit": 250}, paginated=True)
             except Exception as e:
-                frappe.logger().error(f"Failed to fetch payments data: {e}")
-                self._payments_cache = []
+                # Fallback for THIS call only; do not cache the failure (#733).
+                frappe.log_error(
+                    title="Financial dashboard: payments fetch failed",
+                    message=f"Failed to fetch payments data: {e}\n{frappe.get_traceback()}",
+                )
+                return []
+
+            self._payments_cache = payments
+            frappe.logger().info(f"Cached payments data: {len(self._payments_cache)} items")
 
         return self._payments_cache or []
 
