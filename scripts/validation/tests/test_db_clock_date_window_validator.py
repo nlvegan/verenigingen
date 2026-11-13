@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _MOD_PATH = Path(__file__).resolve().parents[1] / "db_clock_date_window_validator.py"
 _spec = importlib.util.spec_from_file_location("db_clock_date_window_validator", _MOD_PATH)
@@ -335,6 +336,178 @@ class ShrinkExplainerTest(unittest.TestCase):
         rel = str(probe.relative_to(dcv.REPO_ROOT))
         found = dcv.explain_shrink({f"{rel}::f": known}, [str(dcv.REPO_ROOT / "scripts")])
         return [(u.lineno, u.reason) for u in found]
+
+
+class RelocatedPredicateTest(unittest.TestCase):
+    """`explain_shrink(..., base_root=...)` must see a predicate that MOVED, not only one pragma'd in place (#1858).
+
+    Each case is a base checkout plus a head checkout in temp dirs, with `REPO_ROOT` pointed at
+    the head -- the gate compares a base baseline and base tree against the head tree.
+    """
+
+    BAD = "WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+    OTHER = "AND modified < DATE_SUB(NOW(), INTERVAL 1 DAY)"
+    GOOD = "WHERE creation > %(since)s"
+
+    def _src(self, *lines: str, fn: str = "f") -> str:
+        # A line may end in a trailing pragma, placed AFTER the closing quote as in real code.
+        body = "".join(
+            f"    q{i} = '{line.partition('#')[0].rstrip()}'{('  #' + line.partition('#')[2]) if '#' in line else ''}\n"
+            for i, line in enumerate(lines)
+        )
+        return f"def {fn}():\n{body}"
+
+    def _explain(self, base: dict, head: dict, baseline: dict):
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            for root, files in ((Path(b), base), (Path(h), head)):
+                for rel, src in files.items():
+                    f = root / rel
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_text(src)
+            with mock.patch.object(dcv, "REPO_ROOT", Path(h)):
+                found = dcv.explain_shrink(
+                    baseline, [str(Path(h) / "verenigingen"), str(Path(h) / "scripts")], base_root=Path(b)
+                )
+        return [(u.key, u.reason) for u in found]
+
+    # -- the gaps: each exits 0 on develop's head-only check -----------------------------------
+
+    def test_file_moved_under_tests_is_reported(self):
+        src = self._src(self.BAD)
+        got = self._explain(
+            {"verenigingen/mod.py": src},
+            {"verenigingen/tests/test_mod.py": src},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_renamed_to_test_prefix_is_reported(self):
+        src = self._src(self.BAD)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/test_mod.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_moved_out_of_scan_roots_is_reported(self):
+        src = self._src(self.BAD)
+        got = self._explain({"verenigingen/mod.py": src}, {"docs/mod.py": src}, {"verenigingen/mod.py::f": 1})
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_file_moved_into_archived_is_reported(self):
+        src = self._src(self.BAD)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/archived/mod.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_renamed_function_then_pragmad_is_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.BAD)},
+            {"verenigingen/mod.py": self._src(self.BAD + "  # db-clock-window-ok: false-positive", fn="g")},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    def test_pragma_on_one_site_plus_a_new_plain_site_is_reported(self):
+        """The function's count never dropped (2 -> 2), but a baselined line is now hidden."""
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.BAD, self.OTHER)},
+            {
+                "verenigingen/mod.py": self._src(
+                    self.BAD + "  # db-clock-window-ok: false-positive",
+                    self.OTHER,
+                    "AND creation > NOW()",
+                )
+            },
+            {"verenigingen/mod.py::f": 2},
+        )
+        self.assertEqual(got, [("verenigingen/mod.py::f", "relocated")])
+
+    # -- the controls: none of these may be reported --------------------------------------------
+
+    def test_a_genuine_fix_is_not_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.BAD)},
+            {"verenigingen/mod.py": self._src(self.GOOD)},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_a_genuine_file_deletion_is_not_reported(self):
+        got = self._explain({"verenigingen/mod.py": self._src(self.BAD)}, {}, {"verenigingen/mod.py::f": 1})
+        self.assertEqual(got, [])
+
+    def test_a_move_inside_scan_roots_is_not_reported_the_site_is_still_counted(self):
+        src = self._src(self.BAD)
+        got = self._explain(
+            {"verenigingen/mod.py": src}, {"verenigingen/sub/moved.py": src}, {"verenigingen/mod.py::f": 1}
+        )
+        self.assertEqual(got, [])
+
+    def test_a_function_rename_that_stays_counted_is_not_reported(self):
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.BAD)},
+            {"verenigingen/mod.py": self._src(self.BAD, fn="g")},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_a_fix_beside_an_identical_line_that_was_already_uncounted_is_not_reported(self):
+        """The same text sits in a test file in BOTH trees: it did not newly appear, so it hides nothing."""
+        probe = self._src(self.BAD, fn="probe")
+        got = self._explain(
+            {"verenigingen/mod.py": self._src(self.BAD), "verenigingen/tests/test_probe.py": probe},
+            # The probe file CHANGES (an unrelated function is added), so it is re-scanned in both trees.
+            {"verenigingen/mod.py": self._src(self.GOOD), "verenigingen/tests/test_probe.py": probe + "\ndef extra():\n    return 1\n"},
+            {"verenigingen/mod.py::f": 1},
+        )
+        self.assertEqual(got, [])
+
+    def test_without_a_base_tree_a_moved_predicate_is_still_invisible(self):
+        """Pins the documented limit: the head tree alone cannot tell a move from a deletion."""
+        with tempfile.TemporaryDirectory() as h:
+            f = Path(h) / "verenigingen" / "tests" / "test_mod.py"
+            f.parent.mkdir(parents=True)
+            f.write_text(self._src(self.BAD))
+            with mock.patch.object(dcv, "REPO_ROOT", Path(h)):
+                found = dcv.explain_shrink({"verenigingen/mod.py::f": 1}, [str(Path(h) / "verenigingen")])
+        self.assertEqual(found, [])
+
+    def test_counted_by_path_agrees_with_counts(self):
+        """`_db_clock_counted_by_path` is a copy of `_counts`' path rules; they must not drift."""
+        src = self._src(self.BAD)
+        rels = [
+            "verenigingen/a.py",
+            "verenigingen/tests/test_a.py",
+            "verenigingen/sub/tests/helper.py",
+            "verenigingen/test_b.py",
+            "verenigingen/archived/c.py",
+            "scripts/d.py",
+            "scripts/db_clock_date_window_validator.py",
+            "docs/e.py",
+        ]
+        with tempfile.TemporaryDirectory() as h, mock.patch.object(dcv, "REPO_ROOT", Path(h)):
+            for rel in rels:
+                f = Path(h) / rel
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(src)
+            counts, _ = dcv._counts([str(Path(h) / "verenigingen"), str(Path(h) / "scripts")])
+            for rel in rels:
+                self.assertEqual(dcv._db_clock_counted_by_path(rel), f"{rel}::f" in counts, rel)
+
+    def test_the_cli_exits_nonzero_for_a_moved_predicate(self):
+        src = self._src(self.BAD)
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(b) / "verenigingen").mkdir()
+            (Path(b) / "verenigingen" / "mod.py").write_text(src)
+            (Path(h) / "verenigingen" / "tests").mkdir(parents=True)
+            (Path(h) / "verenigingen" / "tests" / "test_mod.py").write_text(src)
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("verenigingen/mod.py::f::1\n")
+            with mock.patch.object(dcv, "REPO_ROOT", Path(h)):
+                with mock.patch("builtins.print"):
+                    rc = dcv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
+        self.assertEqual(rc, 1)
 
 
 if __name__ == "__main__":

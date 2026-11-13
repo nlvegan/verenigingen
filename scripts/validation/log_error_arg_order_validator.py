@@ -108,6 +108,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import filecmp
 import os
 import re
 import sys
@@ -504,7 +505,9 @@ class UnexplainedShrink(NamedTuple):
     reason: str
 
 
-def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
+def explain_shrink(
+    baseline: dict[str, int], paths: list[str], base_root: Path | None = None
+) -> list[UnexplainedShrink]:
     """Baseline entries whose count DROPPED without the swap being fixed.
 
     A shrink is the one direction this ratchet would otherwise accept without
@@ -527,6 +530,13 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
     A genuine fix -- converted to keyword arguments, or the shape no longer
     matches (e.g. the title stopped being a plain literal) -- leaves no trace
     in `scan_file_all` either and is correctly not reported here.
+
+    With ``base_root`` (a checkout of the base commit) it also reports the cases the
+    head tree alone cannot see, because they leave no still-matching call under the
+    baseline's own path and function name (#1858): the call MOVED -- to another file,
+    under ``tests/``, outside SCAN_ROOTS -- or its function was renamed and then
+    pragma'd, or a pragma was added to one baselined call while a NEW plain call kept
+    the function's count level. See ``_relocated_log_error_sites``.
     """
     counts, _ = _counts(paths)
     by_path: dict[str, list[tuple[str, int]]] = {}
@@ -562,7 +572,137 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
             flagged = [(n, "suppressed") for n in suppressed] + [(n, "unscanned") for n in unscanned]
             for node, reason in sorted(flagged, key=lambda p: p[0].lineno)[:missing]:
                 out.append(UnexplainedShrink(f"{rel}::{qualname}", node.lineno, reason))
+    if base_root is not None:
+        out = _merge_relocated_log_error_sites(out, _relocated_log_error_sites(baseline, base_root))
     return out
+
+
+# A directory the walk below never enters. Unlike `_iter_py` it does NOT skip `archived`: a
+# call moved into `archived/` has left the count without being fixed, so the head census has to
+# be able to see it there.
+_CENSUS_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude"}
+
+
+def _log_error_counted_by_path(rel: str) -> bool:
+    """Would `_counts` look at a file with this repo-relative path at all?
+
+    Mirrors `_iter_py` (under SCAN_ROOTS, `archived` skipped) plus `_counts`' own
+    exclusion of tests. Pinned against `_counts` by a test.
+    """
+    parts = rel.split("/")
+    return (
+        len(parts) > 1
+        and parts[0] in SCAN_ROOTS
+        and not any(p in _CENSUS_SKIP_DIRS or p == "archived" for p in parts[:-1])
+        and "tests" not in parts[:-1]
+        and not parts[-1].startswith("test_")
+    )
+
+
+def _log_error_changed_py(base_root: Path, head_root: Path) -> set[str]:
+    """Repo-relative .py paths whose bytes differ between the two trees (or exist in only one).
+
+    A file identical in both trees adds the same sites to base and head, so it cancels out of
+    every base-vs-head comparison below; skipping it is what keeps the walk to a few seconds.
+    """
+
+    def listing(root: Path) -> dict[str, Path]:
+        found = {}
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in _CENSUS_SKIP_DIRS)
+            for fn in filenames:
+                if fn.endswith(".py"):
+                    path = Path(dirpath) / fn
+                    found[path.relative_to(root).as_posix()] = path
+        return found
+
+    base, head = listing(base_root), listing(head_root)
+    return {
+        rel
+        for rel in base.keys() | head.keys()
+        if rel not in base or rel not in head or not filecmp.cmp(base[rel], head[rel], shallow=False)
+    }
+
+
+def _log_error_site_census(root: Path, rels: set[str]) -> list[tuple[str, str, int, str, bool]]:
+    """Every swap-shaped call under `root`: (rel, qualname, lineno, text, counted).
+
+    `counted` is what `_counts` would do with it: the path is scanned and no pragma
+    suppresses it. `text` is the call's unparsed source, which survives a move,
+    re-indentation and a pragma comment. Walks the whole checkout rather than SCAN_ROOTS,
+    so a call that left the scan roots is still seen.
+    """
+    sites = []
+    seen: set[Path] = set()
+    for rel in sorted(rels):
+        path = root / rel
+        if not path.is_file() or path.resolve() in seen:
+            continue
+        seen.add(path.resolve())
+        try:
+            source = path.read_text(encoding="utf-8")
+            if "log_error" not in source:
+                continue  # cheap prefilter: every finding is a log_error call
+            tree = ast.parse(source)
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            continue
+        lines = source.splitlines()
+        for qualname, node in _iter_matches(tree):
+            counted = _log_error_counted_by_path(rel) and not _suppressed(node, lines)[0]
+            sites.append((rel, qualname, node.lineno, ast.unparse(node), counted))
+    return sites
+
+
+def _relocated_log_error_sites(baseline: dict[str, int], base_root: Path) -> list[UnexplainedShrink]:
+    """Baselined calls whose text left the COUNT without leaving the code (#1858).
+
+    The head-tree check in `explain_shrink` looks for a vanished entry's own path and
+    function name, so a moved file (it cannot be parsed, so: "deleted") or a renamed
+    function finds nothing. The rule here asks about the code instead: for each call's
+    unparsed text, did the number of COUNTED calls carrying it drop between base and head,
+    while the number of UNCOUNTED ones (pragma'd, under tests/, outside SCAN_ROOTS) carrying
+    it rose by at least as much? Then it was hidden, not fixed. A call that is still counted
+    somewhere (a move inside SCAN_ROOTS, a rename) is still ratcheted, and one that no longer
+    appears at all was fixed or deleted; neither is reported. Matching on text is the
+    simplest rule that survives a move or rename -- its limit is that an unrelated new
+    uncounted call with identical text can pair with a genuine fix.
+    """
+    changed = _log_error_changed_py(base_root, REPO_ROOT)
+    base_sites = _log_error_site_census(base_root, changed)
+    head_sites = _log_error_site_census(REPO_ROOT, changed)
+
+    def tally(sites, counted):
+        return Counter(text for _r, _q, _l, text, c in sites if c is counted)
+
+    lost = tally(base_sites, True) - tally(head_sites, True)
+    hidden = tally(head_sites, False) - tally(base_sites, False)
+    budget = {text: min(n, hidden[text]) for text, n in lost.items() if hidden[text] > 0}
+
+    out = []
+    for rel, qualname, lineno, text, counted in sorted(base_sites):
+        key = f"{rel}::{qualname}"
+        if counted and key in baseline and budget.get(text, 0) > 0:
+            budget[text] -= 1
+            out.append(UnexplainedShrink(key, lineno, "relocated"))
+    return out
+
+
+def _merge_relocated_log_error_sites(
+    found: list[UnexplainedShrink], relocated: list[UnexplainedShrink]
+) -> list[UnexplainedShrink]:
+    """Add `relocated` entries, skipping the ones the head-tree check already reported.
+
+    The two checks can describe the same call (a pragma'd baselined call); a key already
+    reported N times by the head-tree check has N of its relocated entries swallowed.
+    """
+    already = Counter(u.key for u in found)
+    merged = list(found)
+    for u in relocated:
+        if already[u.key] > 0:
+            already[u.key] -= 1
+            continue
+        merged.append(u)
+    return merged
 
 
 def main(argv: list[str]) -> int:
@@ -577,20 +717,33 @@ def main(argv: list[str]) -> int:
         metavar="BASE_BASELINE",
         help="report baseline entries that LEFT without the swap being fixed",
     )
+    ap.add_argument(
+        "--base-tree",
+        type=Path,
+        metavar="DIR",
+        help="a checkout of the base commit; lets --check-shrink see a call that MOVED "
+        "or was renamed instead of fixed (#1858)",
+    )
     args = ap.parse_args(argv[1:])
 
     paths = args.paths or list(SCAN_ROOTS)
 
     if args.check_shrink:
         unexplained = explain_shrink(
-            load_baseline(args.check_shrink), [str(REPO_ROOT / root) for root in SCAN_ROOTS]
+            load_baseline(args.check_shrink),
+            [str(REPO_ROOT / root) for root in SCAN_ROOTS],
+            base_root=args.base_tree,
         )
+        if args.base_tree is None:
+            print("note: no --base-tree, so a MOVED or renamed call cannot be reported.")
         if not unexplained:
             print("Every entry that left the baseline was fixed, deleted, or moved out of scan range.")
             return 0
         why = {
             "suppressed": "a `# log-error-args-ok:` pragma was added -- the call still matches the swap shape",
             "unscanned": "the file left SCAN_ROOTS; the call itself never changed",
+            "relocated": "the same call is now pragma'd, under tests/ or outside SCAN_ROOTS, "
+            "and no longer counted (moved, not fixed; line is from the base tree)",
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swap being fixed\n")
         for u in unexplained:
