@@ -129,6 +129,71 @@ class TestCleanupEngineInvariants(EnhancedTestCase):
         self.assertTrue(sets["members"], "expected at least one test member on the site")
         self._assert_dry_matches_live(sets, "full site selection")
 
+    def test_dry_run_counts_rows_reachable_by_volunteer_and_parent_once(self):
+        """#2477: a Chapter Board Member / Team Member row is reachable through its
+        doomed Volunteer AND its doomed parent Chapter/Team. The dry run counted it
+        in both phase 3 and phase 4 (2x) while the live run deletes it in phase 3.
+
+        The fixture seats a doomed volunteer on a doomed chapter and on a doomed team,
+        so the overlap exists whatever else the site holds; the expected counts are
+        read back from the rows themselves.
+        """
+        seat = self.create_test_board_member(self.create_test_chapter().name)
+        team = self.create_test_team()
+        self.create_test_team_member(team.name, seat.volunteer)
+        # A second row held by a SURVIVING volunteer: only the parent selector reaches
+        # it, so a fix that drops the parent half of the union leaves it uncounted.
+        bystander = self.create_test_member(
+            first_name="Bystander", last_name="Probe", email="bystander.probe2477@test.invalid"
+        )
+        bystander_volunteer = self.create_test_volunteer(bystander.name).name
+        self.create_test_team_member(team.name, bystander_volunteer)
+        # Same for the chapter: a board row held by the bystander (appended to the
+        # chapter with the seat's role, as the real flow does, then saved).
+        chapter = frappe.get_doc("Chapter", seat.chapter)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": bystander_volunteer,
+                "chapter_role": seat.chapter_role,
+                "is_active": 1,
+                "from_date": frappe.utils.today(),
+            },
+        )
+        chapter.flags.ignore_validate = True
+        chapter.save()
+        # And the reverse: the doomed volunteer also sits on a SURVIVING chapter, which
+        # only the volunteer selector reaches.
+        surviving_chapter = self.create_test_chapter()
+        surviving_chapter.append(
+            "board_members",
+            {
+                "volunteer": seat.volunteer,
+                "chapter_role": seat.chapter_role,
+                "is_active": 1,
+                "from_date": frappe.utils.today(),
+            },
+        )
+        surviving_chapter.flags.ignore_validate = True
+        surviving_chapter.save()
+        sets = cleanup._resolve_sets_for_members(
+            [seat.member], chapters=[seat.chapter], teams=[team.name]
+        )
+        board_rows = frappe.db.count("Chapter Board Member", {"parent": seat.chapter}) + frappe.db.count(
+            "Chapter Board Member", {"parent": surviving_chapter.name}
+        )
+        team_rows = frappe.db.count("Team Member", {"parent": team.name})
+        self.assertGreaterEqual(board_rows, 3, "fixture lacks the seat, bystander and surviving-chapter rows")
+        self.assertGreaterEqual(team_rows, 1, "fixture has no team member row to double count")
+
+        dry = self._assert_dry_matches_live(sets, "volunteer + parent overlap")
+
+        self.assertEqual(dry["chapter_board_members"]["count"], board_rows)
+        self.assertEqual(dry["team_members"]["count"], team_rows)
+        self.assertEqual(frappe.db.count("Chapter Board Member", {"parent": seat.chapter}), 0)
+        self.assertEqual(frappe.db.count("Chapter Board Member", {"parent": surviving_chapter.name}), 0)
+        self.assertEqual(frappe.db.count("Team Member", {"parent": team.name}), 0)
+
     # -- shared parents ------------------------------------------------------
 
     def test_contact_shared_with_live_party_is_preserved(self):

@@ -1339,12 +1339,24 @@ def _run_cleanup_phases(sets, results, dry_run):
     _step(results, "donors", "Donor", "member", members, dry_run)
 
     # --- PHASE 3: volunteer graph --------------------------------------------
-    for bucket, doctype in (
-        ("chapter_board_members", "Chapter Board Member"),
-        ("team_members", "Team Member"),
-        ("movement_members", "Movement Member"),
-    ):
-        _step(results, bucket, doctype, "volunteer", volunteers, dry_run)
+    # A Chapter Board Member / Team Member row is reachable by BOTH its doomed
+    # volunteer and its doomed parent chapter/team. Counting it under two selectors
+    # (phase 3 and again in phase 4) doubled the dry run, because the live run
+    # deletes a row reached through both in phase 3, so phase 4's parent selector
+    # found nothing left for it. Rows held only by a SURVIVING volunteer were still
+    # deleted in phase 4 via the parent. Resolve the union of row names and delete
+    # it exactly once, here; the live outcome is unchanged.
+    board_member_rows = sorted(
+        set(_pluck_in("Chapter Board Member", "volunteer", volunteers))
+        | set(_pluck_in("Chapter Board Member", "parent", chapters))
+    )
+    _step(results, "chapter_board_members", "Chapter Board Member", "name", board_member_rows, dry_run)
+    team_member_rows = sorted(
+        set(_pluck_in("Team Member", "volunteer", volunteers))
+        | set(_pluck_in("Team Member", "parent", teams))
+    )
+    _step(results, "team_members", "Team Member", "name", team_member_rows, dry_run)
+    _step(results, "movement_members", "Movement Member", "volunteer", volunteers, dry_run)
     for bucket, doctype in (
         ("volunteer_skills", "Volunteer Skill"),
         ("volunteer_assignments", "Volunteer Assignment"),
@@ -1368,8 +1380,6 @@ def _run_cleanup_phases(sets, results, dry_run):
         | set(_pluck_in("Chapter Member", "parent", chapters))
     )
     _step(results, "chapter_members", "Chapter Member", "name", chapter_member_rows, dry_run)
-    _step(results, "chapter_board_members", "Chapter Board Member", "parent", chapters, dry_run)
-    _step(results, "team_members", "Team Member", "parent", teams, dry_run)
     _step(results, "chapters", "Chapter Join Request", "member", members, dry_run)
     if not dry_run and members:
         _update_in("Chapter", "chapter_head = NULL", "chapter_head", members)
