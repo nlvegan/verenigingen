@@ -405,11 +405,6 @@ doc_events = {
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice",
     },
-    # #1655: ERPNext defaults create_user_permission to 1, which pins the linked user to that one
-    # Employee. Insert only; the app's own creation paths already write 0.
-    "Employee": {
-        "before_insert": "verenigingen.events.employee_events.force_no_user_permission",
-    },
     # =========================================================================
     # FINANCIAL SYSTEM - SEPA
     # =========================================================================
