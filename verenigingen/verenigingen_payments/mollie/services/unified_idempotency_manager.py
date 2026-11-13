@@ -315,7 +315,7 @@ class UnifiedIdempotencyManager:
             # #2355: ask the booker's own arbiter, not a Payment-Entry-only query. A
             # reversal is booked as a Journal Entry (donation/dues sweep) OR a Payment
             # Entry (refund webhook), always under build_reversal_key.
-            booked = find_booked_reversal(build_reversal_key(payment_id, "refund", refund_id))
+            booked = find_booked_reversal(build_reversal_key(payment_id, "refund", refund_id), refund_amount)
             has_payment_history = refund_id in payment_history_map
 
             if booked and booked[0] == "Payment Entry":
@@ -402,7 +402,7 @@ class UnifiedIdempotencyManager:
                         # #2355: the booker's own arbiter (Journal Entry or Payment Entry
                         # under build_reversal_key), not a Payment-Entry 'chb_%' query.
                         booked = find_booked_reversal(
-                            build_reversal_key(payment_id, "chargeback", chargeback_id)
+                            build_reversal_key(payment_id, "chargeback", chargeback_id), amount
                         )
                         if booked:
                             result.chargebacks_processed.append(

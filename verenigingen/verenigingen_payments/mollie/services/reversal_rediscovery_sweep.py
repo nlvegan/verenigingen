@@ -23,6 +23,7 @@ from verenigingen.utils.transaction_errors import (
     rollback_to_savepoint,
 )
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+from verenigingen.verenigingen_payments.services.journal_entry_booking_support import mollie_amount_or_none
 
 from ..core.client import MollieClient
 from ..utils.common_helpers import read_payment_field
@@ -146,7 +147,9 @@ def _payments_with_unbooked_reversals(sdk_client: Any, summary: Dict[str, Any]) 
             reversal_id = read_payment_field(reversal, "id")
             if not payment_id or not reversal_id:
                 continue
-            if find_booked_reversal(build_reversal_key(payment_id, reversal_type, reversal_id)):
+            if find_booked_reversal(
+                build_reversal_key(payment_id, reversal_type, reversal_id), mollie_amount_or_none(reversal)
+            ):
                 continue
             if payment_id not in seen:
                 seen.add(payment_id)

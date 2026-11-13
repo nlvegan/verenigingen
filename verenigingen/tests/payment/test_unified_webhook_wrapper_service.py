@@ -34,7 +34,7 @@ from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_mana
 )
 
 
-def _booked(forward=("donation", "Payment Entry", "PE-FORWARD-001"), reversal=None):
+def _booked(forward=("donation", "Payment Entry", "PE-FORWARD-001"), reversal=None, amounts=None):
     """Patch what the reversal path asks about existing bookings.
 
     `process_reversal_webhook` no longer asks the idempotency manager whether a
@@ -53,10 +53,16 @@ def _booked(forward=("donation", "Payment Entry", "PE-FORWARD-001"), reversal=No
     """
     import verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency as ri
 
+    def _find_booked_reversal(key, expected_amount):
+        # Recorded so a test can assert the webhook passes the real amount (#2535).
+        if amounts is not None:
+            amounts.append(expected_amount)
+        return reversal
+
     return patch.multiple(
         ri,
         find_booked_payment=lambda payment_id: forward,
-        find_booked_reversal=lambda key: reversal,
+        find_booked_reversal=_find_booked_reversal,
     )
 
 
@@ -101,6 +107,48 @@ class TestProcessReversalWebhookValidation(FrappeTestCase):
         self.assertEqual(result["refund_id"], "re_1")
 
 
+class TestRefundPaymentEntryCreatorGuardsDrafts(FrappeTestCase):
+    """#2535: the refund Payment Entry creator asks find_booked_reversal with the refund amount."""
+
+    def tearDown(self):
+        frappe.db.rollback()
+
+    def _donation_with_customer(self):
+        tag = frappe.generate_hash(length=6)
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"Refund PE Guard {tag}"
+        customer.customer_type = "Individual"
+        customer.insert(ignore_permissions=True)
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Refund PE Guard {tag}"
+        donor.donor_type = "Individual"
+        donor.donor_email = f"refund-pe-{tag}@example.com"
+        donor.customer = customer.name
+        donor.flags.ignore_mandatory = True
+        donor.insert(ignore_permissions=True)
+        return SimpleNamespace(donor=donor.name)
+
+    def test_the_refund_amount_reaches_find_booked_reversal(self):
+        import verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency as ri
+        from verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator import (
+            create_unified_payment_entry,
+        )
+
+        amounts = []
+
+        def booked(key, expected_amount):
+            amounts.append((key, expected_amount))
+            return ("Journal Entry", "JE-ALREADY")
+
+        with patch.object(ri, "find_booked_reversal", booked):
+            result = create_unified_payment_entry(
+                self._donation_with_customer(), "tr_pe", 7.5, payment_type="Pay", reference_suffix="_refund_re_pe"
+            )
+
+        self.assertIsNone(result, "an already booked reversal must not be booked again")
+        self.assertEqual(amounts, [("tr_pe_refund_re_pe", 7.5)])
+
+
 class TestProcessReversalWebhookIdempotency(FrappeTestCase):
     """Already-processed reversal short-circuits (real DB query, no match)."""
 
@@ -112,12 +160,14 @@ class TestProcessReversalWebhookIdempotency(FrappeTestCase):
 
     def test_already_processed_returns_idempotent(self):
         """A reversal already booked as ANY artefact short-circuits."""
-        with _booked(reversal=("Payment Entry", "PE-EXISTING-001")):
+        amounts = []
+        with _booked(reversal=("Payment Entry", "PE-EXISTING-001"), amounts=amounts):
             result = self.svc.process_reversal_webhook("tr_idem", "re_idem", 10.0, "refund")
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["idempotent"])
         self.assertEqual(result["existing_reference"], "PE-EXISTING-001")
+        self.assertEqual(amounts, [10.0], "the webhook must hand the reversal amount to the draft guard (#2535)")
 
     def test_booking_without_its_donation_is_ignored_and_named(self):
         """Something posted money against this payment, and the Donation is gone.

@@ -194,6 +194,35 @@ class TestHandlePartialProcessing(FrappeTestCase):
         # The existing JE was discovered via cheque_no and threaded through.
         self.assertEqual(captured["je"], je_name)
 
+    def test_history_backfill_hands_the_payment_amount_to_the_draft_guard(self):
+        """#2535: the backfill resolves a stranded JE draft, so it must pass the real payment amount.
+
+        A spy on the resolver, not a real draft: the resolver's own behaviour has its own tests.
+        """
+        from unittest.mock import patch
+
+        donation = _persist_donation("tr_partial_amount")
+        state = PaymentIdempotencyCheckResult("tr_partial_amount")
+        state.payment_entry_exists = True
+        state.donation_status_updated = True
+        state.payment_history_updated = False
+        self.svc._update_donation_payment_history_atomic = lambda *a, **k: True
+        self.svc._update_donor_record = lambda *a, **k: True
+        self.svc._update_member_payment_history = lambda *a, **k: True
+        calls = []
+
+        def spy(reference, expected_amount):
+            calls.append((reference, expected_amount))
+            return "JE-SPY"
+
+        payload = {"status": "paid", "amount": {"value": "12.34", "currency": "EUR"}}
+        with self.svc_fetch_returns(payload), self._patch_find(donation), patch.object(
+            wws, "resolve_journal_entry_by_reference", spy
+        ):
+            self.svc._handle_partial_processing("tr_partial_amount", {}, state, 0.0)
+
+        self.assertEqual(calls, [("tr_partial_amount", 12.34)])
+
     def _make_journal_entry_with_cheque_no(self, payment_id):
         company = frappe.db.get_value("Company", {}, "name")
         je = frappe.new_doc("Journal Entry")

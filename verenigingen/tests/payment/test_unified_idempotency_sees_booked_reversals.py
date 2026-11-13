@@ -84,7 +84,7 @@ class TestManagerSeesJournalEntryReversals(_DuesReversalFixture):
         self.assertEqual([c["chargeback_id"] for c in before.pending_chargebacks], [chb_id])
 
         self._book(chargebacks=rows)
-        booked = find_booked_reversal(build_reversal_key(self.payment_id, "chargeback", chb_id))
+        booked = find_booked_reversal(build_reversal_key(self.payment_id, "chargeback", chb_id), None)
         self.assertEqual(booked[0], "Journal Entry", "fixture problem: expected a JE booking")
 
         after = _check(self.payment_id, chargebacks=rows)
@@ -126,7 +126,7 @@ class TestManagerSeesJournalEntryReversals(_DuesReversalFixture):
         chb_id = f"chb_{frappe.generate_hash(length=8)}"
         rows = [_chargeback_row_for_1806(chb_id)]
         self._book(chargebacks=rows)
-        _, je = find_booked_reversal(build_reversal_key(self.payment_id, "chargeback", chb_id))
+        _, je = find_booked_reversal(build_reversal_key(self.payment_id, "chargeback", chb_id), None)
         frappe.get_doc("Journal Entry", je).cancel()
 
         state = _check(self.payment_id, chargebacks=rows)
@@ -173,7 +173,7 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
             bank_transaction_name=bt,
         )
         self.assertTrue(je, "fixture problem: Journal Entry not booked")
-        self.assertEqual(find_booked_reversal(self.key), ("Journal Entry", je))
+        self.assertEqual(find_booked_reversal(self.key, None), ("Journal Entry", je))
         return je
 
     def _history_rows(self):
@@ -197,7 +197,7 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
             self.donation, self.payment_id, state.pending_refunds
         )
         self.assertEqual(self._history_rows(), 1, "the repair did not write the Journal Entry's row")
-        self.assertEqual(find_booked_reversal(self.key), ("Journal Entry", je), "repair double-booked")
+        self.assertEqual(find_booked_reversal(self.key, None), ("Journal Entry", je), "repair double-booked")
 
     def test_a_journal_entry_refund_with_its_history_row_is_processed(self):
         self._book_journal_entry()
@@ -243,7 +243,7 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
 
     def _assert_failed_submit_frees_the_key(self):
         self.assertEqual(self._live_rows_under_key(), [], "a failed submit left a live row on the key")
-        self.assertIsNone(find_booked_reversal(self.key), "the failed booking still claims the key")
+        self.assertIsNone(find_booked_reversal(self.key, None), "the failed booking still claims the key")
         state = _check(self.payment_id, refunds=self.rows)
         self.assertEqual([r["refund_id"] for r in state.pending_refunds], [self.refund_id])
         self.assertEqual(state.payment_history_missing, [])
@@ -253,7 +253,7 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
         pe = self._book_refund_pe()
         self.assertIsNotNone(pe, "the retry after a failed submit did not book the refund")
         self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "docstatus"), 1)
-        self.assertEqual(find_booked_reversal(self.key), ("Payment Entry", pe.name))
+        self.assertEqual(find_booked_reversal(self.key, None), ("Payment Entry", pe.name))
 
     def test_a_failed_submit_before_posting_leaves_no_draft_claiming_the_key(self):
         """Submit raises in validate/before_submit: the row is still a draft (docstatus 0)."""
@@ -281,13 +281,13 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
         first = self._book_refund_pe()
         self.assertIsNotNone(first, "fixture problem: refund not booked")
         frappe.get_doc("Payment Entry", first.name).cancel()
-        self.assertIsNone(find_booked_reversal(self.key), "fixture problem: cancel did not free the key")
+        self.assertIsNone(find_booked_reversal(self.key, None), "fixture problem: cancel did not free the key")
 
         second = self._book_refund_pe()
         self.assertIsNotNone(second, "the redelivered refund was not booked")
         self.assertNotEqual(second.name, first.name)
         self.assertEqual(frappe.db.get_value("Payment Entry", second.name, "docstatus"), 1)
-        self.assertEqual(find_booked_reversal(self.key), ("Payment Entry", second.name))
+        self.assertEqual(find_booked_reversal(self.key, None), ("Payment Entry", second.name))
         live_gl = frappe.db.count(
             "GL Entry", {"voucher_type": "Payment Entry", "voucher_no": second.name, "is_cancelled": 0}
         )

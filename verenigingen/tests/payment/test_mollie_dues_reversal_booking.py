@@ -177,6 +177,36 @@ class _DuesReversalFixture(_RefundFixtureMixin, EnhancedTestCase):
         return flt(frappe.db.get_value("Sales Invoice", self.invoice, "outstanding_amount"))
 
 
+class TestStrandedDuesReversalDraft(_DuesReversalFixture):
+    """#2535: a dues reversal Journal Entry stranded as a draft is finished by the redelivery.
+
+    Probe shortcut, stated: the draft is produced by making ERPNext's own
+    JournalEntry.before_submit refuse once (a refusal before anything is written).
+    """
+
+    def test_a_redelivery_finishes_a_stranded_dues_reversal_draft(self):
+        from unittest.mock import patch
+
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        reversal_id = f"re_dues_{frappe.generate_hash(length=8)}"
+        self.expectErrorLog(
+            "Secure Operation Failed", "Mollie Journal Entry", "financial_entry_error", "Mollie Reversal Booking Failed"
+        )
+        with patch.object(JournalEntry, "before_submit", side_effect=frappe.ValidationError("period refused")):
+            self._reverse(self.INVOICE_AMOUNT, reversal_id=reversal_id)
+        key = build_reversal_key(self.payment_id, "refund", reversal_id)
+        drafts = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 0}, pluck="name")
+        self.assertEqual(len(drafts), 1, "precondition: the refused submit must leave one draft")
+        self.assertEqual(self._outstanding(), 0.0, "precondition: nothing reached the ledger")
+
+        self._reverse(self.INVOICE_AMOUNT, reversal_id=reversal_id)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 1)
+        self.assertEqual(self._journal_entries_for(reversal_id), drafts, "a second entry was created")
+        self.assertEqual(self._outstanding(), self.INVOICE_AMOUNT, "the invoice outstanding was not restored")
+
+
 class TestDuesReversalBooksAgainstTheInvoice(_DuesReversalFixture):
     def test_the_forward_booking_is_recognised_as_dues(self):
         """Guard the premise: if this is not "dues", the rest tests nothing."""

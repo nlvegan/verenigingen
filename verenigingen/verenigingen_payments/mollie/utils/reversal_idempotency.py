@@ -50,7 +50,9 @@ def total_reversed(payment_id: str) -> float:
 
     Drafts count, cancelled do not -- the same predicate as
     :func:`find_booked_reversal`, and for the same reason: a draft is a booking
-    already in flight.
+    already in flight. Unlike ``find_booked_reversal`` this is a pure read: a
+    prefix scan holds no per-reversal amount to check a draft against, so it
+    never submits one (#2535).
 
     Why this exists: the per-delivery "not more than the payment" check is not
     the property anyone means. A refund and a chargeback are different
@@ -83,16 +85,36 @@ def total_reversed(payment_id: str) -> float:
     return flt(total, 2)
 
 
-def find_booked_reversal(reversal_key: str) -> Optional[Tuple[str, str]]:
+def _resolve_draft(reference: str, expected_amount: Optional[float]) -> Optional[str]:
+    from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+        resolve_journal_entry_by_reference,
+    )
+
+    return resolve_journal_entry_by_reference(reference, expected_amount)
+
+
+def find_booked_reversal(reversal_key: str, expected_amount: Optional[float]) -> Optional[Tuple[str, str]]:
     """Return ``(doctype, name)`` of an existing booking for this key, or None.
 
+    **Not a pure read:** a Journal Entry that is still a draft is finished here
+    (submitted; discarded if the submit wrote a docstatus; reported and kept if
+    it wrote nothing or its total differs from ``expected_amount``), so "booked"
+    never means "a draft nobody will submit" (#2535).
+
     Checks every artefact a reversal can be booked as, not just the caller's own.
+    ``expected_amount`` is REQUIRED, the reversal amount the caller holds; pass
+    ``None`` only when it cannot be known, and a draft is then left unsubmitted.
     """
     if not reversal_key:
         return None
 
     for doctype, field in _REVERSAL_ARTEFACTS:
-        existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
+        if doctype == "Journal Entry":
+            # #2608 (not fixed here): a reversal finished by this call never gets its
+            # Bank Transaction rebuilt or reconciled, because the caller sees "booked".
+            existing = _resolve_draft(reversal_key, expected_amount)
+        else:
+            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
         if existing:
             return doctype, existing
 
