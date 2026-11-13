@@ -126,6 +126,17 @@ class TestSEPAUtilitiesIBAN(unittest.TestCase):
         self._silence()
         self.assertTrue(SEPAUtilities.validate_dutch_iban("nl39 rabo 0300 0652 64"))
 
+    def test_validate_dutch_iban_table_of_real_and_malformed_accounts(self):
+        """Moved from the never-run test_bank_integration_boundaries (#2531), but pointed at
+        the PRODUCTION validator: that module asserted on a test-fixture helper instead."""
+        self._silence()
+        for iban in ("NL91 ABNA 0417 1643 00", "NL44RABO0123456789", "NL86INGB0002445588"):
+            with self.subTest(valid=iban):
+                self.assertTrue(SEPAUtilities.validate_dutch_iban(iban))
+        for iban in ("NL91 ABNA 0417 1643 99", "DE89 3704 0044 0532 0130 00", "INVALID IBAN FORMAT"):
+            with self.subTest(invalid=iban):
+                self.assertFalse(SEPAUtilities.validate_dutch_iban(iban))
+
 
 # ---------------------------------------------------------------------------
 # CalculationUtilities - pure financial math

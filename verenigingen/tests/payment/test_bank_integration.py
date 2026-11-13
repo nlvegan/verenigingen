@@ -163,6 +163,16 @@ class TestCamt053Parsing(VereningingenTestCase):
         self.assertIn("Invalid XML", result["error"])
         self.assertEqual(result["transactions_imported"], 0)
 
+    def test_unusable_statement_content_is_refused_without_importing(self):
+        """Moved from the never-run test_bank_integration_boundaries (#2531): empty, non-XML and
+        wrong-schema content each fail cleanly instead of raising or importing."""
+        for content in ("", "not xml at all", "<?xml version='1.0'?><Document>wrong schema</Document>"):
+            with self.subTest(content=content[:20]):
+                result = self._import_xml(content)
+                self.assertFalse(result["success"])
+                self.assertTrue(result["error"])
+                self.assertEqual(result["transactions_imported"], 0)
+
     def test_entry_missing_amount_is_skipped(self):
         """An entry without Amt/CdtDbtInd parses to None (not a crash)."""
         bad_entry = "<Ntry><BookgDt><Dt>2025-01-01</Dt></BookgDt></Ntry>"

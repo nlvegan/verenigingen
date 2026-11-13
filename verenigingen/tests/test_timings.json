@@ -874,7 +874,6 @@
  "verenigingen.tests.security.test_self_service_doc_method_regression": 3,
  "verenigingen.tests.security.test_self_service_operations": 10,
  "verenigingen.tests.security.test_toctou": 6,
- "verenigingen.tests.sepa.test_bank_integration_boundaries": 7,
  "verenigingen.tests.sepa.test_batch_processing_service_happy_path": 6,
  "verenigingen.tests.sepa.test_batch_validation_service_coverage": 14,
  "verenigingen.tests.sepa.test_dd_batch_pipeline_coverage": 22,

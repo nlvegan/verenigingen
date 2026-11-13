@@ -1,6 +1,6 @@
 # Domain A10a — SEPA batch / validation / reconciliation core
 
-Read-only test-method inventory across the 12 assigned files under
+Read-only test-method inventory across the 11 assigned files under
 `verenigingen/tests/sepa/`. Every `def test_*` method classified by dominant
 intent: HAPPY (nominal success), UNHAPPY (expects error/throw/validation
 failure), EDGE (boundary/empty/duplicate/idempotency/malformed/R-transaction
@@ -10,7 +10,6 @@ return/missing-record), OTHER (smoke/shape/identity/tautology/script).
 
 | File | Total | Happy | Unhappy | Edge | Other |
 |---|---|---|---|---|---|
-| test_bank_integration_boundaries.py | 12 | 6 | 2 | 4 | 0 |
 | test_batch_processing_service_happy_path.py | 2 | 2 | 0 | 0 | 0 |
 | test_batch_validation_service_coverage.py | 26 | 6 | 6 | 11 | 3 |
 | test_dd_batch_pipeline_coverage.py | 31 | 13 | 5 | 9 | 4 |
@@ -22,7 +21,7 @@ return/missing-record), OTHER (smoke/shape/identity/tautology/script).
 | test_sepa_batch_processor_returns_coverage.py | 9 | 3 | 1 | 5 | 0 |
 | test_sepa_input_validation.py | 25 | 11 | 7 | 6 | 1 |
 | test_sepa_invoice_validation.py | 22 | 17 | 0 | 5 | 0 |
-| **DOMAIN TOTALS** | **198** | **96** | **23** | **65** | **14** |
+| **DOMAIN TOTALS** | **186** | **90** | **21** | **61** | **14** |
 
 \* `test_enhanced_sepa_integration.py` defines NO `unittest.TestCase` and NO
 test *methods* — it is a legacy print-driven script of module-level `test_*`
@@ -32,7 +31,7 @@ its called helpers, not independently collectible test methods.
 
 ## Observations
 
-- **Edge-heavy domain (65/198 = 33%).** SEPA batch/reconciliation logic is
+- **Edge-heavy domain (61/186 = 33%).** SEPA batch/reconciliation logic is
   dominated by boundary work: idempotency (create/link by reference),
   R-transaction returns (pain.002 RJCT), missing/nonexistent invoice & mandate
   lookups, empty batches, collection-date notice windows (too-early/far-future/
@@ -57,9 +56,9 @@ its called helpers, not independently collectible test methods.
   batch validation logic; `test_sepa_invoice_creditor_identifier_compliance`
   guards on `hasattr` (no-op if absent) and `test_sepa_invoice_collection_date_
   compliance` computes a weekday but ends without a final assertion.
-- **`test_bank_integration_boundaries.py` is skip-gated.** All 5 classes raise
-  `SkipTest` in `setUpClass` unless `ENABLE_BANK_INTEGRATION_TESTS` is set, so
-  its 12 methods do not run in normal CI. Classified by intent regardless.
+- `test_bank_integration_boundaries.py` was deleted (#2531): it never ran in CI, 9 of its 12
+  methods failed when enabled, and the IBAN/corrupted-file checks moved into
+  `tests/payment/test_sepa_utilities.py` and `tests/payment/test_bank_integration.py`.
 - **Strong real-DB discipline in the coverage files.** The `_dd_batch_pipeline`,
   `_returns_coverage`, `_bank_reconciliation_coverage`, and
   `batch_processing_service_happy_path` files use committed-doc tracking +
@@ -72,4 +71,4 @@ its called helpers, not independently collectible test methods.
 
 ## Missing files
 
-None. All 12 assigned files were present and read.
+None. All 11 assigned files were present and read.
