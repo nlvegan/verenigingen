@@ -88,16 +88,29 @@ class TestPeriodsPerYearCoversEveryOption(EnhancedTestCase):
                 monthly, rate * _implied_periods_per_year(frequency) / 12, delta=rate * 0.04, msg=frequency
             )
 
-    def test_add_billing_periods_steps_by_the_real_period(self):
+    def test_add_billing_periods_chains_exactly_like_the_invoice_chain(self):
         start = getdate("2025-01-31")
         self.assertEqual(bpc.add_billing_periods(start, 3, "Daily"), add_days(start, 3))
         self.assertEqual(bpc.add_billing_periods(start, 3, "Weekly"), add_days(start, 21))
-        # month-based steps are computed from the anchor, so month-end does not drift
-        self.assertEqual(bpc.add_billing_periods(start, 1, "Monthly"), getdate("2025-02-28"))
-        self.assertEqual(bpc.add_billing_periods(start, 2, "Monthly"), getdate("2025-03-31"))
+        # Month-end schedules follow the billed chain (31 Jan -> 28 Feb -> 28 Mar), NOT an
+        # anchor-based 31 Mar: calculate_next_invoice_date is what bills them.
+        self.assertEqual(bpc.add_billing_periods(start, 2, "Monthly"), getdate("2025-03-28"))
         self.assertEqual(bpc.add_billing_periods(start, 1, "Quarterly"), getdate("2025-04-30"))
+        self.assertEqual(bpc.add_billing_periods(getdate("2024-02-29"), 4, "Annual"), getdate("2028-02-28"))
         self.assertEqual(bpc.add_billing_periods(start, 1, "Custom", 2, "Weeks"), add_days(start, 14))
         self.assertIsNone(bpc.add_billing_periods(start, 1, "Custom"))
+
+    def test_add_billing_periods_matches_the_chain_for_every_option(self):
+        for frequency in _meta_options("billing_frequency"):
+            if frequency == "Custom":
+                continue
+            for start in (getdate("2025-01-31"), getdate("2024-02-29"), getdate("2025-08-15")):
+                chain, current = [], start
+                for _ in range(6):
+                    current = bpc.calculate_next_invoice_date(frequency, current)
+                    chain.append(current)
+                got = [bpc.add_billing_periods(start, i, frequency) for i in range(1, 7)]
+                self.assertEqual(got, chain, f"{frequency} from {start}")
 
 
 class TestRevenueProjectionReport(EnhancedTestCase):
@@ -268,14 +281,53 @@ class TestDashboardsOnRealSchedules(EnhancedTestCase):
         self.assertGreater(len(dates), 20)
         self.assertEqual({(b - a).days for a, b in zip(dates, dates[1:])}, {14})
 
-    def test_payment_schedule_monthly_family_is_unchanged(self):
+    def test_payment_schedule_monthly_family_follows_the_invoice_chain_from_a_month_end(self):
         from verenigingen.api.payment_dashboard import get_payment_schedule
 
-        for frequency, step_months in (("Monthly", 1), ("Quarterly", 3), ("Semi-Annual", 6)):
-            schedule = self._make(frequency, 9, next_invoice_date=add_days(today(), 3))
+        start = getdate("2030-01-31")  # month-end anchor, in the future
+        for frequency in ("Monthly", "Quarterly", "Semi-Annual", "Annual"):
+            self._make(frequency, 9, next_invoice_date=start)
             entries = get_payment_schedule(self.member.name)["data"]
-            start = getdate(schedule.next_invoice_date)
-            expected = [
-                frappe.utils.add_months(start, i) for i in range(0, 12, step_months)
-            ]
+            expected, current = [start], start
+            while True:
+                current = bpc.calculate_next_invoice_date(frequency, current)
+                if current >= frappe.utils.add_months(start, 12):
+                    break
+                expected.append(current)
             self.assertEqual([getdate(e["date"]) for e in entries], expected, frequency)
+        # control: the chain really differs from an anchor-based month sequence here
+        self.assertEqual(bpc.add_billing_periods(start, 2, "Monthly"), getdate("2030-03-28"))
+        self.assertNotEqual(bpc.add_billing_periods(start, 2, "Monthly"), frappe.utils.add_months(start, 2))
+
+    def test_portal_upcoming_dates_step_by_the_real_period(self):
+        from verenigingen.templates.pages import payment_dashboard
+
+        for frequency, step in (("Weekly", 7), ("Daily", 1)):
+            self._make(frequency, 9)
+            shown = payment_dashboard.get_current_dues_schedule(self.member.name)
+            dates = payment_dashboard.get_upcoming_dates(shown)
+            self.assertEqual(len(dates), 4, frequency)
+            self.assertEqual(dates[0], getdate(shown.next_invoice_date))
+            self.assertEqual({(b - a).days for a, b in zip(dates, dates[1:])}, {step}, frequency)
+
+    def test_portal_upcoming_dates_custom_interval_and_last_invoice_cap(self):
+        from verenigingen.templates.pages import payment_dashboard
+
+        self._make("Custom", 9, number=2, unit="Weeks")
+        shown = payment_dashboard.get_current_dues_schedule(self.member.name)
+        dates = payment_dashboard.get_upcoming_dates(shown)
+        self.assertEqual({(b - a).days for a, b in zip(dates, dates[1:])}, {14})
+        shown["last_invoice_date"] = add_days(getdate(shown.next_invoice_date), 15)
+        self.assertEqual(len(payment_dashboard.get_upcoming_dates(shown)), 2)  # day 0 and day 14
+
+    def test_portal_upcoming_dates_empty_for_custom_without_interval(self):
+        from verenigingen.templates.pages import payment_dashboard
+
+        self._make("Monthly", 9)
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.schedule.name,
+            {"billing_frequency": "Custom", "custom_frequency_number": 0, "custom_frequency_unit": None},
+        )
+        shown = payment_dashboard.get_current_dues_schedule(self.member.name)
+        self.assertEqual(payment_dashboard.get_upcoming_dates(shown), [])

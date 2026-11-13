@@ -121,22 +121,19 @@ def add_billing_periods(
 ) -> Optional[date]:
     """
     `from_date` advanced by `periods` whole billing periods, or None when the period
-    is not known. Always measured from `from_date` (not step by step), so month-end
-    anchors do not drift, and never snapped to a calendar boundary (#884).
+    is not known. Chains calculate_next_invoice_date period by period, exactly as the
+    invoice chain does, so month-end schedules land on the dates that are billed
+    (Monthly from 31 Jan: 28 Feb, 28 Mar), not on anchor-based dates. Never snapped to a
+    calendar boundary (#884).
     """
-    length = get_period_length(billing_frequency, custom_frequency_number, custom_frequency_unit)
-    if not length:
+    if get_period_length(billing_frequency, custom_frequency_number, custom_frequency_unit) is None:
         return None
-    count, unit = length
-    steps = count * periods
-    from_date = getdate(from_date)
-    if unit == "Days":
-        return add_days(from_date, steps)
-    if unit == "Weeks":
-        return add_days(from_date, steps * 7)
-    if unit == "Months":
-        return add_months(from_date, steps)
-    return add_years(from_date, steps)
+    current = getdate(from_date)
+    for _ in range(periods):
+        current = calculate_next_invoice_date(
+            billing_frequency, current, custom_frequency_number, custom_frequency_unit
+        )
+    return current
 
 
 def calculate_next_invoice_date(
