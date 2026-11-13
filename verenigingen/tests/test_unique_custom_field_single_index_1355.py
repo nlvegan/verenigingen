@@ -54,6 +54,8 @@ class TestUniqueCustomFieldSingleIndex1355(FrappeTestCase):
 
     def test_index_probe_sees_a_plain_search_index(self):
         # Control for the probe: a search_index-only field must show its one NON-unique `_index` key.
+        # Membership.procurios_membership_id is created by setup/__init__.py (after_install) with
+        # search_index 1. If that field changes, move this control to another plain-search_index field.
         self.assertEqual(
             _1355_indexes_on("Membership", "procurios_membership_id"),
             {"procurios_membership_id_index": False},
