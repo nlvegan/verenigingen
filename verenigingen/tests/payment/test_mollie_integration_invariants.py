@@ -1241,8 +1241,6 @@ FORM_DATA_NOT_POSTED_BY_THE_BROWSER = frozenset(
         "method",
         "sequenceType",
         "subscription_interval",
-        "success_url",
-        "cancel_url",
     }
 )
 
