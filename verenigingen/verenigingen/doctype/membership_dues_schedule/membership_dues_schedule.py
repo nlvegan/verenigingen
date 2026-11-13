@@ -13,6 +13,7 @@ from verenigingen.services.billing.billing_period_calculator import (
 )
 from verenigingen.services.billing.duplicate_invoice_detector import DuplicateInvoiceDetector
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -256,6 +257,10 @@ class MembershipDuesSchedule(Document):
         DELEGATES TO: DuesSchedulePermissionService.validate_permissions()
         """
         if self.is_template:
+            return
+
+        # An approval's own schedule (#1930) is written after its approver was authorised.
+        if follow_on_ignore_permissions():
             return
 
         from verenigingen.services.billing.dues_schedule_permission_service import (

@@ -40,6 +40,7 @@ from verenigingen.services.billing.billing_period_calculator import (
     get_nominal_period_days,
 )
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:
@@ -130,11 +131,11 @@ class TemplateCreationService(StatelessService):
             template.billing_day = 1  # Default template billing day
             template.auto_generate = 1
 
-            template.insert()
+            template.insert(ignore_permissions=follow_on_ignore_permissions())
 
             # Link back to membership type
             membership_type_doc.dues_schedule_template = template.name
-            membership_type_doc.save()
+            membership_type_doc.save(ignore_permissions=follow_on_ignore_permissions())
 
             return template
 
@@ -358,7 +359,7 @@ class TemplateCreationService(StatelessService):
             schedule.next_invoice_date = today()
 
         # Insert and return
-        schedule.insert()
+        schedule.insert(ignore_permissions=follow_on_ignore_permissions())
 
         # Link schedule back to member.  Use db.set_value to avoid
         # TimestampMismatchError — after_insert hooks and the caller's
