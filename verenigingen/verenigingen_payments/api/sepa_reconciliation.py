@@ -350,6 +350,9 @@ def _process_sepa_transaction_conservative_internal(bank_transaction_name, sepa_
             "status": bank_transaction.custom_processing_status,
         }
 
+    # #681: a 1213/1205 is not a per-item or status-dict outcome; see transaction_errors.py.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error processing SEPA transaction: {str(e)}")
         return {"success": False, "error": str(e)}
@@ -415,6 +418,9 @@ def _validate_batch_reconciliation(batch_items: List[Dict], bank_transaction) ->
                 )
                 continue
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #681: a lookup that deadlocked is not "this item is invalid".
+            raise
         except Exception as e:
             validation_errors.append(
                 {
@@ -599,6 +605,13 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                     "details": reconciled_items,
                 }
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # #681: deliberately NO frappe.db.rollback() here. On a 1213 the server has
+                # already rolled the whole transaction back (a further rollback can raise and
+                # mask the real error, the #561 shape); on a 1205 it would discard a
+                # transaction the caller owns. Propagate; the transaction owner decides.
+                raise
+
             except Exception as e:
                 # Any failure during atomic phase - rollback entire batch
                 frappe.db.rollback()
@@ -635,6 +648,9 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
             "details": reconciled_items,
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # #681: no rollback, same reasoning as the per-item handler above.
+        raise
     except Exception as e:
         # Unexpected error - ensure rollback
         frappe.db.rollback()
@@ -1194,6 +1210,8 @@ def correlate_return_transactions():
             "total_found": len(correlated_returns),
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error correlating return transactions: {str(e)}")
         return {"success": False, "error": str(e)}
@@ -1345,6 +1363,8 @@ def manual_sepa_reconciliation(bank_transaction_name: str, batch_items_json: str
             "total_reconciled": len(reconciled_items),
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error in manual SEPA reconciliation: {str(e)}")
         return {"success": False, "error": str(e)}

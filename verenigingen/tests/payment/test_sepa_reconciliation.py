@@ -1721,5 +1721,241 @@ class TestManualReconciliation(ReconBase):
             frappe.clear_document_cache("Company", self.company)
 
 
+# =============================================================================
+# #681: the remaining broad handlers must not turn a 1213/1205 into a status dict
+# =============================================================================
+def _681_pe_insert_raising(error):
+    """Fail the Payment Entry INSERT: below _create_payment_entry_atomic, the idempotency
+    wrapper and every handler in sepa_reconciliation.py, on the real path."""
+
+    def _raise(self, *args, **kwargs):
+        raise error
+
+    return patch.object(PaymentEntry, "insert", _raise)
+
+
+def _681_sql_raising_on_for_update(error, needle="FOR UPDATE"):
+    """Fail only the statement containing `needle` (default: the batch-row FOR UPDATE, the
+    first statement inside the outer try)."""
+    real_sql = frappe.db.sql
+
+    def _sql(query, *args, **kwargs):
+        if isinstance(query, str) and needle in query:
+            raise error
+        return real_sql(query, *args, **kwargs)
+
+    return patch.object(frappe.db, "sql", _sql)
+
+
+class TestNonResumableErrorsEscapeTheBatchReconciliation681(ReconBase):
+    """#681. A 1213/1205 raised at the DB call must reach the caller with its own class.
+
+    Decision on the `frappe.db.rollback()` the two reconcile_full_sepa_batch handlers
+    made: on a non-resumable error they do NOT roll back. On 1213 the server already
+    discarded the transaction (a further rollback can raise and mask the real error,
+    the #561 shape); on 1205 a rollback would discard a transaction the caller owns.
+    The error propagates to whoever owns the boundary. Ordinary errors keep their
+    rollback + status dict (controls below).
+    """
+
+    def _batch(self, name, grand_total=25.0, deposit_delta=0.0):
+        it = self._make_member_with_invoice(first_name=name, grand_total=grand_total)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(
+            deposit=batch.total_amount + deposit_delta, date=today(), description="SEPA DD"
+        )
+        return it, batch, bt
+
+    def _assert_escapes(self, call, error_factory, expected_cls):
+        with patch.object(frappe.db, "rollback") as rollback:
+            with self.assertRaises(expected_cls):
+                call(error_factory())
+        rollback.assert_not_called()
+
+    def test_a_deadlock_at_the_item_insert_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ItemDead")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_timeout_at_the_item_insert_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ItemTimeout")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _timeout, frappe.QueryTimeoutError)
+
+    def test_a_deadlock_at_the_batch_lock_escapes_the_outer_handler(self):
+        _, batch, bt = self._batch("R681OuterDead")
+
+        def call(err):
+            with _681_sql_raising_on_for_update(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_timeout_at_the_batch_lock_escapes_the_outer_handler(self):
+        _, batch, bt = self._batch("R681OuterTimeout")
+
+        def call(err):
+            with _681_sql_raising_on_for_update(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _timeout, frappe.QueryTimeoutError)
+
+    def test_a_deadlock_at_the_item_insert_escapes_the_conservative_internal(self):
+        """Full-match path: three handlers stack (inner, outer, _internal)."""
+        _, batch, bt = self._batch("R681IntDead")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_deadlock_saving_the_bank_transaction_escapes_the_conservative_internal(self):
+        """Partial path: the swallowing frame under test is _internal's own, with no
+        reconcile_full_sepa_batch above the failing call."""
+        _, batch, bt = self._batch("R681IntSave", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise _deadlock()
+            return real_save(doc, *args, **kwargs)
+
+        with patch.object(frappe.model.document.Document, "save", save):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+    def test_a_timeout_saving_the_bank_transaction_escapes_the_conservative_internal(self):
+        _, batch, bt = self._batch("R681IntSaveTo", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise _timeout()
+            return real_save(doc, *args, **kwargs)
+
+        with patch.object(frappe.model.document.Document, "save", save):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+    def test_a_deadlock_in_the_phase_one_lookup_escapes_validation(self):
+        it, batch, bt = self._batch("R681ValDead")
+        items = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"parent": batch.name},
+            fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        )
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            with patch.object(frappe.db, "get_value", side_effect=factory()):
+                with self.assertRaises(cls):
+                    recon._validate_batch_reconciliation(items, bt)
+
+    def test_a_deadlock_in_the_phase_one_lookup_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ValFull")
+        with patch.object(frappe.db, "get_value", side_effect=_deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon.reconcile_full_sepa_batch(bt, batch)
+
+    # ---- controls: an ordinary (resumable) error keeps today's per-item handling ----
+    def test_control_an_ordinary_item_failure_still_rolls_back_and_returns_atomic_failure(self):
+        it, batch, bt = self._batch("R681CtlItem")
+        with patch.object(frappe.db, "rollback") as rollback:
+            with _681_pe_insert_raising(ValueError("ordinary item failure")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "atomic_failure", msg=result)
+        self.assertEqual(result["failed_at"], it["invoice"].name)
+        rollback.assert_called()
+
+    def test_control_an_ordinary_batch_lock_failure_still_returns_transaction_error(self):
+        _, batch, bt = self._batch("R681CtlOuter")
+        with patch.object(frappe.db, "rollback") as rollback:
+            with _681_sql_raising_on_for_update(ValueError("ordinary lock failure")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "transaction_error", msg=result)
+        rollback.assert_called()
+
+    def test_control_an_ordinary_validation_failure_is_still_collected_per_item(self):
+        it, batch, bt = self._batch("R681CtlVal")
+        items = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"parent": batch.name},
+            fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        )
+        with patch.object(frappe.db, "get_value", side_effect=ValueError("ordinary lookup failure")):
+            errors = recon._validate_batch_reconciliation(items, bt)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["invoice"], it["invoice"].name)
+        self.assertIn("ordinary lookup failure", errors[0]["error"])
+
+    def test_control_an_ordinary_bank_transaction_save_failure_is_still_a_status_dict(self):
+        _, batch, bt = self._batch("R681CtlInt", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise ValueError("ordinary save failure")
+            return real_save(doc, *args, **kwargs)
+
+        self.expectErrorLog("Error processing SEPA transaction")
+        with patch.object(frappe.model.document.Document, "save", save):
+            result = recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary save failure", result["error"])
+
+
+class TestNonResumableErrorsEscapeTheOtherReconciliationEndpoints681(ReconBase):
+    def test_a_deadlock_reading_the_candidates_escapes_correlate_return_transactions(self):
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            with _681_sql_raising_on_for_update(factory(), "tabBank Transaction"):
+                with self.assertRaises(cls):
+                    recon.correlate_return_transactions()
+
+    def test_control_an_ordinary_read_failure_still_returns_a_failure_dict(self):
+        self.expectErrorLog("Error correlating return transactions")
+        with _681_sql_raising_on_for_update(ValueError("ordinary read failure"), "tabBank Transaction"):
+            result = recon.correlate_return_transactions()
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary read failure", result["error"])
+
+    def _manual_call(self, name):
+        it = self._make_member_with_invoice(first_name=name, grand_total=25.0)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        items = json.dumps(
+            [
+                {
+                    "reconcile": True,
+                    "member": it["member"].name,
+                    "invoice": it["invoice"].name,
+                    "amount": flt(it["invoice"].grand_total),
+                }
+            ]
+        )
+        return bt, items
+
+    def test_a_deadlock_or_timeout_at_the_payment_insert_escapes_manual_reconciliation(self):
+        bt, items = self._manual_call("R681Manual")
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            with _681_pe_insert_raising(factory()):
+                with self.assertRaises(cls):
+                    recon.manual_sepa_reconciliation(bt.name, items)
+
+    def test_control_an_ordinary_payment_insert_failure_is_still_a_failure_dict(self):
+        bt, items = self._manual_call("R681ManualCtl")
+        self.expectErrorLog("Error in manual SEPA reconciliation")
+        with _681_pe_insert_raising(ValueError("ordinary insert failure")):
+            result = recon.manual_sepa_reconciliation(bt.name, items)
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary insert failure", result["error"])
+
+
 if __name__ == "__main__":
     unittest.main()
