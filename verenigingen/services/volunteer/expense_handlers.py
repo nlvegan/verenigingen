@@ -236,6 +236,8 @@ def notify_expense_approvers(doc, method=None):
             reference_doctype="Expense Claim",
             reference_name=doc.name,
             notification_key="expense_approval_request",
+            # Per claim: a second claim within the hour needs its own approval request (#2310).
+            cooldown_scope=doc.name,
         )
 
         if result.success:

@@ -9,6 +9,8 @@ a missing, unset, disabled or unreadable user means "no service user", never
 Administrator (#1876).
 """
 
+from contextlib import contextmanager
+
 import frappe
 
 
@@ -114,3 +116,29 @@ def require_service_user(settings_doctype: str, user_field: str, service_name: s
         ),
     )
     raise ServiceUserUnavailable(f"{service_name}: no usable {user_field}")
+
+
+@contextmanager
+def acting_as_service_user(service_user: str | None):
+    """Run a block as ``service_user`` and put the request's own session back afterwards.
+
+    For an allow_guest request handler. ``frappe.set_user`` rewrites the live session, and
+    ``frappe/app.py::sync_database`` queues ``Session.update`` after the response; that writes
+    the CURRENT user's ``last_active``/``last_ip`` and returns early only for Guest. A handler
+    that left the service user in place therefore recorded each anonymous visitor's address on
+    the service account (#2275). ``set_user`` also resets ``session.sid`` to the username and
+    empties ``session.data``, so those are restored too, not just the user.
+
+    ``None`` runs the block unchanged (no usable service user, nothing to switch to).
+    """
+    if not service_user:
+        yield
+        return
+    session = frappe.local.session
+    original = (session.user, session.sid, session.data)
+    frappe.set_user(service_user)
+    try:
+        yield
+    finally:
+        frappe.set_user(original[0])
+        session.sid, session.data = original[1], original[2]

@@ -80,6 +80,8 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
 
         self._restore_skip_account_flag = restore_flag
         self.addCleanup(restore_flag)
+        # #832: the injected chapter-save failures now write an Error Log row on purpose.
+        self.expectErrorLog("Termination: board position")
         self.member = self.create_test_member()
         self.volunteer = self.create_test_volunteer(member=self.member.name)
         self.chapter = self.create_test_chapter()
@@ -374,6 +376,150 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
             frappe.db.get_value("Member", self.member.name, "status"),
             TERMINATED_STATUS,
             "partial execution was lost for an ordinary exception",
+        )
+
+    # -- #832: a failed board-seat save must be visible in the termination's outcome ----
+
+    def _system_update_errors(self, request):
+        return [row.details for row in request.audit_trail if row.action == "System Update Error"]
+
+    def test_a_failed_chapter_save_is_recorded_as_a_termination_error_and_audit_entry_832(self):
+        """Through the real operation list: the unended seat must reach results["errors"]
+        and the request's audit trail, and the seat really is still active in the DB."""
+        from verenigingen.services.termination.termination_execution_service import (
+            TerminationExecutionService,
+        )
+
+        with self._exploding_chapter_save(Exception("ordinary failure")):
+            results = TerminationExecutionService().execute_system_updates(self.request)
+
+        seat_errors = [e for e in results["errors"] if self.chapter.name in e]
+        self.assertEqual(len(seat_errors), 1, f"errors: {results['errors']}")
+        self.assertEqual(results["positions_ended"], 0)
+        self.assertTrue(
+            any(self.chapter.name in d for d in self._system_update_errors(self.request)),
+            "the audit trail does not name the chapter whose seat is still active",
+        )
+        still_active = frappe.db.get_value(
+            "Chapter Board Member",
+            {"parent": self.chapter.name, "volunteer": self.volunteer.name},
+            "is_active",
+        )
+        self.assertEqual(still_active, 1)
+
+    def test_a_failed_chapter_save_writes_an_error_log_row_832(self):
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+
+        title = "Termination: board positions not saved"
+        before = frappe.db.count("Error Log", {"method": title})
+        with self._exploding_chapter_save(Exception("ordinary failure")):
+            end_board_positions_safe(self.member.name, today(), "log")
+
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+
+    def test_a_permission_failure_saving_a_chapter_is_also_reported_832(self):
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+
+        failures = []
+        before = frappe.db.count(
+            "Error Log", {"method": "Termination: board positions not saved (permission)"}
+        )
+        with self._exploding_chapter_save(frappe.PermissionError("no")):
+            result = end_board_positions_safe(self.member.name, today(), "perm", failures=failures)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(failures), 1)
+        self.assertIn(self.chapter.name, failures[0])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Termination: board positions not saved (permission)"}),
+            before + 1,
+        )
+
+    def test_a_failure_after_the_row_write_leaves_the_seat_active_and_is_reported_832(self):
+        """The Chapter save fails in on_update, AFTER the board row was written. Without a
+        per-chapter savepoint the row stays is_active=0 in the transaction the termination
+        commits, while the failure message claims the seat was NOT ended."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+        from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
+
+        failures = []
+        with patch.object(Chapter, "on_update", side_effect=Exception("late failure"), create=True):
+            result = end_board_positions_safe(self.member.name, today(), "late", failures=failures)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(failures), 1, failures)
+        row = frappe.db.get_value(
+            "Chapter Board Member",
+            {"parent": self.chapter.name, "volunteer": self.volunteer.name},
+            ["is_active", "to_date"],
+            as_dict=True,
+        )
+        self.assertEqual(row.is_active, 1, "a failed chapter save left the seat half-ended")
+        self.assertFalse(row.to_date, "a failed chapter save left a to_date on the seat")
+
+    def test_a_successful_end_of_board_positions_reports_no_failures_832(self):
+        """CONTROL: a clean helper run reports no failure."""
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
+
+        failures = []
+        self.assertEqual(end_board_positions_safe(self.member.name, today(), "ok", failures=failures), 1)
+        self.assertEqual(failures, [])
+
+    def test_a_clean_real_termination_records_no_board_seat_error_832(self):
+        """CONTROL through the real flow: the seat has a real row to be (wrongly) reported."""
+        from verenigingen.services.termination.termination_execution_service import (
+            TerminationExecutionService,
+        )
+
+        results = TerminationExecutionService().execute_system_updates(self.request)
+
+        self.assertEqual(results["positions_ended"], 1)
+        self.assertFalse([e for e in results["errors"] if "board position" in e.lower()], results["errors"])
+
+    def test_a_per_position_failure_is_reported_832(self):
+        """The marking loop's own handler: the seat is skipped, not silently dropped."""
+        from verenigingen.services.termination import termination_integration as ti
+
+        failures = []
+        with patch.object(ti, "append_to_text_field", side_effect=Exception("boom")):
+            ti.end_board_positions_safe(self.member.name, today(), "mark", failures=failures)
+
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(self.chapter.name, failures[0])
+
+    def test_a_failed_seat_does_not_block_the_termination_from_executing_832(self):
+        """Pins the design choice: record, do not raise. The service still reaches Executed,
+        with the error in the audit trail (a raise would roll back the whole termination)."""
+        from verenigingen.services.termination.termination_execution_service import (
+            TerminationExecutionService,
+        )
+
+        self.request.status = "Approved"
+        self.request.flags.ignore_validate_update_after_submit = True
+        self.request.flags.skip_status_change_hook = True
+        self.request.save()
+        with self._exploding_chapter_save(Exception("ordinary failure")):
+            with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+                TerminationExecutionService().execute(self.request)
+
+        self.request.reload()
+        self.assertEqual(self.request.status, "Executed")
+        self.assertTrue(
+            any(self.chapter.name in d for d in self._system_update_errors(self.request)),
+            "the executed request carries no record of the seat that is still active",
+        )
+
+    def test_the_whitelisted_termination_api_reports_a_failed_seat_832(self):
+        """The second implementation of termination (api.termination_api) calls the same
+        helper and must surface the same shortfall in its own results["errors"]."""
+        from verenigingen.api.termination_api import execute_safe_termination
+
+        with self._exploding_chapter_save(Exception("ordinary failure")):
+            result = execute_safe_termination(self.member.name, "Voluntary", today())
+
+        self.assertTrue(
+            any(self.chapter.name in e for e in result.get("errors", [])),
+            f"the API result does not name the unended seat: {result}",
         )
 
 

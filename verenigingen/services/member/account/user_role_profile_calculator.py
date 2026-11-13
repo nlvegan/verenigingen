@@ -961,6 +961,21 @@ def sync_user_role_profile(
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
 
+        # Administrator and Guest are never governed by a role profile: frappe's
+        # User.populate_role_profile_roles() empties role_profiles for STANDARD_USERS, so
+        # the write is discarded. What was NOT discarded was the Employee that
+        # _ensure_employee_for_profile() inserts first when the account is linked to a
+        # Member holding a profile with the Employee role (#694). Every caller reaches
+        # this function, so the guard lives here rather than in each of them.
+        if user in frappe.STANDARD_USERS:
+            return {
+                "success": True,
+                "user": user,
+                "changed": False,
+                "skipped": "standard_user",
+                "message": f"Skipped: {user} is a standard user",
+            }
+
         # A disabled account is normally never synced: doing so can silently
         # re-enable it.
         #

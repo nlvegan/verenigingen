@@ -408,7 +408,8 @@ class EmailService(StatelessService):
             reference_name: Optional document name for tracking
             notification_key: Optional key for Verenigingen Email Configuration lookup.
                              Enables per-notification settings and cooldown tracking.
-            **options: Additional options (delayed, etc.)
+            **options: Additional options (sender, cc, bcc, ...). ``delayed`` is not one of them: every
+                       send is queued (#2336).
 
         Returns:
             OperationResult with success status and details
@@ -558,7 +559,8 @@ class EmailService(StatelessService):
                     "No active email account configured. Please configure an email account in Settings."
                 )
 
-            # Use frappe.sendmail with delayed=True (default) to queue for background processing
+            # EmailService ALWAYS queues (maintainer ruling on #2336): "delayed" is hardcoded True and is
+            # deliberately not in supported_keys, so a caller's delayed=False is ignored. Do not pass it.
             # This queues the email for background processing by RQ workers
             email_args = {
                 "recipients": recipients,

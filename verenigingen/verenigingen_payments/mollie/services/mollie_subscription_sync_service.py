@@ -205,6 +205,7 @@ class MollieSubscriptionSyncService:
                     member.mollie_customer_id,
                     old_subscription_id,
                     reason=f"Amendment {amendment_doc.name}: {amendment_doc.amendment_type} - Replaced by {new_subscription.id}",
+                    record_owner_cancel=False,  # replacement is live (#873)
                 )
 
                 # Step 3: Update member with new subscription ID
@@ -277,6 +278,7 @@ class MollieSubscriptionSyncService:
                                 member.mollie_customer_id,
                                 new_subscription.id,
                                 reason=f"Rollback after failed amendment {amendment_doc.name}",
+                                record_owner_cancel=False,  # old subscription stays live (#873)
                             )
 
                             frappe.logger().info(
