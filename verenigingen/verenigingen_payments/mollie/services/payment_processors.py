@@ -193,9 +193,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             else:
                 self.logger.info(f"Bank Transaction already exists for {mollie_data['payment_id']}")
                 # Get existing bank transaction for return data
-                bank_transaction_name = frappe.db.get_value(
-                    "Bank Transaction", {"reference_number": mollie_data["payment_id"]}, "name"
-                )
+                bank_transaction_name = self._find_mollie_bank_transaction(mollie_data["payment_id"])
                 if bank_transaction_name:
                     bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
 
@@ -363,6 +361,21 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 success=False, message=f"Failed to record failed payment: {str(e)}"
             )
 
+    def _find_mollie_bank_transaction(self, payment_id: str):
+        """Name of the live Bank Transaction for this payment on the Mollie bank account.
+
+        reference_number is unique per bank account only (#1267), so an unscoped lookup
+        can return another account's row or a cancelled one (#2583). When the Mollie
+        account cannot be resolved nothing can be created either, so this reports none.
+        """
+        config = self.bank_tx_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            return None
+        existing = self.bank_tx_creator._find_matching_bank_transaction(
+            payment_id, config["bank_account"], config["company"]
+        )
+        return existing.name if existing else None
+
     def check_idempotency(self, context: PaymentContext, payment_id: str) -> Dict[str, Any]:
         """Check donation payment processing status"""
         # Use unified idempotency manager for Payment Entry check
@@ -374,9 +387,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
         payment_entry_exists = bool(idempotency_manager.payment_entry_exists(payment_id))
 
         # Check if Bank Transaction exists (any docstatus - draft or submitted)
-        bank_transaction_exists = bool(
-            frappe.db.get_value("Bank Transaction", {"reference_number": payment_id}, "name")
-        )
+        bank_transaction_exists = bool(self._find_mollie_bank_transaction(payment_id))
 
         # Check donation status
         donation = frappe.get_doc("Donation", context.target_name)
