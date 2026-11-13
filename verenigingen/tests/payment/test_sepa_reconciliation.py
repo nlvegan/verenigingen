@@ -1957,5 +1957,58 @@ class TestNonResumableErrorsEscapeTheOtherReconciliationEndpoints681(ReconBase):
         self.assertIn("ordinary insert failure", result["error"])
 
 
+class TestNonResumableErrorsEscapeThePublicEntryPoints681(ReconBase):
+    def _real_batch_and_transaction(self, first_name):
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=25.0)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        return batch, bt
+
+    def test_a_deadlock_escapes_process_sepa_transaction_conservative_and_the_lock_is_released(self):
+        from verenigingen.api.sepa_duplicate_prevention import (
+            acquire_processing_lock,
+            release_processing_lock,
+        )
+
+        batch, bt = self._real_batch_and_transaction("R681Pub")
+
+        # The error is raised at the Payment Entry INSERT: the real path through the public
+        # wrapper, the internal processor and every handler between them.
+        with _681_pe_insert_raising(_deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon.process_sepa_transaction_conservative(bt.name, batch.name)
+        self.assertTrue(acquire_processing_lock("sepa_batch", batch.name), "lock was not released")
+        release_processing_lock("sepa_batch", batch.name)
+
+    def test_a_timeout_escapes_the_dev_step_by_step_workflow_helper(self):
+        """scripts/api_maintenance helper wrapping the processing call in a broad handler.
+        Only the identify step is stubbed (to offer this test's real batch and transaction);
+        the error is raised at the Payment Entry INSERT inside the real processing call.
+        The constructed QueryTimeoutError stands in for a server 1205."""
+        import importlib.util
+        import inspect
+        from pathlib import Path
+
+        path = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+        spec = importlib.util.spec_from_file_location("_681_sepa_integration_setup", path)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        batch, bt = self._real_batch_and_transaction("R681Dev")
+        offered = {
+            "success": True,
+            "potential_matches": [
+                {"bank_transaction": bt.name, "matching_batches": [{"batch_name": batch.name}]}
+            ],
+        }
+
+        with patch("verenigingen.api.sepa_reconciliation.identify_sepa_transactions", lambda: offered):
+            with _681_pe_insert_raising(_timeout()):
+                with self.assertRaises(frappe.QueryTimeoutError):
+                    # Unwrapped: @development_only refuses on a non-development site, and
+                    # the decorators are not what is under test.
+                    inspect.unwrap(setup.test_sepa_workflow_step_by_step)()
+
+
 if __name__ == "__main__":
     unittest.main()
