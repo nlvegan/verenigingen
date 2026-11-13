@@ -151,6 +151,7 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/validation/test_quality_enforcer.py",  # tests/integration/test_permission_bypass_elimination_validation.py
     # #2385: tests/api/test_bool_flags_over_http_2385.py
     "scripts/api_maintenance/fix_workspace.py",
+    "scripts/api_maintenance/sepa_integration_setup.py",  # tests/payment/test_sepa_reconciliation.py (#681)
     "scripts/cleanup/cleanup_invalid_member_schedules.py",
 }
 
