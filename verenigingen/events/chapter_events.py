@@ -125,6 +125,11 @@ def _emit_chapter_event(event_name, event_data):
         # Membership jobs mail and change roles for the member, so they must not run
         # ahead of (or without) the commit that made the member part of the chapter (#2137).
         after_commit=event_name == "chapter_membership_changed",
+        # One job per joined/left member within a save; without these the jobs share an id
+        # and, deferred to commit, the last overwrites the others (#2203).
+        # `action` is redundant for within-save uniqueness (joins and leaves are disjoint set
+        # differences); kept to mirror team events (#2144).
+        job_id_keys=("member", "action") if event_name == "chapter_membership_changed" else (),
     )
 
 
