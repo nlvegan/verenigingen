@@ -7,6 +7,7 @@ or plain:  python scripts/validation/tests/test_error_swallow_validator.py
 """
 import ast
 import importlib.util
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2041,6 +2042,8 @@ class SelfCheckControlTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             broken_path = Path(tmp) / "error_swallow_validator_broken.py"
             broken_path.write_text(broken_source, encoding="utf-8")
+            # the validator imports its shrink_relocation sibling from its own directory (#1858)
+            shutil.copy(_MOD_PATH.with_name("shrink_relocation.py"), Path(tmp) / "shrink_relocation.py")
             result = subprocess.run(
                 [sys.executable, str(broken_path), "--stats"],
                 capture_output=True,

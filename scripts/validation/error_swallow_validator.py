@@ -243,7 +243,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import filecmp
 import os
 import re
 import sys
@@ -251,6 +250,9 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling, however this file is loaded
+import shrink_relocation  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("error_swallow_baseline.txt")
@@ -1001,142 +1003,46 @@ def explain_shrink(
                     UnexplainedShrink(f"{rel}::{qualname}", lineno, segment.strip(), reason)
                 )
     if base_root is not None:
-        out = _merge_relocated_swallows(out, _relocated_swallows(baseline, base_root))
+        out = shrink_relocation.merge_relocated(out, _relocated_swallows(baseline, base_root))
     return out
-
-
-# A directory the walk below never enters. Unlike `_iter_py` it does NOT skip `archived`: a
-# handler moved into `archived/` has left the count without being fixed, so the head census has
-# to be able to see it there.
-_CENSUS_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude"}
 
 
 def _swallow_counted_by_path(rel: str) -> bool:
-    """Would `_counts` look at a file with this repo-relative path at all?
+    """Would `_counts` look at a file with this repo-relative path at all? Pinned by a test."""
+    return shrink_relocation.counted_by_path(rel, SCAN_ROOTS)
 
-    Mirrors `_iter_py` (under SCAN_ROOTS, `archived` skipped) plus `_counts`' own
-    exclusion of tests. Pinned against `_counts` by a test.
+
+def _swallow_extract(path: Path, rel: str) -> list[tuple[str, int, str, bool]]:
+    """One file's swallow handlers for the relocation census: (qualname, lineno, text, counted).
+
+    A `# swallow-ok:` handler is absent from `scan_file` and so from this census: this validator
+    treats a pragma as a reviewable exit (`_shrink_causes` skips it), so only a MOVE can hide a
+    handler here. `text` is the handler's unparsed source, which survives a move and re-indentation.
     """
-    parts = rel.split("/")
-    return (
-        len(parts) > 1
-        and parts[0] in SCAN_ROOTS
-        and not any(p in _CENSUS_SKIP_DIRS or p == "archived" for p in parts[:-1])
-        and "tests" not in parts[:-1]
-        and not parts[-1].startswith("test_")
-    )
-
-
-def _swallow_changed_py(base_root: Path, head_root: Path) -> set[str]:
-    """Repo-relative .py paths whose bytes differ between the two trees (or exist in only one).
-
-    A file identical in both trees adds the same sites to base and head, so it cancels out of
-    every base-vs-head comparison below; skipping it is what keeps the walk to a few seconds.
-    """
-
-    def listing(root: Path) -> dict[str, Path]:
-        found = {}
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(d for d in dirnames if d not in _CENSUS_SKIP_DIRS)
-            for fn in filenames:
-                if fn.endswith(".py"):
-                    path = Path(dirpath) / fn
-                    found[path.relative_to(root).as_posix()] = path
-        return found
-
-    base, head = listing(base_root), listing(head_root)
-    return {
-        rel
-        for rel in base.keys() | head.keys()
-        if rel not in base or rel not in head or not filecmp.cmp(base[rel], head[rel], shallow=False)
-    }
-
-
-def _swallow_census(root: Path, rels: set[str]) -> list[tuple[str, str, int, str, bool]]:
-    """Every swallow handler `scan_file` finds under `root`: (rel, qualname, lineno, text, counted).
-
-    `counted` is whether `_counts` would look at the path at all. A `# swallow-ok:` handler is
-    absent from `scan_file` and so from this census: this validator treats a pragma as a
-    reviewable exit (`_shrink_causes` skips it), so only a MOVE can hide a handler here. `text`
-    is the handler's unparsed source, which survives a move and re-indentation. Walks the whole
-    checkout rather than SCAN_ROOTS, so a handler that left the scan roots is still seen.
-    """
-    sites = []
-    seen: set[Path] = set()
-    for rel in sorted(rels):
-        path = root / rel
-        if not path.is_file() or path.resolve() in seen:
-            continue
-        seen.add(path.resolve())
-        try:
-            source = path.read_text(encoding="utf-8")
-            if "except" not in source:
-                continue  # cheap prefilter: every finding is an except handler
-            handlers = {
-                n.lineno: ast.unparse(n)
-                for n in ast.walk(ast.parse(source))
-                if isinstance(n, ast.ExceptHandler)
-            }
-        except (OSError, UnicodeDecodeError, SyntaxError):
-            continue
-        findings, _bad = scan_file(path)
-        counted = _swallow_counted_by_path(rel)
-        for qualname, lineno in findings:
-            sites.append((rel, qualname, lineno, handlers.get(lineno, ""), counted))
-    return sites
+    try:
+        source = path.read_text(encoding="utf-8")
+        if "except" not in source:
+            return []  # cheap prefilter: every finding is an except handler
+        handlers = {
+            n.lineno: ast.unparse(n)
+            for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.ExceptHandler)
+        }
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return []
+    findings, _bad = scan_file(path)
+    by_path = _swallow_counted_by_path(rel)
+    return [(qualname, lineno, handlers.get(lineno, ""), by_path) for qualname, lineno in findings]
 
 
 def _relocated_swallows(baseline: dict[str, int], base_root: Path) -> list[UnexplainedShrink]:
-    """Baselined handlers whose text left the COUNT without leaving the code (#1858).
-
-    `explain_shrink` above treats a vanished file or function name as "deleted or renamed:
-    explained" (`continue`), so a handler MOVED under `tests/`, to a `test_*.py` name, outside
-    SCAN_ROOTS or into `archived/` shrinks the baseline and passes. The rule here asks about
-    the code instead: for each handler's unparsed text, did the number of COUNTED handlers
-    carrying it drop between base and head, while the number of UNCOUNTED ones rose by at least
-    as much? Then it was hidden, not fixed. A handler still counted somewhere (a move inside
-    SCAN_ROOTS, a rename) is still ratcheted, and one that no longer appears at all was fixed or
-    deleted; neither is reported. Matching on text is the simplest rule that survives a move --
-    its limit is that an unrelated new uncounted handler with identical text can pair with a
-    genuine fix.
-    """
-    changed = _swallow_changed_py(base_root, REPO_ROOT)
-    base_sites = _swallow_census(base_root, changed)
-    head_sites = _swallow_census(REPO_ROOT, changed)
-
-    def tally(sites, counted):
-        return Counter(text for _r, _q, _l, text, c in sites if c is counted)
-
-    lost = tally(base_sites, True) - tally(head_sites, True)
-    hidden = tally(head_sites, False) - tally(base_sites, False)
-    budget = {text: min(n, hidden[text]) for text, n in lost.items() if hidden[text] > 0}
-
-    out = []
-    for rel, qualname, lineno, text, counted in sorted(base_sites):
-        key = f"{rel}::{qualname}"
-        if counted and key in baseline and budget.get(text, 0) > 0:
-            budget[text] -= 1
-            first_line = text.splitlines()[0] if text else ""
-            out.append(UnexplainedShrink(key, lineno, first_line, "relocated"))
-    return out
-
-
-def _merge_relocated_swallows(
-    found: list[UnexplainedShrink], relocated: list[UnexplainedShrink]
-) -> list[UnexplainedShrink]:
-    """Add `relocated` entries, skipping the ones the head-tree check already reported.
-
-    A key already reported N times by the head-tree check has N of its relocated entries
-    swallowed, so one lost handler is never reported twice.
-    """
-    already = Counter(u.key for u in found)
-    merged = list(found)
-    for u in relocated:
-        if already[u.key] > 0:
-            already[u.key] -= 1
-            continue
-        merged.append(u)
-    return merged
+    """Baselined handlers whose text left the COUNT without leaving the code (#1858)."""
+    return shrink_relocation.relocated_sites(
+        baseline, base_root, REPO_ROOT, _swallow_extract,
+        lambda key, lineno, text: UnexplainedShrink(
+            key, lineno, text.splitlines()[0] if text else "", "relocated"
+        ),
+    )
 
 
 def _rel(path: Path) -> str:
@@ -1380,14 +1286,19 @@ def main(argv: list[str]) -> int:
         if args.base_tree is None:
             print("note: no --base-tree, so a DELETED logging call cannot be reported.")
         if not unexplained:
-            print("Every entry that left the baseline was fixed, deleted or marked.")
+            print(
+                "Every entry that left the baseline was fixed, deleted or marked."
+                if args.base_tree is not None
+                else shrink_relocation.NO_BASE_TREE_SUCCESS
+            )
             return 0
         why = {
             "unrecognised": "the falsy test no longer recognises what it hands back",
             "silent": "the logging call was DELETED -- this is now a silent swallow, which is worse",
             "unscanned": "the file stopped being SCANNED; the handler never changed",
             "relocated": "the same handler now sits under tests/ or outside SCAN_ROOTS, where it "
-            "is not counted (moved, not fixed; line is from the base tree)",
+            "is not counted (moved, not fixed; line is from the base tree). "
+            + shrink_relocation.RELOCATED_HINT,
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")
         for u in unexplained:

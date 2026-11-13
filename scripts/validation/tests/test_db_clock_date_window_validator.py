@@ -7,7 +7,9 @@ temp file and run through scan_file(). Run with:
 or plain:
     python scripts/validation/tests/test_db_clock_date_window_validator.py
 """
+import contextlib
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
@@ -508,6 +510,34 @@ class RelocatedPredicateTest(unittest.TestCase):
                 with mock.patch("builtins.print"):
                     rc = dcv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
         self.assertEqual(rc, 1)
+
+    def test_the_relocated_report_says_how_a_fix_pr_gets_out(self):
+        src = self._src(self.BAD)
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(b) / "verenigingen").mkdir()
+            (Path(b) / "verenigingen" / "mod.py").write_text(src)
+            (Path(h) / "verenigingen" / "tests").mkdir(parents=True)
+            (Path(h) / "verenigingen" / "tests" / "test_mod.py").write_text(src)
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("verenigingen/mod.py::f::1\n")
+            out = io.StringIO()
+            with mock.patch.object(dcv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = dcv.main(["x", "--check-shrink", str(base_baseline), "--base-tree", b])
+        self.assertEqual(rc, 1)
+        self.assertIn("[relocated]", out.getvalue())
+        self.assertIn("reword the", out.getvalue())
+
+    def test_without_a_base_tree_the_success_line_does_not_claim_moves_were_checked(self):
+        with tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as h:
+            (Path(h) / "verenigingen").mkdir()
+            base_baseline = Path(b) / "baseline.txt"
+            base_baseline.write_text("")
+            out = io.StringIO()
+            with mock.patch.object(dcv, "REPO_ROOT", Path(h)), contextlib.redirect_stdout(out):
+                rc = dcv.main(["x", "--check-shrink", str(base_baseline)])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("moved out of scan range", out.getvalue())
+        self.assertIn("NOT\nchecked", out.getvalue())
 
 
 if __name__ == "__main__":
