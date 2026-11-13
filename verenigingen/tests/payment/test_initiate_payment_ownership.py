@@ -672,7 +672,7 @@ class TestGuestCannotChooseTheRedirectDestination(EnhancedTestCase):
         frappe.set_user(self._original_user)
         super().tearDown()
 
-    def _donation(self, donor_email):
+    def _owned_donation(self, donor_email):
         return TestInitiatePaymentOwnership._make_test_donation_for_ownership_check(
             self, donor_email=donor_email
         )
@@ -698,7 +698,7 @@ class TestGuestCannotChooseTheRedirectDestination(EnhancedTestCase):
 
     def test_guest_supplied_urls_reach_neither_the_form_data_nor_the_gateway(self):
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._donation(donor_email)
+        donation = self._owned_donation(donor_email)
 
         result, gateway = self._dispatch_as_guest(
             donation, donor_email, success_url=_EVIL_URL, cancel_url=_EVIL_URL + "/cancel"
@@ -716,7 +716,7 @@ class TestGuestCannotChooseTheRedirectDestination(EnhancedTestCase):
 
     def test_a_normal_guest_payment_still_initiates(self):
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._donation(donor_email)
+        donation = self._owned_donation(donor_email)
 
         result, gateway = self._dispatch_as_guest(donation, donor_email)
 
@@ -732,7 +732,7 @@ class TestGuestCannotChooseTheRedirectDestination(EnhancedTestCase):
         from verenigingen.services.donation.public_donation_service import get_public_donation_service
 
         donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
-        donation = self._donation(donor_email)
+        donation = self._owned_donation(donor_email)
         form_data = frappe._dict(
             {
                 "payment_method": "Mollie",
