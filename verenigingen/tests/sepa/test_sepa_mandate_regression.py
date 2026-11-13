@@ -7,6 +7,7 @@ Ensures compatibility with existing systems and edge cases
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.utils.base import VereningingenTestCase
+import re
 import unittest
 
 
@@ -33,6 +34,14 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             payments_settings.save()
         except Exception as e:
             print(f"Warning: Could not restore settings: {e}")
+
+        # The identity service is a process singleton that caches settings; drop the
+        # last test's pattern and counter so later modules do not inherit them.
+        from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import (
+            sepa_mandate_identity_service,
+        )
+
+        sepa_mandate_identity_service.clear_settings_cache()
 
         super().tearDownClass()
 
@@ -102,12 +111,24 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         autogen_member = self.create_test_member(
             first_name="Autogen", last_name=frappe.generate_hash(length=6)
         )
-        new_mandate = self.create_test_sepa_mandate(
-            member=autogen_member.name, iban=self._get_test_iban("RABO")
-        )
+        # Pin an explicit pattern so the shape check is discriminating, and create the
+        # mandate WITHOUT mandate_id (the factory assigns its own TST id; #942).
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        original_pattern = payments_settings.sepa_mandate_naming_pattern
+        original_counter = payments_settings.sepa_mandate_starting_counter
+        payments_settings.sepa_mandate_naming_pattern = "BACKCOMPAT-.####"
+        payments_settings.sepa_mandate_starting_counter = 1
+        payments_settings.save()
+        try:
+            new_mandate = self._942_assert_autogen_mandate_id(
+                autogen_member.name, "BACKCOMPAT-.####", 1
+            )
+        finally:
+            payments_settings.reload()
+            payments_settings.sepa_mandate_naming_pattern = original_pattern
+            payments_settings.sepa_mandate_starting_counter = original_counter
+            payments_settings.save()
 
-        # Should get auto-generated ID
-        self.assertTrue(new_mandate.mandate_id, "New mandate should get auto-generated ID")
         self.assertNotEqual(new_mandate.mandate_id, "EXISTING-MANDATE-001",
                            "New mandate should get different ID from existing")
 
@@ -133,10 +154,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                 email="fallback@example.com"
             )
 
-            mandate = self.create_test_sepa_mandate(member=member.name)
-
-            # Should still get a mandate_id (from fallback mechanism)
-            self.assertTrue(mandate.mandate_id, "Should get mandate_id from fallback")
+            # Drive the real generator (no mandate_id; the factory would assign its
+            # own TST id). With the pattern and counter unset it must fall back to
+            # the default pattern with counter 1 (#942).
+            self._942_assert_autogen_mandate_id(member.name, "MANDATE-.YY.-.MM.-.####", 1)
 
         finally:
             # Restore original settings - refresh to avoid timestamp mismatch
@@ -237,35 +258,97 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             payments_settings.sepa_mandate_starting_counter = original_counter
             payments_settings.save()
 
-    def test_pattern_validation_edge_cases(self):
-        """Test various pattern formats and edge cases"""
+    def _942_expected_mandate_id_regex(self, pattern):
+        """Shape a mandate_id for `pattern` must have, derived from the pattern
+        itself (not hardcoded per case): date tokens -> today's values, the
+        counter run of '#' -> that many digits, literal prefix escaped."""
+        from frappe.utils import now_datetime
 
+        now = now_datetime()
+        tokens = {
+            ".YY.": str(now.year)[-2:],
+            ".MM.": f"{now.month:02d}",
+            ".DD.": f"{now.day:02d}",
+        }
+        shape = pattern
+        for token, value in tokens.items():
+            shape = shape.replace(token, value)
+        shape = shape.replace("-.#", "-#")
+        digits = shape.count("#")
+        prefix = shape.split("#", 1)[0]
+        return re.compile(r"^" + re.escape(prefix) + r"(\d{%d})$" % digits), prefix
+
+    def _942_next_counter_expected(self, prefix, starting_counter):
+        """Counter the generator must emit: starting counter when nothing carries
+        the prefix yet, else the highest existing counter + 1."""
+        existing = frappe.get_all(
+            "SEPA Mandate",
+            filters={"mandate_id": ["like", prefix + "%"]},
+            pluck="mandate_id",
+        )
+        counters = [int(m[len(prefix):]) for m in existing if m[len(prefix):].isdigit()]
+        return max(counters) + 1 if counters else starting_counter
+
+    def _942_assert_autogen_mandate_id(self, member_name, pattern, starting_counter):
+        """Create a mandate WITHOUT mandate_id and assert the real generator's
+        output has the shape derived from `pattern` and the expected counter."""
+        regex, prefix = self._942_expected_mandate_id_regex(pattern)
+        expected_counter = self._942_next_counter_expected(prefix, starting_counter)
+        mandate = self._create_mandate_autogen_id(member_name)
+        match = regex.match(mandate.mandate_id)
+        self.assertIsNotNone(
+            match,
+            f"mandate_id {mandate.mandate_id!r} does not match pattern {pattern!r} "
+            f"(expected {regex.pattern})",
+        )
+        self.assertEqual(
+            int(match.group(1)),
+            expected_counter,
+            f"counter in {mandate.mandate_id!r} for pattern {pattern!r}",
+        )
+        return mandate
+
+    def test_pattern_validation_edge_cases(self):
+        """Each configured naming pattern must drive the REAL generator.
+
+        The mandate is created WITHOUT a mandate_id (the factory would assign its
+        own TST id and bypass the pattern; see #942), so SEPAMandate's
+        auto_generate_mandate_id applies the pattern. The id must match the shape
+        derived from the pattern and carry the configured starting counter.
+        """
         test_patterns = [
             ("SIMPLE-.####", "Simple pattern"),
             ("COMPLEX-.YY.-.MM.-.DD.-.####", "Complex date pattern"),
             ("NO-DATE-.####", "Pattern without dates"),
             ("SINGLE-.#", "Single digit counter"),
-            ("LONG-.########", "Long counter")
+            ("LONG-.########", "Long counter"),
         ]
+        starting_counter = 7  # not 1: a generator ignoring the setting would show
 
-        for pattern, description in test_patterns:
-            with self.subTest(pattern=pattern, description=description):
-                payments_settings = frappe.get_single("Verenigingen Payments Settings")
-                payments_settings.sepa_mandate_naming_pattern = pattern
-                payments_settings.sepa_mandate_starting_counter = 1
-                payments_settings.save()
-                
-                member = self.create_test_member(
-                    first_name="Pattern",
-                    last_name=f"Test{hash(pattern) % 1000}",
-                    email=f"pattern{hash(pattern) % 1000}@example.com"
-                )
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        original_pattern = payments_settings.sepa_mandate_naming_pattern
+        original_counter = payments_settings.sepa_mandate_starting_counter
 
-                mandate = self.create_test_sepa_mandate(member=member.name)
+        try:
+            for pattern, description in test_patterns:
+                with self.subTest(pattern=pattern, description=description):
+                    payments_settings = frappe.get_single("Verenigingen Payments Settings")
+                    payments_settings.sepa_mandate_naming_pattern = pattern
+                    payments_settings.sepa_mandate_starting_counter = starting_counter
+                    payments_settings.save()
 
-                # Should generate some mandate_id
-                self.assertTrue(mandate.mandate_id,
-                               f"Should generate mandate_id for pattern: {pattern}")
+                    member = self.create_test_member(
+                        first_name="Pattern",
+                        last_name=f"Test{frappe.generate_hash(length=6)}",
+                    )
+
+                    self._942_assert_autogen_mandate_id(member.name, pattern, starting_counter)
+        finally:
+            # Restore original settings - refresh to avoid timestamp mismatch
+            payments_settings.reload()
+            payments_settings.sepa_mandate_naming_pattern = original_pattern
+            payments_settings.sepa_mandate_starting_counter = original_counter
+            payments_settings.save()
 
     def test_data_migration_compatibility(self):
         """Test that naming system works with data migration scenarios"""
