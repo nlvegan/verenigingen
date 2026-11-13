@@ -102,7 +102,7 @@ class _Base(VereningingenTestCase):
             "Team Member", self.team_row, ["is_active", "status", "to_date"], as_dict=True
         )
 
-    def _error_log_count(self, title):
+    def _error_log_count_2517(self, title):
         return frappe.db.count("Error Log", {"method": title})
 
     def _failing_set_value(self, error, when=lambda values: True):
@@ -137,7 +137,7 @@ class TestDisableChapterMembershipsReportsFailures2517(_Base):
 
     def test_a_failed_chapter_save_reaches_the_termination_errors_and_audit_trail(self):
         """develop: errors == [] while the membership is still enabled (the red)."""
-        before = self._error_log_count("Termination: chapter memberships not disabled")
+        before = self._error_log_count_2517("Termination: chapter memberships not disabled")
         with self._failing_save_for(self._chapter_cls(), {self.chapter.name}, Exception("save boom")):
             results = self._execute_updates()
 
@@ -146,7 +146,7 @@ class TestDisableChapterMembershipsReportsFailures2517(_Base):
         self.assertTrue(any(self.chapter.name in d for d in self._audit_errors()), self._audit_errors())
         self.assertEqual(self._chapter_row().enabled, 1)
         self.assertEqual(
-            self._error_log_count("Termination: chapter memberships not disabled"), before + 1
+            self._error_log_count_2517("Termination: chapter memberships not disabled"), before + 1
         )
 
     def test_a_permission_failure_saving_the_chapter_is_also_reported(self):
@@ -289,7 +289,7 @@ class TestDisableChapterMembershipsReportsFailures2517(_Base):
 class TestSuspendTeamMembershipsReportsFailures2517(_Base):
     def test_a_failed_team_member_write_reaches_the_termination_errors(self):
         """develop: errors == [] while the row is still active (the red)."""
-        before = self._error_log_count("Termination: team membership not suspended")
+        before = self._error_log_count_2517("Termination: team membership not suspended")
         with self._failing_set_value(Exception("write boom")):
             results = self._execute_updates()
 
@@ -300,7 +300,7 @@ class TestSuspendTeamMembershipsReportsFailures2517(_Base):
         )
         self.assertTrue(any(self.team.name in d for d in self._audit_errors()), self._audit_errors())
         self.assertEqual(self._team_row_state().is_active, 1)
-        self.assertEqual(self._error_log_count("Termination: team membership not suspended"), before + 1)
+        self.assertEqual(self._error_log_count_2517("Termination: team membership not suspended"), before + 1)
 
     def test_a_permission_failure_on_the_write_is_also_reported(self):
         with self._failing_set_value(frappe.PermissionError("no")):
@@ -400,7 +400,7 @@ class TestRestoreTeamMembershipsReportsFailures2517(_Base):
         from verenigingen.services.termination.termination_integration import unsuspend_member_safe
 
         self._suspend_for_real()
-        before = self._error_log_count("Termination: team membership not restored")
+        before = self._error_log_count_2517("Termination: team membership not restored")
         with self._failing_set_value(Exception("restore boom"), when=lambda v: v.get("is_active") == 1):
             results = unsuspend_member_safe(self.member.name, "appeal", restore_teams=True)
 
@@ -410,7 +410,7 @@ class TestRestoreTeamMembershipsReportsFailures2517(_Base):
             results,
         )
         self.assertEqual(self._team_row_state().is_active, 0)
-        self.assertEqual(self._error_log_count("Termination: team membership not restored"), before + 1)
+        self.assertEqual(self._error_log_count_2517("Termination: team membership not restored"), before + 1)
         # Opposite harm: the member is still unsuspended; the failure is recorded, not raised.
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
 
@@ -449,7 +449,7 @@ class TestTerminateVolunteerReportsFailures2517(_Base):
 
     def test_a_permission_failure_saving_the_volunteer_reaches_the_termination_errors(self):
         """develop: the PermissionError is logger-only; errors == [] (the red)."""
-        before = self._error_log_count("Termination: volunteer record not terminated (permission)")
+        before = self._error_log_count_2517("Termination: volunteer record not terminated (permission)")
         start = self._volunteer_status()
         with self._failing_save_for(self._volunteer_cls(), {self.volunteer.name}, frappe.PermissionError("no")):
             results = self._execute_updates()
@@ -462,7 +462,7 @@ class TestTerminateVolunteerReportsFailures2517(_Base):
         self.assertTrue(any(self.volunteer.name in d for d in self._audit_errors()), self._audit_errors())
         self.assertEqual(self._volunteer_status(), start)
         self.assertEqual(
-            self._error_log_count("Termination: volunteer record not terminated (permission)"), before + 1
+            self._error_log_count_2517("Termination: volunteer record not terminated (permission)"), before + 1
         )
         # Opposite harm: the rest of the termination still ran.
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Quit")
