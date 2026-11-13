@@ -26,6 +26,7 @@ Targets (verenigingen/verenigingen_payments/mollie/api/monitoring_api.py):
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import add_to_date, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.security.types import EnvironmentLevel
@@ -247,6 +248,74 @@ class TestHealthAndPerformanceEndpoints(EnhancedTestCase):
                 self.assertIn("operations", result)
             finally:
                 frappe.form_dict.pop("hours", None)
+
+    def test_1315_breakdown_includes_the_live_webhook_operation(self):
+        """#1315: the endpoint's per-operation breakdown came from a hardcoded
+        allowlist that omitted "unified_webhook_processing", the name the live
+        webhook path records. Records through the real recorder, reads through
+        the real endpoint."""
+        from verenigingen.verenigingen_payments.mollie.utils.monitoring import (
+            record_operation_performance,
+        )
+
+        name = self._1315_live_webhook_operation_names()
+        self.assertEqual(name, {"unified_webhook_processing"})
+        (op,) = name
+        record_operation_performance(op, 0.25, True)
+        record_operation_performance(op, 0.75, False)
+        with self.set_user("Administrator"):
+            result = monitoring_api.get_performance_metrics()
+        self.assertIn(op, result["operations"])
+        self.assertEqual(result["operations"][op]["total_calls"], 2)
+        self.assertEqual(result["operations"][op]["success_rate"], 50.0)
+
+    def test_1315_previously_listed_names_still_appear_and_stale_ones_do_not(self):
+        """Control: names the old allowlist carried are still reported, and an
+        operation outside the requested window is not."""
+        from verenigingen.verenigingen_payments.mollie.utils.monitoring import (
+            PerformanceMetric,
+            record_operation_performance,
+        )
+
+        record_operation_performance("webhook_processing", 0.1, True)
+        record_operation_performance("payment_creation", 0.1, True)
+        self._perf_monitor.metrics.append(
+            PerformanceMetric(
+                operation="_1315_stale_op",
+                duration=0.1,
+                timestamp=add_to_date(now_datetime(), hours=-48),
+                success=True,
+                details=None,
+            )
+        )
+        with self.set_user("Administrator"):
+            ops = monitoring_api.get_performance_metrics()["operations"]
+        self.assertIn("webhook_processing", ops)
+        self.assertIn("payment_creation", ops)
+        self.assertNotIn("_1315_stale_op", ops)
+
+    def test_1315_any_recorded_name_appears_in_the_breakdown(self):
+        """The breakdown follows what was recorded, not a list of known names."""
+        from verenigingen.verenigingen_payments.mollie.utils.monitoring import (
+            record_operation_performance,
+        )
+
+        record_operation_performance("_1315_any_name", 0.5, True)
+        with self.set_user("Administrator"):
+            ops = monitoring_api.get_performance_metrics()["operations"]
+        self.assertIn("_1315_any_name", ops)
+        self.assertEqual(ops["_1315_any_name"]["total_calls"], 1)
+
+    def _1315_live_webhook_operation_names(self):
+        """Operation names the live webhook service passes to the recorder,
+        read from its source so the test follows the real path's name."""
+        import re
+
+        from verenigingen.verenigingen_payments.mollie.services import webhook_wrapper_service_unified as svc
+
+        with open(svc.__file__) as fh:
+            source = fh.read()
+        return set(re.findall(r'record_operation_performance\(\s*"([^"]+)"', source))
 
     def test_get_service_status_overall_status(self):
         with self.set_user("Administrator"):
