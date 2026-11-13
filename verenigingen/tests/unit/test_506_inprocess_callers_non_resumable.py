@@ -82,7 +82,9 @@ class TestBulkAssignMembersToChaptersNonResumable(VereningingenTestCase):
         self.assertEqual(calls, ["_506-NO-SUCH-MEMBER-A", "_506-NO-SUCH-MEMBER-B"], "loop must stop")
 
     def test_a_lock_wait_timeout_escapes_with_its_class(self):
-        result, calls, raised = self._run(self._fail_on_second(_timeout()))
+        with patch.object(frappe.db, "rollback") as rollback:
+            result, calls, raised = self._run(self._fail_on_second(_timeout()))
+        rollback.assert_called()
         self.assertIsInstance(raised, frappe.QueryTimeoutError, f"result={result}")
         self.assertEqual(len(calls), 2)
 
@@ -120,6 +122,12 @@ class TestVolunteerMembershipApplicationNonResumable(VereningingenTestCase):
             "become_member": 1,
         }
 
+    def _assert_volunteer_rolled_back(self):
+        self.assertFalse(
+            frappe.db.exists("Volunteer", {"email": self._payload()["email"]}),
+            "the outer handler must roll the Volunteer insert back, not commit it",
+        )
+
     def _submit(self, error):
         from verenigingen.api import membership_application
         from verenigingen.api.volunteer_application import submit_volunteer_application
@@ -136,10 +144,12 @@ class TestVolunteerMembershipApplicationNonResumable(VereningingenTestCase):
     def test_a_deadlock_in_the_membership_step_does_not_report_the_application_received(self):
         result = self._submit(_deadlock())
         self.assertFalse(result["success"], f"reported success after a 1213: {result}")
+        self._assert_volunteer_rolled_back()
 
     def test_a_lock_wait_timeout_does_not_report_the_application_received(self):
         result = self._submit(_timeout())
         self.assertFalse(result["success"], f"reported success after a 1205: {result}")
+        self._assert_volunteer_rolled_back()
 
     def test_an_ordinary_membership_failure_still_keeps_the_volunteer_application(self):
         """CONTROL: today's handling -- the membership error is surfaced and the call still answers."""
