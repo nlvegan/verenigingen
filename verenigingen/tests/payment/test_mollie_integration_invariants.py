@@ -1220,10 +1220,40 @@ DONATE_JS = os.path.join(PACKAGE_ROOT, "public", "js", "donation_form.js")
 # get_public_donation_service().submit() (donation_api.py:44). Scanning only the
 # /donate pair reported every campaign-only key as an orphan.
 CAMPAIGN_TEMPLATE = os.path.join(PACKAGE_ROOT, "templates", "pages", "campaign.html")
-DONATION_READER_FILES = (
-    os.path.join(PACKAGE_ROOT, "services", "donation", "public_donation_service.py"),
-    os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.py"),
-)
+
+
+def _956_reader_files():
+    """Every non-test module that reads ``form_data`` on the donation path.
+
+    #956: this used to be a hand-listed tuple that omitted api/donation_api.py
+    (the campaign form's entry point), so a newly invented key read there was
+    invisible to the orphan check. Derived instead: everything under
+    services/donation/ (donor_service reads form_data too) plus any non-test
+    module that names PublicDonationService / get_public_donation_service,
+    i.e. that hands a form_data dict to the service.
+    """
+    found = set()
+    donation_dir = os.path.join(PACKAGE_ROOT, "services", "donation")
+    for name in os.listdir(donation_dir):
+        if name.endswith(".py"):
+            found.add(os.path.join(donation_dir, name))
+    tests_dir = os.path.join(PACKAGE_ROOT, "tests")
+    for root, dirs, files in os.walk(PACKAGE_ROOT):
+        if root == tests_dir or root.startswith(tests_dir + os.sep) or "node_modules" in root:
+            dirs[:] = []
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            if "get_public_donation_service" in text or "PublicDonationService" in text:
+                found.add(path)
+    return tuple(sorted(found))
+
+
+DONATION_READER_FILES = _956_reader_files()
 
 # Keys the server reads from form_data that the browser is not expected to post:
 # the service synthesises them internally before handing form_data onward.
@@ -1382,6 +1412,21 @@ class TestDonateFormKeysHaveWriters(unittest.TestCase):
             f"Scanner found no writer for anonymous in campaign.html; "
             f"writers={sorted(self.writers)[:40]}",
         )
+
+    def test_956_known_readers_are_in_the_scanned_set(self):
+        """CONTROL for #956. The campaign entry point (donation_api.py), the
+        service and donate.py must be scanned, and donation_api's own reads must
+        be seen; otherwise the orphan test below is blind to them again."""
+        rels = {os.path.relpath(p, PACKAGE_ROOT).replace(os.sep, "/") for p in DONATION_READER_FILES}
+        for expected in (
+            "api/donation_api.py",
+            "services/donation/public_donation_service.py",
+            "templates/pages/donate.py",
+            "services/donation/donor_service.py",
+        ):
+            self.assertIn(expected, rels, f"{expected} missing from the scanned set {sorted(rels)}")
+        self.assertIn("donation_campaign", self.reads)
+        self.assertTrue(any(s.startswith("api/donation_api.py") for s in self.reads["donation_campaign"]))
 
     def test_no_new_form_data_key_is_read_without_a_writer(self):
         orphans = {
