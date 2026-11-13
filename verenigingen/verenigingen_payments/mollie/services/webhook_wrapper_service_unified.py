@@ -22,6 +22,7 @@ from verenigingen.verenigingen_payments.services.donation_journal_entry_creator 
     get_donation_journal_entry_creator,
 )
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+    mollie_amount_or_none,
     resolve_journal_entry_by_reference,
 )
 
@@ -182,7 +183,7 @@ class UnifiedWebhookWrapperService:
                 # as a Payment Entry is invisible to every layer here, and the sweep
                 # books BT + JE on top of it (#370). Two blind checks covering each
                 # other's blind spots is not a guard.
-                already_booked = find_booked_reversal(refund_reference)
+                already_booked = find_booked_reversal(refund_reference, flt(refund_amount))
                 if already_booked:
                     self.logger.info(
                         f"⏭️ Refund {refund_id} already booked as "
@@ -1271,7 +1272,9 @@ class UnifiedWebhookWrapperService:
                 # "Unknown column 'reference_no'" and aborted the whole partial-processing
                 # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
-                    journal_entry_name = resolve_journal_entry_by_reference(payment_id)
+                    journal_entry_name = resolve_journal_entry_by_reference(
+                        payment_id, mollie_amount_or_none(payment_data)
+                    )
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                     results.append("Donation payment history updated")
                 else:
@@ -1960,7 +1963,7 @@ class UnifiedWebhookWrapperService:
             # book different doctypes under one key, so a Payment-Entry-only check
             # could not see a Journal Entry the sweep had already written.
             reference_pattern = build_reversal_key(payment_id, reversal_type, reversal_id)
-            existing = find_booked_reversal(reference_pattern)
+            existing = find_booked_reversal(reference_pattern, flt(amount))
             existing_reversal = existing[1] if existing else None
 
             if existing_reversal:

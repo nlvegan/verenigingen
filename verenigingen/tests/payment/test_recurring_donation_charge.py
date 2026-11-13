@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import flt
 from mollie.api.error import RequestError
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -1585,6 +1586,51 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"),
             drafts,
         )
+
+    def test_2535_a_hand_edited_stranded_refund_draft_is_not_submitted(self):
+        """The refund route runs find_booked_reversal BEFORE any creator; it must guard the amount too.
+
+        Probe shortcut, stated: the draft is stranded by refusing before_submit
+        (as above), then edited by hand through the real JE save.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_rfe_{self.tag}"
+        refund_id = f"re_draft_e_{self.tag}"
+        payment = self._charge(
+            payment_id,
+            origin.name,
+            refunds=[
+                {
+                    "id": refund_id,
+                    "status": "refunded",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "createdAt": "2026-08-05T09:00:00+00:00",
+                }
+            ],
+        )
+        key = f"{payment_id}_refund_{refund_id}"
+        self.expectErrorLog(*self._STRAND_ERRORS, "refund")
+        with self._before_submit_refusing("_refund_"):
+            self._deliver(payment)
+        drafts = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 0}, pluck="name")
+        self.assertEqual(len(drafts), 1, "precondition: the refund Journal Entry must be left as a draft")
+        je = frappe.get_doc("Journal Entry", drafts[0])
+        for row in je.accounts:
+            if row.debit_in_account_currency:
+                row.debit_in_account_currency += 7
+            if row.credit_in_account_currency:
+                row.credit_in_account_currency += 7
+        je.save()
+        self.assertEqual(flt(frappe.db.get_value("Journal Entry", drafts[0], "total_debit")), 32.0)
+        title = "Journal Entry Draft Amount Mismatch"
+        self.expectErrorLog(title)
+        before = frappe.db.count("Error Log", {"method": title})
+
+        self._deliver(payment)
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 0, "submitted 32 for a 25 refund")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1, "one row per draft per 24h")
 
     def test_2535_a_submit_that_fails_after_the_docstatus_write_frees_the_key(self):
         """The discard branch: the resubmit writes docstatus 1, on_submit throws, the entry is cancelled."""

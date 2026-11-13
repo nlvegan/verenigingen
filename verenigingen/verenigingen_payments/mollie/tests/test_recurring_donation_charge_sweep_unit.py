@@ -404,7 +404,7 @@ class TestResolveJournalEntryByReference(_SweepTestBase):
         name = self._book_live_journal_entry(ref)
         self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
 
-        self.assertEqual(resolve_journal_entry_by_reference(ref), name)
+        self.assertEqual(resolve_journal_entry_by_reference(ref, 1.0), name)
 
         self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 1)
 
@@ -414,7 +414,9 @@ class TestResolveJournalEntryByReference(_SweepTestBase):
             resolve_journal_entry_by_reference,
         )
 
-        self.assertIsNone(resolve_journal_entry_by_reference(f"tr_none_{frappe.generate_hash(length=8)}"))
+        self.assertIsNone(
+            resolve_journal_entry_by_reference(f"tr_none_{frappe.generate_hash(length=8)}", 1.0)
+        )
         ref = f"tr_pure_{frappe.generate_hash(length=8)}"
         name = self._book_live_journal_entry(ref)
 
@@ -422,12 +424,25 @@ class TestResolveJournalEntryByReference(_SweepTestBase):
         self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
 
 
+    def test_an_unknown_amount_fails_closed_and_the_draft_is_left(self):
+        """There is no "skip the check": a caller without an amount must not auto-submit."""
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            resolve_journal_entry_by_reference,
+        )
+
+        ref = f"tr_noamt_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+        self.expectErrorLog("Journal Entry Draft Amount Mismatch")
+
+        self.assertEqual(resolve_journal_entry_by_reference(ref, None), name)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+
 class TestTotalReversedWithDrafts(_SweepTestBase):
-    """total_reversed finishes stranded reversal drafts first, and a discarded one must not count (#2535)."""
+    """total_reversed counts a draft (a booking in flight) but never submits it: it has no amount to check (#2535)."""
 
-    def test_a_finished_draft_counts_and_a_discarded_one_does_not(self):
-        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
-
+    def test_a_draft_counts_and_is_left_a_draft(self):
         from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
             build_reversal_key,
             total_reversed,
@@ -437,11 +452,4 @@ class TestTotalReversedWithDrafts(_SweepTestBase):
         name = self._book_live_journal_entry(build_reversal_key(payment_id, "refund", "re_1"))
 
         self.assertEqual(total_reversed(payment_id), 1.0)
-        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 1)
-
-        other = f"tr_tot_{frappe.generate_hash(length=8)}"
-        discarded = self._book_live_journal_entry(build_reversal_key(other, "refund", "re_2"))
-        self.expectErrorLog("Mollie Journal Entry Not Posted", "Secure Operation Failed: submit on Journal Entry")
-        with patch.object(JournalEntry, "on_submit", side_effect=frappe.ValidationError("ledger refused")):
-            self.assertEqual(total_reversed(other), 0.0)
-        self.assertEqual(frappe.db.get_value("Journal Entry", discarded, "docstatus"), 2)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)

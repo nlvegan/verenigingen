@@ -39,7 +39,7 @@ def find_journal_entry_by_reference(reference_number: str) -> Optional[str]:
 
 
 def resolve_journal_entry_by_reference(
-    reference_number: str, expected_amount: Optional[float] = None
+    reference_number: str, expected_amount: Optional[float]
 ) -> Optional[str]:
     """Like ``find_journal_entry_by_reference``, but a stranded draft is finished first.
 
@@ -58,10 +58,11 @@ def resolve_journal_entry_by_reference(
     anything is written (the draft stays, an Error Log row says so, and this
     still returns its name so a second entry is never created beside it).
 
-    ``expected_amount`` is the payment amount the caller already holds. A draft
-    whose ``total_debit`` differs (a hand-edited leftover) is NOT submitted: it
-    is reported and left, still claiming the key, so staff decide. Without it
-    the check is skipped.
+    ``expected_amount`` is REQUIRED: the payment amount the caller already holds.
+    A draft whose ``total_debit`` differs (a hand-edited leftover) is NOT
+    submitted: it is reported and left, still claiming the key, so staff decide.
+    A caller that cannot supply an amount passes ``None`` and the draft is
+    likewise left alone (fail closed): there is no "skip the check".
     """
     name = find_journal_entry_by_reference(reference_number)
     if name and frappe.db.get_value("Journal Entry", name, "docstatus") == 0:
@@ -71,19 +72,42 @@ def resolve_journal_entry_by_reference(
     return name
 
 
+def mollie_amount_or_none(mollie_object) -> Optional[float]:
+    """The amount of a Mollie payment/refund/chargeback object, or None when it has none.
+
+    For callers of :func:`resolve_journal_entry_by_reference`: an unreadable amount
+    must reach it as None (draft left alone), not raise out of a webhook.
+    """
+    from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+    try:
+        return get_payment_data_extractor().extract_amount(mollie_object)
+    except ValueError:
+        return None
+
+
 def _draft_matches_amount(journal_entry_name: str, reference_number: str, expected_amount) -> bool:
-    if expected_amount is None:
-        return True
     total_debit = flt(frappe.db.get_value("Journal Entry", journal_entry_name, "total_debit"), 2)
-    if total_debit == flt(expected_amount, 2):
+    if expected_amount and total_debit == flt(expected_amount, 2):
         return True
+    _report_amount_mismatch(journal_entry_name, reference_number, total_debit, expected_amount)
+    return False
+
+
+def _report_amount_mismatch(journal_entry_name: str, reference_number: str, total_debit, expected_amount):
+    """One Error Log row per draft (and edit) per 24h: discovery runs on every redelivery and sweep."""
+    from verenigingen.verenigingen_payments.utils.webhook_ack import first_in_window
+
+    modified = frappe.db.get_value("Journal Entry", journal_entry_name, "modified")
+    if not first_in_window(f"je_draft_amount_mismatch:{journal_entry_name}:{modified}", 86400):
+        return
+    payment = flt(expected_amount, 2) if expected_amount else "unknown"
     frappe.log_error(
         title="Journal Entry Draft Amount Mismatch",
         message=f"Draft Journal Entry {journal_entry_name} (reference {reference_number}) totals "
-        f"{total_debit} but the payment is {flt(expected_amount, 2)}, so it was NOT submitted. "
+        f"{total_debit} but the payment is {payment}, so it was NOT submitted. "
         "It still claims the reference; correct or delete it by hand.",
     )
-    return False
 
 
 def _resubmit_stranded_draft(journal_entry_name: str, reference_number: str) -> None:

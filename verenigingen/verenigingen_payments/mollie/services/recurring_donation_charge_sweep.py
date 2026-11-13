@@ -20,7 +20,10 @@ from typing import Any, Dict, List
 import frappe
 from frappe.utils import get_datetime
 
-from ...services.journal_entry_booking_support import resolve_journal_entry_by_reference
+from ...services.journal_entry_booking_support import (
+    mollie_amount_or_none,
+    resolve_journal_entry_by_reference,
+)
 from ..core.client import MollieClient
 from ..utils.common_helpers import read_payment_field
 from .donation_processor import DonationProcessor
@@ -147,7 +150,7 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
     # idempotency, so a booked charge is never sent through again. A draft
     # stranded before its submit is finished by the resolve call itself (#2535);
     # one that still cannot submit stays a draft and writes an Error Log row.
-    if resolve_journal_entry_by_reference(payment_id):
+    if resolve_journal_entry_by_reference(payment_id, mollie_amount_or_none(payment)):
         summary["charges_already_booked"] += 1
         return
 

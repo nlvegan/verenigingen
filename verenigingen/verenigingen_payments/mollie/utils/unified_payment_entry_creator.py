@@ -71,7 +71,7 @@ def create_unified_payment_entry(
         if payment_type == "Pay":
             from .reversal_idempotency import find_booked_reversal
 
-            already = find_booked_reversal(reference_no)
+            already = find_booked_reversal(reference_no, flt(amount))
             if already:
                 frappe.logger().info(
                     f"⚠️ Reversal {reference_no} already booked as {already[0]} {already[1]} - not booking again"
