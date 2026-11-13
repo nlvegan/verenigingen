@@ -7,10 +7,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
-from verenigingen.services.billing.billing_period_calculator import (
-    calculate_billing_period,
-    calculate_next_invoice_date,
-)
+from verenigingen.services.billing.billing_period_calculator import calculate_next_invoice_date
 from verenigingen.services.billing.duplicate_invoice_detector import DuplicateInvoiceDetector
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
@@ -501,15 +498,6 @@ class MembershipDuesSchedule(Document):
 
         calculator = CoverageCalculator(self)
         return calculator.should_generate_invoice_for_cutoff(cutoff_date)
-
-    def calculate_billing_period(self, invoice_date):
-        """Calculate the billing period start and end dates for a given invoice date"""
-        return calculate_billing_period(
-            billing_frequency=self.billing_frequency,
-            invoice_date=invoice_date,
-            custom_frequency_number=getattr(self, "custom_frequency_number", None),
-            custom_frequency_unit=getattr(self, "custom_frequency_unit", None),
-        )
 
     def validate_member_eligibility_for_invoice(self):
         """
