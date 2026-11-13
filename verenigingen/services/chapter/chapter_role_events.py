@@ -22,6 +22,7 @@ import frappe
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
 
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
@@ -33,22 +34,21 @@ from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdr
 # when Volunteer.member changed. It was registered under "Verenigingen Volunteer"
 # -- a Role name, not a DocType -- so it never fired, and BoardManager was built
 # in its absence to own the same decision. Restoring it would make a second writer
-# of the board role, and a broken one: assign_chapter_board_role()'s else-branch
-# raw-deletes the Has Role row WITHOUT the role-profile sync that must precede it
+# of the board role, and (before #702) a broken one: assign_chapter_board_role()'s
+# else-branch raw-deleted the Has Role row WITHOUT the role-profile sync that must precede it
 # (User.populate_role_profile_roles resets User.roles from the assigned profile on
 # every save), so the removal would be undone by the next User save. See
 # BoardManager.flush_pending_board_profile_syncs for the ordering that is correct.
 #
-# That defect is NOT gone -- it was only removed from a registration that never
-# ran. on_member_on_update and on_chapter_role_on_update below are registered
-# under real DocTypes and call the same function, so they ship it live. Tracked
-# in #702; do not read this block as "the second-writer problem was fixed".
+# That defect was live in on_member_on_update and on_chapter_role_on_update (real
+# DocTypes, same function) until #702: assign_chapter_board_role now withdraws the
+# role profile with the role and raises BoardAccessWithdrawalError when it cannot, and
+# both handlers let that abort the save.
 #
-# #702 also carries the case BoardManager structurally cannot see: Volunteer.member
+# #702 also names the case BoardManager structurally cannot see: Volunteer.member
 # is editable (unique, but not set_only_once), and BoardManager runs only from
-# Chapter.on_update, so a re-link leaves board access on the old member's user.
-# Restoring this handler would not have closed that either -- it removes the Role
-# and never the role profile that re-grants it.
+# Chapter.on_update, so a Volunteer.member re-link leaves board access on the old
+# member's user. That half is NOT fixed here; it is tracked separately.
 
 
 def on_member_on_update(doc, method):
@@ -72,7 +72,7 @@ def on_member_on_update(doc, method):
                 assign_chapter_board_role(new_user)
                 frappe.logger().info(f"Re-evaluated board role for new user {new_user}")
 
-    except BoardAccessWithdrawalError:
+    except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
         raise  # #702/#1953: a failed withdrawal aborts the save instead of leaving live board access
     except Exception as e:
         frappe.log_error(f"Error in member update handler: {str(e)}")
@@ -106,7 +106,7 @@ def on_chapter_role_on_update(doc, method):
                                 f"Re-evaluated board role for {user_email} due to chapter role changes"
                             )
 
-    except BoardAccessWithdrawalError:
+    except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
         raise  # #702/#1953
     except Exception as e:
         frappe.log_error(f"Error in chapter role update handler: {str(e)}")

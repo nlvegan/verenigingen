@@ -17,16 +17,20 @@ from unittest import mock
 
 import frappe
 
-from verenigingen.permissions import update_all_chapter_board_roles
+from verenigingen.permissions import assign_chapter_board_role, update_all_chapter_board_roles
+from verenigingen.services.member.account import user_role_profile_calculator as calculator
 from verenigingen.services.member.account.user_role_profile_calculator import (
     PROFILE_BOARD_MEMBER,
     get_user_role_profiles,
+    record_sync_granted_profiles,
     sync_user_role_profile,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 BOARD_ROLE = "Verenigingen Chapter Board Member"
 STAFF = "Verenigingen Staff"
+TREASURER = "Verenigingen Treasurer"
+NATIONAL = "Verenigingen National Board Member"
 
 
 class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
@@ -187,4 +191,160 @@ class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
             side_effect=BoardAccessWithdrawalError("boom"),
         ):
             with self.assertRaises(BoardAccessWithdrawalError):
+                update_all_chapter_board_roles()
+
+    # ------------------------------------------------------------------ review round 2
+
+    def _hand_assign_profiles(self, user, profiles):
+        """Probe shortcut, stated: an administrator's manual grant, written as User Role Profile rows."""
+        doc = frappe.get_doc("User", user)
+        doc.set("role_profiles", [{"role_profile": p} for p in profiles])
+        doc.save()
+
+    def _record_granted(self, user, profiles):
+        doc = frappe.get_doc("User", user)
+        record_sync_granted_profiles(doc, profiles)
+        doc.save()
+
+    def _unlinked_holder(self, held, recorded):
+        """A User with NO Member link that holds ``held`` profiles, of which the sync granted ``recorded``."""
+        user = self.create_test_user(f"w702.solo.{frappe.generate_hash(length=8)}@test.invalid")
+        self.track_doc("User", user.name)
+        self._hand_assign_profiles(user.name, held)
+        self._record_granted(user.name, recorded)
+        self.assertIn(BOARD_ROLE, self._roles(user.name), "fixture: the held profiles confer the role")
+        return user.name
+
+    def test_unlinked_helper_keeps_manual_treasurer_and_national_profiles(self):
+        """Control for 'strip every board-conferring profile': only the sync-granted one goes."""
+        user = self._unlinked_holder([PROFILE_BOARD_MEMBER, TREASURER, NATIONAL], [PROFILE_BOARD_MEMBER])
+
+        self.assertTrue(assign_chapter_board_role(user))
+
+        self._save_user(user)
+        self.assertEqual(set(get_user_role_profiles(user)), {TREASURER, NATIONAL})
+        self.assertIn(BOARD_ROLE, self._roles(user), "still conferred by the manual profiles")
+
+    def test_unlinked_helper_strips_a_builtin_profile_only_when_nothing_was_recorded(self):
+        """The bootstrap case (None): built-in profiles are the sync's, so the board one goes."""
+        user = self._unlinked_holder([PROFILE_BOARD_MEMBER], [])
+        frappe.db.set_value("User", user, calculator.SYNC_GRANTED_FIELD, None, update_modified=False)
+        self.assertIsNone(calculator.read_sync_granted_profiles(user), "fixture: nothing recorded")
+
+        self.assertTrue(assign_chapter_board_role(user))
+
+        self._assert_withdrawn_after_a_user_save(user)
+
+    def test_a_manual_treasurer_profile_is_not_a_failed_withdrawal(self):
+        """Post-condition control: the role surviving through a manual profile must not raise."""
+        person = self._person_702("Manual")
+        self._seat_702(person)
+        self._hand_assign_profiles(person.user, [PROFILE_BOARD_MEMBER, TREASURER])
+        self._record_granted(person.user, [PROFILE_BOARD_MEMBER])
+        self._vacate_behind_the_hooks(person)
+
+        update_all_chapter_board_roles()
+
+        self._save_user(person.user)
+        self.assertNotIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(person.user))
+        self.assertIn(TREASURER, get_user_role_profiles(person.user))
+
+    def test_one_failing_user_does_not_stop_the_sweep_for_the_others(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        bad, good = self._person_702("Bad"), self._person_702("Good")
+        for person in (bad, good):
+            self._seat_702(person)
+            self._vacate_behind_the_hooks(person)
+        real_sync = sync_user_role_profile
+
+        def refuse_for_bad(user, *args, **kwargs):
+            if user == bad.user:
+                raise BoardAccessWithdrawalError("boom")
+            return real_sync(user, *args, **kwargs)
+
+        # Mock justified: injects a failure for one user at the profile-sync boundary.
+        with mock.patch.object(calculator, "sync_user_role_profile", side_effect=refuse_for_bad):
+            with self.assertRaises(BoardAccessWithdrawalError) as raised:
+                update_all_chapter_board_roles()
+
+        self.assertIn(bad.user, str(raised.exception))
+        self.assertNotIn(good.user, str(raised.exception))
+        self._assert_withdrawn_after_a_user_save(good.user)
+
+    def test_an_orphan_has_role_row_is_skipped_and_recorded_not_fatal(self):
+        ghost = f"w702.ghost.{frappe.generate_hash(length=8)}@test.invalid"
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": ghost,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": BOARD_ROLE,
+            }
+        ).db_insert()
+        self.addCleanup(frappe.db.delete, "Has Role", {"parent": ghost})
+        person = self._person_702("Beside")
+        self._seat_702(person)
+        self._vacate_behind_the_hooks(person)
+
+        update_all_chapter_board_roles()  # must not raise DoesNotExist
+
+        self._assert_withdrawn_after_a_user_save(person.user)
+        logged = frappe.get_all(
+            "Error Log",
+            filters={"method": ["like", "%orphan Has Role row%"], "error": ["like", f"%{ghost}%"]},
+            pluck="name",
+        )
+        self.assertTrue(logged, "the skipped orphan must be recorded as an orphan, not as a crash")
+        self.assertTrue(frappe.db.exists("Has Role", {"parent": ghost}), "recorded, not deleted")
+
+    # ------------------------------------------------------------------ hooks must not swallow it
+
+    def test_a_member_save_is_aborted_by_a_failed_withdrawal(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        old = self._person_702("HookM")
+        self._seat_702(old)
+        new_user = self.create_test_user(f"w702.hook.{frappe.generate_hash(length=8)}@test.invalid")
+        self.track_doc("User", new_user.name)
+        member = frappe.get_doc("Member", old.member)
+        member.user = new_user.name
+        # The seat is gone, so the old user's withdrawal is what the hook attempts.
+        self._vacate_behind_the_hooks(old)
+
+        # Mock justified: the old user is unlinked by now (so no profile sync runs); this makes
+        # the post-condition see a surviving sync-owned profile, i.e. a withdrawal that failed.
+        with mock.patch(
+            "verenigingen.permissions._sync_owned_board_profiles_attached", return_value=[PROFILE_BOARD_MEMBER]
+        ):
+            with self.assertRaises(BoardAccessWithdrawalError):
+                member.save()
+
+    def test_a_chapter_role_save_is_aborted_by_a_failed_withdrawal(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        person = self._person_702("HookR")
+        self._seat_702(person)
+        role = frappe.get_doc("Chapter Role", self.chapter_role)
+        role.is_active = 0
+        # Mock justified: the failure is injected where the handler delegates.
+        with mock.patch(
+            "verenigingen.services.chapter.chapter_role_events.assign_chapter_board_role",
+            side_effect=BoardAccessWithdrawalError("boom"),
+        ):
+            with self.assertRaises(BoardAccessWithdrawalError):
+                role.save()
+
+    # ------------------------------------------------------------------ non-resumable errors
+
+    def test_a_deadlock_is_not_swallowed_by_the_helper_or_the_sweep(self):
+        person = self._person_702("Dead")
+        self._seat_702(person)
+        self._vacate_behind_the_hooks(person)
+        # Mock justified: a real deadlock cannot be provoked deterministically.
+        with mock.patch.object(calculator, "sync_user_role_profile", side_effect=frappe.QueryDeadlockError):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                assign_chapter_board_role(person.user)
+            with self.assertRaises(frappe.QueryDeadlockError):
                 update_all_chapter_board_roles()
