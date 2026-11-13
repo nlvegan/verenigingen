@@ -165,6 +165,15 @@ def refuse_staff_cancelled_forward_payment(reference_no, amount=None, source="")
     return True
 
 
+def forward_payment_staff_cancelled(reference_no) -> bool:
+    """Read-only twin of ``refuse_staff_cancelled_forward_payment``: no Error Log row, no alert.
+
+    For a caller that already got the writer's refusal (it returned nothing) and must tell it
+    apart from a genuine failure.
+    """
+    return bool(reference_no) and bool(_cancelled_receive_entries_without_live_one(reference_no))
+
+
 def _cancelled_receive_entries_without_live_one(reference_no):
     entries = frappe.get_all(
         "Payment Entry",
