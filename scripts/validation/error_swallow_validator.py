@@ -251,6 +251,9 @@ from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling, however this file is loaded
+import shrink_relocation  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("error_swallow_baseline.txt")
 
@@ -999,7 +1002,47 @@ def explain_shrink(
                 out.append(
                     UnexplainedShrink(f"{rel}::{qualname}", lineno, segment.strip(), reason)
                 )
+    if base_root is not None:
+        out = shrink_relocation.merge_relocated(out, _relocated_swallows(baseline, base_root))
     return out
+
+
+def _swallow_counted_by_path(rel: str) -> bool:
+    """Would `_counts` look at a file with this repo-relative path at all? Pinned by a test."""
+    return shrink_relocation.counted_by_path(rel, SCAN_ROOTS)
+
+
+def _swallow_extract(path: Path, rel: str) -> list[tuple[str, int, str, bool]]:
+    """One file's swallow handlers for the relocation census: (qualname, lineno, text, counted).
+
+    A `# swallow-ok:` handler is absent from `scan_file` and so from this census: this validator
+    treats a pragma as a reviewable exit (`_shrink_causes` skips it), so only a MOVE can hide a
+    handler here. `text` is the handler's unparsed source, which survives a move and re-indentation.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+        if "except" not in source:
+            return []  # cheap prefilter: every finding is an except handler
+        handlers = {
+            n.lineno: ast.unparse(n)
+            for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.ExceptHandler)
+        }
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return []
+    findings, _bad = scan_file(path)
+    by_path = _swallow_counted_by_path(rel)
+    return [(qualname, lineno, handlers.get(lineno, ""), by_path) for qualname, lineno in findings]
+
+
+def _relocated_swallows(baseline: dict[str, int], base_root: Path) -> list[UnexplainedShrink]:
+    """Baselined handlers whose text left the COUNT without leaving the code (#1858)."""
+    return shrink_relocation.relocated_sites(
+        baseline, base_root, REPO_ROOT, _swallow_extract,
+        lambda key, lineno, text: UnexplainedShrink(
+            key, lineno, text.splitlines()[0] if text else "", "relocated"
+        ),
+    )
 
 
 def _rel(path: Path) -> str:
@@ -1243,12 +1286,19 @@ def main(argv: list[str]) -> int:
         if args.base_tree is None:
             print("note: no --base-tree, so a DELETED logging call cannot be reported.")
         if not unexplained:
-            print("Every entry that left the baseline was fixed, deleted or marked.")
+            print(
+                "Every entry that left the baseline was fixed, deleted or marked."
+                if args.base_tree is not None
+                else shrink_relocation.NO_BASE_TREE_SUCCESS
+            )
             return 0
         why = {
             "unrecognised": "the falsy test no longer recognises what it hands back",
             "silent": "the logging call was DELETED -- this is now a silent swallow, which is worse",
             "unscanned": "the file stopped being SCANNED; the handler never changed",
+            "relocated": "the same handler now sits under tests/ or outside SCAN_ROOTS, where it "
+            "is not counted (moved, not fixed; line is from the base tree). "
+            + shrink_relocation.relocated_hint(False),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swallow being fixed\n")
         for u in unexplained:

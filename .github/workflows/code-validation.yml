@@ -694,8 +694,12 @@ jobs:
           exit 0
         fi
         git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_log_error_baseline.txt"
+        # The base TREE too (#1858): from the head tree alone, code that MOVED (under tests/,
+        # outside SCAN_ROOTS, a renamed function) is indistinguishable from code that was deleted.
+        git worktree add --detach "$RUNNER_TEMP/base_tree_log_error" "$BASE_SHA" >/dev/null
         python scripts/validation/log_error_arg_order_validator.py \
-          --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt"
+          --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree_log_error"
 
   # #1042: this ratchet was `stages: [pre-commit]` ONLY -- no workflow ran
   # `pre-commit` at all, so it was enforced nowhere except a developer's own
@@ -808,8 +812,12 @@ jobs:
           exit 0
         fi
         git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_db_clock_baseline.txt"
+        # The base TREE too (#1858): from the head tree alone, code that MOVED (under tests/,
+        # outside SCAN_ROOTS, a renamed function) is indistinguishable from code that was deleted.
+        git worktree add --detach "$RUNNER_TEMP/base_tree_db_clock" "$BASE_SHA" >/dev/null
         python scripts/validation/db_clock_date_window_validator.py \
-          --check-shrink "$RUNNER_TEMP/base_db_clock_baseline.txt"
+          --check-shrink "$RUNNER_TEMP/base_db_clock_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree_db_clock"
 
   # #1042: this ratchet was ALSO `stages: [pre-commit]` ONLY, so it never ran
   # in CI either -- and being at ZERO known entries makes that worse, not
