@@ -783,8 +783,13 @@ class Chapter(Document):
             # Tripped the query-count gate (260 -> 277 on develop). Both in-handler
             # calls were removed; this is now the only call site, and it must run
             # before either handler below.
-            self.member_manager.prelock_members_for_save(old_doc)
-            self.member_manager.handle_member_changes(old_doc)
+            try:
+                self.member_manager.prelock_members_for_save(old_doc)
+                self.member_manager.handle_member_changes(old_doc)
+            finally:
+                # Per-save, like board_seated_member_ids (#1843): a reason a writer set for ITS row
+                # must not label a later row flipped on this same object (#2499).
+                self.flags.pop("history_activation_reason", None)
             self.member_manager.handle_member_additions(old_doc)
 
             self.board_manager.handle_board_member_changes(old_doc)

@@ -547,9 +547,10 @@ class MemberManager(BaseManager):
             existing_member.status = "Active"
             existing_member.chapter_join_date = today()
 
+            # handle_member_changes activates the history entry inside this save (#2499, it also adds an
+            # Active one when none exists); hand it the approver so the reason names them.
+            self.chapter_doc.flags.history_activation_reason = self._approval_reason(approved_by)
             self.chapter_doc.save()
-
-            self._activate_history_entry(member_id, approved_by)
 
             # Create audit comment
             member_doc = frappe.get_doc("Member", member_id)
@@ -569,7 +570,11 @@ class MemberManager(BaseManager):
             frappe.log_error(f"Error approving member request: {str(e)}")
             return {"success": False, "message": str(e)}
 
-    def _activate_history_entry(self, member_id: str, approved_by: str = None):
+    @staticmethod
+    def _approval_reason(approved_by: str = None) -> str:
+        return f"Membership approved by {approved_by or frappe.session.user}"
+
+    def _activate_history_entry(self, member_id: str, approved_by: str = None, reason: str = None):
         """Move the member's Pending history entry for this chapter to Active (#2430).
 
         request_to_join / a rejoin leave a Pending entry, and add_membership_history refuses to add an
@@ -577,7 +582,7 @@ class MemberManager(BaseManager):
         an Active member. Update the Pending entry; only when there is none (history never written) add an
         Active one. A failure of both is logged, not raised: the row is already Active and saved.
         """
-        reason = f"Membership approved by {approved_by or frappe.session.user}"
+        reason = reason or self._approval_reason(approved_by)
         if ChapterMembershipHistoryManager.update_membership_status(
             member_id=member_id,
             chapter_name=self.chapter_name,
@@ -1373,7 +1378,9 @@ class MemberManager(BaseManager):
             old_member = old_members_by_row.get(member.name)
             if not old_member:
                 continue
-            if bool(old_member.enabled) != bool(member.enabled):
+            if bool(old_member.enabled) != bool(member.enabled) or self._is_pending_to_active(
+                old_member, member
+            ):
                 touched.add(member.member)
 
         # Mirrors handle_member_deletions: an old enabled row whose child-row name
@@ -1501,22 +1508,52 @@ class MemberManager(BaseManager):
             # Check if member was re-enabled
             elif not old_member.enabled and member.enabled:
                 # Member was re-enabled - add new history entry
-                ChapterMembershipHistoryManager.add_membership_history(
-                    member_id=member.member,
-                    chapter_name=self.chapter_name,
-                    assignment_type="Member",
-                    start_date=today(),
-                    status=member.status or "Active",
-                    reason="Membership re-enabled",
-                )
+                self._record_reenabled_history(member)
 
                 self.log_action(
                     "Member re-enabled",
                     {"member": member.member, "member_name": self._get_member_name(member.member)},
                 )
 
+            # A live row whose status went Pending -> Active (a Desk edit, or any writer that saves the
+            # row without touching history): its Pending history entry must follow (#2499).
+            elif self._is_pending_to_active(old_member, member):
+                self._activate_history_entry(
+                    member.member, reason=self.chapter_doc.flags.get("history_activation_reason")
+                )
+
+                self.log_action(
+                    "Member activated",
+                    {"member": member.member, "member_name": self._get_member_name(member.member)},
+                )
+
         # Handle deleted members
         self.handle_member_deletions(old_doc)
+
+    @staticmethod
+    def _is_pending_to_active(old_member, member) -> bool:
+        return bool(
+            old_member.enabled
+            and member.enabled
+            and old_member.status == "Pending"
+            and member.status == "Active"
+        )
+
+    def _record_reenabled_history(self, member):
+        """History for a row that went enabled 0 -> 1. A row coming back Active goes through
+        _activate_history_entry: add_membership_history refuses an Active entry beside a Pending one
+        (returning False, ignored here), which left the entry Pending (#2499)."""
+        if (member.status or "Active") == "Active":
+            self._activate_history_entry(member.member, reason="Membership re-enabled")
+            return
+        ChapterMembershipHistoryManager.add_membership_history(
+            member_id=member.member,
+            chapter_name=self.chapter_name,
+            assignment_type="Member",
+            start_date=today(),
+            status=member.status,
+            reason="Membership re-enabled",
+        )
 
     def handle_member_deletions(self, old_doc):
         """
