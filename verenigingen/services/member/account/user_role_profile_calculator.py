@@ -913,7 +913,6 @@ def sync_user_role_profile(
     allow_disabled: bool = False,
     withdraw: tuple = (),
     nightly: bool = False,
-    reraise_non_resumable: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -939,10 +938,12 @@ def sync_user_role_profile(
             fails is rolled back, and a deadlock/timeout is re-raised instead of being
             swallowed, so the run stops rather than resuming on a damaged transaction.
             The event-driven callers keep the replace behaviour (#1293).
-        reraise_non_resumable: Re-raise a deadlock/lock-wait instead of returning
-            success=False, WITHOUT the other nightly behaviours. For a caller whose own
-            save must abort when the transaction is broken (the Chapter board seating
-            flush, #1672). Default False: every other event-driven caller is unchanged.
+
+    Raises:
+        frappe.QueryDeadlockError, frappe.QueryTimeoutError: always (#1888). After a 1213
+            MariaDB has already rolled the transaction back, so returning success=False
+            would let the caller's save carry on without the role-profile write. Every
+            other exception is logged and returned as success=False.
 
     Returns:
         dict: {
@@ -1178,13 +1179,11 @@ def sync_user_role_profile(
             ),
         }
 
-    except NON_RESUMABLE_DB_ERRORS as e:
-        if nightly or reraise_non_resumable:
-            raise
-        return _sync_failed(user, e)
-    # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always
-    # been handed success=False instead and must keep that contract (#1293).
-    except Exception as e:  # non-resumable-ok: legacy swallow contract for non-nightly callers
+    except NON_RESUMABLE_DB_ERRORS:
+        # Every caller, event-driven or nightly (#1888): the server has discarded the
+        # transaction, so the unit of work must be abandoned, not logged and resumed.
+        raise
+    except Exception as e:
         if nightly:
             rollback_to_savepoint(savepoint)
         return _sync_failed(user, e)
@@ -1394,13 +1393,16 @@ def auto_sync_on_role_change(user: str):
     - Team leadership changes
     - Volunteer status changes
 
-    This is a fire-and-forget function that logs errors but doesn't throw.
+    This is a fire-and-forget function that logs errors but doesn't throw, except for a
+    deadlock/lock-wait (1213/1205), which must reach whoever owns the transaction (#1888).
     """
     try:
         result = sync_user_role_profile(user, dry_run=False)
         if not result.get("success"):
             frappe.logger().warning(f"Auto-sync failed for {user}: {result.get('error')}")
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error in auto-sync for {user}: {str(e)}")
 

@@ -10,6 +10,8 @@ Last Updated: 2025-10-09
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 def invalidate_team_profile_cache(doc, method):
     """
@@ -147,6 +149,8 @@ def on_team_members_change(doc, method):
                     frappe.logger().warning(
                         f"Skipping role profile recalculation for {volunteer_name} - no member record"
                     )
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #1888
             except Exception as e:
                 frappe.logger().error(
                     f"Error recalculating role profile for inactive/removed team member {volunteer_name}: {str(e)}"
@@ -175,6 +179,8 @@ def on_team_members_change(doc, method):
                     frappe.logger().warning(
                         f"Skipping role profile recalculation for {volunteer_name} - no member record"
                     )
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #1888
             except Exception as e:
                 frappe.logger().error(
                     f"Error recalculating role profile for new/reactivated team member {volunteer_name}: {str(e)}"

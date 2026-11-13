@@ -31,6 +31,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
     require_profile_admin,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Public API surface. `_chapter_manager` is included despite the
 # underscore prefix because the deprecated shim at
@@ -234,6 +235,8 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
         # after swallowing an exception (#1718), so "no exception" is not "synced".
         try:
             sync = auto_sync_on_role_change(user)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #1888: the transaction is gone; a failed[] entry would hide that
         except Exception as e:
             sync = {"success": False, "error": str(e)}
         if sync is None:

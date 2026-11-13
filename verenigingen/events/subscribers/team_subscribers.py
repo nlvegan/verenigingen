@@ -11,6 +11,7 @@ synchronously by doc_event hooks in team_role_profile_hooks.py — NOT here.
 import frappe
 
 from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -463,6 +464,8 @@ def _update_team_permissions(team_name):
 
         frappe.logger("events").info(f"Updated team permissions for {team_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888
     except Exception as e:
         frappe.logger("events").warning(f"Failed to update team permissions: {str(e)}")
 
