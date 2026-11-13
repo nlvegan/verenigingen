@@ -103,12 +103,24 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         autogen_member = self.create_test_member(
             first_name="Autogen", last_name=frappe.generate_hash(length=6)
         )
-        new_mandate = self.create_test_sepa_mandate(
-            member=autogen_member.name, iban=self._get_test_iban("RABO")
-        )
+        # Pin an explicit pattern so the shape check is discriminating, and create the
+        # mandate WITHOUT mandate_id (the factory assigns its own TST id; #942).
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        original_pattern = payments_settings.sepa_mandate_naming_pattern
+        original_counter = payments_settings.sepa_mandate_starting_counter
+        payments_settings.sepa_mandate_naming_pattern = "BACKCOMPAT-.####"
+        payments_settings.sepa_mandate_starting_counter = 1
+        payments_settings.save()
+        try:
+            new_mandate = self._942_assert_autogen_mandate_id(
+                autogen_member.name, "BACKCOMPAT-.####", 1
+            )
+        finally:
+            payments_settings.reload()
+            payments_settings.sepa_mandate_naming_pattern = original_pattern
+            payments_settings.sepa_mandate_starting_counter = original_counter
+            payments_settings.save()
 
-        # Should get auto-generated ID
-        self.assertTrue(new_mandate.mandate_id, "New mandate should get auto-generated ID")
         self.assertNotEqual(new_mandate.mandate_id, "EXISTING-MANDATE-001",
                            "New mandate should get different ID from existing")
 
@@ -134,10 +146,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                 email="fallback@example.com"
             )
 
-            mandate = self.create_test_sepa_mandate(member=member.name)
-
-            # Should still get a mandate_id (from fallback mechanism)
-            self.assertTrue(mandate.mandate_id, "Should get mandate_id from fallback")
+            # Drive the real generator (no mandate_id; the factory would assign its
+            # own TST id). With the pattern and counter unset it must fall back to
+            # the default pattern with counter 1 (#942).
+            self._942_assert_autogen_mandate_id(member.name, "MANDATE-.YY.-.MM.-.####", 1)
 
         finally:
             # Restore original settings - refresh to avoid timestamp mismatch
@@ -269,6 +281,25 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         counters = [int(m[len(prefix):]) for m in existing if m[len(prefix):].isdigit()]
         return max(counters) + 1 if counters else starting_counter
 
+    def _942_assert_autogen_mandate_id(self, member_name, pattern, starting_counter):
+        """Create a mandate WITHOUT mandate_id and assert the real generator's
+        output has the shape derived from `pattern` and the expected counter."""
+        regex, prefix = self._942_expected_mandate_id_regex(pattern)
+        expected_counter = self._942_next_counter_expected(prefix, starting_counter)
+        mandate = self._create_mandate_autogen_id(member_name)
+        match = regex.match(mandate.mandate_id)
+        self.assertIsNotNone(
+            match,
+            f"mandate_id {mandate.mandate_id!r} does not match pattern {pattern!r} "
+            f"(expected {regex.pattern})",
+        )
+        self.assertEqual(
+            int(match.group(1)),
+            expected_counter,
+            f"counter in {mandate.mandate_id!r} for pattern {pattern!r}",
+        )
+        return mandate
+
     def test_pattern_validation_edge_cases(self):
         """Each configured naming pattern must drive the REAL generator.
 
@@ -298,21 +329,7 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                     last_name=f"Test{frappe.generate_hash(length=6)}",
                 )
 
-                regex, prefix = self._942_expected_mandate_id_regex(pattern)
-                expected_counter = self._942_next_counter_expected(prefix, starting_counter)
-                mandate = self._create_mandate_autogen_id(member.name)
-
-                match = regex.match(mandate.mandate_id)
-                self.assertIsNotNone(
-                    match,
-                    f"mandate_id {mandate.mandate_id!r} does not match pattern {pattern!r} "
-                    f"(expected {regex.pattern})",
-                )
-                self.assertEqual(
-                    int(match.group(1)),
-                    expected_counter,
-                    f"counter in {mandate.mandate_id!r} for pattern {pattern!r}",
-                )
+                self._942_assert_autogen_mandate_id(member.name, pattern, starting_counter)
 
     def test_data_migration_compatibility(self):
         """Test that naming system works with data migration scenarios"""
