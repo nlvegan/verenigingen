@@ -423,7 +423,6 @@ class TestResolveJournalEntryByReference(_SweepTestBase):
         self.assertEqual(find_journal_entry_by_reference(ref), name)
         self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
 
-
     def test_an_unknown_amount_fails_closed_and_the_draft_is_left(self):
         """There is no "skip the check": a caller without an amount must not auto-submit."""
         from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (

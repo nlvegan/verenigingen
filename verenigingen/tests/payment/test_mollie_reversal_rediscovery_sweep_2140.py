@@ -109,6 +109,30 @@ class TestReversalRediscoverySweep(_DuesReversalFixture):
         self.assertEqual(len(self._journal_entries_for(refund["id"])), 1)
         self.assertEqual(self._outstanding(), 20.0)
 
+    def test_a_stranded_reversal_draft_is_finished_by_the_sweep(self):
+        """#2535: the sweep's pre-filter asks find_booked_reversal with the Mollie reversal's amount.
+
+        Probe shortcut, stated: the draft is stranded by refusing before_submit once.
+        """
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        refund = self._refund(amount=20.0)
+        self.expectErrorLog(
+            "Secure Operation Failed", "Mollie Journal Entry", "financial_entry_error", "Mollie Reversal Booking Failed"
+        )
+        with patch.object(JournalEntry, "before_submit", side_effect=frappe.ValidationError("refused")):
+            self._reverse(20.0, reversal_id=refund["id"])
+        drafts = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": f"{self.payment_id}_refund_{refund['id']}", "docstatus": 0}, pluck="name"
+        )
+        self.assertEqual(len(drafts), 1, "precondition: one stranded draft")
+
+        summary = self._sweep([refund])
+
+        self.assertEqual(summary["errors"], [], summary)
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 1)
+        self.assertEqual(self._outstanding(), 20.0)
+
     def test_running_it_twice_books_once(self):
         refund = self._refund()
         self._sweep([refund])

@@ -150,8 +150,9 @@ class TestReversalValidation(WebhookTestBase):
             seen["payment_id"] = payment_id
             return ("donation", "Journal Entry", "ACC-JV-FORWARD")
 
-        def fake_find_booked_reversal(key):
+        def fake_find_booked_reversal(key, expected_amount):
             seen["reversal_key"] = key
+            seen["expected_amount"] = expected_amount
             return ("Journal Entry", "ACC-JV-REVERSAL-EXISTING") if key == reference else None
 
         orig_payment, orig_reversal = ri.find_booked_payment, ri.find_booked_reversal
@@ -174,6 +175,8 @@ class TestReversalValidation(WebhookTestBase):
         # old test could not have caught them being confused.
         self.assertEqual(seen.get("payment_id"), "tr_done")
         self.assertEqual(seen.get("reversal_key"), reference)
+        # The reversal amount reaches the draft guard (#2535).
+        self.assertEqual(seen.get("expected_amount"), 5.0)
 
 
 class TestRefundChargebackDelegation(WebhookTestBase):
