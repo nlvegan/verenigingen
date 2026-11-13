@@ -35,8 +35,8 @@ from verenigingen.tests.support.invoice_payments import member_with_customer
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.support.verenigingen_settings import own_settings_company
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import (
-    allow_reminder_sends,
     clear_email_cooldowns,
     ensure_outgoing_email_account,
 )
@@ -85,12 +85,14 @@ def _create_user_with_role(email, role):
     return user.name
 
 
-def _create_alert_mail_state():
-    """The key's row freshly SEEDED from the registry (a seeded site), enabled, cooldown 0 and
-    cleared, committed (the finalizer rolls back fully)."""
-    frappe.db.delete("Email Notification Type", {"parent": "Verenigingen Email Configuration", "notification_key": ALERT_KEY})
-    frappe.clear_document_cache("Verenigingen Email Configuration", "Verenigingen Email Configuration")
-    allow_reminder_sends(keys=(ALERT_KEY,))
+def _create_alert_mail_state(test):
+    """The key's row freshly SEEDED from the registry (a seeded site), enabled, cooldown 0, master
+    switch on, committed (the finalizer rolls back fully, so an uncommitted seed would vanish).
+    ``commits=True`` declares that commit. The helper restores the rows and the switch at cleanup;
+    the commit cleanup registered first runs LAST (LIFO) and makes that restore permanent."""
+    test.addCleanup(frappe.db.commit)
+    own_notification_keys(test, ALERT_KEY, commits=True)
+    clear_email_cooldowns()
     frappe.db.commit()
 
 
@@ -115,7 +117,7 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         ensure_outgoing_email_account(self)
-        _create_alert_mail_state()
+        _create_alert_mail_state(self)
         self.payment_id = f"tr_1330_{frappe.generate_hash(length=8)}"
         self.member = member_with_customer(self, "Pp1330")
         self.plan = _create_pp1288_plan(self, self.member.name)

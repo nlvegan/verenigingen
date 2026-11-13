@@ -10,26 +10,11 @@ test reminded it first.
 
 import frappe
 
-from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
-
 
 def clear_email_cooldowns():
     # get_keys() returns already-namespaced keys and delete_value() namespaces again, so
     # get_keys + delete_value deletes nothing; delete_keys() is the pair that works.
     frappe.cache().delete_keys("email_cooldown:*")
-
-
-def allow_reminder_sends(keys=("payment_reminder_friendly", "payment_reminder_urgent", "payment_failure")):
-    """Seed registry rows, switch email on, enable ``keys`` with no cooldown, clear cooldown keys."""
-    ensure_notification_registry_rows()
-    config = frappe.get_single("Verenigingen Email Configuration")
-    config.master_email_enabled = 1
-    for row in config.notification_types:
-        if row.notification_key in keys:
-            row.enabled = 1
-            row.cooldown_minutes = 0
-    config.save()
-    clear_email_cooldowns()
 
 
 def ensure_outgoing_email_account(testcase):

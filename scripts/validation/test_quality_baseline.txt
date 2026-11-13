@@ -40,7 +40,6 @@ verenigingen/tests/backend/components/test_membership_analytics_permissions.py::
 verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_goal_permissions::PERMISSION BYPASS::1
 verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_predictive_analytics_access::PERMISSION BYPASS::1
 verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_snapshot_permissions::PERMISSION BYPASS::1
-verenigingen/tests/backend/components/test_payment_processing_real_template_handling.py::TestPaymentProcessingRealTemplateHandling._enable_notifications::PERMISSION BYPASS::2
 verenigingen/tests/backend/components/test_setup_custom_fields.py::TestExecuteAfterInstallGuard.test_early_return_when_already_complete::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::_ensure_user._apply_role_profile::PERMISSION BYPASS::1
 verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::TestVolunteerPortalIntegration.create_expense_categories::PERMISSION BYPASS::1
@@ -92,7 +91,6 @@ verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.tes
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_submit_handler_enqueues_add_and_no_inline_process::DATABASE MOCK::1
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_update_after_submit_handler_enqueues_add::DATABASE MOCK::1
 verenigingen/tests/financial/test_nuke_financial_data_safeguards.py::_destruction_proof_db::DATABASE MOCK::1
-verenigingen/tests/integration/test_payment_processing_api_integration.py::TestPaymentProcessingAPIIntegration._enable_notifications::PERMISSION BYPASS::2
 verenigingen/tests/integration/test_query_optimization_suite.py::query_counter::DATABASE MOCK::2
 verenigingen/tests/member/test_member_merge.py::TestMemberMerge.test_merge_conflict_warnings::PERMISSION BYPASS::2
 verenigingen/tests/member/test_member_performance_optimization.py::TestMemberPerformanceOptimization.test_query_counter_survives_an_instance_level_sql_attribute::DATABASE MOCK::1

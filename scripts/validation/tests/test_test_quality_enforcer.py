@@ -727,8 +727,11 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # was removed by the #2125 ruling). Baseline shrink committed with the code.
         # 220 -> 217 findings, 198 -> 196 keys (#2099): deleting the dead `tests/test_harness.py`
         # removed its 3 baselined findings (2 DATABASE MOCK + 1 BUSINESS LOGIC MOCK, 2 keys).
-        self.assertEqual(217, len(self.findings), "finding count moved")
-        self.assertEqual(196, len(tqe.counts_of(self.findings)), "key count moved")
+        # 217 -> 213 findings, 196 -> 194 keys (#2053): both `_enable_notifications` copies
+        # (2 PERMISSION BYPASS findings each, 2 keys) were deleted with the move to
+        # own_notification_keys. Baseline shrink committed with the code.
+        self.assertEqual(213, len(self.findings), "finding count moved")
+        self.assertEqual(194, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
