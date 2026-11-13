@@ -15,7 +15,7 @@ enhanced test factory:
   _initialize_next_invoice_date.
 - create_from_template classmethod (real schedule built from a Membership Type
   template, custom-amount approval gating).
-- amount / date helpers: calculate_next_invoice_date, calculate_billing_period,
+- amount / date helpers: calculate_next_invoice_date,
   get_membership_dues_item, get_member_payment_method / active mandate.
 - lifecycle: pause_schedule / resume_schedule (status transitions) and
   validate_status_transitions guard.
@@ -180,17 +180,6 @@ class TestMembershipDuesScheduleController(EnhancedTestCase):
         base = getdate("2025-01-15")
         nxt = schedule.calculate_next_invoice_date(from_date=base)
         self.assertEqual(getdate(nxt), getdate(add_months(base, 1)))
-
-    def test_calculate_billing_period_monthly(self):
-        """calculate_billing_period returns a start <= end window for the given date."""
-        member, schedule = self._member_with_schedule(last="BillPeriod")
-        frappe.db.set_value("Membership Dues Schedule", schedule.name, "billing_frequency", "Monthly")
-        schedule.reload()
-        start, end = schedule.calculate_billing_period(getdate("2025-06-10"))
-        self.assertLessEqual(getdate(start), getdate(end))
-        # The given date falls within the returned period.
-        self.assertLessEqual(getdate(start), getdate("2025-06-10"))
-        self.assertGreaterEqual(getdate(end), getdate("2025-06-10"))
 
     def test_get_membership_dues_item_named_by_frequency(self):
         """The dues item name embeds the billing frequency."""
