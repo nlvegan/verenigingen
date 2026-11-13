@@ -648,3 +648,103 @@ class TestInitiatePaymentOwnership(EnhancedTestCase):
         forbidden = self._refusal_signature(invoice.name, member_b.email)
         unknown = self._refusal_signature("ACC-SINV-NOPE-2103", member_b.email)
         self.assertEqual(forbidden, unknown)
+
+
+_EVIL_URL = "https://evil.example/phish"
+
+
+class TestGuestCannotChooseTheRedirectDestination(EnhancedTestCase):
+    """#2569: success_url / cancel_url were guest-supplied and ended up in the gateway's form_data
+    as redirect_url / cancel_url. No gateway reads them today, so the first one that did would have
+    made a guest-chosen URL the payer's destination. The parameters are gone."""
+
+    def setUp(self):
+        super().setUp()
+        self._original_user = frappe.session.user
+        patcher = patch(
+            "verenigingen.verenigingen_payments.hooks.payment_hook.PaymentHook._get_mollie_config",
+            return_value={"available": True, "subscriptions_enabled": True, "test_mode": True},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        frappe.set_user(self._original_user)
+        super().tearDown()
+
+    def _owned_donation(self, donor_email):
+        return TestInitiatePaymentOwnership._make_test_donation_for_ownership_check(
+            self, donor_email=donor_email
+        )
+
+    def _dispatch_as_guest(self, donation, donor_email, **extra):
+        """Go through frappe.call, as the whitelisted-method handler does, so that kwargs the
+        signature does not declare are dropped exactly as they are for a real request."""
+        from verenigingen.verenigingen_payments.hooks.api import initiate_payment
+
+        gateway = _stub_gateway()
+        with self.as_user("Guest"), patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+            result = frappe.call(
+                initiate_payment,
+                method="mollie",
+                amount=20.0,
+                reference_doctype="Donation",
+                reference_name=donation.name,
+                payer_email=donor_email,
+                payer_name="Someone",
+                **extra,
+            )
+        return result, gateway
+
+    def test_guest_supplied_urls_reach_neither_the_form_data_nor_the_gateway(self):
+        donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._owned_donation(donor_email)
+
+        result, gateway = self._dispatch_as_guest(
+            donation, donor_email, success_url=_EVIL_URL, cancel_url=_EVIL_URL + "/cancel"
+        )
+
+        # An old cached page still posting the parameters must not 500: they are ignored.
+        self.assertTrue(result["success"], result)
+        gateway.process_payment.assert_called_once()
+        form_data = gateway.process_payment.call_args[0][1]
+        self.assertNotIn("evil.example", repr(gateway.mock_calls))
+        self.assertNotIn("evil.example", repr(dict(form_data)))
+        self.assertNotIn("evil.example", repr(result))
+        self.assertFalse(form_data.get("redirect_url"))
+        self.assertFalse(form_data.get("cancel_url"))
+
+    def test_a_normal_guest_payment_still_initiates(self):
+        donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._owned_donation(donor_email)
+
+        result, gateway = self._dispatch_as_guest(donation, donor_email)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["action"], "redirect")
+        gateway.process_payment.assert_called_once()
+        form_data = gateway.process_payment.call_args[0][1]
+        self.assertEqual(float(form_data["amount"]), float(donation.amount))
+        self.assertEqual(form_data["email"], donor_email)
+
+    def test_the_public_donation_form_cannot_inject_urls_either(self):
+        """The second writer: public_donation_service filled redirect_urls from the donor form."""
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        donor_email = f"owner-{frappe.generate_hash()[:8]}@example.com"
+        donation = self._owned_donation(donor_email)
+        form_data = frappe._dict(
+            {
+                "payment_method": "Mollie",
+                "donor_email": donor_email,
+                "donor_name": "Someone",
+                "success_url": _EVIL_URL,
+                "cancel_url": _EVIL_URL + "/cancel",
+            }
+        )
+        gateway = _stub_gateway()
+        with patch(_GATEWAY_FACTORY_PATH, return_value=gateway):
+            get_public_donation_service().process_payment_method(donation, form_data)
+
+        gateway.process_payment.assert_called_once()
+        self.assertNotIn("evil.example", repr(gateway.mock_calls))
