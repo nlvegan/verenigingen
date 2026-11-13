@@ -477,7 +477,8 @@ class UnifiedWebhookWrapperService:
                     result["duration_seconds"] = time.time() - start_time
                     return result
 
-                classification = router.classify_payment(payment)
+                # alert_staff: the webhook is the delivery path (#1497 (2)); Mollie redelivers it
+                classification = router.classify_payment(payment, alert_staff=True)
 
                 self.logger.info(
                     f"📊 Payment classification: type={classification['payment_type']}, "

@@ -100,12 +100,14 @@ class PaymentClassificationRule(ABC):
     """Base class for payment classification rules"""
 
     @abstractmethod
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         """
         Attempt to classify the payment using this rule.
 
         Args:
             payment: Mollie payment object
+            alert_staff: True ONLY from a real delivery/booking path (#1497 (2)); a shared
+                Member id then raises the staff alert as well as the Error Log row
 
         Returns:
             ClassificationResult if this rule matches, None otherwise
@@ -122,7 +124,13 @@ class DatabaseLookupClassification(PaymentClassificationRule):
     """
 
     def _check_member_donor_match(
-        self, payment, field_name: str, field_value: str, confidence: str, match_type: str
+        self,
+        payment,
+        field_name: str,
+        field_value: str,
+        confidence: str,
+        match_type: str,
+        alert_staff: bool = False,
     ) -> Optional[ClassificationResult]:
         """
         Check if field value matches Member or Donor records.
@@ -141,7 +149,7 @@ class DatabaseLookupClassification(PaymentClassificationRule):
         members = self._names_with_value("Member", field_name, field_value)
         if len(members) > 1:
             return _ambiguous_result(
-                "Member", field_name, field_value, members, payment, match_type, confidence
+                "Member", field_name, field_value, members, payment, match_type, confidence, alert_staff
             )
         if members:
             member = members[0]
@@ -194,10 +202,13 @@ def _ambiguous_result(
     payment,
     match_type: str,
     confidence: str,
+    alert_staff: bool = False,
 ) -> ClassificationResult:
     """A Mollie id several rows share (#1497); never attribute the payment to one of them.
 
-    MEMBERS: refused (type AMBIGUOUS, no ids), logged once per payment and staff alerted once.
+    MEMBERS: refused (type AMBIGUOUS, no ids), logged once per payment. Staff are alerted once only
+    when ``alert_staff`` (#1497 (2)): a read-only caller (bulk check, dry run, debug page) would
+    mail once per historic payment, and "Mollie keeps retrying" is false for it.
     The type is neither dues nor donation, so no caller books it or creates a party for it.
 
     DONORS: develop's behaviour stays, the donation books via its payment id (the donation path
@@ -213,7 +224,8 @@ def _ambiguous_result(
             matched_by=f"{match_type}_ambiguous_donor",
         )
     _log_once(MEMBER_LOG_TITLE, payment_id, field_name, field_value, names, doctype)
-    _alert_staff_once(payment_id, field_name, field_value, names)
+    if alert_staff:
+        _alert_staff_once(payment_id, field_name, field_value, names)
     return ClassificationResult(
         payment_type=PaymentType.AMBIGUOUS,
         confidence=ConfidenceLevel.NONE,
@@ -284,7 +296,7 @@ class SubscriptionBasedClassification(DatabaseLookupClassification):
     Checks if subscription ID matches Member or Donor records in database.
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         subscription_id = getattr(payment, "subscription_id", None)
         if not subscription_id:
             return None
@@ -295,6 +307,7 @@ class SubscriptionBasedClassification(DatabaseLookupClassification):
             field_value=subscription_id,
             confidence=ConfidenceLevel.HIGH,
             match_type="subscription_id",
+            alert_staff=alert_staff,
         )
 
         if not result:
@@ -314,7 +327,7 @@ class CustomerBasedClassification(DatabaseLookupClassification):
     balance transactions).
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         customer_id = getattr(payment, "customer_id", None)
         if not customer_id:
             return None
@@ -325,6 +338,7 @@ class CustomerBasedClassification(DatabaseLookupClassification):
             field_value=customer_id,
             confidence=ConfidenceLevel.MEDIUM,
             match_type="customer_id",
+            alert_staff=alert_staff,
         )
 
 
@@ -339,7 +353,7 @@ class OrderBasedClassification(PaymentClassificationRule):
     Pattern: "Bestelling YYYY-NNNNN" where NNNNN is the invoice number
     """
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         description = getattr(payment, "description", "")
         if not description or not isinstance(description, str):
             return None
@@ -425,7 +439,7 @@ class DescriptionKeywordClassification(PaymentClassificationRule):
             )
             return self.DEFAULT_KEYWORD_MAP
 
-    def classify(self, payment) -> Optional[ClassificationResult]:
+    def classify(self, payment, alert_staff: bool = False) -> Optional[ClassificationResult]:
         description = getattr(payment, "description", "")
         if not description or not isinstance(description, str):
             return None
@@ -479,12 +493,13 @@ class PaymentClassifier:
         else:
             self.rules = rules
 
-    def classify(self, payment) -> ClassificationResult:
+    def classify(self, payment, alert_staff: bool = False) -> ClassificationResult:
         """
         Run payment through classification rules in priority order.
 
         Args:
             payment: Mollie payment object
+            alert_staff: default False (fail quiet). True only from a delivery/booking path.
 
         Returns:
             ClassificationResult with payment type, confidence, and audit info
@@ -492,7 +507,7 @@ class PaymentClassifier:
         payment_id = getattr(payment, "id", "unknown")
 
         for rule in self.rules:
-            result = rule.classify(payment)
+            result = rule.classify(payment, alert_staff)
             if result:
                 frappe.logger().info(
                     f"Payment {payment_id} classified as '{result.payment_type}' "
@@ -506,7 +521,7 @@ class PaymentClassifier:
             payment_type=PaymentType.UNKNOWN, confidence=ConfidenceLevel.NONE, matched_by="no_rule_matched"
         )
 
-    def classify_batch(self, payments: List) -> List[ClassificationResult]:
+    def classify_batch(self, payments: List, alert_staff: bool = False) -> List[ClassificationResult]:
         """
         Classify multiple payments efficiently with batch database queries.
 
@@ -587,7 +602,12 @@ class PaymentClassifier:
         results = []
         for payment in payments:
             result = self._classify_with_cache(
-                payment, member_by_subscription, member_by_customer, donor_by_subscription, donor_by_customer
+                payment,
+                member_by_subscription,
+                member_by_customer,
+                donor_by_subscription,
+                donor_by_customer,
+                alert_staff,
             )
             results.append(result)
 
@@ -600,6 +620,7 @@ class PaymentClassifier:
         member_by_customer: Dict,
         donor_by_subscription: Dict,
         donor_by_customer: Dict,
+        alert_staff: bool = False,
     ) -> ClassificationResult:
         """
         Classify payment using pre-fetched lookup caches.
@@ -633,7 +654,7 @@ class PaymentClassifier:
             members = by_member.get(value, [])
             if len(members) > 1:
                 return _ambiguous_result(
-                    "Member", field_name, value, members, payment, match_type, confidence
+                    "Member", field_name, value, members, payment, match_type, confidence, alert_staff
                 )
             if members:
                 return ClassificationResult(
@@ -656,4 +677,4 @@ class PaymentClassifier:
 
         # Fall back to single-payment classification for order/keyword rules
         # (These don't benefit from batch caching)
-        return self.classify(payment)
+        return self.classify(payment, alert_staff)

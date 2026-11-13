@@ -2,10 +2,11 @@
 #1497: a Mollie id shared by several Members (or Donors) must not be attributed to
 an arbitrary one of them.
 
-Maintainer ruling 2026-11-13:
+Maintainer ruling 2026-11-13 (and #1497 (2): the alert is raised only on a delivery/booking path):
 * duplicate MEMBERS: the payment is refused as ambiguous (no member_id, type neither dues nor
   donation), ONE deduplicated Error Log row per payment, and one staff alert on the registered
-  key ``mollie_ambiguous_party`` on first sight;
+  key ``mollie_ambiguous_party`` on first sight, ONLY when the caller passes ``alert_staff=True``
+  (the webhook); every read-only caller writes the Error Log row and sends no alert;
 * duplicate DONORS only: develop's behaviour stays (the donation books via its payment id; the
   classifier only withholds ``donor_id``) with one deduplicated Error Log row.
 
@@ -27,6 +28,7 @@ from types import SimpleNamespace
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.payment import test_mollie_gap_donation_financial_chain as chain
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import (
     AMBIGUOUS_ALERT_KEY,
@@ -104,6 +106,22 @@ class AmbiguousPartyBase(EnhancedTestCase):
             filters={"notification_key": AMBIGUOUS_ALERT_KEY, "reference_name": payment_id or self.payment_id},
             fields=["name", "attempts", "requires_action", "recipient_count"],
         )
+
+    def _staff_recipient(self):
+        from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
+
+        ensure_notification_registry_rows()
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": f"staff1497-{frappe.generate_hash(length=6)}@example.com",
+                "first_name": "Staff1497",
+                "enabled": 1,
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Administrator"}],
+            }
+        ).insert()
+        return user.name
 
     def assertRefusedMembers(self, result, names, matched_by):
         self.assertIsNotNone(result)
@@ -266,27 +284,11 @@ class _SeamRouter:
 
 
 class TestDedupAndAlert(AmbiguousPartyBase):
-    def _staff_recipient(self):
-        from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
-
-        ensure_notification_registry_rows()
-        user = frappe.get_doc(
-            {
-                "doctype": "User",
-                "email": f"staff1497-{frappe.generate_hash(length=6)}@example.com",
-                "first_name": "Staff1497",
-                "enabled": 1,
-                "send_welcome_email": 0,
-                "roles": [{"role": "Verenigingen Administrator"}],
-            }
-        ).insert()
-        return user.name
-
     def test_two_deliveries_write_one_error_log_row_and_one_alert(self):
         self._staff_recipient()
         cust = self._share("Member", "mollie_customer_id", self.members)
         for _ in range(2):
-            result = PaymentClassifier().classify(self.payment(customer_id=cust))
+            result = PaymentClassifier().classify(self.payment(customer_id=cust), alert_staff=True)
             self.assertEqual(result.payment_type, PaymentType.AMBIGUOUS)
         self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE)), 1)
         events = self._alert_events()
@@ -300,8 +302,8 @@ class TestDedupAndAlert(AmbiguousPartyBase):
         cust = self._share("Member", "mollie_customer_id", self.members)
         other_id = f"tr_{frappe.generate_hash(length=10)}"
         self.addCleanup(_purge, [other_id])
-        PaymentClassifier().classify(self.payment(customer_id=cust))
-        PaymentClassifier().classify(self.payment(id=other_id, customer_id=cust))
+        PaymentClassifier().classify(self.payment(customer_id=cust), alert_staff=True)
+        PaymentClassifier().classify(self.payment(id=other_id, customer_id=cust), alert_staff=True)
         self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE)), 1)
         self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE, other_id)), 1)
         self.assertEqual(len(self._alert_events()), 1)
@@ -352,6 +354,19 @@ class TestCallersRefuse(AmbiguousPartyBase):
         self.assertEqual(result["status"], "error")
         self.assertIn("More than one", result["message"])
 
+    def test_webhook_alerts_exactly_once_across_two_deliveries(self):
+        """The webhook is a delivery path: it asks for the alert, and the redelivery is silent."""
+        self._staff_recipient()
+        cust = self._share("Member", "mollie_customer_id", self.members)
+        for _ in range(2):
+            result = self._webhook_result(self.payment(customer_id=cust, metadata={}))
+            self.assertEqual(result["status"], "error")
+        events = self._alert_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].attempts, 1)
+        self.assertGreaterEqual(events[0].recipient_count, 1)
+        self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE)), 1)
+
     def test_a_refund_repost_for_an_ambiguous_member_payment_is_refused_too(self):
         """Refusing to attribute is refusing to book its reversal as well: the refund of a payment
         nobody could be charged to is not booked against a guessed Member either (#1497). Mollie
@@ -363,6 +378,118 @@ class TestCallersRefuse(AmbiguousPartyBase):
         result = self._webhook_result(payment)
         self.assertEqual(result["status"], "error")
         self.assertIn("More than one", result["message"])
+
+
+class TestAlertOnlyOnDeliveryPaths(AmbiguousPartyBase):
+    """#1497 (2): read-only classification writes the Error Log row and sends NO alert."""
+
+    def setUp(self):
+        super().setUp()
+        self._staff_recipient()
+        self.cust = self._share("Member", "mollie_customer_id", self.members)
+        self.other_id = f"tr_{frappe.generate_hash(length=10)}"
+        self.addCleanup(_purge, [self.other_id])
+
+    def _payments(self):
+        return [self.payment(customer_id=self.cust), self.payment(id=self.other_id, customer_id=self.cust)]
+
+    def assertQuietButLogged(self):
+        for payment_id in (self.payment_id, self.other_id):
+            self.assertEqual(self._alert_events(payment_id), [], f"read-only caller alerted for {payment_id}")
+            self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE, payment_id)), 1)
+
+    def test_default_is_quiet_for_every_entry_point(self):
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        first, second = self._payments()
+        self.assertEqual(PaymentClassifier().classify(first).payment_type, PaymentType.AMBIGUOUS)
+        (batched,) = PaymentClassifier().classify_batch([second])
+        self.assertEqual(batched.payment_type, PaymentType.AMBIGUOUS)
+        self.assertQuietButLogged()
+        for payment in (first, second):
+            self.assertEqual(
+                DuesPaymentProcessor().identify_payment_type(payment), PaymentType.AMBIGUOUS
+            )
+            self.assertEqual(
+                PaymentTypeRouter.classify_payment(_SeamRouter(payment), payment)["payment_type"],
+                PaymentType.AMBIGUOUS,
+            )
+        self.assertQuietButLogged()
+
+    def test_explicit_true_alerts_through_each_entry_point(self):
+        """Control: the switch is wired through every layer, so a quiet default is not a dead alert."""
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        first, second = self._payments()
+        DuesPaymentProcessor().identify_payment_type(first, alert_staff=True)
+        PaymentTypeRouter.classify_payment(_SeamRouter(second), second, alert_staff=True)
+        self.assertEqual(len(self._alert_events(self.payment_id)), 1)
+        self.assertEqual(len(self._alert_events(self.other_id)), 1)
+
+    def test_batch_with_true_alerts(self):
+        PaymentClassifier().classify_batch([self.payment(customer_id=self.cust)], alert_staff=True)
+        self.assertEqual(len(self._alert_events()), 1)
+
+    def test_bulk_payment_checker_over_a_shared_customer_sends_no_alert(self):
+        from verenigingen.tests.payment import test_bulk_payment_checker as bulk
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        sdk_payments = [
+            bulk._sdk_payment(pid, customer_id=self.cust) for pid in (self.payment_id, self.other_id)
+        ]
+        checker = bulk._build_checker(bulk._FakeSDKClient({self.cust: sdk_payments}))
+        checker.dues_processor = DuesPaymentProcessor()  # real classification
+        with bulk._patch_bt_creator():
+            result = checker.check_payments_for_customer(self.cust, self.members[0].name)
+        self.assertIsNone(result["error"])
+        self.assertEqual([p["payment_type"] for p in result["payments"]], [PaymentType.AMBIGUOUS] * 2)
+        self.assertQuietButLogged()
+
+    def test_debug_service_over_a_shared_customer_sends_no_alert(self):
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+        from verenigingen.tests.payment import test_bulk_payment_checker as bulk
+
+        payments = [
+            SimpleNamespace(
+                id=pid,
+                status="paid",
+                amount={"value": "25.00", "currency": "EUR"},
+                description="",
+                customer_id=self.cust,
+                subscription_id=None,
+                created_at="2026-01-01",
+                paid_at="2026-01-01",
+                metadata={},
+            )
+            for pid in (self.payment_id, self.other_id)
+        ]
+
+        class _Customers:
+            def get(_self, customer_id):
+                return SimpleNamespace(
+                    name="n", email="e", payments=bulk._FakePaymentsList(payments)
+                )
+
+        class _Client:
+            sdk_client = SimpleNamespace(customers=_Customers())
+
+            def is_test_mode(_self):
+                return True
+
+        service = object.__new__(MollieDebugService)
+        service.mollie_client = _Client()
+        service.logger = get_harness_logger(__name__)  # __init__ (real Mollie client) is skipped
+        with bulk._patch_bt_creator():
+            result = service.retrieve_customer_payments_for_processing(self.cust)
+        self.assertIsNone(result["error"])
+        self.assertEqual([p["payment_type"] for p in result["payments"]], [PaymentType.AMBIGUOUS] * 2)
+        self.assertQuietButLogged()
 
 
 class TestWriterReachability(AmbiguousPartyBase):

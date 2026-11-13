@@ -118,7 +118,7 @@ class DuesPaymentProcessor:
 
         return member, customer
 
-    def identify_payment_type(self, payment: Any) -> str:
+    def identify_payment_type(self, payment: Any, alert_staff: bool = False) -> str:
         """
         Identify whether a payment is for membership dues or a donation.
 
@@ -126,12 +126,13 @@ class DuesPaymentProcessor:
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
             str: "dues", "donation", "order", "unknown", or "ambiguous" (a Mollie id several
             Members hold; callers that act only on "dues" or "donation" refuse it)
         """
-        result = self.classifier.classify(payment)
+        result = self.classifier.classify(payment, alert_staff)
         return result.payment_type
 
     def find_member_for_payment(self, payment) -> Optional[str]:

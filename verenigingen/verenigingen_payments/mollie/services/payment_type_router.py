@@ -59,12 +59,13 @@ class PaymentTypeRouter:
             frappe.logger().error(f"❌ Failed to fetch payment {payment_id}: {e}")
             raise
 
-    def classify_payment(self, payment: Any) -> Dict[str, Any]:
+    def classify_payment(self, payment: Any, alert_staff: bool = False) -> Dict[str, Any]:
         """
         Classify payment type using PaymentClassifier.
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
             Dict with classification details:
@@ -75,7 +76,7 @@ class PaymentTypeRouter:
                 - member_id: Associated member (if dues)
                 - donor_id: Associated donor (if donation)
         """
-        classification = self.classifier.classify(payment)
+        classification = self.classifier.classify(payment, alert_staff)
 
         result = {
             "payment_type": classification.payment_type,
