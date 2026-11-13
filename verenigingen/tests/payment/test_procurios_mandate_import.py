@@ -16,7 +16,10 @@ from verenigingen.tests.fixtures.procurios_csv_fixtures import (
     create_csv_file_attachment,
     create_raw_csv_attachment,
 )
-from verenigingen.tests.support.procurios_import_stubs import _create_stub_import_doc
+from verenigingen.tests.support.procurios_import_stubs import (
+    _create_stub_import_doc,
+    _submit_import_doc_without_worker_2491,
+)
 
 CSV_HEADERS = [
     "Incasso-afspraak ID",
@@ -443,7 +446,7 @@ class TestProcuriosMandateImportEndToEnd(EnhancedTestCase):
         ]
         file_url = _create_csv_attach(rows)
         doc = _create_import_doc(file_url)
-        doc.submit()  # enqueues; we drive synchronously
+        _submit_import_doc_without_worker_2491(doc)  # we drive the job synchronously
 
         process_import_background(doc.name, test_mode=False)
 
@@ -520,7 +523,7 @@ class TestProcuriosMandateImportAllFilteredCompletes(EnhancedTestCase):
         ]
         file_url = _create_csv_attach(rows)
         doc = _create_import_doc(file_url)
-        doc.submit()
+        _submit_import_doc_without_worker_2491(doc)
         process_import_background(doc.name, test_mode=False)
 
         doc.reload()
@@ -663,6 +666,51 @@ class TestPropertyCacheHits(EnhancedTestCase):
 import time
 
 
+def _rq_job_ids_for_import_2491(import_doc_name: str) -> set:
+    """Ids of every RQ job (queued, started, finished, failed) naming this import doc.
+
+    A job moves queue -> started registry in two steps, and the registries are read one
+    after another, so a single scan can miss a job a live worker is picking up at that
+    instant. Take the union of a few scans.
+    """
+    found = set()
+    for _ in range(4):
+        found |= _scan_rq_job_ids_for_import_2491(import_doc_name)
+        time.sleep(0.1)
+    return found
+
+
+def _scan_rq_job_ids_for_import_2491(import_doc_name: str) -> set:
+    from frappe.utils.background_jobs import get_queue
+    from rq.job import Job
+
+    queue = get_queue("long")
+    ids = set(queue.get_job_ids())
+    for registry in (queue.started_job_registry, queue.finished_job_registry, queue.failed_job_registry):
+        ids.update(registry.get_job_ids())
+    found = set()
+    for job in Job.fetch_many(list(ids), connection=queue.connection):
+        # Job ids are `<site>||<uuid>` and the import doc name repeats across sites
+        # (series PROC-MND-IMP-.YYYY.-.####, rolled back per test), so match the site too.
+        if not job or job.kwargs.get("site") != frappe.local.site:
+            continue
+        if (job.kwargs.get("kwargs") or {}).get("import_doc_name") == import_doc_name:
+            found.add(job.id)
+    return found
+
+
+class TestProcuriosImportSubmitLeavesNoWorkerJob2491(EnhancedTestCase):
+    """#2491: a test that submits an import AND runs it synchronously must not also queue it."""
+
+    def test_submit_helper_queues_nothing_for_a_live_worker(self):
+        doc = _create_import_doc(_create_csv_attach([_base_row(Mandaatnummer="J2491-1")]))
+        before = _rq_job_ids_for_import_2491(doc.name)
+
+        _submit_import_doc_without_worker_2491(doc)
+
+        self.assertEqual(_rq_job_ids_for_import_2491(doc.name) - before, set())
+
+
 class TestProcuriosMandateImportScale(EnhancedTestCase):
     """Volume smoke test — 500 rows, mixed outcomes."""
 
@@ -728,7 +776,7 @@ class TestProcuriosMandateImportScale(EnhancedTestCase):
 
         file_url = _create_csv_attach(rows)
         doc = _create_import_doc(file_url)
-        doc.submit()
+        _submit_import_doc_without_worker_2491(doc)
 
         start = time.monotonic()
         process_import_background(doc.name, test_mode=False)
