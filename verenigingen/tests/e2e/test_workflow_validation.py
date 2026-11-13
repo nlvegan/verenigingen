@@ -22,6 +22,10 @@ from verenigingen.verenigingen_payments.clients.invoices_client import InvoicesC
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 
+# The whole class is @unittest.skip'd (constructor-signature drift, see the decorator); remove this
+# marker when it is reworked and un-skipped.
+CI_ALWAYS_SKIPS = "whole class @unittest.skip'd: e2e flows built on refactored Mollie constructor signatures"
+
 
 @unittest.skip(
     "Mollie internals drift: every test instantiates the workflow managers/clients with a "
