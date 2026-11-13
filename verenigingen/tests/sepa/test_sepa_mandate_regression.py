@@ -35,6 +35,14 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         except Exception as e:
             print(f"Warning: Could not restore settings: {e}")
 
+        # The identity service is a process singleton that caches settings; drop the
+        # last test's pattern and counter so later modules do not inherit them.
+        from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import (
+            sepa_mandate_identity_service,
+        )
+
+        sepa_mandate_identity_service.clear_settings_cache()
+
         super().tearDownClass()
 
     def _create_mandate_autogen_id(self, member_name, iban=None):
@@ -317,19 +325,30 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         ]
         starting_counter = 7  # not 1: a generator ignoring the setting would show
 
-        for pattern, description in test_patterns:
-            with self.subTest(pattern=pattern, description=description):
-                payments_settings = frappe.get_single("Verenigingen Payments Settings")
-                payments_settings.sepa_mandate_naming_pattern = pattern
-                payments_settings.sepa_mandate_starting_counter = starting_counter
-                payments_settings.save()
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        original_pattern = payments_settings.sepa_mandate_naming_pattern
+        original_counter = payments_settings.sepa_mandate_starting_counter
 
-                member = self.create_test_member(
-                    first_name="Pattern",
-                    last_name=f"Test{frappe.generate_hash(length=6)}",
-                )
+        try:
+            for pattern, description in test_patterns:
+                with self.subTest(pattern=pattern, description=description):
+                    payments_settings = frappe.get_single("Verenigingen Payments Settings")
+                    payments_settings.sepa_mandate_naming_pattern = pattern
+                    payments_settings.sepa_mandate_starting_counter = starting_counter
+                    payments_settings.save()
 
-                self._942_assert_autogen_mandate_id(member.name, pattern, starting_counter)
+                    member = self.create_test_member(
+                        first_name="Pattern",
+                        last_name=f"Test{frappe.generate_hash(length=6)}",
+                    )
+
+                    self._942_assert_autogen_mandate_id(member.name, pattern, starting_counter)
+        finally:
+            # Restore original settings - refresh to avoid timestamp mismatch
+            payments_settings.reload()
+            payments_settings.sepa_mandate_naming_pattern = original_pattern
+            payments_settings.sepa_mandate_starting_counter = original_counter
+            payments_settings.save()
 
     def test_data_migration_compatibility(self):
         """Test that naming system works with data migration scenarios"""
