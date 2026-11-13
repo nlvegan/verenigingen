@@ -15,6 +15,7 @@ from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import mysql_error_code
 
 
 def validate_cleanup_permissions():
@@ -403,8 +404,16 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 results["errors"].append(f"{chapter.name}: {str(e)}")
                 if orphaned_indices and not dry_run:
                     results["chapters_failed"].append(chapter.name)
+                if not dry_run and _lost_the_transaction(e):
+                    # Not resumable (#2482): the server rolled back every chapter cleaned
+                    # earlier in this run too, so carrying on would only pile more
+                    # uncommitted work onto a transaction that is no longer ours.
+                    results["aborted"] = True
+                    break
 
-        if dry_run:
+        if results.get("aborted"):
+            _report_aborted_run(results)
+        elif dry_run:
             results["summary"] = (
                 f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
             )
@@ -425,6 +434,26 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _lost_the_transaction(error):
+    """True for a 1213 deadlock victim: the server rolled the WHOLE transaction back.
+
+    A 1205 lock-wait timeout is deliberately not matched: with `innodb_rollback_on_timeout`
+    OFF it only undoes the failed statement, so earlier chapters are still pending.
+    """
+    return isinstance(error, frappe.QueryDeadlockError) or mysql_error_code(error) == 1213
+
+
+def _report_aborted_run(results):
+    """Nothing from an aborted run persisted, so the counters must say so (#2482)."""
+    results["orphaned_removed"] = 0
+    results["chapters_cleaned"] = 0
+    failed = results["chapters_failed"][-1] if results["chapters_failed"] else "a chapter"
+    results["summary"] = (
+        f"ABORTED at {failed}: the database rolled this run back (deadlock), so no orphans "
+        "were removed. Run the cleanup again."
+    )
 
 
 def _remove_orphans_atomically(chapter_doc, orphaned_indices):
