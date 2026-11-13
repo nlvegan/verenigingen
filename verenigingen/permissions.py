@@ -2049,9 +2049,10 @@ def _withdraw_via_profile_sync(user_email, user_member):
     result = sync_user_role_profile(user_email, allow_disabled=True, reraise_non_resumable=True)
     if not result.get("success"):
         raise BoardAccessWithdrawalError(
-            frappe._("Could not recalculate the role profile of {0}: {1}").format(
-                user_email, result.get("error")
-            )
+            frappe._(
+                "Board access of User {0} could not be withdrawn because its role profile could not be "
+                "recalculated: {1}. Fix or remove the invalid role row on that User, then try again."
+            ).format(user_email, result.get("error"))
         )
     for volunteer in frappe.get_all("Volunteer", filters={"member": user_member}, pluck="name"):
         withdraw_board_member_role_if_unseated(volunteer)

@@ -17,6 +17,7 @@ from unittest import mock
 
 import frappe
 
+from verenigingen import permissions
 from verenigingen.permissions import assign_chapter_board_role, update_all_chapter_board_roles
 from verenigingen.services.member.account import user_role_profile_calculator as calculator
 from verenigingen.services.member.account.user_role_profile_calculator import (
@@ -271,6 +272,54 @@ class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
         self.assertIn(bad.user, str(raised.exception))
         self.assertNotIn(good.user, str(raised.exception))
         self._assert_withdrawn_after_a_user_save(good.user)
+
+    def test_a_refused_user_is_rolled_back_while_another_users_withdrawal_persists(self):
+        """The refusal comes AFTER the real sync stripped the profile and role, so only the
+        per-user savepoint can put the refused user back. A plain try/except would leave them
+        half-withdrawn (profile and role gone, yet reported as failed)."""
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        bad, good = self._person_702("RollBad"), self._person_702("RollGood")
+        for person in (bad, good):
+            self._seat_702(person)
+            self._vacate_behind_the_hooks(person)
+        self._assert_seated(bad.user)
+        real_attached = permissions._sync_owned_board_profiles_attached
+
+        def refuse_for_bad(user):
+            # The real sync has already run for this user by the time the post-condition asks.
+            if user == bad.user:
+                self.assertNotIn(BOARD_ROLE, self._roles(user), "fixture: the write happened first")
+                return [PROFILE_BOARD_MEMBER]
+            return real_attached(user)
+
+        # Mock justified: forces the post-condition to refuse one user after the writes.
+        with mock.patch.object(permissions, "_sync_owned_board_profiles_attached", side_effect=refuse_for_bad):
+            with self.assertRaises(BoardAccessWithdrawalError) as raised:
+                update_all_chapter_board_roles()
+
+        self.assertIn(bad.user, str(raised.exception))
+        self._assert_seated(bad.user)  # back to the pre-sweep state, not half-withdrawn
+        self.assertNotIn(BOARD_ROLE, self._roles(good.user))
+        self.assertNotIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(good.user))
+
+    def test_a_failed_profile_recalculation_names_the_user_and_the_fix(self):
+        """Staff re-linking a Member hit this; the message must say whose User and what to do."""
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        person = self._person_702("Msg")
+        self._seat_702(person)
+        self._vacate_behind_the_hooks(person)
+        # Mock justified: reproduces the sync's failure result for an invalid role row.
+        failure = {"success": False, "error": "Could not find Row #2: Role: Nonexistent Role 702"}
+        with mock.patch.object(calculator, "sync_user_role_profile", return_value=failure):
+            with self.assertRaises(BoardAccessWithdrawalError) as raised:
+                assign_chapter_board_role(person.user)
+
+        message = str(raised.exception)
+        self.assertIn(person.user, message)
+        self.assertIn("Nonexistent Role 702", message)
+        self.assertIn("role row", message)
 
     def test_an_orphan_has_role_row_is_skipped_and_recorded_not_fatal(self):
         ghost = f"w702.ghost.{frappe.generate_hash(length=8)}@test.invalid"
