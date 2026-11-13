@@ -778,38 +778,95 @@ class TestTerminationIntegration(EnhancedTestCase):
     # ==================================================================
     # deactivate_user_account_safe — disciplinary disable path
     # ==================================================================
+    def _1203_attach_profile(self):
+        """A volunteer's user carrying a REAL Role Profile (as production does),
+        so User.populate_role_profile_roles() has something to re-derive from.
+        Returns (member, user). #1203: the earlier tests here appended a role
+        directly, which leaves role_profiles empty and skips that code."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member = self._make_member()
+        self._make_volunteer(member)
+        user = self._make_user(member, enabled=1)
+        self.assertEqual(sync_user_role_profile(user.name).get("new_profile"), "Verenigingen Volunteer")
+        # Precondition: the profile really granted roles and is on the user.
+        self.assertTrue(frappe.get_doc("User", user.name).role_profiles)
+        self.assertIn("Verenigingen Volunteer", self._has_role_rows(user.name))
+        return member, user
+
     def test_deactivate_user_account_safe_disciplinary_clears_roles(self):
         """Disciplinary termination (not suspend_only) disables the user and
-        strips all but essential roles for audit purposes."""
-        member = self._make_member()
-        user = self._make_user(member, enabled=1)
-        # Give the user a non-essential role so we can prove it gets stripped.
+        strips all but essential roles for audit purposes -- for a user whose
+        roles come from a Role Profile, and the strip survives later saves and
+        the role-profile resync (#1203, #925)."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        member, user = self._1203_attach_profile()
+        # A directly-assigned role too, so both sources are proven stripped.
         user_doc = frappe.get_doc("User", user.name)
         user_doc.append("roles", {"role": "Verenigingen Member"})
         user_doc.save()
+        self.assertTrue(self._has_role_rows(user.name) >= {"Verenigingen Member", "Verenigingen Volunteer"})
+
         result = ti.deactivate_user_account_safe(
             member.name, "Disciplinary Action", "policy breach", suspend_only=False
         )
         self.assertTrue(result)
         self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
-        user_doc.reload()
-        remaining = {r.role for r in user_doc.roles}
-        self.assertNotIn("Verenigingen Member", remaining)
+
+        gone = {"Verenigingen Member", "Verenigingen Volunteer", "Employee", "Projects User"}
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "roles survived the disciplinary strip itself (role_profiles not cleared, "
+            "so populate_role_profile_roles() re-derived them on the same save)",
+        )
+        self.assertFalse(frappe.get_doc("User", user.name).role_profiles)
+
+        # Stays gone: an unrelated later save, and the (default) role-profile
+        # resync, which skips a disabled account -- neither may re-grant roles.
+        frappe.get_doc("User", user.name).save()
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "an unrelated later save of the disabled user re-granted roles",
+        )
+        sync_user_role_profile(user.name)
+        self.assertFalse(
+            gone & self._has_role_rows(user.name),
+            "sync_user_role_profile re-granted Has Role rows to the disabled user",
+        )
+        self.assertFalse(
+            gone & set(frappe.get_roles(user.name)),
+            "frappe.get_roles still returns stripped roles after the resync",
+        )
+
+    def test_deactivate_user_account_safe_non_disciplinary_keeps_role_profile_roles(self):
+        """Control (#1203): a Voluntary termination only disables the account;
+        the profile and its roles are left exactly as they were."""
+        member, user = self._1203_attach_profile()
+        before = self._has_role_rows(user.name)
+
+        self.assertTrue(ti.deactivate_user_account_safe(member.name, "Voluntary", "left"))
+
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+        self.assertTrue(frappe.get_doc("User", user.name).role_profiles)
+        self.assertEqual(self._has_role_rows(user.name), before)
 
     def test_deactivate_user_account_safe_disciplinary_suspend_only_keeps_roles(self):
         """suspend_only=True even for a disciplinary type only disables (does not
-        clear roles)."""
-        member = self._make_member()
-        user = self._make_user(member, enabled=1)
-        user_doc = frappe.get_doc("User", user.name)
-        user_doc.append("roles", {"role": "Verenigingen Member"})
-        user_doc.save()
+        clear roles or the role profile)."""
+        member, user = self._1203_attach_profile()
+        before = self._has_role_rows(user.name)
         result = ti.deactivate_user_account_safe(
             member.name, "Disciplinary Action", "breach", suspend_only=True
         )
         self.assertTrue(result)
-        user_doc.reload()
-        self.assertIn("Verenigingen Member", {r.role for r in user_doc.roles})
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+        self.assertTrue(frappe.get_doc("User", user.name).role_profiles)
+        self.assertEqual(self._has_role_rows(user.name), before)
 
     def test_deactivate_user_account_safe_disciplinary_strips_role_profile_derived_roles(self):
         """#925: deactivate_user_account_safe strips `roles` in memory only, and
