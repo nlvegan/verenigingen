@@ -5,9 +5,7 @@
 "never fail" contract and now writes an Error Log row.
 
 Mock justified: ROLE_PROFILE_SECURITY_MAPPING is configuration, so the invalid entry is injected
-into that dict (the validation itself is real). A database failure cannot be produced for real
-from one session, so `frappe.db.exists` is made to fail only for the Role Profile lookup the
-validation performs; every other lookup (including Error Log's own insert) passes through.
+into that dict (the validation itself is real). The validation failure is real: a None mapping value raises a TypeError inside the loop.
 """
 
 from unittest import mock
@@ -21,7 +19,6 @@ from verenigingen.utils.security.authorization_policy import AuthorizationPolicy
 MAPPING_T = "Security framework: invalid security level mappings"
 FAILED_T = "Security framework: role profile configuration validation failed"
 BAD_PROFILE = "Role Profile 2445 Bad Mapping"
-BOOM = "db-down-2445"
 
 
 class TestRoleProfileConfigErrorLogging2445(EnhancedTestCase):
@@ -36,17 +33,6 @@ class TestRoleProfileConfigErrorLogging2445(EnhancedTestCase):
         # Mock justified: configuration dict, restored on exit.
         return mock.patch.dict(AuthorizationPolicy.ROLE_PROFILE_SECURITY_MAPPING, {BAD_PROFILE: [level]})
 
-    def _db_exists_fails(self):
-        real = frappe.db.exists
-
-        def flaky(doctype, *args, **kwargs):
-            if doctype == "Role Profile":
-                raise RuntimeError(BOOM)
-            return real(doctype, *args, **kwargs)
-
-        # Mock justified: a DB failure cannot be produced for real from one session.
-        return mock.patch.object(frappe.db, "exists", flaky)
-
     def test_invalid_mapping_entry_is_recorded(self):
         self.expectErrorLog(MAPPING_T)
         before = len(self._rows(MAPPING_T))
@@ -60,11 +46,12 @@ class TestRoleProfileConfigErrorLogging2445(EnhancedTestCase):
     def test_validation_failure_is_recorded(self):
         self.expectErrorLog(FAILED_T)
         before = len(self._rows(FAILED_T))
-        with self._db_exists_fails():
+        # A non-iterable mapping value makes the validation raise a real TypeError.
+        with mock.patch.dict(AuthorizationPolicy.ROLE_PROFILE_SECURITY_MAPPING, {BAD_PROFILE: None}):
             self.framework._validate_role_profile_configuration()  # must not raise
         rows = self._rows(FAILED_T)
         self.assertEqual(len(rows), before + 1)
-        self.assertIn(BOOM, rows[-1].error)
+        self.assertIn("TypeError", rows[-1].error)
         self.assertIn("Traceback", rows[-1].error)
 
     def test_control_valid_configuration_records_nothing(self):
@@ -73,10 +60,16 @@ class TestRoleProfileConfigErrorLogging2445(EnhancedTestCase):
         self.assertEqual((len(self._rows(MAPPING_T)), len(self._rows(FAILED_T))), before)
 
     def test_init_survives_log_error_itself_raising(self):
-        """Recording is best-effort on both paths."""
-        # Mock justified: a failure inside frappe.log_error cannot be produced for real.
-        with mock.patch.object(frappe, "log_error", side_effect=OSError("log-2445")):
+        """Recording is best-effort on both paths, and falls back to the file logger."""
+        # Mock justified: a failure inside frappe.log_error cannot be produced for real; the
+        # logger is patched only to observe the fallback.
+        with mock.patch.object(frappe, "log_error", side_effect=OSError("log-2445")), mock.patch.object(
+            frappe, "logger"
+        ) as logger:
             with self._bad_mapping():
                 self.framework._validate_role_profile_configuration()
-            with self._db_exists_fails():
+            self.assertEqual(logger.return_value.error.call_count, 1)
+            self.assertIn(BAD_PROFILE, logger.return_value.error.call_args[0][0])
+            with mock.patch.dict(AuthorizationPolicy.ROLE_PROFILE_SECURITY_MAPPING, {BAD_PROFILE: None}):
                 self.framework._validate_role_profile_configuration()
+            self.assertEqual(logger.return_value.error.call_count, 2)

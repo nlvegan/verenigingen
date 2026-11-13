@@ -356,7 +356,9 @@ class APISecurityFramework:
                         message=f"Entries that are not a SecurityLevel: {invalid_mappings}",
                     )
                 except Exception:
-                    pass
+                    frappe.logger("verenigingen.api_security").error(
+                        f"Invalid security level mappings found: {invalid_mappings}"
+                    )
 
             # Log successful validation
             valid_profiles = [
@@ -375,7 +377,9 @@ class APISecurityFramework:
                     message=frappe.get_traceback(),
                 )
             except Exception:
-                pass
+                frappe.logger("verenigingen.api_security").error(
+                    "Error validating role profile configuration (and Error Log write failed)"
+                )
 
     def _get_user_role_profiles(self, user: str = None) -> List[str]:
         """
