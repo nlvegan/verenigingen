@@ -279,6 +279,19 @@ def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, An
             message=f"Processed {len(assignments)} assignments: {success_count} successful, {error_count} failed",
         )
 
+    # #506: assign_member_to_chapter re-raises a 1205/1213 (#504). Keep going and the
+    # remaining members run on a transaction the server may have discarded, and the
+    # summary would count the earlier ones as done. As in bulk_suspend_members (#475):
+    # stop the loop, roll back (this frame owns the unit of work; a plain rollback, not a
+    # savepoint one, so it cannot mask the error), log, re-raise. No partial result is
+    # reported -- after a 1213 it would be fiction.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            title="Bulk Assignment Error",
+            message=f"Non-resumable DB error in bulk_assign_members_to_chapters\n{frappe.get_traceback()}",
+        )
+        raise
     except Exception as e:
         frappe.log_error(f"Error in bulk assignment: {str(e)}", "Bulk Assignment Error")
         return OperationResult.fail(f"Failed to process bulk assignments: {str(e)}")
