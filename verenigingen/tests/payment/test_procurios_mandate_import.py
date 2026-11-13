@@ -673,8 +673,6 @@ def _rq_job_ids_for_import_2491(import_doc_name: str) -> set:
     after another, so a single scan can miss a job a live worker is picking up at that
     instant. Take the union of a few scans.
     """
-    import time
-
     found = set()
     for _ in range(4):
         found |= _scan_rq_job_ids_for_import_2491(import_doc_name)

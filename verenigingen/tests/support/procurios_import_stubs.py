@@ -52,6 +52,8 @@ def _submit_import_doc_without_worker_2491(doc):
     """
     with patch.object(frappe, "enqueue") as enqueue_mock:
         doc.submit()
-    enqueue_mock.assert_called_once()
-    assert enqueue_mock.call_args.kwargs["import_doc_name"] == doc.name
+    if enqueue_mock.call_count != 1 or enqueue_mock.call_args.kwargs.get("import_doc_name") != doc.name:
+        raise AssertionError(
+            f"on_submit should enqueue exactly one job for {doc.name}, got {enqueue_mock.call_args_list}"
+        )
     return enqueue_mock

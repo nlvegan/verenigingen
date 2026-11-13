@@ -19,6 +19,9 @@ import frappe
 from verenigingen.tests.utils.force_delete import force_delete
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.procurios_import_stubs import (
+    _submit_import_doc_without_worker_2491,
+)
 from verenigingen.verenigingen.doctype.procurios_membership_import.procurios_membership_import import (
     process_import_background,
 )
@@ -149,7 +152,7 @@ class TestMembershipImportFlow(EnhancedTestCase):
             if child.procurios_type in mapping:
                 child.membership_type = mapping[child.procurios_type]
         doc.save()
-        doc.submit()
+        _submit_import_doc_without_worker_2491(doc)
         frappe.db.commit()
 
         if as_user:
