@@ -15,7 +15,7 @@ from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
-from verenigingen.utils.transaction_errors import mysql_error_code
+from verenigingen.utils.transaction_errors import SAVEPOINT_DOES_NOT_EXIST, mysql_error_code
 
 
 def validate_cleanup_permissions():
@@ -437,12 +437,20 @@ def cleanup_orphaned_chapter_members(dry_run=True):
 
 
 def _lost_the_transaction(error):
-    """True for a 1213 deadlock victim: the server rolled the WHOLE transaction back.
+    """True when the server rolled the WHOLE transaction back (1213, or its aftermath).
+
+    Two shapes: the 1213 itself reaching us, or a 1213 swallowed below `Chapter.save`
+    (the chapter validators catch `Exception`), after which `save()` returns normally and
+    the savepoint release raises 1305. In this function a 1305 can only mean the
+    transaction is gone: nothing here commits, so no nested commit can have cleared it.
 
     A 1205 lock-wait timeout is deliberately not matched: with `innodb_rollback_on_timeout`
     OFF it only undoes the failed statement, so earlier chapters are still pending.
     """
-    return isinstance(error, frappe.QueryDeadlockError) or mysql_error_code(error) == 1213
+    return isinstance(error, frappe.QueryDeadlockError) or mysql_error_code(error) in (
+        1213,
+        SAVEPOINT_DOES_NOT_EXIST,
+    )
 
 
 def _report_aborted_run(results):

@@ -578,12 +578,12 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         with patch.object(Chapter, "save", save):
             return cleanup.cleanup_orphaned_chapter_members(dry_run=False)
 
-    def _lose_the_transaction(self):
+    def _lose_the_transaction(self, error=None):
         import pymysql
 
         # A 1213 victim: the server rolls the WHOLE transaction back, earlier saves included.
         frappe.db.rollback()
-        raise pymysql.err.OperationalError(1213, "Deadlock found when trying to get lock")
+        raise error or pymysql.err.OperationalError(1213, "Deadlock found when trying to get lock")
 
     def test_a_clean_run_counts_and_persists_every_chapter(self):
         names = self._create_committed_orphan_chapters(2)
@@ -607,7 +607,8 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
 
         def save_hook(real_save, doc, *args, **kwargs):
             if saved_for_real:
-                self._lose_the_transaction()
+                # The typed error: the raw-driver 1213 form is covered by the stops-the-run test.
+                self._lose_the_transaction(frappe.QueryDeadlockError("Deadlock found"))
             saved_for_real.append(doc.name)
             return real_save(doc, *args, **kwargs)
 
@@ -623,6 +624,45 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         self.assertIn("ABORTED", results["summary"])
         self.assertNotIn("Removed", results["summary"])
         self.assertEqual(len(results["chapters_failed"]), 1)
+
+    def test_a_deadlock_swallowed_below_save_still_aborts_the_run(self):
+        """#2482 F1: Chapter validators swallow a 1213 raised under `save()`.
+
+        `save()` then returns normally, the savepoint is gone, and the release raises 1305.
+        """
+        from unittest.mock import patch
+
+        self.expectErrorLog("Orphaned Chapter Cleanup Rollback Error")
+        self._create_committed_orphan_chapters(3)
+        before = self._orphan_rows_on_fresh_connection()
+        saves = []
+        real_get_single = frappe.get_single
+        armed = []
+
+        def get_single(doctype, *args, **kwargs):
+            if doctype == "Verenigingen Settings" and armed:
+                armed.clear()
+                frappe.db.rollback()
+                raise frappe.QueryDeadlockError("Deadlock found when trying to get lock")
+            return real_get_single(doctype, *args, **kwargs)
+
+        def save_hook(real_save, doc, *args, **kwargs):
+            saves.append(doc.name)
+            if len(saves) == 2:
+                armed.append(True)
+            return real_save(doc, *args, **kwargs)
+
+        # Mock justified: injects the deadlock below Chapter.save, where validators swallow it.
+        with patch.object(frappe, "get_single", get_single):
+            results = self._run_live_with_save_hook(save_hook)
+
+        self.assertFalse(armed, "the injected deadlock never fired")
+        self.assertEqual(len(saves), 2)
+        after = self._orphan_rows_on_fresh_connection()
+        self.assertEqual(after, before)
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["orphaned_removed"], 0)
+        self.assertEqual(results["chapters_cleaned"], 0)
 
     def test_a_deadlock_stops_the_run_instead_of_carrying_on(self):
         self.expectErrorLog("Orphaned Chapter Cleanup Rollback Error")
