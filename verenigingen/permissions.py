@@ -1906,6 +1906,9 @@ def assign_chapter_board_role(user_email):
     Automatically assign Chapter Board Member role to users with active board positions
     This should be called when chapter board positions are created/updated
     """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
     try:
         # Get user's member record. #1546: resolved strictly (Member.user
         # only) -- this decides whether to GRANT or REMOVE the Chapter Board
@@ -1969,16 +1972,127 @@ def assign_chapter_board_role(user_email):
             if DocumentExistenceValidator.check_document_exists(
                 "Has Role", {"parent": user_email, "role": Roles.CHAPTER_BOARD_MEMBER}
             ):
-                frappe.db.delete("Has Role", {"parent": user_email, "role": Roles.CHAPTER_BOARD_MEMBER})
+                _withdraw_chapter_board_access(user_email, user_member)
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True
             else:
                 frappe.logger().debug(f"User {user_email} doesn't have Chapter Board Member role to remove")
                 return False
 
+    except BoardAccessWithdrawalError:
+        # A failed WITHDRAWAL must reach the caller (#1953, #702): logging it and returning
+        # False reads as "nothing to remove" while the user keeps the board access.
+        raise
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # a deadlock/lock-wait leaves the transaction unusable: never read as "False"
     except Exception as e:
         frappe.log_error(f"Error assigning chapter board role to {user_email}: {str(e)}")
         return False
+
+
+def _withdraw_chapter_board_access(user_email, user_member):
+    """Withdraw a seatless user's board role AND the role profile that would re-grant it (#702).
+
+    User.populate_role_profile_roles resets ``roles`` to the attached profiles' roles on every
+    save, so deleting the Has Role row alone is undone by the next User.save(). Same order as
+    BoardManager.flush_pending_board_profile_syncs: profile first, then the role, then a
+    post-condition that raises, because a withdrawal that did not withdraw must be loud (#1953).
+    """
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+    if user_member:
+        _withdraw_via_profile_sync(user_email, user_member)
+    else:
+        # No Member.user link (an email-only holder, or the OLD user of a Member.user re-link):
+        # the calculator derives nothing for this user, so the sync cannot run for it.
+        _strip_board_profiles_and_role(user_email)
+
+    frappe.clear_cache(user=user_email)
+    # Same shape as BoardManager._assert_board_access_withdrawn (#1953): the board role may
+    # legitimately survive through ANOTHER profile (a manual Treasurer or National one), so
+    # only a profile the SYNC owns that is still attached is a failed withdrawal.
+    still_attached = _sync_owned_board_profiles_attached(user_email)
+    if still_attached:
+        raise BoardAccessWithdrawalError(
+            frappe._("Board membership of {0} ended but role profile(s) {1} are still attached.").format(
+                user_email, ", ".join(still_attached)
+            )
+        )
+
+
+def _sync_owned_board_profiles_attached(user_email):
+    """Board-conferring profiles still on the user that the sync granted (and so must withdraw).
+
+    The recorded sync-granted set is authoritative; only when nothing was ever recorded (None,
+    the bootstrap case) do the built-in profiles count as ours.
+    """
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        BUILTIN_PROFILES,
+        get_user_role_profiles,
+        read_sync_granted_profiles,
+    )
+
+    recorded = read_sync_granted_profiles(user_email)
+    owned = BUILTIN_PROFILES if recorded is None else set(recorded)
+    return [p for p in get_user_role_profiles(user_email) if p in owned and _profile_confers_board_role(p)]
+
+
+def _withdraw_via_profile_sync(user_email, user_member):
+    """The sanctioned two steps for a user with a Member: recalculate the profile, then drop the role."""
+    from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+    from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+        withdraw_board_member_role_if_unseated,
+    )
+
+    # allow_disabled: this only ever downgrades, and a disabled account still holds its profile.
+    result = sync_user_role_profile(user_email, allow_disabled=True, reraise_non_resumable=True)
+    if not result.get("success"):
+        raise BoardAccessWithdrawalError(
+            frappe._(
+                "Board access of User {0} could not be withdrawn because its role profile could not be "
+                "recalculated: {1}. Fix or remove the invalid role row on that User, then try again."
+            ).format(user_email, result.get("error"))
+        )
+    for volunteer in frappe.get_all("Volunteer", filters={"member": user_member}, pluck="name"):
+        withdraw_board_member_role_if_unseated(volunteer)
+
+
+def _strip_board_profiles_and_role(user_email):
+    """Drop the board-conferring profiles the sync owns, and the board role, from an unlinked User."""
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        _has_multi_profile_support,
+        get_user_role_profiles,
+        read_sync_granted_profiles,
+        record_sync_granted_profiles,
+    )
+
+    user_doc = frappe.get_doc("User", user_email)
+    drop = _sync_owned_board_profiles_attached(user_email)
+
+    for row in [r for r in user_doc.roles if r.role == Roles.CHAPTER_BOARD_MEMBER]:
+        user_doc.roles.remove(row)
+    if drop:
+        held = get_user_role_profiles(user_email)
+        keep = [p for p in held if p not in drop]
+        if _has_multi_profile_support():
+            user_doc.set("role_profiles", [{"role_profile": p} for p in keep])
+        record_sync_granted_profiles(
+            user_doc, [p for p in (read_sync_granted_profiles(user_email) or []) if p not in drop]
+        )
+        user_doc.role_profile_name = keep[0] if keep else None
+    # Security: ignore_permissions is safe here. This is an internal hook/maintenance path whose
+    # outcome derives only from the user's own (absent) board seats, never from the caller, and it
+    # only ever removes the board role and the sync-granted board profiles.
+    user_doc.save(ignore_permissions=True)
+
+
+def _profile_confers_board_role(profile):
+    if not frappe.db.exists("Role Profile", profile):
+        return False
+    return any(
+        r.role == Roles.CHAPTER_BOARD_MEMBER for r in frappe.get_cached_doc("Role Profile", profile).roles
+    )
 
 
 def update_all_chapter_board_roles():
@@ -1986,6 +2100,9 @@ def update_all_chapter_board_roles():
     Update Chapter Board Member roles for all users based on their current board positions
     This can be run as a maintenance function
     """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
     try:
         # Get all users with active board positions
         board_members = frappe.db.sql(
@@ -2016,15 +2133,48 @@ def update_all_chapter_board_roles():
         # skip calling assign_chapter_board_role for exactly that user,
         # silently keeping their role forever instead of letting this
         # maintenance run correct it.
+        failed = []
         for user_email in _users_with_chapter_board_role():
-            assign_chapter_board_role(user_email)
+            _withdraw_for_sweep(user_email, failed)
 
         frappe.logger().info(f"Updated chapter board roles for {success_count} users")
+        if failed:
+            # Every user was attempted first, so one bad account cannot shield the others; the
+            # failure is still loud because a withdrawal that did not withdraw must not read
+            # as "N users updated" (#702, #1953).
+            raise BoardAccessWithdrawalError(
+                frappe._("Board access was not withdrawn for: {0}").format(", ".join(failed))
+            )
         return success_count
 
+    except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
+        raise
     except Exception as e:
         frappe.log_error(f"Error updating all chapter board roles: {str(e)}")
         return 0
+
+
+def _withdraw_for_sweep(user_email, failed):
+    """One user's turn in the sweep: a refusal is collected in ``failed``, never allowed to abort the rest."""
+    from frappe.database import savepoint
+
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+    if not frappe.db.exists("User", user_email):
+        # An orphan Has Role row (its User was deleted) has nothing to withdraw from.
+        frappe.log_error(
+            title="Chapter board sweep: orphan Has Role row",
+            message=f"Has Role '{Roles.CHAPTER_BOARD_MEMBER}' points at missing User {user_email}; skipped.",
+        )
+        return
+    # The savepoint undoes this user's half-done writes when the withdrawal is refused; a
+    # deadlock/lock-wait is not caught by it and propagates, as it must.
+    withdrawn = False
+    with savepoint(catch=BoardAccessWithdrawalError):
+        assign_chapter_board_role(user_email)
+        withdrawn = True
+    if not withdrawn:
+        failed.append(user_email)
 
 
 def _users_with_chapter_board_role():

@@ -236,9 +236,10 @@ doc_events = {
     # User.roles from the assigned profile on every save and would undo a removal
     # performed before it. A Volunteer-side second writer does only the removal,
     # so its effect is undone by the next User save. The function was deleted
-    # along with this registration; it had no other caller. The defect itself is
-    # still live in on_member_on_update ("Member") and on_chapter_role_on_update
-    # ("Chapter Role"), which call the same function -- #702, which also carries the
+    # along with this registration; it had no other caller. The defect was also live in
+    # on_member_on_update ("Member") and on_chapter_role_on_update ("Chapter Role"),
+    # which call the same function; #702 fixed it there (assign_chapter_board_role now
+    # withdraws the role profile with the role). What #702 still carries is the
     # Volunteer.member re-link case BoardManager cannot see.
     #
     # performance_event_handlers.on_volunteer_assignment_change. Inert even when
