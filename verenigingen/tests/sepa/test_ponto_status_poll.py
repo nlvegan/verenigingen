@@ -45,7 +45,6 @@ from verenigingen.patches.v2_2.add_ponto_executed_on_cancelled_row_notification 
     execute as register_alert_notification_type,
 )
 from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
-from verenigingen.tests.sepa.test_ponto_callbacks import fake_request
 from verenigingen.tests.payment.test_ponto_submitted_documents import (
     _create_client,
     _PontoUsers,
@@ -1190,11 +1189,6 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
 
     def test_a_cancelled_row_is_no_longer_offered_as_pending_or_payable(self):
         """Readers of status on a docstatus-2 row, driven through their real entry points."""
-        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
-            PAYMENT_PAGE_TOKEN_PURPOSE,
-            payment_page,
-        )
         from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
             cancel_payment,
             list_pending_payments,
@@ -1204,10 +1198,24 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertNotIn(req.name, [r.name for r in list_pending_payments()])
         with self.assertRaises(frappe.ValidationError):
             cancel_payment(req.name)
-        # payment_page needs a token signed for the link (#1817); the payer holds one.
-        token = generate_guest_return_token(PAYMENT_PAGE_TOKEN_PURPOSE, link.name)
-        with fake_request(link=link.name, token=token):
-            self.assertEqual(payment_page()["status"], "cancelled")
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
+
+        # The payer-facing reader (/ponto_pay, which replaced payment_page in #2494) must
+        # show the really cancelled (docstatus 2) link as failed, not as payable.
+        from verenigingen.templates.pages import ponto_pay
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+        original_form_dict = frappe.local.form_dict
+        self.addCleanup(setattr, frappe.local, "form_dict", original_form_dict)
+        frappe.local.form_dict = frappe._dict(
+            {
+                "id": link.name,
+                "token": generate_guest_return_token(ponto_pay.PONTO_PAY_TOKEN_PURPOSE, link.name),
+            }
+        )
+        context = frappe._dict()
+        ponto_pay.get_context(context)
+        self.assertTrue(context.get("payment_failed"), "a cancelled link must not be offered as payable")
 
     # --- #1907: the poll moves REALLY submitted rows -------------------------
 

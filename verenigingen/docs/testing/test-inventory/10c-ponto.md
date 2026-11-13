@@ -42,9 +42,8 @@ top-level-links promotion, IBAN space/case normalization.
 
 **test_ponto_callbacks.py** — missing/unknown-record cases that redirect
 gracefully (no throw) → EDGE; `error=access_denied`/`server_error` branches →
-UNHAPPY; `payment_page_*_throws` (DoesNotExistError) → UNHAPPY; refresh-failure-
-still-redirects (resilience) → EDGE; alternate payment_page states
-(already_paid/cancelled) → EDGE.
+UNHAPPY; refresh-failure-
+still-redirects (resilience) → EDGE.
 
 **test_ponto_client.py** — 429 rate-limit tests assert a RAISE
 (PontoRateLimitError) → UNHAPPY; 401-token-refresh-and-retry → EDGE;
