@@ -1200,6 +1200,23 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
             cancel_payment(req.name)
         self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "status"), "Cancelled")
 
+        # The payer-facing reader (/ponto_pay, which replaced payment_page in #2494) must
+        # show the really cancelled (docstatus 2) link as failed, not as payable.
+        from verenigingen.templates.pages import ponto_pay
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+
+        original_form_dict = frappe.local.form_dict
+        self.addCleanup(setattr, frappe.local, "form_dict", original_form_dict)
+        frappe.local.form_dict = frappe._dict(
+            {
+                "id": link.name,
+                "token": generate_guest_return_token(ponto_pay.PONTO_PAY_TOKEN_PURPOSE, link.name),
+            }
+        )
+        context = frappe._dict()
+        ponto_pay.get_context(context)
+        self.assertTrue(context.get("payment_failed"), "a cancelled link must not be offered as payable")
+
     # --- #1907: the poll moves REALLY submitted rows -------------------------
 
     def test_poll_moves_the_status_of_a_really_submitted_request_and_link(self):
