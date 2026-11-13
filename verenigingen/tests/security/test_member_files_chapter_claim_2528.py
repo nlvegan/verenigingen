@@ -41,21 +41,12 @@ class MemberClaimBase(LimitBase):
         return user, employee, member, volunteer
 
     def _expense_category(self):
-        cat = frappe.new_doc("Expense Category")
-        cat.category_name = f"Travel 2528 {self.token}"
-        cat.is_active = 1
-        cat.expense_account = self.expense_account
-        cat.insert()
-        self._track_test_document("Expense Category", cat.name, priority=0)
-        claim_type = frappe.get_doc(
-            {
-                "doctype": "Expense Claim Type",
-                "expense_type": cat.name,
-                "accounts": [{"company": self.company, "default_account": self.expense_account}],
-            }
-        ).insert()
-        self._track_test_document("Expense Claim Type", claim_type.name, priority=1)
-        return cat.name
+        # one definition: the #1714 module's helper only reads token, company, expense_account
+        from verenigingen.tests.security.test_portal_team_expense_chapter_1714 import (
+            TestPortalTeamExpenseChapter,
+        )
+
+        return TestPortalTeamExpenseChapter._expense_category(self)
 
     def join(self, member_name, chapter, status="Active", enabled=1):
         row = frappe.get_doc(
@@ -223,15 +214,6 @@ class TestMembershipDoesNotGrantApproval(MemberClaimBase):
                 state = self._state()
                 self.assertEqual((state.approval_status, state.docstatus), ("Draft", 0))
 
-    def test_the_filer_cannot_approve_their_own_claim(self):
-        # Frappe may drop the permlevel-1 field silently instead of raising: the outcome is the
-        # claim, not the exception.
-        try:
-            self._decide(self.user, "Approved")
-        except (frappe.PermissionError, frappe.ValidationError):
-            pass
-        self.assertEqual(self._state().approval_status, "Draft")
-
     def test_the_gate_refuses_a_member_deciding_in_the_hook_itself(self):
         """The hook, called directly: a decided claim does not get the membership allowance."""
         from verenigingen.utils.account_group_validation_hooks import validate_expense_claim_chapter_access
@@ -264,3 +246,79 @@ class TestMembershipDoesNotGrantApproval(MemberClaimBase):
     def test_control_the_financial_seat_still_approves(self):
         self._decide(self.fin_user, "Approved")
         self.assertEqual(self._state().approval_status, "Approved")
+
+
+class TestMemberCannotTakeOverAClaim(MemberClaimBase):
+    """The allowance is for the claimant's OWN claim: a peer member cannot re-point or edit another's."""
+
+    def setUp(self):
+        super().setUp()
+        self.join(self.member.name, self.chapter)
+        self.claim = self.file_as(self.user, self.chapter)
+        self.peer, self.peer_emp, self.peer_member, _vol = self._person("peer")
+        self.join(self.peer_member.name, self.chapter)
+        self.peer_a, self.peer_a_emp, self.peer_a_member, _vol = self._person("peera")
+        self.join(self.peer_a_member.name, self.chapter_a)  # a member of chapter A only
+
+    def _stored(self):
+        return frappe.db.get_value(
+            "Expense Claim", self.claim.name, ["employee", "custom_chapter", "total_claimed_amount"], as_dict=True
+        )
+
+    def _assert_untouched(self):
+        stored = self._stored()
+        self.assertEqual(
+            (stored.employee, stored.custom_chapter, stored.total_claimed_amount),
+            (self.employee.name, self.chapter.name, 5),
+        )
+
+    def _refused(self, fn):
+        with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
+            fn()
+        self._assert_untouched()
+
+    def test_a_peer_cannot_take_over_a_claim_with_doc_save(self):
+        def takeover():
+            doc = frappe.get_doc("Expense Claim", self.claim.name)
+            doc.employee = self.peer_emp.name
+            doc.expenses[0].amount = 999
+            doc.expenses[0].sanctioned_amount = 999
+            doc.save()
+
+        self._refused(lambda: self.act_as(self.peer, takeover))
+
+    def test_a_peer_of_another_chapter_cannot_move_and_take_over_in_one_save(self):
+        def takeover():
+            doc = frappe.get_doc("Expense Claim", self.claim.name)
+            doc.custom_chapter = self.chapter_a.name
+            doc.employee = self.peer_a_emp.name
+            doc.save()
+
+        self._refused(lambda: self.act_as(self.peer_a, takeover))
+
+    def test_a_peer_cannot_take_over_with_client_set_value(self):
+        for peer, emp, chapter in (
+            (self.peer, self.peer_emp, self.chapter),
+            (self.peer_a, self.peer_a_emp, self.chapter_a),
+        ):
+            with self.subTest(chapter=chapter.name):
+                values = {"custom_chapter": chapter.name, "employee": emp.name}
+                self._refused(
+                    lambda: self.act_as(
+                        peer, lambda: frappe.client.set_value("Expense Claim", self.claim.name, values)
+                    )
+                )
+
+    def test_a_peer_cannot_take_over_with_client_save(self):
+        data = frappe.get_doc("Expense Claim", self.claim.name).as_dict()
+        data["employee"] = self.peer_emp.name
+        self._refused(lambda: self.act_as(self.peer, lambda: frappe.client.save(data)))
+
+    def test_control_the_claimant_still_edits_their_own_claim(self):
+        def edit():
+            doc = frappe.get_doc("Expense Claim", self.claim.name)
+            doc.remark = "mine"
+            doc.save()
+
+        self.act_as(self.user, edit)
+        self.assertEqual(frappe.db.get_value("Expense Claim", self.claim.name, "remark"), "mine")

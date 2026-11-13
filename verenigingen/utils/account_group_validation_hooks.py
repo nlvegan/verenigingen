@@ -78,6 +78,8 @@ def _is_active_member_filing(doc, user, chapter):
     undecided = doc.docstatus == 0 and doc.approval_status == "Draft"  # ast-skip: HRMS field
     if not undecided or not (doc.is_new() or not doc.has_value_changed("approval_status")):
         return False
+    if not _claim_is_the_users_own(doc, user):
+        return False
     member = get_member_name_for_board_access(user)
     return bool(
         member
@@ -85,6 +87,23 @@ def _is_active_member_filing(doc, user, chapter):
             "Chapter Member", {"parent": chapter, "member": member, "enabled": 1, "status": "Active"}
         )
     )
+
+
+def _claim_is_the_users_own(doc, user):
+    """The claim is ``user``'s: its employee is theirs, as saved and as submitted, and the fields
+    that say whose claim it is and where it is booked are not being changed.
+
+    Membership lets a member file for themselves, not take over a peer's claim: Frappe judges
+    write permission on the MODIFIED doc, so re-pointing ``employee`` at yourself passes it.
+    """
+    if frappe.db.get_value("Employee", doc.employee, "user_id") != user:  # ast-skip: HRMS field
+        return False
+    if doc.is_new():
+        return True
+    if any(doc.has_value_changed(f) for f in ("employee", "custom_chapter", "custom_team")):
+        return False
+    saved = doc.get_doc_before_save()
+    return bool(saved and frappe.db.get_value("Employee", saved.employee, "user_id") == user)
 
 
 def _is_team_attribution(doc, chapter):
