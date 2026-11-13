@@ -99,12 +99,28 @@ class SecurityMonitor:
     # (the full history) are unaffected.
     ACTIVE_INCIDENT_WINDOW_HOURS = 24
 
+    # Memory bounds (#1305). #962 windowed the READ side only; the storage still
+    # grew by one entry per incident for the life of a gunicorn worker.
+    # `incidents` is an in-memory history, NOT the durable audit trail: HIGH and
+    # CRITICAL incidents (and every resolution) are also written through
+    # `audit_logger`; MEDIUM/LOW incidents exist only here, hence a generous cap
+    # that keeps the newest entries. The caps ARE reachable under adversarial
+    # traffic (MEDIUM incidents fire on every event over threshold, with no
+    # dedupe), so `active_threats` evicts by severity priority, never plain
+    # oldest-first: a cheap MEDIUM flood must not push out a CRITICAL. See
+    # `_evict_one_active_threat` for the order.
+    MAX_INCIDENTS = 10000
+    MAX_ACTIVE_THREATS = 10000
+
     def __init__(self):
         self.audit_logger = get_audit_logger()
         self.security_framework = get_security_framework()
         self.incidents: List[SecurityIncident] = []
         self.metrics_history: deque = deque(maxlen=1000)  # Keep last 1000 metric snapshots
         self.active_threats: Dict[str, SecurityIncident] = {}
+        # Monotonic id source: `len(self.incidents)` stops growing once the history
+        # is capped, which would make ids repeat within a second (#1305).
+        self._incident_seq = 0
 
         # Threat detection thresholds
         self.thresholds = {
@@ -368,7 +384,8 @@ class SecurityMonitor:
         details: Dict[str, Any],
     ):
         """Create new security incident"""
-        incident_id = f"SEC_{int(time.time())}_{len(self.incidents)}"
+        incident_id = f"SEC_{int(time.time())}_{self._incident_seq}"
+        self._incident_seq += 1
 
         incident = SecurityIncident(
             incident_id=incident_id,
@@ -384,6 +401,7 @@ class SecurityMonitor:
 
         self.incidents.append(incident)
         self.active_threats[incident_id] = incident
+        self._enforce_incident_bounds()
 
         # Log critical incidents immediately - map to valid event type
         if threat_level in [ThreatLevel.HIGH, ThreatLevel.CRITICAL]:
@@ -409,6 +427,34 @@ class SecurityMonitor:
         # entirely broken. Enqueue the job without the bogus kwarg so it runs.
         if threat_level == ThreatLevel.LOW:
             frappe.enqueue(self._auto_resolve_incident, incident_id=incident_id)
+
+    def _enforce_incident_bounds(self):
+        """Drop the oldest entries beyond the caps (#1305); dicts keep insertion order."""
+        if len(self.incidents) > self.MAX_INCIDENTS:
+            del self.incidents[: len(self.incidents) - self.MAX_INCIDENTS]
+        while len(self.active_threats) > self.MAX_ACTIVE_THREATS:
+            self._evict_one_active_threat()
+
+    _EVICTION_TIER = {ThreatLevel.LOW: 1, ThreatLevel.MEDIUM: 2, ThreatLevel.HIGH: 3, ThreatLevel.CRITICAL: 4}
+
+    def _evict_one_active_threat(self):
+        """Evict the lowest-priority entry, oldest first within a tier.
+
+        Tier 0: outside the recency window or already resolved (not counted
+        anyway); then LOW, MEDIUM, HIGH, CRITICAL. `min` returns the first
+        minimal item and dicts keep insertion order, so ties go to the oldest.
+        O(n) per eviction, only reached once the cap is hit.
+        """
+        cutoff = get_datetime() - timedelta(hours=self.ACTIVE_INCIDENT_WINDOW_HOURS)
+
+        def tier(item):
+            incident = item[1]
+            if incident.resolved or incident.timestamp < cutoff:
+                return 0
+            return self._EVICTION_TIER[incident.threat_level]
+
+        victim_id, _incident = min(self.active_threats.items(), key=tier)
+        del self.active_threats[victim_id]
 
     def _auto_resolve_incident(self, incident_id: str):
         """Auto-resolve low-severity incidents"""
