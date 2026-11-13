@@ -1541,6 +1541,98 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
         self.assertEqual(self._live_journal_entries(payment_id), [])
 
+    def _before_submit_refusing(self, key_fragment):
+        """ERPNext's real before_submit, refusing only entries whose key contains key_fragment."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        original = JournalEntry.before_submit
+
+        def _before_submit(je):
+            if key_fragment in (je.cheque_no or ""):
+                raise frappe.ValidationError("period refused")
+            return original(je)
+
+        return patch.object(JournalEntry, "before_submit", _before_submit)
+
+    def test_2535_a_stranded_refund_draft_is_finished_by_the_redelivery(self):
+        """Refund reversal discovery used its own draft-counting lookup (find_booked_reversal)."""
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_rf_{self.tag}"
+        refund_id = f"re_draft_{self.tag}"
+        payment = self._charge(
+            payment_id,
+            origin.name,
+            refunds=[
+                {
+                    "id": refund_id,
+                    "status": "refunded",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "createdAt": "2026-08-05T09:00:00+00:00",
+                }
+            ],
+        )
+        key = f"{payment_id}_refund_{refund_id}"
+        self.expectErrorLog(*self._STRAND_ERRORS, "refund")
+        with self._before_submit_refusing("_refund_"):
+            self._deliver(payment)
+        drafts = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 0}, pluck="name")
+        self.assertEqual(len(drafts), 1, "precondition: the refund Journal Entry must be left as a draft")
+
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 1)
+        self.assertEqual(
+            frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"),
+            drafts,
+        )
+
+    def test_2535_a_submit_that_fails_after_the_docstatus_write_frees_the_key(self):
+        """The discard branch: the resubmit writes docstatus 1, on_submit throws, the entry is cancelled."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_discard_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        self.expectErrorLog(
+            "Mollie Journal Entry Not Posted",
+            "Secure Operation Failed: submit on Journal Entry",
+            "financial_entry_error",
+        )
+
+        with patch.object(JournalEntry, "on_submit", side_effect=frappe.ValidationError("ledger refused")):
+            self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 2)
+
+        self._deliver(payment)
+
+        live = self._live_journal_entries(payment_id)
+        self.assertEqual(len(live), 1, "the creator must book exactly one live entry afterwards")
+        self.assertNotEqual(live[0], draft)
+        self.assertEqual(frappe.db.get_value("Journal Entry", live[0], "docstatus"), 1)
+
+    def test_2535_a_hand_edited_draft_that_no_longer_matches_the_payment_is_not_submitted(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_edited_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        je = frappe.get_doc("Journal Entry", draft)
+        for row in je.accounts:
+            if row.debit_in_account_currency:
+                row.debit_in_account_currency += 7
+            if row.credit_in_account_currency:
+                row.credit_in_account_currency += 7
+        je.save()
+        title = "Journal Entry Draft Amount Mismatch"
+        self.expectErrorLog(title)
+        before = frappe.db.count("Error Log", {"method": title})
+
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 0, "submitted a mismatch")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+
     def test_945_a_charge_younger_than_the_webhook_retry_window_is_left_to_its_webhook(self):
         """The sweep must not race a webhook that may still be retrying (double-booking window)."""
         from datetime import datetime, timedelta, timezone

@@ -38,7 +38,9 @@ def find_journal_entry_by_reference(reference_number: str) -> Optional[str]:
     )
 
 
-def resolve_journal_entry_by_reference(reference_number: str) -> Optional[str]:
+def resolve_journal_entry_by_reference(
+    reference_number: str, expected_amount: Optional[float] = None
+) -> Optional[str]:
     """Like ``find_journal_entry_by_reference``, but a stranded draft is finished first.
 
     A draft claims the key, so without this a charge whose Journal Entry never
@@ -55,12 +57,33 @@ def resolve_journal_entry_by_reference(reference_number: str) -> Optional[str]:
     free and this returns None so the caller books afresh); or it fails before
     anything is written (the draft stays, an Error Log row says so, and this
     still returns its name so a second entry is never created beside it).
+
+    ``expected_amount`` is the payment amount the caller already holds. A draft
+    whose ``total_debit`` differs (a hand-edited leftover) is NOT submitted: it
+    is reported and left, still claiming the key, so staff decide. Without it
+    the check is skipped.
     """
     name = find_journal_entry_by_reference(reference_number)
     if name and frappe.db.get_value("Journal Entry", name, "docstatus") == 0:
-        _resubmit_stranded_draft(name, reference_number)
-        name = find_journal_entry_by_reference(reference_number)
+        if _draft_matches_amount(name, reference_number, expected_amount):
+            _resubmit_stranded_draft(name, reference_number)
+            name = find_journal_entry_by_reference(reference_number)
     return name
+
+
+def _draft_matches_amount(journal_entry_name: str, reference_number: str, expected_amount) -> bool:
+    if expected_amount is None:
+        return True
+    total_debit = flt(frappe.db.get_value("Journal Entry", journal_entry_name, "total_debit"), 2)
+    if total_debit == flt(expected_amount, 2):
+        return True
+    frappe.log_error(
+        title="Journal Entry Draft Amount Mismatch",
+        message=f"Draft Journal Entry {journal_entry_name} (reference {reference_number}) totals "
+        f"{total_debit} but the payment is {flt(expected_amount, 2)}, so it was NOT submitted. "
+        "It still claims the reference; correct or delete it by hand.",
+    )
+    return False
 
 
 def _resubmit_stranded_draft(journal_entry_name: str, reference_number: str) -> None:

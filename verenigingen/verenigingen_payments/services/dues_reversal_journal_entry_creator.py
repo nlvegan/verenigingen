@@ -101,7 +101,7 @@ class DuesReversalJournalEntryCreator:
 
         reference_number = build_reversal_key(original_payment_id, reversal_type, reversal_id)
 
-        existing_je = resolve_journal_entry_by_reference(reference_number)
+        existing_je = resolve_journal_entry_by_reference(reference_number, flt(amount))
         if existing_je:
             frappe.logger().info(
                 f"Dues reversal Journal Entry already exists for {reversal_id}: {existing_je}"

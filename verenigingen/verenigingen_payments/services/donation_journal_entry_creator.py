@@ -80,7 +80,11 @@ class DonationJournalEntryCreator:
         payment_id = payment_data.get("id")
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = resolve_journal_entry_by_reference(payment_id)
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+        existing_je = resolve_journal_entry_by_reference(
+            payment_id, get_payment_data_extractor().extract_amount(payment_data, allow_zero=False) or None
+        )
         if existing_je:
             frappe.logger().info(f"Journal Entry already exists for {payment_id}: {existing_je}")
             self._link_posted_entry_to_donation(donation_doc.name, existing_je)
@@ -165,7 +169,9 @@ class DonationJournalEntryCreator:
 
         # Idempotency check
         if reference_number:
-            existing_je = resolve_journal_entry_by_reference(reference_number)
+            existing_je = resolve_journal_entry_by_reference(
+                reference_number, flt(transaction_data.get("amount", 0)) or None
+            )
             if existing_je:
                 frappe.logger().info(f"Journal Entry already exists: {existing_je}")
                 self._link_posted_entry_to_donation(donation_doc.name, existing_je)

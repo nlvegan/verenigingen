@@ -76,23 +76,44 @@ def total_reversed(payment_id: str) -> float:
         for row in frappe.get_all(
             doctype,
             filters={key_field: ["like", prefix], "docstatus": ["!=", 2]},
-            fields=[amount_field],
+            fields=[amount_field, key_field, "docstatus"],
         ):
+            # A stranded Journal Entry draft is finished first (#2535); one the
+            # submit discards is cancelled and must not count.
+            if doctype == "Journal Entry" and row.docstatus == 0 and not _resolve_draft(row.get(key_field)):
+                continue
             total += flt(row.get(amount_field))
 
     return flt(total, 2)
 
 
-def find_booked_reversal(reversal_key: str) -> Optional[Tuple[str, str]]:
+def _resolve_draft(reference: str, expected_amount: Optional[float] = None) -> Optional[str]:
+    from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+        resolve_journal_entry_by_reference,
+    )
+
+    return resolve_journal_entry_by_reference(reference, expected_amount)
+
+
+def find_booked_reversal(
+    reversal_key: str, expected_amount: Optional[float] = None
+) -> Optional[Tuple[str, str]]:
     """Return ``(doctype, name)`` of an existing booking for this key, or None.
 
     Checks every artefact a reversal can be booked as, not just the caller's own.
+    A Journal Entry that is still a draft is finished first (submitted; discarded
+    if the submit wrote a docstatus; reported and kept if it wrote nothing), so
+    "booked" never means "a draft nobody will submit" (#2535). ``expected_amount``
+    is the reversal amount when the caller has it (see the resolver).
     """
     if not reversal_key:
         return None
 
     for doctype, field in _REVERSAL_ARTEFACTS:
-        existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
+        if doctype == "Journal Entry":
+            existing = _resolve_draft(reversal_key, expected_amount)
+        else:
+            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
         if existing:
             return doctype, existing
 

@@ -420,3 +420,28 @@ class TestResolveJournalEntryByReference(_SweepTestBase):
 
         self.assertEqual(find_journal_entry_by_reference(ref), name)
         self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+
+class TestTotalReversedWithDrafts(_SweepTestBase):
+    """total_reversed finishes stranded reversal drafts first, and a discarded one must not count (#2535)."""
+
+    def test_a_finished_draft_counts_and_a_discarded_one_does_not(self):
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+            build_reversal_key,
+            total_reversed,
+        )
+
+        payment_id = f"tr_tot_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(build_reversal_key(payment_id, "refund", "re_1"))
+
+        self.assertEqual(total_reversed(payment_id), 1.0)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 1)
+
+        other = f"tr_tot_{frappe.generate_hash(length=8)}"
+        discarded = self._book_live_journal_entry(build_reversal_key(other, "refund", "re_2"))
+        self.expectErrorLog("Mollie Journal Entry Not Posted", "Secure Operation Failed: submit on Journal Entry")
+        with patch.object(JournalEntry, "on_submit", side_effect=frappe.ValidationError("ledger refused")):
+            self.assertEqual(total_reversed(other), 0.0)
+        self.assertEqual(frappe.db.get_value("Journal Entry", discarded, "docstatus"), 2)
