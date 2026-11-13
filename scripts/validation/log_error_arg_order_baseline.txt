@@ -283,7 +283,6 @@ verenigingen/services/volunteer/native_expense_helpers.py::update_employee_appro
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::get_volunteer_expense_statistics::1
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::get_volunteer_expenses_from_claims::3
 verenigingen/services/volunteer/volunteer_expense_portal_utils.py::is_policy_covered_expense::1
-verenigingen/services/volunteer/volunteer_expense_portal_utils.py::validate_volunteer_organization_access::1
 verenigingen/services/volunteer/volunteer_expense_setup.py::get_or_create_expense_type::1
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_statistics::1
 verenigingen/services/volunteer/volunteer_statistics.py::get_volunteer_expense_summary::1
