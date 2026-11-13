@@ -6,7 +6,10 @@ caps so growth past them is cheap to produce, and pin that in-window behaviour
 readers depend on is unchanged.
 """
 
+from datetime import timedelta
+
 from freezegun import freeze_time
+from frappe.utils import get_datetime
 
 from verenigingen.tests.security.security_monitor_test_helpers import (
     make_isolated_security_monitor as _make_isolated_monitor,
@@ -75,3 +78,47 @@ class TestSecurityMonitorBounded1305(VereningingenTestCase):
         _1305_fill(self.monitor, 12)
         dash = self.monitor.get_security_dashboard()
         self.assertEqual([i["incident_type"] for i in dash["recent_incidents"]], [f"t{n}" for n in range(2, 12)])
+
+    def test_medium_flood_cannot_evict_critical_or_high(self):
+        self.monitor._create_incident(ThreatLevel.CRITICAL, "crit", "d", "ip", "u", "e", {})
+        self.monitor._create_incident(ThreatLevel.HIGH, "high", "d", "ip", "u", "e", {})
+        critical = self.monitor.incidents[0]
+        _1305_fill(self.monitor, 20, ThreatLevel.MEDIUM)
+
+        self.assertEqual(len(self.monitor.active_threats), 5)
+        dash = self.monitor.get_security_dashboard()
+        self.assertEqual(dash["threat_summary"]["critical"], 1)
+        self.assertEqual(dash["threat_summary"]["high"], 1)
+        self.assertEqual(100.0 - self.monitor._calculate_security_score(0, 0, 0, 0), 15.0 + 10.0)
+        self.monitor.resolve_incident(critical.incident_id, "handled")
+        self.assertTrue(critical.resolved)
+
+    def test_flood_evicts_the_oldest_mediums_first(self):
+        """Control: within a tier eviction is still oldest-first (3 survive of 8)."""
+        self.monitor._create_incident(ThreatLevel.HIGH, "high", "d", "ip", "u", "e", {})
+        _1305_fill(self.monitor, 8, ThreatLevel.MEDIUM)
+        kept = sorted(i.incident_type for i in self.monitor.active_threats.values())
+        self.assertEqual(kept, ["high", "t4", "t5", "t6", "t7"])
+
+    def test_out_of_window_entry_is_evicted_before_an_in_window_low(self):
+        _1305_fill(self.monitor, 1, ThreatLevel.HIGH)  # old, will be aged
+        aged = self.monitor.incidents[0]
+        aged.timestamp = get_datetime() - timedelta(hours=self.monitor.ACTIVE_INCIDENT_WINDOW_HOURS, minutes=1)
+        self.monitor.MAX_ACTIVE_THREATS = 5
+        for n in range(3):
+            self.monitor._create_incident(ThreatLevel.MEDIUM, f"m{n}", "d", "ip", "u", "e", {})
+        # LOW would normally be evicted before a HIGH/MEDIUM; the aged HIGH goes first.
+        self.monitor.active_threats["low_in_window"] = type(aged)(
+            incident_id="low_in_window",
+            timestamp=get_datetime(),
+            threat_level=ThreatLevel.LOW,
+            incident_type="low",
+            description="d",
+            source_ip="ip",
+            user="u",
+            endpoint="e",
+            details={},
+        )
+        self.monitor._create_incident(ThreatLevel.MEDIUM, "trigger", "d", "ip", "u", "e", {})
+        self.assertNotIn(aged.incident_id, self.monitor.active_threats)
+        self.assertIn("low_in_window", self.monitor.active_threats)

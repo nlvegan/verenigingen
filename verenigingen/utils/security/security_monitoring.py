@@ -104,9 +104,11 @@ class SecurityMonitor:
     # `incidents` is an in-memory history, NOT the durable audit trail: HIGH and
     # CRITICAL incidents (and every resolution) are also written through
     # `audit_logger`; MEDIUM/LOW incidents exist only here, hence a generous cap
-    # that keeps the newest entries. `active_threats` evicts oldest-first. Neither
-    # cap is reachable by in-window data in normal operation (the dashboard shows
-    # the last 10 incidents; the score counts the 24h window).
+    # that keeps the newest entries. The caps ARE reachable under adversarial
+    # traffic (MEDIUM incidents fire on every event over threshold, with no
+    # dedupe), so `active_threats` evicts by severity priority, never plain
+    # oldest-first: a cheap MEDIUM flood must not push out a CRITICAL. See
+    # `_evict_one_active_threat` for the order.
     MAX_INCIDENTS = 10000
     MAX_ACTIVE_THREATS = 10000
 
@@ -431,7 +433,28 @@ class SecurityMonitor:
         if len(self.incidents) > self.MAX_INCIDENTS:
             del self.incidents[: len(self.incidents) - self.MAX_INCIDENTS]
         while len(self.active_threats) > self.MAX_ACTIVE_THREATS:
-            del self.active_threats[next(iter(self.active_threats))]
+            self._evict_one_active_threat()
+
+    _EVICTION_TIER = {ThreatLevel.LOW: 1, ThreatLevel.MEDIUM: 2, ThreatLevel.HIGH: 3, ThreatLevel.CRITICAL: 4}
+
+    def _evict_one_active_threat(self):
+        """Evict the lowest-priority entry, oldest first within a tier.
+
+        Tier 0: outside the recency window or already resolved (not counted
+        anyway); then LOW, MEDIUM, HIGH, CRITICAL. `min` returns the first
+        minimal item and dicts keep insertion order, so ties go to the oldest.
+        O(n) per eviction, only reached once the cap is hit.
+        """
+        cutoff = get_datetime() - timedelta(hours=self.ACTIVE_INCIDENT_WINDOW_HOURS)
+
+        def tier(item):
+            incident = item[1]
+            if incident.resolved or incident.timestamp < cutoff:
+                return 0
+            return self._EVICTION_TIER[incident.threat_level]
+
+        victim_id, _incident = min(self.active_threats.items(), key=tier)
+        del self.active_threats[victim_id]
 
     def _auto_resolve_incident(self, incident_id: str):
         """Auto-resolve low-severity incidents"""
