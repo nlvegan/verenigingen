@@ -23,7 +23,6 @@ _spec.loader.exec_module(cas)
 
 PINNED = {
     "verenigingen/tests/payment/test_payment_gateways_live.py",
-    "verenigingen/tests/sepa/test_bank_integration_boundaries.py",  # env-gated, never set in CI
     "verenigingen/verenigingen_payments/ing_checkout/tests/test_client_live.py",
     "verenigingen/verenigingen_payments/mollie/tests/integration/test_real_api.py",
     "verenigingen/verenigingen_payments/mollie/tests/test_mollie_portal_endpoints_live.py",
