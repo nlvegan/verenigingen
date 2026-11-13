@@ -2,20 +2,18 @@
  * @fileoverview Verenigingen Settings DocType Controller - System Configuration Management
  *
  * Comprehensive system configuration management interface for the Verenigingen association platform,
- * providing centralized control over membership settings, donation configuration, webhook management,
+ * providing centralized control over membership settings, donation configuration,
  * accounting integration, portal management, and organization-wide operational parameters.
  *
  * ## Business Value
  * - **Centralized Configuration**: Single source of truth for all system settings
  * - **Financial Integration**: Seamless accounting system configuration and management
- * - **Webhook Management**: Secure payment gateway integration with key rotation
  * - **Portal Administration**: Member portal configuration and statistics monitoring
  * - **Operational Control**: Organization-wide settings for membership and donation systems
  *
  * ## Core Capabilities
  * - **Account Configuration**: Automated setup of receivable and payment accounts
  * - **Print Format Management**: Customizable document templates for invoices and memberships
- * - **Webhook Security**: Secure webhook key generation and management
  * - **Portal Statistics**: Real-time member portal adoption and usage analytics
  * - **Company Integration**: Multi-company setup for membership and donation operations
  * - **Document Linking**: Intelligent filtering for account and format selections
@@ -25,18 +23,15 @@
  * - **Query Filters**: Dynamic filtering for account selection based on company context
  * - **API Integration**: Secure communication with payment gateways and external services
  * - **Statistics Dashboard**: Real-time analytics for portal usage and member engagement
- * - **Security Management**: Webhook key lifecycle management with regeneration capabilities
  *
  * ## Integration Points
  * - **Accounting System**: Direct integration with ERPNext Chart of Accounts
- * - **Payment Gateways**: Webhook configuration for Razorpay and other payment providers
  * - **Print Framework**: Integration with Frappe's print format system
  * - **Member Portal**: Configuration and monitoring of member portal functionality
  * - **Membership System**: Core configuration for membership lifecycle management
  * - **Donation Platform**: Settings for donation processing and accounting
  *
  * ## Security Features
- * - **Webhook Key Management**: Secure generation, rotation, and revocation of webhook secrets
  * - **Account Validation**: Automated validation of accounting configuration
  * - **Access Control**: Role-based access to system configuration settings
  * - **Audit Trail**: Complete tracking of configuration changes and security events
@@ -45,7 +40,6 @@
  * - **Membership Settings**: Core membership configuration and account mapping
  * - **Donation Settings**: Donation processing and accounting configuration
  * - **Portal Management**: Member portal behavior and home page configuration
- * - **Webhook Security**: Payment gateway integration and security settings
  * - **Company Configuration**: Multi-company setup and account segregation
  * - **Print Templates**: Document formatting and template management
  *
@@ -54,16 +48,11 @@
  * - **Bulk Operations**: Mass configuration of member portal home pages
  * - **Security Testing**: Portal redirect testing and validation
  * - **Account Filtering**: Context-aware account filtering based on company selection
- * - **Webhook URL Management**: Automated webhook URL generation and copying
- * - **Key Rotation**: Secure webhook key lifecycle management
  *
  * ## Usage Examples
  * ```javascript
  * // Configure membership accounts
  * frm.set_value('membership_debit_account', 'Receivable Account');
- *
- * // Generate webhook secret
- * frm.call('generate_webhook_secret', {field: 'membership_webhook_secret'});
  *
  * // Setup portal home pages
  * frm.trigger('setup_member_portal_buttons');
@@ -151,98 +140,8 @@ frappe.ui.form.on('Verenigingen Settings', {
 			`${__('You can learn more about memberships in the manual. ')}<a href='${docs_url}'>${__('ERPNext Docs')}</a>`,
 			true
 		);
-		frm.trigger('setup_buttons_for_membership');
-		frm.trigger('setup_buttons_for_donation');
 		frm.trigger('setup_member_portal_buttons');
 		frm.trigger('setup_compliance_buttons');
-	},
-
-	setup_buttons_for_membership(frm) {
-		let label;
-
-		if (frm.doc.membership_webhook_secret) {
-			frm.add_custom_button(
-				__('Copy Webhook URL'),
-				() => {
-					frappe.utils.copy_to_clipboard(
-						`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.membership.membership.trigger_razorpay_dues_schedule`
-					);
-				},
-				__('Memberships')
-			);
-
-			frm.add_custom_button(
-				__('Revoke Key'),
-				() => {
-					frm.call('revoke_key', {
-						key: 'membership_webhook_secret'
-					}).then(() => {
-						frm.refresh();
-					});
-				},
-				__('Memberships')
-			);
-
-			label = __('Regenerate Webhook Secret');
-		} else {
-			label = __('Generate Webhook Secret');
-		}
-
-		frm.add_custom_button(
-			label,
-			() => {
-				frm.call('generate_webhook_secret', {
-					field: 'membership_webhook_secret'
-				}).then(() => {
-					frm.refresh();
-				});
-			},
-			__('Memberships')
-		);
-	},
-
-	setup_buttons_for_donation(frm) {
-		let label;
-
-		if (frm.doc.donation_webhook_secret) {
-			label = __('Regenerate Webhook Secret');
-
-			frm.add_custom_button(
-				__('Copy Webhook URL'),
-				() => {
-					frappe.utils.copy_to_clipboard(
-						`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.donation.donation.capture_razorpay_donations`
-					);
-				},
-				__('Donations')
-			);
-
-			frm.add_custom_button(
-				__('Revoke Key'),
-				() => {
-					frm.call('revoke_key', {
-						key: 'donation_webhook_secret'
-					}).then(() => {
-						frm.refresh();
-					});
-				},
-				__('Donations')
-			);
-		} else {
-			label = __('Generate Webhook Secret');
-		}
-
-		frm.add_custom_button(
-			label,
-			() => {
-				frm.call('generate_webhook_secret', {
-					field: 'donation_webhook_secret'
-				}).then(() => {
-					frm.refresh();
-				});
-			},
-			__('Donations')
-		);
 	},
 
 	setup_member_portal_buttons(frm) {
