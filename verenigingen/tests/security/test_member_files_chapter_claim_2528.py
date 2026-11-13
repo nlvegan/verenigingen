@@ -27,7 +27,7 @@ class MemberClaimBase(LimitBase):
         super().setUp()
         self.set_limits(self.chapter, 0, 0)
         frappe.db.set_single_value("Verenigingen Settings", "company", self.company)
-        self.category = self._expense_category()
+        self.category = self._borrowed_expense_category()
         self.user, self.employee, self.member, self.volunteer = self._person("filer")
 
     def _person(self, tag, link_user=True, extra_roles=()):
@@ -40,7 +40,7 @@ class MemberClaimBase(LimitBase):
         frappe.db.set_value("Volunteer", volunteer.name, {"email": user.name, "employee_id": employee.name})
         return user, employee, member, volunteer
 
-    def _expense_category(self):
+    def _borrowed_expense_category(self):
         # one definition: the #1714 module's helper only reads token, company, expense_account
         from verenigingen.tests.security.test_portal_team_expense_chapter_1714 import (
             TestPortalTeamExpenseChapter,
