@@ -109,6 +109,9 @@ class TestVolunteerStatusAfterSeatEnd2540(VereningingenTestCase):
         self.assertFalse(self._live_seat_2540(volunteer), "fixture: the seat really ended")
 
     def test_a_retired_volunteer_keeps_retired_when_the_seat_role_changes(self):
+        # The role change asks for a new assignment, which AssignmentHistoryManager refuses
+        # for a Retired volunteer by design; VolunteerIntegrationManager logs that refusal.
+        self.expectErrorLog("Failed to add volunteer assignment history")
         new_role = self._role_2540()
         self._manual_status_case_2540("Retired", lambda c, v: self._change_role_2540(c, v, new_role))
 
