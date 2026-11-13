@@ -24,8 +24,14 @@ DOCTYPE = "Verenigingen Email Configuration"
 PAYMENT_REMINDER_KEYS = ("payment_reminder_friendly", "payment_reminder_urgent", "payment_failure")
 
 
-def own_notification_keys(test, *keys):
-    """Enable ``keys`` with no cooldown for ``test``; undo it (rows, master switch) afterwards."""
+def own_notification_keys(test, *keys, commits=False):
+    """Enable ``keys`` with no cooldown for ``test``; undo it (rows, master switch) afterwards.
+
+    ``commits=True`` is for a test whose code under test rolls back fully (so an uncommitted seed
+    would vanish) and which therefore must commit: the commit check is skipped because the commit is
+    declared. The test commits the seed itself and registers a commit cleanup BEFORE calling this
+    (cleanups are LIFO, so it runs after the restore and makes it permanent) (#1330).
+    """
     from verenigingen.notification_registry import NOTIFICATION_KEYS
     from verenigingen.setup.notification_registry_setup import _registry_row
 
@@ -34,7 +40,7 @@ def own_notification_keys(test, *keys):
     master = config.master_email_enabled
     committed = []
     frappe.db.before_commit.add(lambda: committed.append(True))  # runs on commit, dropped on rollback
-    test.addCleanup(_restore_notification_rows, snapshot, master, committed)
+    test.addCleanup(_restore_notification_rows, snapshot, master, () if commits else committed)
 
     config.set("notification_types", [r for r in config.notification_types if r.notification_key not in keys])
     for key in keys:

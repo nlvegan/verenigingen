@@ -37,6 +37,8 @@ CALLERS = [
         None,
     ),
     ("verenigingen.tests.payment.test_payment_reminder_outcomes", "TestPaymentReminderOutcomes", None),
+    # Commits by design (the finalizer rolls back fully), so it declares ``commits=True``.
+    ("verenigingen.tests.payment.test_payment_plan_pe_failure_alert_1330", "TestRepeatedPaymentEntryFailureAlert", None),
 ]
 
 
