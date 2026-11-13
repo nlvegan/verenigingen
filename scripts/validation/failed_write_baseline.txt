@@ -17,7 +17,7 @@
 # change to the validator's own detection rules, which must land in the same
 # commit as the regeneration.
 #
-# Totals at generation: 161 sites across 131 functions -- LOOP_CONTINUES 5, RETURNS_TRUTHY 16, FALLS_THROUGH 140
+# Totals at generation: 132 sites across 110 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 14, FALLS_THROUGH 114
 
 scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
 scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
@@ -50,7 +50,6 @@ scripts/setup/setup_department_hierarchy.py::rollback_departments::1
 scripts/setup/setup_policy_expenses.py::setup_policy_covered_expenses::1
 scripts/validate_secure_account_creation.py::validate_account_creation_integration::1
 verenigingen/api/admin_membership_operations.py::migrate_active_application_status::1
-verenigingen/api/email_template_manager.py::create_comprehensive_email_templates::1
 verenigingen/api/mollie_payment.py::update_mollie_bank_account::2
 verenigingen/api/payment_plan_management.py::initiate_installment_payment::1
 verenigingen/api/sepa_phantom_hash_admin.py::retry_phantom_attachment::1
@@ -74,7 +73,6 @@ verenigingen/mijnrood_sync/services/event_application/volunteer_sync_service.py:
 verenigingen/mijnrood_sync/services/event_application/volunteer_sync_service.py::MijnRoodVolunteerSyncService._ensure_team_membership::1
 verenigingen/mijnrood_sync/services/polling_service.py::MijnRoodPollingService._run_sync_locked::2
 verenigingen/patches/v1_0/add_membership_analytics.py::create_default_alert_rules::1
-verenigingen/patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py::execute::2
 verenigingen/patches/v2_0/migrate_team_role_integration.py::ensure_team_roles_exist::1
 verenigingen/patches/v2_0/remove_membership_legacy_fields.py::handle_membership_type_templates::1
 verenigingen/patches/v2_1/cleanup_duplicate_dues_schedule_templates.py::execute::1
@@ -83,8 +81,6 @@ verenigingen/repositories/dues_schedule_repository.py::DuesScheduleRepository.ca
 verenigingen/security_validation_test.py::test_security_improvements::1
 verenigingen/services/approval/contribution_amendment_approval_service.py::ContributionAmendmentApprovalService.cancel_conflicting_amendments::1
 verenigingen/services/billing/dues_schedule_auto_creator.py::auto_create_missing_dues_schedules_enhanced::1
-verenigingen/services/chapter/chapter_assignment_service.py::ChapterAssignmentService._cleanup_board_memberships::1
-verenigingen/services/chapter/chapter_assignment_service.py::ChapterAssignmentService._cleanup_chapter_memberships::1
 verenigingen/services/csv_import/member_import_service.py::MemberImportService._create_new_member::1
 verenigingen/services/csv_import/member_import_service.py::MemberImportService._update_existing_member::1
 verenigingen/services/donation/donor_service.py::DonationDonorService.get_or_create_from_public_form::1
@@ -93,24 +89,13 @@ verenigingen/services/member/approval/application_helpers.py::ensure_payment_mod
 verenigingen/services/member/approval/member_approval_service.py::create_member_iban_history::1
 verenigingen/services/member/approval/member_approval_service.py::resolve_membership_type::1
 verenigingen/services/member/donor/donor_auto_creation.py::create_donor_from_customer::1
-verenigingen/services/member/lifecycle/member_cleanup_service.py::MemberCleanupService.handle_member_deletion::6
-verenigingen/services/member_merge_service.py::MemberMergeService._delete_source_member_and_dependencies::3
+verenigingen/services/member/lifecycle/member_cleanup_service.py::MemberCleanupService.handle_member_deletion::5
+verenigingen/services/member_merge_service.py::MemberMergeService._delete_source_member_and_dependencies::2
 verenigingen/services/mollie_debug_service.py::MollieDebugService.admin_revoke_mandate::2
-verenigingen/services/termination/termination_execution_service.py::TerminationExecutionService._handle_error::1
 verenigingen/services/termination/termination_integration.py::end_board_positions_safe::1
 verenigingen/services/termination/termination_integration.py::restore_team_memberships_safe::1
 verenigingen/services/termination/termination_integration.py::suspend_team_memberships_safe::2
 verenigingen/services/volunteer/bulk_volunteer_creation_service.py::BulkVolunteerCreationService._create_volunteer_for_member::1
-verenigingen/setup/__init__.py::create_application_email_templates::2
-verenigingen/setup/__init__.py::create_default_membership_types::1
-verenigingen/setup/__init__.py::create_default_payment_modes::1
-verenigingen/setup/__init__.py::create_default_regions::1
-verenigingen/setup/__init__.py::create_default_team_roles::1
-verenigingen/setup/__init__.py::create_default_teams::1
-verenigingen/setup/__init__.py::create_membership_items::2
-verenigingen/setup/__init__.py::ensure_prerequisites::3
-verenigingen/setup/__init__.py::install_and_link_onboarding::1
-verenigingen/setup/__init__.py::setup_termination_roles_and_permissions::1
 verenigingen/setup/add_settings_fields.py::add_missing_email_settings_fields::1
 verenigingen/setup/role_profile_setup.py::setup_role_profiles::1
 verenigingen/setup/role_profile_setup.py::setup_role_profiles_cli::1
@@ -128,7 +113,6 @@ verenigingen/verenigingen/doctype/member/scheduler.py::refresh_all_member_financ
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::send_follow_up_reminders::1
 verenigingen/verenigingen/doctype/member_import/member_import.py::MemberImport._create_addresses::1
 verenigingen/verenigingen/doctype/membership/membership.py::Membership.create_or_update_dues_schedule::1
-verenigingen/verenigingen/doctype/membership/membership.py::Membership.on_trash::1
 verenigingen/verenigingen/doctype/membership/membership.py::process_membership_statuses::1
 verenigingen/verenigingen/doctype/membership/scheduler.py::_process_expired_memberships_impl::1
 verenigingen/verenigingen/doctype/membership_type/membership_type.py::MembershipType.update_dues_schedule_template::1
@@ -139,9 +123,6 @@ verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::Payment
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_failed_payment::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._resolve_customer_by_email::1
 verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py::DuesPaymentProcessor._get_or_create_dues_item::1
-verenigingen/verenigingen_payments/mollie/services/webhook_wrapper_service_unified.py::UnifiedWebhookWrapperService._process_pending_refunds::1
-verenigingen/verenigingen_payments/mollie/services/webhook_wrapper_service_unified.py::UnifiedWebhookWrapperService.process_reversal_webhook::1
-verenigingen/verenigingen_payments/ponto/api/webhook_handlers.py::_process_executed_payment::1
 verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service._store_tokens::1
 verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service.revoke_tokens::1
 verenigingen/verenigingen_payments/ponto/utils/token_manager.py::PontoTokenManager._fetch_new_token::1
