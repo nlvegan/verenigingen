@@ -250,8 +250,9 @@ class SEPAAuditLogger:
                     reference_name=user,
                 )
                 audit_event["user_roles"] = []
-                # Distinguish "role lookup failed" from "user has no roles" (#733)
-                audit_event["user_roles_error"] = str(e)
+                # Distinguish "role lookup failed" from "user has no roles" (#733).
+                # In details because that is what both audit doctypes persist.
+                audit_event["details"]["user_roles_error"] = str(e)
 
         try:
             # Store in audit log table
@@ -267,7 +268,7 @@ class SEPAAuditLogger:
 
             return event_id
 
-        except Exception as e:  # swallow-ok: caller-checks - returns a distinguishable "failed_<ts>" event id
+        except Exception as e:  # swallow-ok: false-positive - truthy failed_<ts> id, not a falsy swallow
             # Fallback logging if audit system fails
             frappe.log_error(f"Audit logging failed for event {event_type}: {str(e)}", "Audit System Error")
             return f"failed_{int(time.time())}"

@@ -10,6 +10,7 @@ Run on test_site_9:
         --module verenigingen.tests.services.test_733_assign_swallow_no_cache_poison
 """
 
+import json
 from unittest.mock import Mock, patch
 
 import frappe
@@ -26,33 +27,57 @@ from verenigingen.verenigingen.doctype.chapter.validators.board_member_validator
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 
 
-class _733_RecordingLogger:
-    """Stands in for the file sink; keeps the ``extra`` dict of each record."""
-
-    def __init__(self):
-        self.extras = []
-
-    def _record(self, message, extra=None):
-        self.extras.append(extra)
-
-    info = warning = error = critical = _record
+def _733_error_log_count(title):
+    return frappe.db.count("Error Log", {"method": title})
 
 
 class Test733DashboardDoesNotCacheFailure(VereningingenTestCase):
+    SETTLEMENTS_TITLE = "Financial dashboard: settlements fetch failed"
+    PAYMENTS_TITLE = "Financial dashboard: payments fetch failed"
+
     def setUp(self):
         super().setUp()
         setup_mollie_backend_api(self)
         self.dashboard = FinancialDashboard()
         self.dashboard.settlements_client = Mock()
         self.dashboard.payments_client = Mock()
+        # the other clients would otherwise make real Mollie calls
+        for name in ("balances_client", "invoices_client", "chargebacks_client"):
+            setattr(self.dashboard, name, Mock())
 
-    def test_settlements_failure_is_retried(self):
+    def test_failure_is_not_stored_as_cached_data_and_a_new_object_recovers(self):
         self.expectErrorLog("Financial dashboard")
         rows = [{"id": "stl_733", "status": "paidout"}]
-        self.dashboard.settlements_client.get.side_effect = [RuntimeError("mollie 503"), rows]
+        self.dashboard.settlements_client.get.side_effect = RuntimeError("mollie 503")
         self.assertEqual(self.dashboard._get_settlements_data(), [])
-        self.assertEqual(self.dashboard._get_settlements_data(), rows)
-        self.assertEqual(self.dashboard.settlements_client.get.call_count, 2)
+        self.assertIsNone(self.dashboard._settlements_cache)
+
+        fresh = FinancialDashboard()
+        fresh.settlements_client = Mock()
+        fresh.settlements_client.get.return_value = rows
+        self.assertEqual(fresh._get_settlements_data(), rows)
+
+    def test_payments_failure_is_not_stored_as_cached_data(self):
+        self.expectErrorLog("Financial dashboard")
+        self.dashboard.payments_client.get.side_effect = RuntimeError("mollie 503")
+        self.assertEqual(self.dashboard._get_payments_data(), [])
+        self.assertIsNone(self.dashboard._payments_cache)
+
+    def test_one_request_costs_one_call_and_one_error_log_row_per_client(self):
+        """get_dashboard_summary() reads each getter several times; a failing API must
+        be hit once and logged once per client, not once per read (#733 review)."""
+        self.dashboard.settlements_client.get.side_effect = RuntimeError("mollie 503")
+        self.dashboard.payments_client.get.side_effect = RuntimeError("mollie 503")
+        settlements_before = _733_error_log_count(self.SETTLEMENTS_TITLE)
+        payments_before = _733_error_log_count(self.PAYMENTS_TITLE)
+        self.expectErrorLog("Financial dashboard")
+
+        self.dashboard.get_dashboard_summary()
+
+        self.assertEqual(self.dashboard.settlements_client.get.call_count, 1)
+        self.assertEqual(self.dashboard.payments_client.get.call_count, 1)
+        self.assertEqual(_733_error_log_count(self.SETTLEMENTS_TITLE) - settlements_before, 1)
+        self.assertEqual(_733_error_log_count(self.PAYMENTS_TITLE) - payments_before, 1)
 
     def test_settlements_success_is_still_cached(self):
         """Control: the fix must not disable caching of a good fetch."""
@@ -61,14 +86,6 @@ class Test733DashboardDoesNotCacheFailure(VereningingenTestCase):
         self.assertEqual(self.dashboard._get_settlements_data(), rows)
         self.assertEqual(self.dashboard._get_settlements_data(), rows)
         self.assertEqual(self.dashboard.settlements_client.get.call_count, 1)
-
-    def test_payments_failure_is_retried(self):
-        self.expectErrorLog("Financial dashboard")
-        rows = [{"id": "tr_733"}]
-        self.dashboard.payments_client.get.side_effect = [RuntimeError("mollie 503"), rows]
-        self.assertEqual(self.dashboard._get_payments_data(), [])
-        self.assertEqual(self.dashboard._get_payments_data(), rows)
-        self.assertEqual(self.dashboard.payments_client.get.call_count, 2)
 
     def test_payments_success_is_still_cached(self):
         rows = [{"id": "tr_733"}]
@@ -124,8 +141,15 @@ class Test733UniqueRolesDoesNotCacheFailure(VereningingenTestCase):
 
 
 class Test733ChapterManagementFlagDoesNotCacheFailure(VereningingenTestCase):
-    def test_failed_settings_lookup_is_retried(self):
-        lookup = OptimizedChapterLookup()
+    def setUp(self):
+        super().setUp()
+        self._flag = frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management")
+        frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", 1)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "enable_chapter_management", self._flag or 0
+        )
+
+    def _fail_settings_once(self):
         real = frappe.get_single
         state = {"failed": False}
 
@@ -135,33 +159,55 @@ class Test733ChapterManagementFlagDoesNotCacheFailure(VereningingenTestCase):
                 raise RuntimeError("settings read failed")
             return real(doctype, *args, **kwargs)
 
-        enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management")
-        frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", 1)
-        try:
-            self.expectErrorLog("Failed to check chapter management setting")
-            with patch("frappe.get_single", side_effect=_733_fail_lookup):
-                self.assertFalse(lookup.is_chapter_management_enabled())
-                self.assertTrue(lookup.is_chapter_management_enabled())
-        finally:
-            frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", enabled or 0)
+        return patch("frappe.get_single", side_effect=_733_fail_lookup)
+
+    def test_failed_settings_lookup_is_retried(self):
+        lookup = OptimizedChapterLookup()
+        self.expectErrorLog("Failed to check chapter management setting")
+        with self._fail_settings_once():
+            self.assertFalse(lookup.is_chapter_management_enabled())
+            self.assertTrue(lookup.is_chapter_management_enabled())
+
+    def test_failed_flag_does_not_cache_the_empty_postal_mapping(self):
+        """get_lookup_instance() is a process singleton: an empty mapping built while
+        the flag lookup failed must not be served for the 300 s TTL."""
+        lookup = OptimizedChapterLookup()
+        self.expectErrorLog("Failed to check chapter management setting")
+        with self._fail_settings_once():
+            self.assertEqual(lookup.get_chapter_postal_mapping(), {})
+            self.assertIsNone(lookup._chapter_postal_mapping)
+        with patch.object(lookup, "_build_postal_mapping", return_value={"1000": []}) as build:
+            self.assertEqual(lookup.get_chapter_postal_mapping(), {"1000": []})
+            build.assert_called_once()
+
+    def test_good_flag_lookup_and_mapping_are_still_cached(self):
+        lookup = OptimizedChapterLookup()
+        self.assertTrue(lookup.is_chapter_management_enabled())
+        lookup.get_chapter_postal_mapping()
+        with patch("frappe.get_single", side_effect=AssertionError("flag must be cached")):
+            self.assertTrue(lookup.is_chapter_management_enabled())
+        with patch.object(lookup, "_build_postal_mapping", side_effect=AssertionError("cached")):
+            lookup.get_chapter_postal_mapping()
 
 
 class Test733AuditLogMarksFailedRoleLookup(VereningingenTestCase):
-    def _log(self, roles_side_effect):
+    """Asserted on the STORED API Audit Log row: `extra=` is never rendered or persisted."""
+
+    def _stored_details(self, roles_side_effect):
         audit = SEPAAuditLogger()
-        sink = _733_RecordingLogger()
-        audit.logger = sink
         with patch("frappe.get_roles", side_effect=roles_side_effect):
-            audit.log_event(AuditEventType.API_CALL_SUCCESS, user="Administrator", check_alerts=False)
-        return sink.extras[-1]
+            event_id = audit.log_event(
+                AuditEventType.API_CALL_SUCCESS, user="Administrator", check_alerts=False
+            )
+        row = frappe.db.get_value("API Audit Log", {"event_id": event_id}, "details")
+        self.assertIsNotNone(row, "audit row was not stored")
+        return json.loads(row)
 
-    def test_failed_role_lookup_is_distinguishable_from_no_roles(self):
+    def test_failed_role_lookup_is_recorded_in_the_stored_row(self):
         self.expectErrorLog("Security Audit - Role Retrieval Failed")
-        extra = self._log(RuntimeError("role table locked"))
-        self.assertEqual(extra["user_roles"], [])
-        self.assertIn("role table locked", extra["user_roles_error"])
+        details = self._stored_details(RuntimeError("role table locked"))
+        self.assertIn("role table locked", details["user_roles_error"])
 
-    def test_successful_lookup_carries_no_error_marker(self):
-        extra = self._log(lambda user: ["System Manager"])
-        self.assertEqual(extra["user_roles"], ["System Manager"])
-        self.assertNotIn("user_roles_error", extra)
+    def test_successful_lookup_stores_no_error_marker(self):
+        details = self._stored_details(lambda user: ["System Manager"])
+        self.assertNotIn("user_roles_error", details)

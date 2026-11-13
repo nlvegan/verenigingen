@@ -69,15 +69,20 @@ class FinancialDashboard:
         self._settlements_cache = None
         # Cache for payments data to prevent redundant API calls
         self._payments_cache = None
+        # A failed fetch is not cached as data, but each dashboard method calls these
+        # getters several times per request: after one failure, stop calling the API
+        # and stop logging for the rest of this object's life (#733).
+        self._settlements_fetch_failed = False
+        self._payments_fetch_failed = False
 
     def _get_settlements_data(self) -> List[Dict]:
         """Get settlements data with caching to prevent redundant API calls"""
-        if self._settlements_cache is None:
+        if self._settlements_cache is None and not self._settlements_fetch_failed:
             try:
                 settlements = self.settlements_client.get("settlements", paginated=True)
             except Exception as e:
-                # Fallback for THIS call only: caching [] would make one transient
-                # API failure permanent for the life of the object (#733).
+                # [] is returned but never stored as the cached data (#733).
+                self._settlements_fetch_failed = True
                 frappe.log_error(
                     title="Financial dashboard: settlements fetch failed",
                     message=f"Failed to fetch settlements data: {e}\n{frappe.get_traceback()}",
@@ -93,16 +98,20 @@ class FinancialDashboard:
                     f"Settlement {i}: ID={settlement.get('id')}, Status={settlement.get('status')}, Amount={settlement.get('amount')}, Created={settlement.get('createdAt')}, Settled={settlement.get('settledAt')}"
                 )
 
-        return self._settlements_cache
+        return self._settlements_cache or []
 
     def _get_payments_data(self) -> List[Dict]:
         """Get payments data with caching to prevent redundant API calls"""
-        if self._payments_cache is None and self.payments_client is not None:
+        if (
+            self._payments_cache is None
+            and not self._payments_fetch_failed
+            and self.payments_client is not None
+        ):
             try:
                 # Fetch all payments once, without date filtering
                 payments = self.payments_client.get("payments", params={"limit": 250}, paginated=True)
             except Exception as e:
-                # Fallback for THIS call only; do not cache the failure (#733).
+                self._payments_fetch_failed = True
                 frappe.log_error(
                     title="Financial dashboard: payments fetch failed",
                     message=f"Failed to fetch payments data: {e}\n{frappe.get_traceback()}",

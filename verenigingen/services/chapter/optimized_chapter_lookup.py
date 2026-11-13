@@ -163,7 +163,12 @@ class OptimizedChapterLookup:
     def get_chapter_postal_mapping(self) -> Dict[str, List[Dict]]:
         """Get cached postal code mapping, refreshing if needed"""
         if self._chapter_postal_mapping is None or self._needs_cache_refresh():
-            self._chapter_postal_mapping = self._build_postal_mapping()
+            mapping = self._build_postal_mapping()
+            if self._chapter_management_enabled is None:
+                # The flag lookup failed, so `mapping` is an empty fallback rather
+                # than a real answer. Do not cache it for the TTL (#733).
+                return mapping
+            self._chapter_postal_mapping = mapping
             import time
 
             self._last_cache_update = time.time()
