@@ -1231,6 +1231,11 @@ def _956_reader_files():
     services/donation/ (donor_service reads form_data too) plus any non-test
     module that names PublicDonationService / get_public_donation_service,
     i.e. that hands a form_data dict to the service.
+
+    Known limits: the services/donation/ listing is NOT recursive (a subpackage
+    added there would need its own entry), and the name match is textual, so
+    verenigingen_payments/utils/reference_ownership.py is included through a
+    docstring mention. That is harmless: it has no form_data reads.
     """
     found = set()
     donation_dir = os.path.join(PACKAGE_ROOT, "services", "donation")
