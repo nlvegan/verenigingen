@@ -545,12 +545,10 @@ class MemberManager(BaseManager):
             existing_member.status = "Active"
             existing_member.chapter_join_date = today()
 
-            # handle_member_changes activates the history entry inside this save (#2499); hand it the
-            # approver so the entry's reason is the same one the call below would have written.
+            # handle_member_changes activates the history entry inside this save (#2499, it also adds an
+            # Active one when none exists); hand it the approver so the reason names them.
             self.chapter_doc.flags.history_activation_reason = self._approval_reason(approved_by)
             self.chapter_doc.save()
-
-            self._activate_history_entry(member_id, approved_by)
 
             # Create audit comment
             member_doc = frappe.get_doc("Member", member_id)
