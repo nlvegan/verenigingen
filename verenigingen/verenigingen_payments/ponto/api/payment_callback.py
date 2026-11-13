@@ -31,7 +31,7 @@ from frappe.utils import get_url
 from verenigingen.utils.security.api_security_framework import public_api
 from verenigingen.utils.security.guest_return_tokens import verify_guest_return_token
 from verenigingen.utils.security.types import OperationType
-from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.service_user import acting_as_service_user, get_service_user
 from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
     PONTO_RETURN_ROUTE,
     _return_arg,
@@ -80,9 +80,14 @@ def payment_callback():
         service_name="Ponto Payment Callback",
         fallback_user=None,
     )
-    if webhook_user:
-        frappe.set_user(webhook_user)
+    with acting_as_service_user(webhook_user):
+        _answer_request_return(webhook_user)
 
+
+def _answer_request_return(webhook_user):
+    """The callback's work. Runs as ``webhook_user`` (None: as the visitor) and the caller puts
+    the session back afterwards, so a visitor's address is never recorded on the service
+    account by Session.update (#2275)."""
     payment_request_name = _return_arg("payment_request")
 
     if not payment_request_name:
