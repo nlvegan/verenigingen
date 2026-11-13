@@ -71,11 +71,10 @@ def get_performance_metrics():
         # Get overall performance metrics
         performance_summary = performance_monitor.get_overall_health(hours=hours)
 
-        # Get specific operation stats
-        key_operations = ["webhook_processing", "payment_creation", "subscription_creation", "api_call"]
-
+        # Break down by every operation actually recorded. A hardcoded allowlist
+        # silently hid the live webhook path's "unified_webhook_processing" (#1315).
         operation_stats = {}
-        for operation in key_operations:
+        for operation in performance_monitor.get_recorded_operations():
             stats = performance_monitor.get_operation_stats(operation, hours=hours)
             if stats["total_calls"] > 0:
                 operation_stats[operation] = stats

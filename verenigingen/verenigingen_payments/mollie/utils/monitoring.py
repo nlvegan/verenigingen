@@ -171,6 +171,17 @@ class MolliePerformanceMonitor:
             "slow_operations": len([d for d in durations if d > 2.0]),
         }
 
+    def get_recorded_operations(self) -> List[str]:
+        """
+        Sorted names of every operation in the retained window.
+
+        Lets a reader break stats down by what was actually recorded instead of
+        a hardcoded allowlist (#1315: the live webhook path records only
+        "unified_webhook_processing", which no allowlist entry matched). Callers
+        apply their own recency window via get_operation_stats().
+        """
+        return sorted({m.operation for m in self.metrics})
+
     def get_overall_health(self, hours: int = 24) -> Dict[str, Any]:
         """
         Get overall health metrics for the last N hours.
