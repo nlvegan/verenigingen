@@ -137,6 +137,8 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     # #1528/#1539: added by
     # verenigingen/tests/unit/test_performance_profiler_current_chapter_display.py
     "scripts/performance/performance_profiler.py",
+    # #1357: verenigingen/tests/unit/test_member_performance_analyzer_session_var_1357.py
+    "scripts/member_performance_analyzer.py",
     # #1550: the six entries below were already imported under verenigingen/tests/
     # before this scan could see the `sys.path.insert` + bare-import and
     # `importlib.util.spec_from_file_location` shapes -- they were invisible to the
