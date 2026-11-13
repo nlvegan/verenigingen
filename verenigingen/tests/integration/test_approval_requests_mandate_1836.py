@@ -19,6 +19,7 @@ import frappe
 
 from verenigingen.api.member import sepa_api
 from verenigingen.services.communication.email_service import EmailService
+from verenigingen.services.payment.sepa_mandate_consent import get_mandate_consent_text, hash_consent_text
 from verenigingen.services.payment.sepa_mandate_manager import member_needs_mandate_signature
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.templates.pages import payment_dashboard
@@ -93,7 +94,12 @@ class TestApprovalRequestsMandate(PortalSelfServiceTestMixin, ApprovalCase):
         # PROBE SHORTCUT, stated: the portal User is linked directly; the signing call is the real endpoint.
         user = self._link_member_to_user(member_doc)
         with self._as_user(user.name):
-            return sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="A. Applicant")
+            return sepa_api.setup_sepa_direct_debit(
+                iban=iban,
+                account_holder_name="A. Applicant",
+                consent=1,
+                consent_text_hash=hash_consent_text(get_mandate_consent_text()),
+            )
 
     def _dashboard_context(self, member):
         context = frappe._dict(member=member)

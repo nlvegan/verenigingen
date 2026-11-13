@@ -389,6 +389,8 @@ class MollieSecurityManager:
                         """,
                         now=True,
                         notification_key="mollie_security_alert",
+                        # Per alert type: a second kind of incident within the hour is not the first (#2310).
+                        cooldown_scope=alert_type,
                     )
             except Exception as e:
                 frappe.log_error(
