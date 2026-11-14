@@ -216,14 +216,20 @@ class EndBoardPositionsOperation(TerminationOperation):
 
         from verenigingen.services.termination.termination_integration import end_board_positions_safe
 
+        failures = []
         positions_ended = end_board_positions_safe(
             self.member_name,
             self.termination_request.termination_date or today(),
             f"Member terminated - Request: {self.termination_request.name}",
+            failures=failures,
         )
         results.positions_ended = positions_ended
         if positions_ended > 0:
             results.record_action(f"Ended {positions_ended} board position(s)")
+        # #832: a seat that is still active must show up in the termination's errors
+        # (and so its audit trail), not only in a log file.
+        for failure in failures:
+            results.record_error(failure)
 
 
 class DisableChapterMembershipsOperation(TerminationOperation):

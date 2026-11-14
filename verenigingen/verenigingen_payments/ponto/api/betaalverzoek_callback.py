@@ -47,6 +47,10 @@ CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
 # the token this callback hands out would itself pass as the proof for the next request).
 RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
 
+# Scopes the signed `token` payment_page requires (#1817). Its own purpose: the other Ponto
+# proofs travel in URLs too, and none of them may unlock this page's amount/creditor/redirect.
+PAYMENT_PAGE_TOKEN_PURPOSE = "ponto_payment_page"
+
 # Ponto rejects a payment-request redirectUri over 255 characters (HTTP 500, measured on the
 # sandbox 2026-11-08). The short guest route plus short parameter names keep the URL well
 # inside that for a long host; both tokens stay separate and full length.
@@ -212,14 +216,23 @@ def payment_page():
 
     Query Parameters:
         link: Ponto Payment Link name
+        token: signed proof (generate_guest_return_token with PAYMENT_PAGE_TOKEN_PURPOSE) for
+            that link. Ponto Payment Link.autoname is a sequential PONTO-LINK-{####}, so the
+            name alone is enumerable (#1817). A missing, wrong or other-purpose token, an
+            unknown link and a deleted link are all refused with the same "not found" error,
+            checked before any database read, so no answer tells a guest which names exist
+            or what state they are in. Only a token holder sees the link's status.
 
     Returns:
         HTML page with payment details and authorization button
     """
     payment_link_name = frappe.request.args.get("link")
+    token = frappe.request.args.get("token")
 
-    if not payment_link_name:
-        frappe.throw(_("Payment link not specified"), frappe.exceptions.DoesNotExistError)
+    if not payment_link_name or not verify_guest_return_token(
+        PAYMENT_PAGE_TOKEN_PURPOSE, payment_link_name, token
+    ):
+        frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)
 
     if not frappe.db.exists("Ponto Payment Link", payment_link_name):
         frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)

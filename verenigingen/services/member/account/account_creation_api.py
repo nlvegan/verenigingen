@@ -15,6 +15,7 @@ All whitelisted API endpoints in this module follow the OperationResult pattern:
 - Generic user-facing messages with technical details in errors list
 """
 
+import functools
 import traceback
 from typing import Any, Dict
 
@@ -27,11 +28,46 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
+_MISSING = object()
+
+
+def _restores_flags(*flag_names):
+    """Put ``frappe.flags.<name>`` back to what the CALLER had when the endpoint exits.
+
+    The endpoints below raise in_background_job / bulk_account_creation / in_import for the
+    work they do. An RQ job's frappe.local dies with the job, but a test run, ``bench execute``
+    or any synchronous caller keeps it, and a leaked ``in_import`` switches off defaults, Select
+    validation and User-creation throttling for everything after (#2559). Restores the previous
+    value (or absence), not False: a caller that was itself inside an import keeps ``in_import``.
+    Every exit is covered, including an exception that propagates.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            previous = {name: frappe.flags.get(name, _MISSING) for name in flag_names}
+            try:
+                return func(*args, **kwargs)
+            finally:
+                for name, value in previous.items():
+                    if value is _MISSING:
+                        frappe.flags.pop(name, None)
+                    else:
+                        frappe.flags[name] = value
+
+        return wrapper
+
+    return decorator
+
+
+_ACCOUNT_CREATION_FLAGS = ("in_background_job", "bulk_account_creation", "in_import")
+
 # Background job entry points
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@_restores_flags(*_ACCOUNT_CREATION_FLAGS)
 def process_account_creation_request(request_name: str) -> OperationResult[Dict[str, Any]]:
     """Background job entry point for processing account creation requests
 
@@ -463,6 +499,7 @@ def queue_account_creation_for_volunteer(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@_restores_flags(*_ACCOUNT_CREATION_FLAGS)
 def queue_bulk_account_creation_for_members(
     member_names: list,
     roles=None,
@@ -738,6 +775,7 @@ def _count_batch_requests(request_names, statuses):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@_restores_flags(*_ACCOUNT_CREATION_FLAGS)
 def process_bulk_account_creation_batch(
     request_names: list, batch_id: str, batch_number: int, tracker_name: str, remaining_batches=None
 ):
@@ -1300,6 +1338,7 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@_restores_flags(*_ACCOUNT_CREATION_FLAGS)
 def retry_all_failed_requests(failure_type=None) -> OperationResult[Dict[str, Any]]:
     """
     Retry all failed Account Creation Requests.

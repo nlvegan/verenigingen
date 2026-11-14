@@ -70,8 +70,8 @@ class Membership(Document):
         self.update_member_duration()
 
     def on_cancel(self) -> None:
-        """Handle dues schedule when membership is cancelled"""
-        self.pause_dues_schedule()
+        """Cancel the member's dues schedule with the membership (#2134), as cancel_membership does."""
+        _cancel_linked_dues_schedule(self.name, member=self.member)
 
     def on_trash(self) -> None:
         """Clean up Membership Dues Schedules linked to this membership"""
@@ -166,6 +166,9 @@ class Membership(Document):
         else:
             # Create new dues schedule from template with enhanced error handling
             try:
+                if self._reuse_cancelled_dues_schedule(custom_fee):
+                    return
+
                 from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
                     MembershipDuesSchedule,
                 )
@@ -228,6 +231,28 @@ class Membership(Document):
                 else:
                     # Permanent failure - show error
                     self._handle_dues_schedule_error(e, "create")
+
+    def _reuse_cancelled_dues_schedule(self, custom_fee):
+        """Reactivate the schedule a staff/EoP/voluntary ending cancelled instead of adding a second one (#2134).
+
+        The rejoin is re-anchored on this membership's start date, so the gap is never billed.
+        """
+        from verenigingen.services.member.approval.membership_creation_service import (
+            get_membership_creation_service,
+        )
+
+        member_doc = frappe.get_doc("Member", self.member)
+        membership_type = frappe.get_doc("Membership Type", self.membership_type)
+        schedule_name = get_membership_creation_service().reuse_cancelled_schedule(
+            member_doc, self, membership_type
+        )
+        if not schedule_name:
+            return False
+
+        self._update_member_dues_schedule_link(schedule_name)
+        if custom_fee and custom_fee > 0:
+            self._clear_csv_import_fee_fields()
+        return True
 
     def _clear_csv_import_fee_fields(self):
         """Clear CSV import custom fee fields after use to prevent reuse on renewals."""
@@ -303,18 +328,6 @@ class Membership(Document):
     # REMOVED: _create_dues_schedule_alert() - replaced by DuesScheduleCreationService._create_failure_alert()
 
     # REMOVED: _schedule_dues_schedule_retry() - replaced by DuesScheduleCreationService with frappe.enqueue()
-
-    def pause_dues_schedule(self):
-        """Pause the member's dues schedule when membership is cancelled"""
-        if not self.member:
-            return
-
-        repo = DuesScheduleRepository()
-        existing_schedule_info = repo.get_active_schedule(self.member, fields=["name"])
-
-        if existing_schedule_info:
-            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule_info.name)
-            schedule.pause_schedule(f"Membership {self.name} cancelled on {today()}")
 
     def get_dues_schedule(self):
         """Get the member's dues schedule"""
@@ -863,17 +876,22 @@ def cancel_membership(
     return membership.name
 
 
-def _cancel_linked_dues_schedule(membership_name):
+def _cancel_linked_dues_schedule(membership_name, member=None):
     """Cancel every dues schedule built for this membership (#1938).
 
     Left Active they keep billing on the old cadence, and an Active one makes the
     next Membership for the member only re-type it instead of creating its own.
+    With ``member`` (docstatus-2 cancel, #2134) a live schedule of theirs that no Membership
+    links to also goes, unless another live Membership of the member still needs it.
     """
     from verenigingen.services.termination.termination_integration import cancel_dues_schedule_safe
 
+    filters = {"membership": membership_name}
+    if member and not _has_other_live_membership(member, membership_name):
+        filters = {"member": member, "is_template": 0}
     schedule_names = frappe.get_all(
         "Membership Dues Schedule",
-        filters={"membership": membership_name, "status": ["!=", "Cancelled"]},
+        filters={**filters, "status": ["!=", "Cancelled"]},
         pluck="name",
         # Active first: Membership Dues Schedule.validate refuses any save of a member's
         # schedule while ANOTHER of theirs is Active, so a Paused one only cancels after it.
@@ -884,6 +902,31 @@ def _cancel_linked_dues_schedule(membership_name):
             frappe.throw(
                 _("Could not cancel dues schedule {0}; membership not cancelled").format(schedule_name)
             )
+
+
+def cancel_dues_schedule_if_end_of_period_cancelled(membership):
+    """Stop the schedule of a membership whose End-of-Period cancellation has run its course (#2134).
+
+    Called wherever a period ends: the branch that finishes the cancellation, and both expiry writers
+    (this module's job and scheduler.process_expired_memberships), because an End-of-Period cancellation
+    that is only reached after the renewal date is marked Expired, never Cancelled.
+    """
+    if membership.cancellation_date and membership.cancellation_type == "End of Period":
+        _cancel_linked_dues_schedule(membership.name, member=membership.member)
+
+
+def _has_other_live_membership(member, membership_name):
+    return bool(
+        frappe.db.exists(
+            "Membership",
+            {
+                "member": member,
+                "docstatus": 1,
+                "status": ["not in", ["Cancelled", "Expired"]],
+                "name": ["!=", membership_name],
+            },
+        )
+    )
 
 
 @frappe.whitelist()
@@ -932,30 +975,7 @@ def process_membership_statuses():
 
     for membership_info in memberships:
         try:
-            membership = frappe.get_doc("Membership", membership_info.name)
-
-            # Check expiry - if past renewal date
-            # Note: Auto-renewal is handled by the billing system, not individual memberships
-            if membership.renewal_date and DateRangeValidator.is_date_before(
-                membership.renewal_date, today_date
-            ):
-                # Mark as expired - renewal is handled by the billing/dues schedule system
-                membership.status = "Expired"
-                membership.flags.ignore_validate_update_after_submit = True
-                membership.save()
-
-                frappe.logger().info(f"Marked membership {membership.name} as Expired")
-
-            # Check cancellations with end-of-period dates that have now been reached
-            elif membership.cancellation_date and membership.cancellation_type == "End of Period":
-                if DateRangeValidator.is_date_today_or_before(membership.renewal_date, today_date):
-                    membership.status = "Cancelled"
-                    membership.flags.ignore_validate_update_after_submit = True
-                    membership.save()
-
-                    frappe.logger().info(
-                        f"Processed end-of-period cancellation for membership {membership.name}"
-                    )
+            _process_membership_status(membership_info.name, today_date)
 
         except Exception as e:
             frappe.log_error(
@@ -964,6 +984,32 @@ def process_membership_statuses():
             )
 
     return True
+
+
+def _process_membership_status(membership_name, today_date):
+    """Expire one membership past its renewal date, or finish its End-of-Period cancellation."""
+    membership = frappe.get_doc("Membership", membership_name)
+
+    # Check expiry - if past renewal date
+    # Note: Auto-renewal is handled by the billing system, not individual memberships
+    if membership.renewal_date and DateRangeValidator.is_date_before(membership.renewal_date, today_date):
+        # Mark as expired - renewal is handled by the billing/dues schedule system
+        cancel_dues_schedule_if_end_of_period_cancelled(membership)
+        membership.status = "Expired"
+        membership.flags.ignore_validate_update_after_submit = True
+        membership.save()
+
+        frappe.logger().info(f"Marked membership {membership.name} as Expired")
+
+    # Check cancellations with end-of-period dates that have now been reached
+    elif membership.cancellation_date and membership.cancellation_type == "End of Period":
+        if DateRangeValidator.is_date_today_or_before(membership.renewal_date, today_date):
+            cancel_dues_schedule_if_end_of_period_cancelled(membership)
+            membership.status = "Cancelled"
+            membership.flags.ignore_validate_update_after_submit = True
+            membership.save()
+
+            frappe.logger().info(f"Processed end-of-period cancellation for membership {membership.name}")
 
 
 def verify_signature(data, signature, secret_key=None):

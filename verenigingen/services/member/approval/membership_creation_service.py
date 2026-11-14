@@ -526,16 +526,29 @@ class MembershipCreationService(StatelessService):
         return None
 
     def _is_voluntary_quit_rejoin(self, member_doc, schedule_name):
-        """A Cancelled schedule left by a voluntary Quit: the only Cancelled one approval reuses (#1741).
+        """A Cancelled schedule that a rejoin may reuse (#1741 voluntary Quit; #2134 staff/EoP cancel).
 
-        The evidence is the one submit_application's _handle_existing_member lets a rejoiner in
-        on: the LATEST executed termination is Voluntary. A schedule cancelled any other way (schedule maintenance, an admin) is left alone.
+        The rule lives in DuesScheduleLifecycleService.is_reusable_for_rejoin, which the Membership
+        submit path shares; a schedule cancelled any other way is left alone.
         """
-        if frappe.db.get_value("Membership Dues Schedule", schedule_name, "status") != "Cancelled":
-            return False
-        from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
 
-        return get_latest_executed_termination_type(member_doc.name) == "Voluntary"
+        return get_dues_schedule_lifecycle_service().is_reusable_for_rejoin(member_doc.name, schedule_name)
+
+    def reuse_cancelled_schedule(self, member_doc, membership, membership_type):
+        """Reactivate the member's reusable Cancelled schedule for ``membership``; its name, or None (#2134)."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        schedule_name = get_dues_schedule_lifecycle_service().find_reusable_cancelled_schedule(
+            member_doc.name
+        )
+        if schedule_name:
+            self._reactivate_schedule_for_rejoin(schedule_name, member_doc, membership, membership_type)
+        return schedule_name
 
     def _reactivate_schedule_for_rejoin(self, schedule_name, member_doc, membership, membership_type):
         """Reuse the earlier schedule for the new membership: new template and amount, billed from now.
@@ -548,6 +561,8 @@ class MembershipCreationService(StatelessService):
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         if template_name:
             self._apply_template_and_amount(schedule, template_name, member_doc)
+        # The new Membership may be of another type; invoicing refuses a schedule whose type differs (#2134).
+        schedule.membership_type = membership.membership_type
 
         from verenigingen.services.billing.dues_schedule_lifecycle_service import (
             get_dues_schedule_lifecycle_service,

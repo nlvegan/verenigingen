@@ -413,6 +413,93 @@ class TestAmendmentSyncPatchPath(EnhancedTestCase):
         self.assertEqual(sdk.subscriptions_updated, [])
         self.assertIn(result["status"], ("success", "warning"))
 
+    def _sdk_whose_cancels_carry_member_metadata(self, member, fail_for=None):
+        """Fake SDK whose DELETE returns the cancelled subscription with the same
+        `membership_dues` metadata production subscriptions carry, so the real
+        SubscriptionService.cancel_subscription owner bookkeeping is reachable.
+        `fail_for` names a subscription id whose DELETE raises."""
+        sdk = FakeSDKClient(live_subscription=_FakeSubscription(interval="3 months"))
+        metadata = {"subscription_type": "membership_dues", "member_id": member.name}
+
+        class _CarryingSubscriptions(_FakeSubscriptions):
+            def delete(self, subscription_id):
+                if subscription_id == fail_for:
+                    raise RuntimeError("mollie refused the cancel")
+                self._sdk.subscriptions_deleted.append(subscription_id)
+                cancelled = _FakeSubscription(subscription_id=subscription_id, status="canceled")
+                cancelled.metadata = metadata
+                return cancelled
+
+        class _CarryingCustomer(_FakeCustomer):
+            def __init__(self, inner_sdk):
+                super().__init__(inner_sdk)
+                self.subscriptions = _CarryingSubscriptions(inner_sdk)
+
+        sdk.customers.get = lambda customer_id: _CarryingCustomer(sdk)
+        return sdk
+
+    def _stamp_live_subscription(self, member):
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"subscription_status": "active", "subscription_cancelled_date": None},
+            update_modified=False,
+        )
+
+    def _member_subscription_state(self, member):
+        return frappe.db.get_value(
+            "Member",
+            member.name,
+            ["subscription_status", "subscription_cancelled_date"],
+            as_dict=True,
+        )
+
+    def test_amendment_swap_does_not_record_a_cancel_on_the_member_873(self):
+        """The swap cancels the OLD subscription while a replacement is live: the
+        member must not be stamped canceled (status or date)."""
+        member, membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        self._stamp_live_subscription(member)
+        sdk = self._sdk_whose_cancels_carry_member_metadata(member)
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        result = service.sync_subscription_for_amendment(self._fee_change_amendment(membership, member))
+
+        self.assertIn(result["status"], ("success", "warning"))
+        self.assertEqual(sdk.subscriptions_deleted, ["sub_LIVE"], "the old subscription was not cancelled")
+        state = self._member_subscription_state(member)
+        self.assertEqual(state.subscription_status, "active")
+        self.assertIsNone(state.subscription_cancelled_date)
+
+    def test_amendment_rollback_does_not_record_a_cancel_on_the_member_873(self):
+        """Old-subscription cancel fails, so the NEW one is rolled back while the
+        old one stays live: still no cancel bookkeeping on the member."""
+        member, membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        self._stamp_live_subscription(member)
+        sdk = self._sdk_whose_cancels_carry_member_metadata(member, fail_for="sub_LIVE")
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        result = service.sync_subscription_for_amendment(self._fee_change_amendment(membership, member))
+
+        self.assertTrue(result.get("rollback_successful"), result)
+        self.assertEqual(sdk.subscriptions_deleted, ["sub_FAKE"], "the new subscription was not rolled back")
+        state = self._member_subscription_state(member)
+        self.assertEqual(state.subscription_status, "active")
+        self.assertIsNone(state.subscription_cancelled_date)
+
+    def test_plain_cancel_through_the_same_fake_still_records_the_cancel_873(self):
+        """Control: the same fake, cancelled through the default path, DOES stamp the
+        member, so the two tests above are not green merely because nothing can write."""
+        member, _membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        self._stamp_live_subscription(member)
+        sdk = self._sdk_whose_cancels_carry_member_metadata(member)
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        service.subscription_service.cancel_subscription("cst_SYNC", "sub_LIVE", reason="staff cancel")
+
+        state = self._member_subscription_state(member)
+        self.assertEqual(state.subscription_status, "canceled")
+        self.assertIsNotNone(state.subscription_cancelled_date)
+
     def test_patch_amount_mismatch_returns_warning(self):
         from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
             MollieSubscriptionSyncService,

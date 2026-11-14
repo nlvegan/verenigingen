@@ -147,7 +147,6 @@ POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_a
 
 ### Payment Operations
 ```
-POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_donation_payment
 POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_subscription
 ```
 

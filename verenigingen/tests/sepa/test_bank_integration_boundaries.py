@@ -24,6 +24,8 @@ import requests_mock
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
+CI_ALWAYS_SKIPS = "every test skips unless ENABLE_BANK_INTEGRATION_TESTS is set, which no CI workflow sets"
+
 
 def _check_bank_integration_available():
     """Check if bank integration infrastructure is available and functional.
