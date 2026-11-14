@@ -379,6 +379,7 @@ class Member(
         custom_rate_reason=None,
         is_csv_import=False,
         approval_fields=None,
+        system_follow_on=False,
     ):
         """
         Create membership record when application is approved.
@@ -398,6 +399,7 @@ class Member(
             custom_rate_reason=custom_rate_reason,
             is_csv_import=is_csv_import,
             approval_fields=approval_fields,
+            system_follow_on=system_follow_on,
         )
 
     # Member.reject_application removed in T4.1, same reasoning as

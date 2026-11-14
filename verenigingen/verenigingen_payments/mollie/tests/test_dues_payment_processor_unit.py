@@ -301,9 +301,11 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         # exercised by the integration suites; here we assert the orchestration
         # invokes it with the existing BT and the new PE).
         recon_calls = []
+        recon_payment_ids = []
 
-        def _capture_reconcile(bt_name, pe_name):
+        def _capture_reconcile(bt_name, pe_name, payment_id=None):
             recon_calls.append((bt_name, pe_name))
+            recon_payment_ids.append(payment_id)
             return True
 
         self.processor._reconcile_bank_transaction_with_payment_entry = _capture_reconcile
@@ -314,6 +316,8 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         self.assertEqual(result["status"], "success", msg=result)
         self.assertTrue(result.get("partial_processing"))
         self.assertEqual(recon_calls, [(bt.name, "PE-RECON-001")])
+        # The payment id reaches the link step so a failed link names it in the Error Log (#1803).
+        self.assertEqual(recon_payment_ids, [ref])
         self.assertTrue(result.get("reconciled"))
 
     def test_bank_transaction_only_is_complete_when_no_allocation_was_requested(self):

@@ -42,9 +42,12 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+    ACCOUNT_JOB,
+    APPROVED_ACCOUNT_JOB,
     AccountCreationCancelled,
 )
 
@@ -502,7 +505,9 @@ class AccountCreationManager:
         # Doctype-level User/Employee create perms are NOT used here — they only
         # grant System Manager / HR User / HR Manager respectively, which is the
         # wrong shape for an association-management workflow.
-        if not (set(frappe.get_roles()) & Roles.ADMIN_ROLES):
+        # The one other way in: the job of an authorised approval (#1930), which proved its approval
+        # before it entered authorised_follow_on_steps (process_approved_account_creation_request).
+        if not (follow_on_ignore_permissions() or set(frappe.get_roles()) & Roles.ADMIN_ROLES):
             raise frappe.PermissionError(
                 "Account creation requires Verenigingen Staff, Verenigingen Administrator, or System Manager role"
             )
@@ -1185,7 +1190,11 @@ class AccountCreationManager:
             return True
 
         # Verenigingen Staff / Administrator can assign verenigingen-scoped roles
-        if current_roles & {Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF}:
+        # An authorised approval's job (#1930) is held to the same allow-list as staff.
+        if (
+            current_roles & {Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF}
+            or follow_on_ignore_permissions()
+        ):
             allowed_roles = {
                 "Verenigingen Member",
                 "Verenigingen Volunteer",
@@ -1287,7 +1296,7 @@ class AccountCreationManager:
         # applied either.
         try:
             frappe.enqueue(
-                "verenigingen.services.member.account.account_creation_api.process_account_creation_request",
+                APPROVED_ACCOUNT_JOB if follow_on_ignore_permissions() else ACCOUNT_JOB,
                 request_name=self.request_name,
                 queue="long",
                 timeout=600,
