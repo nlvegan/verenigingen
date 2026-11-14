@@ -175,6 +175,8 @@ def handle_permissions_updates(event_name, event_data, **kwargs):
 
         frappe.logger("events").info(f"Updated permissions for team {team_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: _update_team_permissions re-raises; do not absorb it here
     except Exception as e:
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Team Permissions Update Error")
 

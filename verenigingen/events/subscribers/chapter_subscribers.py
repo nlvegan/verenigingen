@@ -44,7 +44,9 @@ def handle_board_role_assignments(event_name, event_data, is_bulk_import=False, 
         frappe.logger("events").info(f"Processed board role assignment for {volunteer} in {chapter_name}")
 
     except NON_RESUMABLE_DB_ERRORS:
-        raise  # #1888: fail the job so it is retried, instead of logging it as handled
+        # #1888: fail the job (visible Error Log row; the nightly sync repairs it) instead
+        # of logging it as handled. Frappe does NOT retry a QueryDeadlockError job.
+        raise
     except Exception as e:
         frappe.log_error(
             f"Failed to handle board role assignment: {str(e)}", "Chapter Board Role Assignment Error"
@@ -321,6 +323,8 @@ def handle_permissions_updates(event_name, event_data, is_bulk_import=False, **k
 
         frappe.logger("events").info(f"Updated permissions for chapter {chapter_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: _update_chapter_permissions re-raises; do not absorb it here
     except Exception as e:
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Chapter Permissions Update Error")
 

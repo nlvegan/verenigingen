@@ -231,8 +231,9 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
     skipped = []
     for row in board_members:
         user = row["user"] if isinstance(row, dict) else row.user
-        # auto_sync_on_role_change never raises: it RETURNS {"success": False, ...}, or None
-        # after swallowing an exception (#1718), so "no exception" is not "synced".
+        # auto_sync_on_role_change does not raise an ordinary error: it RETURNS
+        # {"success": False, ...}, or None after swallowing one (#1718), so "no exception"
+        # is not "synced". It does raise a 1213/1205 (#1888), re-raised below.
         try:
             sync = auto_sync_on_role_change(user)
         except NON_RESUMABLE_DB_ERRORS:

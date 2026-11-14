@@ -465,13 +465,15 @@ class AccountCreationManager:
             )
         except NON_RESUMABLE_DB_ERRORS:
             # A 1213/1205 already discarded the transaction: not "non-fatal" (#1888).
+            # Ordinary retry logic (is_retryable_error -> schedule_retry) decides what
+            # happens next; this is the only caller with a real retry.
             raise
         except Exception as e:
             # Non-fatal — user still has the basic profile from Phase 1.
             # The Error Log entry is written by sync_user_role_profile itself
             # (where the exception is actually absorbed) rather than here;
-            # auto_sync_on_role_change also swallows, so this except block is
-            # only reached for import errors or arguments-level failures.
+            # auto_sync_on_role_change also swallows ordinary errors, so this except
+            # block is only reached for import errors or arguments-level failures.
             frappe.logger().warning(
                 f"[ACR PIPELINE] ⚠️ Role profile sync failed for {self.created_user}: {e}"
             )
