@@ -301,13 +301,20 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
             member=other_member.name,
         )
 
+        # #2205 (maintainer ruling 2026-11-11): own-record identity is Member.user only, so the
+        # "own" login must be linked through Member.user (a bare Member.email no longer counts).
+        linked_user = self.create_test_user(
+            f"linked-{random_string(8).lower()}@example.com", ["Verenigingen Member"]
+        )
+        frappe.db.set_value("Member", self.test_member.name, "user", linked_user.name, update_modified=False)
+
         with MockRolesContext(["Verenigingen Member"]):
             # Original member should have access to own donor
-            has_own_access = has_donor_permission(self.test_donor.name, self.test_member_user)
+            has_own_access = has_donor_permission(self.test_donor.name, linked_user.name)
             self.assertTrue(has_own_access, "Member should access own donor record")
 
             # But NOT access to other member's donor
-            has_other_access = has_donor_permission(other_donor.name, self.test_member_user)
+            has_other_access = has_donor_permission(other_donor.name, linked_user.name)
             self.assertFalse(has_other_access, "Member should NOT access other member's donor record")
 
     def test_integration_with_frappe_orm_security(self):

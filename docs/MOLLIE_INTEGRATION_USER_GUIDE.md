@@ -735,7 +735,6 @@ encryption_key: Encryption key for secure data storage (encrypted)
 
 **Payment Operations**
 
-- **Create Donation Payment**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_donation_payment`
 - **Create Subscription**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_subscription`
 - **Cancel Subscription**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.cancel_subscription`
 - **Get Payment Status**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.get_payment_status`

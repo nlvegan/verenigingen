@@ -81,7 +81,7 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         self._restore_skip_account_flag = restore_flag
         self.addCleanup(restore_flag)
         # #832: the injected chapter-save failures now write an Error Log row on purpose.
-        self.expectErrorLog("Termination: board position")
+        self.expectErrorLog("Termination: board position", "Termination: chapter membership")
         self.member = self.create_test_member()
         self.volunteer = self.create_test_volunteer(member=self.member.name)
         self.chapter = self.create_test_chapter()
@@ -393,7 +393,9 @@ class TestTerminationAbandonsOnNonResumableError(VereningingenTestCase):
         with self._exploding_chapter_save(Exception("ordinary failure")):
             results = TerminationExecutionService().execute_system_updates(self.request)
 
-        seat_errors = [e for e in results["errors"] if self.chapter.name in e]
+        # The injected Chapter.save failure also fails the chapter-membership step (#2517), which
+        # names the same chapter; this test is about the board seat, so select its error.
+        seat_errors = [e for e in results["errors"] if self.chapter.name in e and "board position" in e.lower()]
         self.assertEqual(len(seat_errors), 1, f"errors: {results['errors']}")
         self.assertEqual(results["positions_ended"], 0)
         self.assertTrue(

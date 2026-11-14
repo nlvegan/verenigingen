@@ -871,6 +871,41 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+_FOLLOW_ON_FLAG = "authorised_follow_on_steps"
+
+
+@contextmanager
+def authorised_follow_on_steps():
+    """Run the enclosed steps with permission checks bypassed, still AS the acting user (#1930).
+
+    For the follow-on steps of an approval whose approver the caller has ALREADY authorised (dues schedule,
+    membership invoice and its lazily created Item, account creation request): a chapter board approver may
+    start them, but their own DocPerms refuse the individual writes. Maintainer ruling 2026-11-12: bypass the
+    checks for exactly those steps; do NOT impersonate the configured Creation User (it holds no rights on
+    these records). The session user, and so `owner`, stay the approver.
+
+    This authorises nothing: the caller checks the approver BEFORE entering. The write sites that belong to
+    those steps read `follow_on_ignore_permissions()`; `secure_document_operation` treats a call made inside
+    the scope as a system_operation. The flag lives on the request's local flags and is restored in
+    `finally`, so it never outlives the block (nested scopes restore the outer value).
+    """
+    flags = frappe.local.flags
+    previous = flags.get(_FOLLOW_ON_FLAG)
+    flags[_FOLLOW_ON_FLAG] = True
+    try:
+        yield
+    finally:
+        if previous is None:
+            flags.pop(_FOLLOW_ON_FLAG, None)
+        else:
+            flags[_FOLLOW_ON_FLAG] = previous
+
+
+def follow_on_ignore_permissions():
+    """True inside `authorised_follow_on_steps`, else None (insert/save then keep their normal check)."""
+    return True if frappe.local.flags.get(_FOLLOW_ON_FLAG) else None
+
+
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
     partial-write comparison. MUST NOT raise: this is a diagnostic signal,
@@ -956,6 +991,8 @@ def secure_document_operation(
         frappe.PermissionError: If user cannot request escalation or bypass_validations
         ConfigurationError: If system user is not properly configured
     """
+    # Inside authorised_follow_on_steps (#1930) the caller was already authorised: a system_operation.
+    system_operation = system_operation or bool(follow_on_ignore_permissions())
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
     original_user = frappe.session.user
