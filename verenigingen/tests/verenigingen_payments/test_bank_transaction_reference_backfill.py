@@ -147,7 +147,7 @@ class TestBankTransactionReferenceBackfill(EnhancedTestCase):
 
         self.assertEqual(
             frappe.db.get_value("Bank Transaction", "TEST-1267-BF-A", key_module.FIELDNAME),
-            key_module.build_reference_key("PROBE-Bank Account 1", in_scope_ref),
+            key_module.build_reference_key("PROBE-Bank Account 1", in_scope_ref, system_issued=1),
         )
         self.assertIsNone(
             frappe.db.get_value("Bank Transaction", "TEST-1267-BF-BLANK", key_module.FIELDNAME)
