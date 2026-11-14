@@ -40,6 +40,15 @@ deletes the row at teardown.
 import frappe
 
 
+def error_log_rows(title):
+    """Error Log rows titled `title`, oldest first.
+
+    For before/after COUNT comparisons around one call. The rows are MyISAM and outlive
+    the test (see above), so compare counts; never read a row by title alone.
+    """
+    return frappe.get_all("Error Log", filters={"method": title}, fields=["name", "error"], order_by="creation asc")
+
+
 def assert_error_log(test_case, title, unique, must_contain=()):
     """Assert an Error Log row whose message contains `unique` and every fragment.
 

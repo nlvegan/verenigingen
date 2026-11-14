@@ -16,6 +16,7 @@ import frappe
 from frappe.exceptions import QueryDeadlockError
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.error_log_assertions import error_log_rows
 from verenigingen.utils.security import cache_invalidation as ci
 from verenigingen.utils.security.authorization_engine import AuthorizationEngine
 
@@ -46,15 +47,12 @@ def _redis_down(exc):
 
 
 class TestCacheInvalidationErrorLogging2409(EnhancedTestCase):
-    def _rows(self, title):
-        return frappe.get_all("Error Log", filters={"method": title}, fields=["name", "error"], order_by="creation asc")
-
     def _assert_recorded(self, title, call, *needles):
         self.expectErrorLog(title)
-        before = self._rows(title)
+        before = error_log_rows(title)
         with _redis_down(RuntimeError(BOOM)):
             call()  # must not raise: the save is never failed by a cache problem
-        rows = self._rows(title)
+        rows = error_log_rows(title)
         self.assertEqual(len(rows), len(before) + 1, "expected exactly one new Error Log row")
         for needle in (BOOM, "Traceback") + needles:
             self.assertIn(needle, rows[-1].error)
@@ -76,11 +74,11 @@ class TestCacheInvalidationErrorLogging2409(EnhancedTestCase):
 
     def test_control_successful_invalidation_records_nothing(self):
         titles = (USER_T, PROFILE_T, HASROLE_T, MIGRATE_T)
-        before = {t: len(self._rows(t)) for t in titles}
+        before = {t: len(error_log_rows(t)) for t in titles}
         ci.invalidate_user_role_cache_on_user_update(frappe._dict(name="u"), "on_update")
         ci.invalidate_all_user_caches_on_role_profile_update(frappe._dict(name="RP"), "on_update")
         ci.invalidate_user_cache_on_user_role_update(frappe._dict(parent="u", parenttype="User"), "on_update")
-        self.assertEqual({t: len(self._rows(t)) for t in titles}, before)
+        self.assertEqual({t: len(error_log_rows(t)) for t in titles}, before)
 
     def test_hooks_survive_log_error_itself_raising(self):
         """Recording is best-effort: if Error Log cannot be written (e.g. a Redis TimeoutError inside
