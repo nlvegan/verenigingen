@@ -13,6 +13,7 @@ from unittest import mock
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.error_log_assertions import error_log_rows
 from verenigingen.utils.security.api_security_framework import APISecurityFramework
 from verenigingen.utils.security.authorization_policy import AuthorizationPolicy
 
@@ -26,38 +27,35 @@ class TestRoleProfileConfigErrorLogging2445(EnhancedTestCase):
         super().setUp()
         self.framework = APISecurityFramework()
 
-    def _rows(self, title):
-        return frappe.get_all("Error Log", filters={"method": title}, fields=["name", "error"], order_by="creation asc")
-
     def _bad_mapping(self, level="not-a-SecurityLevel"):
         # Mock justified: configuration dict, restored on exit.
         return mock.patch.dict(AuthorizationPolicy.ROLE_PROFILE_SECURITY_MAPPING, {BAD_PROFILE: [level]})
 
     def test_invalid_mapping_entry_is_recorded(self):
         self.expectErrorLog(MAPPING_T)
-        before = len(self._rows(MAPPING_T))
+        before = len(error_log_rows(MAPPING_T))
         with self._bad_mapping("not-a-SecurityLevel"):
             self.framework._validate_role_profile_configuration()  # must not raise
-        rows = self._rows(MAPPING_T)
+        rows = error_log_rows(MAPPING_T)
         self.assertEqual(len(rows), before + 1)
         self.assertIn(BAD_PROFILE, rows[-1].error)
         self.assertIn("not-a-SecurityLevel", rows[-1].error)
 
     def test_validation_failure_is_recorded(self):
         self.expectErrorLog(FAILED_T)
-        before = len(self._rows(FAILED_T))
+        before = len(error_log_rows(FAILED_T))
         # A non-iterable mapping value makes the validation raise a real TypeError.
         with mock.patch.dict(AuthorizationPolicy.ROLE_PROFILE_SECURITY_MAPPING, {BAD_PROFILE: None}):
             self.framework._validate_role_profile_configuration()  # must not raise
-        rows = self._rows(FAILED_T)
+        rows = error_log_rows(FAILED_T)
         self.assertEqual(len(rows), before + 1)
         self.assertIn("TypeError", rows[-1].error)
         self.assertIn("Traceback", rows[-1].error)
 
     def test_control_valid_configuration_records_nothing(self):
-        before = (len(self._rows(MAPPING_T)), len(self._rows(FAILED_T)))
+        before = (len(error_log_rows(MAPPING_T)), len(error_log_rows(FAILED_T)))
         self.framework._validate_role_profile_configuration()
-        self.assertEqual((len(self._rows(MAPPING_T)), len(self._rows(FAILED_T))), before)
+        self.assertEqual((len(error_log_rows(MAPPING_T)), len(error_log_rows(FAILED_T))), before)
 
     def test_init_survives_log_error_itself_raising(self):
         """Recording is best-effort on both paths, and falls back to the file logger."""
