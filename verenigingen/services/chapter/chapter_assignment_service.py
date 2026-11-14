@@ -361,31 +361,50 @@ class ChapterAssignmentService(StatelessService):
             fields=["name", "parent"],
         )
 
+        # Each seat is ended through its parent Chapter, one save per chapter: a standalone
+        # save of the child row never runs Chapter.validate(), so the volunteer's assignment
+        # history stayed Active (#738). Same route as termination's end_board_positions_safe.
+        rows_by_chapter: Dict[str, list] = {}
         for board_membership in board_memberships:
+            rows_by_chapter.setdefault(board_membership.parent, []).append(board_membership.name)
+
+        for chapter_name, row_names in rows_by_chapter.items():
+            # A save that fails after the row write must not leave a half-ended seat (#832).
+            # The failure is re-raised and assign_with_cleanup rolls the whole move back, so
+            # this savepoint serves direct callers of this method.
+            savepoint = f"end_board_{frappe.generate_hash(length=10)}"
+            frappe.db.savepoint(savepoint)
+            logged_before = len(frappe.local.message_log)
             try:
-                board_doc = frappe.get_doc("Chapter Board Member", board_membership.name)
-                board_doc.is_active = 0
-                board_doc.to_date = today()
-                board_doc.notes = (board_doc.notes or "") + f"\nEnded due to member {reassignment_reason}"
-                board_doc.save()
+                chapter_doc = frappe.get_doc("Chapter", chapter_name)
+                for row in chapter_doc.board_members:
+                    if row.name in row_names:
+                        row.is_active = 0
+                        row.to_date = today()
+                        row.notes = (row.notes or "") + f"\nEnded due to member {reassignment_reason}"
+                chapter_doc.save()
+                release_savepoint_if_present(savepoint)
                 cleanup_performed = True
 
-                self.logger.info(f"Ended board membership {board_membership.name} for member {member}")
+                self.logger.info(f"Ended board memberships {row_names} of {chapter_name} for member {member}")
 
             except NON_RESUMABLE_DB_ERRORS:
+                # A deadlock or lock timeout has already destroyed the savepoint.
                 raise
             except Exception as e:
-                # A failed WITHDRAWAL must reach the caller (#1953): swallowing it leaves the
-                # row ended and the user still holding the board role. assign_with_cleanup
-                # rolls its savepoint back on this raise.
-                from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
-
-                if isinstance(e, BoardAccessWithdrawalError):
-                    raise
-                self.logger.error(f"Error ending board membership {board_membership.name}: {str(e)}")
-                frappe.log_error(
-                    title="Chapter board term ending failed",
-                    message=f"Board membership {board_membership.name} of member {member}: {str(e)}",
+                # A seat the Chapter save cannot end must refuse the move, not be skipped: the
+                # old standalone row save could not fail on Chapter validation, so skipping
+                # here would report success with the seat still active (#738). A failed
+                # WITHDRAWAL (#1953) takes the same route. assign_with_cleanup rolls back and
+                # returns the failure. frappe.throw() queues the raw reason too; the caller
+                # must see one message, so the queue is trimmed as _remove_from_old_chapter does.
+                rollback_to_savepoint(savepoint)
+                reason = str(e) or self._last_logged_message(logged_before) or type(e).__name__
+                del frappe.local.message_log[logged_before:]
+                frappe.throw(
+                    _("Board seat(s) of {0} in {1} could not be ended, so the move was not made: {2}").format(
+                        member, chapter_name, reason
+                    )
                 )
 
         return cleanup_performed

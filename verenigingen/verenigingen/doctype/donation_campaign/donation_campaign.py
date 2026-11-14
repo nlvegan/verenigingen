@@ -15,6 +15,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
+PROJECT_CLAIM_ROLLUP_FIELDS = ("total_expense_claim", "gross_margin", "per_gross_margin")
+
 
 class DonationCampaign(Document):
     def validate(self):
@@ -237,7 +239,12 @@ class DonationCampaign(Document):
         if not self.project:
             return None
 
-        project = frappe.get_doc("Project", self.project)
+        project = frappe.get_doc("Project", self.project).as_dict()
+        # WHY these are dropped: HRMS rolls EVERY submitted claim on the project into
+        # total_expense_claim and derives gross_margin / per_gross_margin from it, so the row
+        # would hand a caller the total of claims they may not read (#2546).
+        for fieldname in PROJECT_CLAIM_ROLLUP_FIELDS:
+            project.pop(fieldname, None)
 
         # Get project tasks
         tasks = frappe.get_all(
@@ -246,12 +253,7 @@ class DonationCampaign(Document):
             fields=["name", "subject", "status", "progress"],
         )
 
-        # Get project expenses (if any)
-        expenses = frappe.get_all(
-            "Expense Claim",
-            filters={"project": self.project, "docstatus": 1},
-            fields=["name", "total_claimed_amount", "posting_date"],
-        )
+        expenses = self._get_readable_project_expenses()
 
         return {
             "project": project,
@@ -262,6 +264,23 @@ class DonationCampaign(Document):
                 (sum(1 for t in tasks if t.status == "Completed") / len(tasks) * 100) if tasks else 0
             ),
         }
+
+    def _get_readable_project_expenses(self):
+        """Submitted claims on the linked project that the caller may read.
+
+        Not ``get_all``: that skips the Expense Claim permission query, so a board member of
+        chapter A was handed chapter B's claims (#2546). A caller with no Expense Claim read
+        right at all gets the same empty list as a project without claims, so the summary
+        cannot be used to tell whether foreign claims exist.
+        """
+        if not frappe.has_permission("Expense Claim", "read"):
+            return []
+        return frappe.get_list(
+            "Expense Claim",
+            filters={"project": self.project, "docstatus": 1},
+            fields=["name", "total_claimed_amount", "posting_date"],
+            limit=0,  # explicit no-limit guard: the total below sums every row
+        )
 
     def get_accounting_entries(self, from_date=None, to_date=None):
         """Get all GL entries related to this campaign"""

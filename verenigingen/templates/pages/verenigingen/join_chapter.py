@@ -67,8 +67,8 @@ def handle_join_chapter_request(context, chapter, member):
             )
 
         # Get form data
-        website_url = frappe.form_dict.get("website_url", "").strip()
-        introduction = frappe.form_dict.get("introduction", "").strip()
+        website_url = (frappe.form_dict.get("website_url") or "").strip()
+        introduction = (frappe.form_dict.get("introduction") or "").strip()
 
         # Validate required fields
         if not website_url:

@@ -276,7 +276,7 @@ class DepartmentHierarchyManager:
         """Sync approvers for teams that have financial responsibilities"""
         # This is optional - only if teams have their own budgets
 
-    def sync_chapter_approvers_for_chapter(self, chapter_name):
+    def sync_chapter_approvers_for_chapter(self, chapter_name, remove_approvers=(), system_operation=False):
         """
         Sync approvers for a single chapter to its department.
 
@@ -285,6 +285,12 @@ class DepartmentHierarchyManager:
 
         Args:
             chapter_name: Name of the chapter to sync
+            remove_approvers: Users whose seat just ended or changed (#1682). When the
+                chapter has no financial approver left they are taken off its departments
+                (#1650: unassigned, not left stale); an approver added by hand stays.
+            system_operation: The writes are system bookkeeping derived from board seats,
+                not the acting user's discretionary edit (a board admin has no Department
+                write).
         """
         if not frappe.db.exists("Chapter", chapter_name):
             frappe.logger().warning(
@@ -295,19 +301,23 @@ class DepartmentHierarchyManager:
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         approvers = self._get_financial_approvers(chapter_name)
 
-        if approvers:
-            # Update chapter board department
-            dept_name = f"Chapter {chapter_doc.name} Board"
-            self._update_department_approvers(dept_name, approvers)
+        # The scheduled run writes "National Board" for the national chapter too.
+        departments = [f"Chapter {chapter_doc.name} Board", f"Chapter {chapter_doc.name}"]
+        if chapter_name == frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"):
+            departments.append("National Board")
 
-            # Also update parent chapter department for fallback
-            parent_dept = f"Chapter {chapter_doc.name}"
-            self._update_department_approvers(parent_dept, approvers)
+        if approvers:
+            for dept_name in departments:
+                self._update_department_approvers(dept_name, approvers, system_operation=system_operation)
 
             frappe.logger().info(
                 f"Synced {len(approvers)} approver(s) to departments for chapter {chapter_name}"
             )
         else:
+            for dept_name in departments:
+                self._remove_department_approvers(
+                    dept_name, remove_approvers, system_operation=system_operation
+                )
             frappe.logger().debug(f"No financial approvers found for chapter {chapter_name}")
 
     def _get_financial_approvers(self, chapter_name):
@@ -351,7 +361,34 @@ class DepartmentHierarchyManager:
 
         return []
 
-    def _update_department_approvers(self, dept_name, approver_emails):
+    def _remove_department_approvers(self, dept_name, approver_emails, system_operation=False):
+        """Take the given users off a department's expense approvers (others stay)."""
+        resolved = self._resolve_department_name(dept_name)
+        if not resolved or not approver_emails:
+            return
+
+        dept = frappe.get_doc("Department", resolved)
+        stale = [row for row in dept.get("expense_approvers") or [] if row.approver in approver_emails]
+        if not stale:
+            return
+
+        for row in stale:
+            dept.remove(row)
+
+        result = secure_document_operation(
+            operation="save",
+            doc=dept,
+            justification=f"Remove departed expense approvers from department {dept_name} (no financial seat left)",
+            required_permissions=["Department:write"],
+            system_operation=system_operation,
+        )
+        if not result.success:
+            frappe.log_error(
+                title="Department Approver Update Security",
+                message=f"Failed to remove approvers from {dept_name}: {'; '.join(result.errors)}",
+            )
+
+    def _update_department_approvers(self, dept_name, approver_emails, system_operation=False):
         """Update department's expense approvers"""
         resolved = self._resolve_department_name(dept_name)
         if not resolved:
@@ -392,6 +429,7 @@ class DepartmentHierarchyManager:
             doc=dept,
             justification=f"Update department {dept_name} expense approvers for financial workflow",
             required_permissions=["Department:write"],
+            system_operation=system_operation,
         )
 
         if not result.success:

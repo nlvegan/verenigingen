@@ -537,7 +537,7 @@ class PaymentMixin:
         queue_payment_update(self.name, invoice_name)
         return True  # Queued successfully
 
-    def _get_invoice_with_retry(self, invoice_name, max_retries=3):
+    def _get_invoice_with_retry(self, invoice_name, max_retries=3, attempts=0):
         """
         Get the invoice, tolerating that it may not yet be visible to this
         transaction's REPEATABLE READ read view.
@@ -581,15 +581,20 @@ class PaymentMixin:
         signature compatibility, since no amount of retrying inside this
         transaction can succeed for the reason above.
 
-        Known gap, left for the file that owns it: a re-queued update that
-        keeps missing (e.g. a genuinely bad invoice name) retries forever,
-        quietly, roughly every 5 minutes, rather than giving up after a bound
-        and logging an error the way the old code did. Capping that needs a
-        persistent attempt counter carried in the queued operation's own
-        data, which only ``financial_history_batch_processor.py`` can thread
-        through -- out of this fix's file.
+        CAVEAT (#2527): the batch queue is per process, so the "next drain" /
+        cron described above only helps inside a long-lived process; the inline
+        re-drain and a finished RQ job both drop a held miss. #829 makes the
+        give-up visible, it does not make the retry real.
+
+        ``attempts`` is how many times the queued update has already missed
+        (carried in the queued operation's own data, #829). A miss that cannot
+        be re-queued -- the cap is reached, or the reentrancy guard below
+        drops it -- is logged to the Error Log instead of vanishing.
         """
-        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
+        from verenigingen.utils.financial_history_batch_processor import (
+            MAX_MISSING_INVOICE_ATTEMPTS,
+            queue_payment_update,
+        )
 
         try:
             return frappe.get_doc("Sales Invoice", invoice_name)
@@ -604,11 +609,18 @@ class PaymentMixin:
             # end. This flag collapses that into one harmless extra miss
             # instead of unbounded recursion.
             if getattr(frappe.flags, "_payment_mixin_invoice_retry_requeuing", False):
+                self._log_missing_invoice_give_up(
+                    invoice_name, attempts + 1, "the re-queued update was re-drained in the same transaction"
+                )
+                return None
+
+            if attempts + 1 >= MAX_MISSING_INVOICE_ATTEMPTS:
+                self._log_missing_invoice_give_up(invoice_name, attempts + 1, "the retry cap was reached")
                 return None
 
             frappe.flags._payment_mixin_invoice_retry_requeuing = True
             try:
-                queue_payment_update(self.name, invoice_name)
+                queue_payment_update(self.name, invoice_name, attempts=attempts + 1)
             finally:
                 frappe.flags._payment_mixin_invoice_retry_requeuing = False
 
@@ -618,6 +630,17 @@ class PaymentMixin:
                 "committing mid-request (#421)."
             )
             return None
+
+    def _log_missing_invoice_give_up(self, invoice_name, attempts, reason):
+        """One Error Log row for an update dropped because its invoice never appeared (#829)."""
+        frappe.log_error(
+            title="Payment History Race Condition",
+            message=(
+                f"Gave up adding invoice {invoice_name} to the payment history of member "
+                f"{self.name} after {attempts} miss(es): {reason}. The invoice was not "
+                "visible; if it exists, rebuild this member's payment history."
+            ),
+        )
 
     def update_invoice_in_payment_history(self, invoice_name):
         """Update an existing invoice in payment history using consolidated manager"""
