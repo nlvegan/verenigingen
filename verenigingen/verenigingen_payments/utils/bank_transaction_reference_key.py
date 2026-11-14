@@ -53,12 +53,14 @@ So a row is system-issued only when its WRITER says so:
 - **Mollie** payment / settlement / balance-transaction ids and **e-Boekhouden**
   `EB-<mutation_id>` set the Check field `custom_reference_is_system_issued` (see
   `SYSTEM_ISSUED_FIELDNAME`) when they create the row, through `BankTransactionCreator`.
+- The **Mollie reversal** (refund/chargeback) rows set it too: their reference is
+  `build_reversal_key()`, the webhook's idempotency key, so a concurrent duplicate delivery
+  must be refused by the database.
 - **Ponto** rows are marked by `custom_ponto_transaction_id`, the same id written next to
   `reference_number` (UUIDs have no prefix to guess from). That signal is unchanged.
 
 Everything else -- MT940 and every other importer of a payer/bank reference, manual entries
-(`member_management.py`, `bank_integration.py`), the Mollie reversal rows, and any future or
-unrecognised writer -- gets a `NULL` key: unconstrained by default, not constrained by
+(`member_management.py`, `bank_integration.py`), and any future or unrecognised writer -- gets a `NULL` key: unconstrained by default, not constrained by
 default (the maintainer's instruction on #1267). Only a new SYSTEM-issued writer has to opt
 in. The cost of forgetting is the quiet kind (a duplicate is not refused), which is why
 `test_bank_transaction_reference_writers` drives each Mollie/e-Boekhouden writer.

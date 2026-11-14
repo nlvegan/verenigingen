@@ -26,6 +26,7 @@ from verenigingen.tests.services.test_bank_transaction_creator_coverage import (
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import (
     FIELDNAME,
     SYSTEM_ISSUED_FIELDNAME,
+    build_reference_key,
 )
 
 
@@ -116,6 +117,81 @@ class TestMarkSystemIssuedBankTransactionReferences(_BankTxnFixtureMixin, Enhanc
         self._legacy_row(f"tr_{frappe.generate_hash(length=10)}")
         patch.flag_prefix_constrained_rows()
         self.assertEqual(patch.flag_prefix_constrained_rows(), 0)
+
+    def _deploy_window_row(self, reference):
+        """A row saved after the code shipped but before the patch ran: the column was absent,
+        so `validate` dropped its key. Built as a flagged row with its key cleared (a probe
+        shortcut: `db.set_value`, not a real pre-column save)."""
+        doc = self._insert(reference, flagged=True)
+        frappe.db.set_value("Bank Transaction", doc.name, FIELDNAME, None, update_modified=False)
+        return doc
+
+    def test_a_flagged_row_that_lost_its_key_is_rekeyed(self):
+        doc = self._deploy_window_row(f"tr_{frappe.generate_hash(length=10)}")
+        expected = build_reference_key(self.bank_account, doc.reference_number, system_issued=1)
+        self.assertTrue(expected)
+        self.assertIsNone(self._key(doc.name))
+
+        self.assertEqual(patch.rekey_flagged_rows_missing_key(), 1)
+
+        self.assertEqual(self._key(doc.name), expected)
+        twin = self._insert_twin(doc.reference_number)
+        with self.assertRaises((frappe.UniqueValidationError, frappe.DuplicateEntryError)):
+            twin.insert()
+
+    def test_rekeying_leaves_unflagged_and_blank_rows_unkeyed(self):
+        # Control, with real candidates: an unflagged payer row and a flagged row with a blank
+        # reference are both keyless and must stay so.
+        payer = self._insert(f"PAYER-{frappe.generate_hash(length=8)}", flagged=False)
+        blank = self._insert("", flagged=True)
+
+        patch.rekey_flagged_rows_missing_key()
+
+        self.assertIsNone(self._key(payer.name))
+        self.assertIsNone(self._key(blank.name))
+
+    def test_a_rerun_rekeys_nothing_new(self):
+        self._deploy_window_row(f"tr_{frappe.generate_hash(length=10)}")
+        patch.rekey_flagged_rows_missing_key()
+        self.assertEqual(patch.rekey_flagged_rows_missing_key(), 0)
+
+    def test_a_row_whose_key_collides_is_skipped_not_fatal(self):
+        self.expectErrorLog("re-key collision")  # the patch reports the skipped row, by design
+        reference = f"tr_{frappe.generate_hash(length=10)}"
+        keyed = self._insert(reference, flagged=True)
+        lost = self._insert_twin_unkeyed(reference)
+
+        self.assertEqual(patch.rekey_flagged_rows_missing_key(), 0)
+
+        self.assertTrue(self._key(keyed.name))
+        self.assertIsNone(self._key(lost))
+
+    def _insert_twin(self, reference):
+        return frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "bank_account": self.bank_account,
+                "company": COMPANY,
+                "deposit": 1.0,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "reference_number": reference,
+                "description": "twin",
+                "unallocated_amount": 1.0,
+                "allocated_amount": 0.0,
+                SYSTEM_ISSUED_FIELDNAME: 1,
+            }
+        )
+
+    def _insert_twin_unkeyed(self, reference):
+        """A flagged duplicate of a keyed row, as a deploy-window insert leaves it (probe
+        shortcut: inserted unflagged so the index admits it, then flagged by `db.set_value`)."""
+        twin = self._insert_twin(reference)
+        twin.set(SYSTEM_ISSUED_FIELDNAME, 0)
+        twin.insert()
+        frappe.db.set_value("Bank Transaction", twin.name, SYSTEM_ISSUED_FIELDNAME, 1, update_modified=False)
+        return twin.name
 
     def test_the_patch_is_registered_as_a_post_model_sync_fragment(self):
         patch_fragments.install()

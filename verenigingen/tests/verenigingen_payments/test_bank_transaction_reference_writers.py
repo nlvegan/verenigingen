@@ -28,6 +28,10 @@ from verenigingen.tests.utils.system_issued_reference_assertions import SystemIs
 from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import BulkTransactionImporter
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 from verenigingen.verenigingen_payments.mollie.services.payment_processors import DonationPaymentProcessor
+from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+    UnifiedWebhookWrapperService,
+)
+from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import build_reversal_key
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.payment_entry_fixtures import (
     customer_for_member,
 )
@@ -146,6 +150,33 @@ class TestMollieBankTransactionWritersMarkTheirReferences(
             settlement, frappe.utils.now_datetime(), COMPANY, self.bank_account
         )
         self._assert_written_as_system_issued(doc.name if doc else None, settlement_id)
+
+    def test_mollie_reversal_writer(self):
+        # The refund/chargeback webhook writer (donation and dues routes share it). Its reference
+        # is `build_reversal_key(...)`, the webhook's idempotency key, so a concurrent duplicate
+        # delivery must be refused by the database (#1267), whatever the key's shape.
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        reversal_id = f"re_{frappe.generate_hash(length=10)}"
+        reference = build_reversal_key(payment_id, "refund", reversal_id)
+        bt = UnifiedWebhookWrapperService()._create_reversal_bank_transaction_and_journal_entry(
+            self.creator,
+            {"bank_account": self.bank_account, "company": COMPANY},
+            "SUBJECT-1349",
+            lambda bank_transaction_name: "JE-STUB-1349",
+            payment_id,
+            "refund",
+            reversal_id,
+            7.5,
+            reference,
+            today(),
+            "EUR",
+            None,
+            None,
+            None,
+        )
+        self.assertEqual(bt, ("Journal Entry", "JE-STUB-1349"))
+        bt_name = frappe.db.get_value("Bank Transaction", {"reference_number": reference}, "name")
+        self._assert_written_as_system_issued(bt_name, reference)
 
     def test_manual_entry_is_not_marked(self):
         # Control: a writer of a caller-supplied reference (manual entry, bank_integration,
