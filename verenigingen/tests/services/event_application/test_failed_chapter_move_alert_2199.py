@@ -324,7 +324,7 @@ class TestFailedChapterMoveAlert2199(EnhancedTestCase):
         # Mock justified: fault injection; Redis is down when the claim is released.
         redis_down = patch.object(type(frappe.cache), "delete", side_effect=RuntimeError("redis-down"))
         record = patch.object(EventApplicationService, "_record_event_failure")
-        self.expectErrorLog("MijnRood chapter-move alert failed", "chapter-move alert flush failed")
+        self.expectErrorLog("MijnRood chapter-move alert failed", "staff alert flush failed")
 
         with notify, redis_down, record as record_failure:
             result = self._apply_division_change()

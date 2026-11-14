@@ -660,6 +660,19 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
         team = self.create_test_team(team_name="PortalAccessTeam2")
         self.assertFalse(validate_volunteer_organization_access(self.volunteer.name, "Team", team.name))
 
+    def test_validate_org_access_team_refuses_an_inactive_team_member(self):
+        """#1714 sibling: like every other Team Member check, an INACTIVE row is not membership."""
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
+            validate_volunteer_organization_access,
+        )
+
+        team = self.create_test_team(team_name="PortalAccessTeamInactive")
+        self.create_test_team_member(team.name, self.volunteer.name)
+        # control: the active row grants access
+        self.assertTrue(validate_volunteer_organization_access(self.volunteer.name, "Team", team.name))
+        frappe.db.set_value("Team Member", {"parent": team.name, "volunteer": self.volunteer.name}, "is_active", 0)
+        self.assertFalse(validate_volunteer_organization_access(self.volunteer.name, "Team", team.name))
+
     def test_validate_org_access_national_open(self):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
             validate_volunteer_organization_access,

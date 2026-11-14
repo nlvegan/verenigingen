@@ -41,6 +41,7 @@ from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     LINK_GUARDED_FIELDS,
+    PontoSubmitCompensation,
     alert_executed_on_cancelled_row,
     as_system_update,
     as_system_update_from_db,
@@ -57,8 +58,10 @@ class PontoCreateError(frappe.ValidationError):
     """
 
 
-class PontoPaymentLink(Document):
+class PontoPaymentLink(PontoSubmitCompensation, Document):
     """Controller for Ponto Payment Link DocType."""
+
+    PONTO_DELETE_METHOD = "delete_ponto_request"
 
     def validate(self):
         """Validate payment link before save."""
@@ -251,6 +254,7 @@ class PontoPaymentLink(Document):
 
             # Update document with Ponto response
             self.ponto_request_id = result.id
+            self.flags.ponto_created_id = result.id  # _submit deletes it if the save fails (#2294)
             self.redirect_link = result.redirect_link
             self.status = "Pending Authorization"
 
@@ -283,17 +287,21 @@ class PontoPaymentLink(Document):
         if not self.ponto_request_id:
             return
 
-        from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
-            get_betaalverzoek_client,
-        )
-
         try:
-            client = get_betaalverzoek_client()
-            client.delete_payment_request(self.ponto_request_id)
+            self.delete_ponto_request()
             frappe.logger().info(f"Cancelled Ponto payment request {self.ponto_request_id}")
         except Exception as e:
             frappe.logger().warning(f"Failed to cancel Ponto payment request {self.ponto_request_id}: {e}")
             # Don't throw - the request may already be authorized or executed
+
+    def delete_ponto_request(self):
+        """The Ponto delete call itself; raises on failure (on_cancel swallows, the failed-submit
+        compensation reports it, #2294)."""
+        from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
+            get_betaalverzoek_client,
+        )
+
+        get_betaalverzoek_client().delete_payment_request(self.ponto_request_id)
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)

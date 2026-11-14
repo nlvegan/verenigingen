@@ -244,14 +244,19 @@ class DisableChapterMembershipsOperation(TerminationOperation):
 
         from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 
+        failures = []
         memberships_disabled = disable_chapter_memberships_safe(
             self.member_name,
             self.termination_request.termination_date or today(),
             f"Member terminated - Type: {self.termination_request.termination_type}",
+            failures=failures,
         )
 
         if memberships_disabled > 0:
             results.record_action(f"Disabled {memberships_disabled} chapter membership(s)")
+        # #2517: a membership that is still enabled must show up in the termination's errors.
+        for failure in failures:
+            results.record_error(failure)
 
 
 class SuspendTeamMembershipsOperation(TerminationOperation):
@@ -266,14 +271,19 @@ class SuspendTeamMembershipsOperation(TerminationOperation):
 
         from verenigingen.services.termination.termination_integration import suspend_team_memberships_safe
 
+        failures = []
         teams_suspended = suspend_team_memberships_safe(
             self.member_name,
             self.termination_request.termination_date or today(),
             f"Member terminated - Request: {self.termination_request.name}",
+            failures=failures,
         )
         results.teams_suspended = teams_suspended
         if teams_suspended > 0:
             results.record_action(f"Suspended {teams_suspended} team membership(s)")
+        # #2517: a membership that is still active must show up in the termination's errors.
+        for failure in failures:
+            results.record_error(failure)
 
 
 class DeactivateUserAccountOperation(TerminationOperation):

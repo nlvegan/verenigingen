@@ -8,7 +8,6 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
-from frappe.utils import cint
 
 from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
 from verenigingen.utils.application_helpers import (
@@ -36,7 +35,6 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     public_api,
 )
-from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -55,30 +53,6 @@ from verenigingen.utils.validation.application_validators import (
 )
 
 # Utility functions
-
-
-def check_rate_limit(endpoint, limit_per_hour=60):
-    """Check if the current user/session has exceeded rate limits"""
-    try:
-        # Use IP address and session for rate limiting
-        client_ip = get_client_ip()
-        cache_key = f"rate_limit:{endpoint}:{client_ip}"
-
-        # frappe.cache().get() returns bytes on a cache hit (raw redis, not
-        # frappe's pickling get_value()); coerce before comparing/adding, or
-        # a bare bytes/int op raises TypeError -- caught below and silently
-        # fails OPEN, which is exactly what makes this bug dangerous.
-        current_count = cint(frappe.cache().get(cache_key))
-        if current_count >= limit_per_hour:
-            return False
-
-        # Increment counter with 1 hour expiry
-        frappe.cache().setex(cache_key, 3600, current_count + 1)
-        return True
-
-    except Exception:
-        # If rate limiting fails, allow the request
-        return True
 
 
 def _wrap_validation(fn, field_name="field", operation=""):

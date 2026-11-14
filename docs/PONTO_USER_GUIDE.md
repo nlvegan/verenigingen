@@ -589,7 +589,7 @@ GET /api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback.pa
 GET /ponto-return?l=<link>&c=<cancel_token>&p=<return_proof>   (short guest route; what new links send to Ponto)
 GET /ponto-return?r=<payment_request>&c=<cancel_token>   (same short route; what new Payment Requests send to Ponto)
 GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback   (links created before the short route)
-GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_page
+GET /api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_page?link=<link>&token=<token>   (token signed for that link; nothing mints one today, #1817)
 ```
 
 ### Client Classes

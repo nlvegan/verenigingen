@@ -931,6 +931,154 @@ class TestMatchTransactionAndReconcile(BTRBase):
         )
         self.assertTrue(refs, "batch reconciliation should book a Payment Entry for the invoice")
 
+    # --- #560: a sub-threshold best match must leave a trace -----------------------
+
+    NEAR_MISS_MARKER = "Near-miss reconciliation candidate"
+
+    def _near_miss_fixture(self, first_name, grand_total):
+        """A real Member + unpaid invoice, and a bank description that is the member's name
+        with two letters changed: fuzzy name matching then scores it above its 0.6 floor
+        but, at 0.9x, below the 0.85 auto-match threshold.
+
+        Probe shortcut (same as TestFuzzyAndMemberInvoices): the invoice status and
+        outstanding are set with db.set_value to put it in the fuzzy query's pool.
+        """
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
+        frappe.db.set_value(
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": grand_total},
+            update_modified=False,
+        )
+        name = it["member"].full_name.upper()
+        description = name[:-5] + "QXQXQ"
+        bt = self._make_bank_transaction(
+            deposit=grand_total,
+            description=description,
+            reference_number="NO-BATCH-TOKEN",
+            date=today(),
+        )
+        return it, bt
+
+    def _near_miss_comments(self, bt):
+        return [
+            c.content
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bt.name,
+                    "comment_type": "Comment",
+                    "content": ["like", f"%{self.NEAR_MISS_MARKER}%"],
+                },
+                fields=["content"],
+            )
+        ]
+
+    def test_sub_threshold_match_leaves_a_comment_naming_the_candidate(self):
+        it, bt = self._near_miss_fixture("NearMissOne", 61.0)
+        txn = self._txn_dict(bt)
+        # Guard the premise: the best candidate really is the fuzzy one, below threshold.
+        candidate = self.mgr.match_by_description(txn)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["reference"], it["invoice"].name)
+        self.assertLess(candidate["confidence"], self.mgr.match_threshold)
+
+        self.assertFalse(self.mgr.match_transaction(txn))
+
+        comments = self._near_miss_comments(bt)
+        self.assertEqual(len(comments), 1)
+        content = comments[0]
+        self.assertIn(it["invoice"].name, content)
+        self.assertIn(candidate["match_reason"], content)
+        self.assertIn(f"{candidate['confidence']:.2f}", content)
+        self.assertIn(f"{self.mgr.match_threshold:.2f}", content)
+        # Still unallocated and still in the pool: this is a trace, not a terminal outcome.
+        bt.reload()
+        self.assertEqual(flt(bt.unallocated_amount), flt(bt.deposit))
+        self.assertNotEqual(bt.custom_processing_status, "Reconciliation Failed")
+
+    def test_repeated_runs_do_not_repeat_an_identical_near_miss_comment(self):
+        """reconcile_bank_transactions is a daily job over every still-Pending draft."""
+        _it, bt = self._near_miss_fixture("NearMissTwo", 62.0)
+        txn = self._txn_dict(bt)
+        for _ in range(3):
+            self.assertFalse(self.mgr.match_transaction(txn))
+        self.assertEqual(len(self._near_miss_comments(bt)), 1)
+
+    def test_a_changed_near_miss_is_recorded_again(self):
+        """Dedupe is on content, not on 'ever commented': a different candidate or
+        confidence is new information."""
+        _it, bt = self._near_miss_fixture("NearMissThree", 63.0)
+        txn = self._txn_dict(bt)
+        self.assertFalse(self.mgr.match_transaction(txn))
+        other = self._make_member_with_invoice(first_name="NearMissOther", grand_total=63.0)
+        frappe.db.set_value(
+            "Sales Invoice",
+            other["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 63.0},
+            update_modified=False,
+        )
+        # The other member's name, damaged the same way (still sub-threshold): the best
+        # candidate is now a different invoice.
+        txn["description"] = other["member"].full_name.upper()[:-5] + "QXQXQ"
+        self.assertFalse(self.mgr.match_transaction(txn))
+        comments = self._near_miss_comments(bt)
+        self.assertEqual(len(comments), 2)
+        self.assertIn(other["invoice"].name, " ".join(comments))
+
+    def test_alternating_near_misses_are_recorded_once_each(self):
+        """A, B, A, A: the A comment already exists, so only A and B are written. Dedupe
+        compares against EVERY earlier near-miss comment, not just the newest."""
+        _it, bt = self._near_miss_fixture("NearMissAlt", 64.0)
+        txn_a = self._txn_dict(bt)
+        other = self._make_member_with_invoice(first_name="NearMissAltB", grand_total=64.0)
+        frappe.db.set_value(
+            "Sales Invoice",
+            other["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 64.0},
+            update_modified=False,
+        )
+        txn_b = dict(txn_a, description=other["member"].full_name.upper()[:-5] + "QXQXQ")
+        for txn in (txn_a, txn_b, txn_a, txn_a):
+            self.assertFalse(self.mgr.match_transaction(txn))
+        self.assertEqual(len(self._near_miss_comments(bt)), 2)
+
+    def test_near_miss_with_html_special_characters_is_still_deduplicated(self):
+        """Comment.validate sanitises content ('&' -> '&amp;'), so the stored text never
+        equals the freshly built text; the comparison must allow for that."""
+        _it, bt = self._near_miss_fixture("NearMissEsc", 65.0)
+        txn = self._txn_dict(bt)
+        match = {
+            "type": "invoice",
+            "reference": "SINV-X",
+            "confidence": 0.7,
+            "match_reason": "Name match: A & B <C> (score: 0.78)",
+        }
+        for _ in range(2):
+            self.mgr._record_near_miss(txn, match)
+        self.assertEqual(len(self._near_miss_comments(bt)), 1)
+
+    def test_above_threshold_match_reconciles_and_writes_no_near_miss_comment(self):
+        """Control: the trace is only for refusals."""
+        it = self._make_member_with_invoice(first_name="NearMissCtl", grand_total=31.0)
+        self._make_batch([it])
+        bt = self._make_bank_transaction(
+            deposit=31.0,
+            description="SEPA collection",
+            reference_number=it["invoice"].name,
+            date=today(),
+        )
+        self.assertTrue(self.mgr.match_transaction(self._txn_dict(bt)))
+        self.assertEqual(self._near_miss_comments(bt), [])
+
+    def test_no_candidate_writes_no_near_miss_comment(self):
+        bt = self._make_bank_transaction(
+            deposit=123457.0, description="totally unmatched", reference_number="NOPE"
+        )
+        self.assertFalse(self.mgr.match_transaction(self._txn_dict(bt)))
+        self.assertEqual(self._near_miss_comments(bt), [])
+
     def test_match_transaction_no_match_returns_false(self):
         bt = self._make_bank_transaction(
             deposit=123456.0, description="totally unmatched", reference_number="NOPE"

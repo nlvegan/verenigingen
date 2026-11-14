@@ -8,7 +8,6 @@ handle_chargeback_webhook) are already covered by
 verenigingen_payments/mollie/tests/test_unified_payment_api_webhook.py and
 tests/payment/test_unified_webhook_error_scenarios.py. This suite covers the
 remaining whitelisted operations:
-  - create_donation_payment
   - create_subscription
   - cancel_subscription
   - get_payment_status
@@ -84,30 +83,18 @@ class _ApiTestBase(EnhancedTestCase):
             yield
 
 
-class TestCreateDonationPayment(_ApiTestBase):
-    def test_missing_donation_id_throws(self):
-        with self._admin_with_form(amount="10.00", return_url="https://x.org/r"):
-            with self.assertRaises(frappe.ValidationError):
-                unified_payment_api.create_donation_payment()
-
-    def test_missing_amount_throws(self):
-        with self._admin_with_form(donation_id="D-1", return_url="https://x.org/r"):
-            with self.assertRaises(frappe.ValidationError):
-                unified_payment_api.create_donation_payment()
-
-    def test_missing_return_url_throws(self):
-        with self._admin_with_form(donation_id="D-1", amount="10.00"):
-            with self.assertRaises(frappe.ValidationError):
-                unified_payment_api.create_donation_payment()
-
-    def test_nonexistent_donation_throws_not_found(self):
-        # All required fields present, but the donation does not exist ->
-        # DoesNotExistError is caught and re-thrown as a ValidationError.
-        with self._admin_with_form(
-            donation_id="NO-SUCH-DONATION", amount="10.00", return_url="https://x.org/r"
-        ):
-            with self.assertRaises(frappe.ValidationError):
-                unified_payment_api.create_donation_payment()
+class TestCreateDonationPaymentEndpointRemoved(_ApiTestBase):
+    def test_endpoint_is_gone(self):
+        """#2513/#2570: the whitelisted create_donation_payment was removed (any
+        MEDIUM-tier caller could mint a donation return token and overwrite a
+        donation's payment_id). The public donation flow uses the service directly."""
+        path = (
+            "verenigingen.verenigingen_payments.mollie.api.unified_payment_api."
+            "create_donation_payment"
+        )
+        self.assertFalse(hasattr(unified_payment_api, "create_donation_payment"))
+        with self.assertRaises(AttributeError):
+            frappe.get_attr(path)
 
 
 class TestCreateSubscription(_ApiTestBase):

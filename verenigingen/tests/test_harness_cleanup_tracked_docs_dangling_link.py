@@ -268,7 +268,7 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
         # Derived from self.membership_type's own minimum_amount (set in
         # setUp), not a hardcoded constant: the G/H tests below cancel a real
         # Membership that references this schedule, and Membership.on_cancel
-        # -> pause_dues_schedule() -> schedule_doc.save() runs THIS
+        # -> _cancel_linked_dues_schedule() -> schedule_doc.save() runs THIS
         # schedule's normal (non-ignore_validate) validation, which enforces
         # the membership type's minimum amount. A hardcoded rate here is
         # exactly what made this fixture site-dependent before (#1264 round 3).

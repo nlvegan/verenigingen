@@ -462,7 +462,7 @@ def _check_chapter_board_access(user, target_member_name, include_pending=False)
     # get_member_name_for_user's Member.email fallback. Every caller of this
     # helper (Donor, SEPA Mandate, Membership, Donation, Address, Membership
     # Termination Request) uses it purely to decide board access, never
-    # own-record access, so the swap is safe here for all of them.
+    # own-record access. (#2205: own-record access is now strict too.)
     user_member = get_member_name_for_board_access(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record linked via user")
@@ -558,7 +558,7 @@ def has_member_permission(doc, user=None, ptype=None):
     # For regular members, check if they own the record
     if Roles.VERENIGINGEN_MEMBER in user_roles:
         # Get user's member record
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member == member_name:
             frappe.logger().debug(f"User {user} accessing own member record")
             return True
@@ -615,7 +615,7 @@ def has_volunteer_permission(doc, user=None, ptype=None):
         return False
 
     # Get current user's member record
-    user_member = get_member_name_for_user(user)
+    user_member = get_member_name_for_board_access(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record")
         return False
@@ -627,9 +627,8 @@ def has_volunteer_permission(doc, user=None, ptype=None):
             return True
 
     # Chapter Board Members can access volunteers in their chapters. #1546:
-    # board access is resolved strictly (Member.user only), separately from
-    # `user_member` above -- that variable also answers the OWN-record check
-    # just above and must keep the email fallback for that unrelated question.
+    # board access is resolved strictly (Member.user only), like the own-record
+    # check above (#2205: no Member.email fallback anywhere in this module).
     if Roles.CHAPTER_BOARD_MEMBER in user_roles:
         try:
             board_member = get_member_name_for_board_access(user)
@@ -781,7 +780,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
         # For regular members, grant only their own records
         if Roles.VERENIGINGEN_MEMBER in user_roles:
             try:
-                user_member = get_member_name_for_user(user)
+                user_member = get_member_name_for_board_access(user)
                 if not user_member:
                     frappe.logger().debug(
                         f"User {user} has Verenigingen Member role but no member record found"
@@ -842,7 +841,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
 
         # For regular members, limit to records linked to their own member record
         if Roles.VERENIGINGEN_MEMBER in user_roles:
-            user_member = get_member_name_for_user(user)
+            user_member = get_member_name_for_board_access(user)
             if user_member:
                 conditions.append(f"{table}.{member_field} = {frappe.db.escape(user_member)}")
 
@@ -955,7 +954,7 @@ def has_donation_permission(doc, user=None, ptype=None):
     # For regular members, check if donation is linked to their donor record
     if Roles.VERENIGINGEN_MEMBER in user_roles:
         try:
-            user_member = get_member_name_for_user(user)
+            user_member = get_member_name_for_board_access(user)
             if not user_member:
                 return False
 
@@ -1010,7 +1009,7 @@ def get_donation_permission_query(user):
 
     # For regular members, limit to donations linked to their donor records
     if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member:
             conditions.append(
                 f"""
@@ -1061,7 +1060,7 @@ def has_address_permission(doc, user=None, ptype=None):
             )
 
     # Check if this address is linked to the user's own member record
-    member_name = get_member_name_for_user(user)
+    member_name = get_member_name_for_board_access(user)
 
     if member_name:
         # Check if address is linked to this member via Dynamic Link
@@ -1111,7 +1110,7 @@ def get_address_permission_query(user):
     conditions = []
 
     # Find member by email or user field
-    member_name = get_member_name_for_user(user)
+    member_name = get_member_name_for_board_access(user)
 
     if member_name:
         # Add condition for addresses linked to this member
@@ -1128,9 +1127,8 @@ def get_address_permission_query(user):
         )
 
     # Chapter Board Members can see addresses of members in their chapters.
-    # #1546: board access resolved strictly (Member.user only) -- deliberately
-    # NOT `member_name` above, which keeps the email fallback for the
-    # own-address condition and must not be reused for board access.
+    # #1546: board access resolved strictly (Member.user only), as is the
+    # own-address condition above (#2205).
     board_member = (
         get_member_name_for_board_access(user) if Roles.CHAPTER_BOARD_MEMBER in user_roles else None
     )
@@ -1330,7 +1328,7 @@ def get_membership_permission_query(user):
 
     # Members can see their own membership records
     if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member:
             conditions.append(f"`tabMembership`.member = {frappe.db.escape(user_member)}")
 
@@ -1729,13 +1727,12 @@ def get_chapter_member_permission_query(user):
     # Allow users to see Chapter Member records for:
     # 1. Their own member record
     # 2. Chapters where they have board access
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
     # Get chapters where user has board access. #1546: resolved strictly
-    # (Member.user only), deliberately NOT `requesting_member` above, which
-    # keeps the email fallback for the own-record condition below.
+    # (Member.user only), as is `requesting_member` above (#2205).
     user_chapters = []
     board_member = get_member_name_for_board_access(user)
     volunteer_records = (
@@ -2048,7 +2045,7 @@ def get_volunteer_permission_query(user):
         return ""
 
     # Get requesting user's member record
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -2136,7 +2133,7 @@ def get_team_member_permission_query(user):
         return ""
 
     # Get requesting user's member and volunteer records
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 

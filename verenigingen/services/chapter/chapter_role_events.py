@@ -22,6 +22,7 @@ import frappe
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
@@ -105,6 +106,39 @@ def on_chapter_role_on_update(doc, method):
 
     except Exception as e:
         frappe.log_error(f"Error in chapter role update handler: {str(e)}")
+
+    _refresh_expense_approvers_for_role(doc)
+
+
+def _refresh_expense_approvers_for_role(doc):
+    """A role gaining or losing Financial (or being deactivated) re-points its chapters' approvers (#1682).
+
+    Queued, not run here: a role can be held in many chapters, and the national chapter's
+    seats feed every volunteer. Only a role that WAS an active Financial role and no longer
+    is can make an approver stale; any other change just recomputes.
+    """
+    if not (doc.has_value_changed("permissions_level") or doc.has_value_changed("is_active")):
+        return
+
+    try:
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            enqueue_expense_approver_refresh_for_role,
+        )
+
+        was_financial = _is_active_financial_role(doc.get_doc_before_save())
+        is_financial = _is_active_financial_role(doc)
+        enqueue_expense_approver_refresh_for_role(doc.name, left_financial=was_financial and not is_financial)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        frappe.log_error(
+            title="Chapter Role approver refresh",
+            message=f"Expense approver refresh after Chapter Role {doc.name} change failed: {e}",
+        )
+
+
+def _is_active_financial_role(role_doc):
+    return bool(role_doc and role_doc.get("permissions_level") == "Financial" and role_doc.get("is_active"))
 
 
 @frappe.whitelist()
