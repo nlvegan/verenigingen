@@ -155,6 +155,12 @@ class TestDonationEndToEndBookingScope2583(EnhancedTestCase):
                 "method": "Mollie",
             }
             result = DonationPaymentProcessor().process_successful_payment(context, None, mollie_data)
+            pe_name = (result.data or {}).get("payment_entry")
+            if pe_name:
+                # Priority 6 releases the Payment Entry before its party (Member 5, Customer 3).
+                # Left to the captured-insert drain it is cancelled after the Customer is gone
+                # and leaks with "Could not find Party".
+                self.factory.track_document("Payment Entry", pe_name, priority=6)
 
             booked = (result.data or {}).get("bank_transaction")
             self.assertTrue(booked, f"a Bank Transaction must be booked on the Mollie account: {result.message}")
