@@ -458,6 +458,7 @@ class TestStaffAlertEvent(FrappeTestCase):
                 "dues_schedule_creation_failed",
                 "mijnrood_disabled_default_type",
                 "mijnrood_chapter_move_failed",
+                "mollie_payment_not_found",
                 "mijnrood_division_unmapped",
                 "mijnrood_role_mapping_invalid",
                 "mijnrood_dues_template_unresolved",

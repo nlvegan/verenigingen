@@ -152,3 +152,21 @@ __all__ = [
     "MollieValidationError",
     "MollieIdempotencyError",
 ]
+
+
+def is_payment_not_found(exc: Optional[BaseException]) -> bool:
+    """True when ``exc`` (or anything it wraps) is the Mollie SDK's ``NotFoundError`` (HTTP 404).
+
+    Matches on the SDK's TYPE, never on message text, and follows ``__cause__`` and
+    ``original_error`` so the type survives being wrapped in ``MolliePaymentError`` (#1805).
+    Timeouts, 5xx, auth errors and a missing API key are not this: they stay retryable.
+    """
+    from mollie.api.error import NotFoundError
+
+    seen = set()
+    while exc is not None and id(exc) not in seen and len(seen) < 8:
+        if isinstance(exc, NotFoundError):
+            return True
+        seen.add(id(exc))
+        exc = getattr(exc, "original_error", None) or exc.__cause__
+    return False

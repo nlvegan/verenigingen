@@ -16,6 +16,7 @@ import frappe
 
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
+from ..exceptions import is_payment_not_found
 from ..utils.logging import MollieLogger
 from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
 
@@ -42,6 +43,10 @@ class PaymentIdempotencyCheckResult:
         self.chargebacks_processed = []
         self.pending_chargebacks = []
         self.chargeback_check_failed = False  # True if Mollie API call failed
+
+        # True when Mollie answered 404 for the payment id (#1805). NOT a failed check: a 404 is
+        # permanent, so the webhook acks it instead of asking Mollie to retry.
+        self.payment_not_found = False
 
     def is_fully_processed(self) -> bool:
         """Check if payment is completely processed (all components updated)."""
@@ -233,6 +238,21 @@ class UnifiedIdempotencyManager:
                     # FIXED: Use payment entry existence instead of non-existent status
                     result.donation_status_updated = result.payment_entry_exists
 
+    @staticmethod
+    def _get_payment(mollie_client, payment_id: str, result: PaymentIdempotencyCheckResult):
+        """``payments.get``; None (and ``result.payment_not_found``) when Mollie 404s it.
+
+        Only this call proves the payment id unknown (#1805). A 404 from a later refunds or
+        chargebacks list is NOT that: it propagates and stays a failed, retryable check.
+        """
+        try:
+            return mollie_client.payments.get(payment_id)
+        except Exception as e:
+            if is_payment_not_found(e):
+                result.payment_not_found = True
+                return None
+            raise
+
     def _check_refund_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
     ):
@@ -260,7 +280,9 @@ class UnifiedIdempotencyManager:
 
             client = MollieClient()
             mollie_client = client._get_mollie_client()
-            payment = mollie_client.payments.get(payment_id)
+            payment = self._get_payment(mollie_client, payment_id, result)
+            if payment is None:
+                return
             refunds_response = payment.refunds.list()
 
             mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
@@ -370,7 +392,9 @@ class UnifiedIdempotencyManager:
 
                 client = MollieClient()
                 mollie_client = client._get_mollie_client()
-                payment = mollie_client.payments.get(payment_id)
+                payment = self._get_payment(mollie_client, payment_id, result)
+                if payment is None:
+                    return
                 mollie_chargebacks = payment.chargebacks.list()
 
                 def safe_extract_chargeback_data(chargeback):

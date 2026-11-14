@@ -613,6 +613,16 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 0,  # see ponto_executed_on_cancelled_row (#2248)
     },
+    "mollie_payment_not_found": {
+        "label": "Mollie Webhook For Unknown Payment (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a Mollie webhook names a payment id that Mollie answers with 404. The webhook "
+        "is acknowledged, so Mollie will not retry: a real payment means the API key, its test/live mode or "
+        "the profile in Mollie Settings is wrong and the payment must be booked by hand. At most once an hour "
+        "per caller.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "mollie_forward_payment_staff_cancelled": {
         "label": "Mollie Payment Delivered After Its Payment Entry Was Cancelled (Admin)",
         "category": CATEGORY_PAYMENT,
@@ -934,6 +944,7 @@ REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
         "ponto_executed_unbookable",
+        "mollie_payment_not_found",
         "ponto_orphaned_payment",
         "mollie_forward_payment_staff_cancelled",
         "door_unavailable",

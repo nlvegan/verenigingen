@@ -8,10 +8,9 @@ amount and the member's Sales Invoices. Mollie only needs the status code (2xx s
 retries), so the body carries ``{"status": "ok"}`` / ``{"status": "error"}`` and the
 detail goes to the Error Log.
 
-What is deliberately NOT equalised: the HTTP status of an id Mollie does not know (503
-with Retry-After, because the idempotency check cannot tell a Mollie 404 from an outage)
-versus one it does (2xx). Making both 2xx would silence the retry for a genuine outage;
-that residual is tracked in its own issue.
+An id Mollie 404s (``NotFoundError``) is answered like a known one (#1805, see
+``test_mollie_webhook_unknown_id_oracle_1805``); only a lookup failure that is NOT a 404
+keeps its non-2xx status, because that retry is what books a payment after an outage.
 
 Fixture shortcut, stated: ``Member.mollie_subscription_id`` / ``mollie_customer_id`` are
 set with ``db.set_value`` (as in the sibling class this extends), standing in for a
@@ -23,6 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from mollie.api.error import NotFoundError
 
 from verenigingen.tests.payment import test_provider_webhook_urls_guest_reachable as guest_reachable
 from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
@@ -97,19 +97,53 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
 
         unknown_id = f"tr_{frappe.generate_hash(length=10)}"
         self.expectErrorLog("Mollie", "Webhook")
-        unknown = self._post(unknown_id, fetch_error=MolliePaymentError("404 not found"))
+        unknown = self._post(
+            unknown_id, fetch_error=NotFoundError({"status": 404, "title": "Not Found", "detail": "x"})
+        )
 
         real_body, real_status, real_msgs, real_errors = real
         unknown_body, unknown_status, unknown_msgs, unknown_errors = unknown
-        # Same keys, no echo of the id the caller sent, nothing on message_log / Error Log.
+        # Same keys, no echo of the id the caller sent, nothing on message_log.
         self.assertEqual(set(unknown_body), set(real_body))
         self.assertNotIn(unknown_id, json.dumps(unknown_body, default=str))
         self.assertEqual(unknown_msgs, real_msgs)
-        # Error Log is operator-side, not a caller channel: the failed lookup leaves one row
-        # (an outage must be visible), the booked one none.
+        # Error Log is operator-side, not a caller channel: a 404 leaves one alert row
+        # (a misconfigured key must be loud), the booked one none.
         self.assertEqual((real_errors, unknown_errors), (0, 1))
-        # Documented residual (module docstring): a failure keeps its non-2xx status.
-        self.assertGreaterEqual(unknown_status, 400, "a failed lookup must stay retryable")
+        # #1805: a 404 is permanent, so it is acknowledged like a known id.
+        self.assertEqual(real_status, 200)
+        self.assertEqual(unknown_status, real_status)
+
+    def test_a_lookup_failure_that_is_not_a_404_stays_retryable(self):
+        """The router fetch fails with an outage; the later Mollie calls time out too.
+
+        The HTTP layer is stubbed (a timeout), so the outcome does not depend on what the real
+        api.mollie.com would answer to this test site's key.
+        """
+        from urllib.parse import urlsplit
+
+        import requests
+
+        real_request = requests.Session.request
+
+        def timing_out(session, method=None, url=None, **kw):
+            if urlsplit(url or "").hostname == "api.mollie.com":
+                raise requests.exceptions.ConnectTimeout("timed out")
+            return real_request(session, method=method, url=url, **kw)
+
+        self.expectErrorLog("Mollie", "Webhook")
+        with patch.object(requests.Session, "request", timing_out), patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings."
+            "MollieSettings.get_active_api_key",
+            return_value="test_" + "a" * 30,
+        ), patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient._get_api_key",
+            return_value="test_" + "a" * 30,
+        ):
+            _body, status, _msgs, _errors = self._post(
+                f"tr_{frappe.generate_hash(length=10)}", fetch_error=MolliePaymentError("Mollie unreachable")
+            )
+        self.assertEqual(status, 503, "a failed lookup must stay retryable")
 
     def test_a_processing_error_stays_non_2xx_but_its_detail_goes_to_the_error_log(self):
         secret = f"member {self.member.name} cannot be booked {frappe.generate_hash(length=6)}"

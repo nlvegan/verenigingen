@@ -243,6 +243,32 @@ class TestReversalRediscoverySweep(_DuesReversalFixture):
             with self.assertRaises(JobTimeoutException):
                 sweep_missed_reversals()
 
+    def test_a_payment_mollie_404s_is_an_error_entry_not_a_silent_skip(self):
+        """#1805: the webhook acks a 404, but the safety net must still record it booked nothing.
+
+        The ids come from Mollie's own listing, so a 404 on ``payments.get`` for one is serious.
+        """
+        from mollie.api.error import NotFoundError
+
+        refund = self._refund()
+        fake = _FakeMollie([refund])
+
+        def not_found(payment_id):
+            raise NotFoundError({"status": 404, "title": "Not Found", "detail": "x"})
+
+        fake.payments.get = not_found
+        self.expectErrorLog("Mollie reversal rediscovery sweep: problem(s)")
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient._get_mollie_client",
+            return_value=fake,
+        ):
+            summary = sweep_missed_reversals()
+
+        self.assertEqual(summary["reversals_booked"], 0, summary)
+        self.assertEqual([e["payment_id"] for e in summary["errors"]], [self.payment_id], summary)
+        self.assertIn("404", summary["errors"][0]["error"])
+        self.assertEqual(self._journal_entries_for(refund["id"]), [])
+
     def test_a_payment_that_fails_midway_leaves_nothing_and_the_next_one_books(self):
         """The stub writes an uncommitted row for the first payment and then raises."""
         second_payment, second_invoice = self._second_payment()
