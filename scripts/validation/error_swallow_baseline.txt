@@ -290,7 +290,6 @@ verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_api_logs:
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._cleanup_sepa_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_api_audit_logs::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger._search_sepa_audit_logs::1
-verenigingen/utils/security/audit_logging.py::SEPAAuditLogger.log_event::1
 verenigingen/utils/security/audit_logging.py::SEPAAuditLogger.search_audit_logs::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_batch_permissions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_business_hours::1

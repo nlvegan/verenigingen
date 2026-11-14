@@ -161,7 +161,9 @@ class BoardMemberValidator(BaseValidator):
                 self._unique_roles_cache = set(unique_roles)
             except Exception as e:
                 frappe.log_error(f"Error fetching unique roles: {str(e)}")
-                self._unique_roles_cache = set()
+                # Empty set for THIS call only: caching it would disable the
+                # uniqueness rule for the life of the validator (#733).
+                return set()
 
         return self._unique_roles_cache
 
