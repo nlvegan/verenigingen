@@ -563,7 +563,7 @@ class TestDashboardWiring(EnhancedTestCase):
         self.assertIn("<ul>${invoice_failures}</ul>", report, "and shown in the message")
         self.assertIn("escape_html(f.application_name)", report)
         self.assertIn("escape_html(f.error", report, "the server message is escaped before it is shown")
-        self.assertIn("results.failed.length || invoice_failed.length ? 'orange'", report)
+        self.assertIn("results.failed.length || invoice_failed.length || dues_failed.length ? 'orange'", report)
         self.assertEqual(report.count("escape_html(f."), 2, "one escaping helper serves both lists")
 
     def test_an_approval_without_a_dues_schedule_is_shown_orange_not_as_a_green_success(self):
