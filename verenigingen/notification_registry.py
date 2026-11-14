@@ -609,6 +609,18 @@ NOTIFICATION_KEYS = {
         "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # The money has moved: every unbookable payment must reach staff (#2248). Guard only; these
+        # alerts go through Notification Log, which applies no cooldown.
+        "cooldown_minutes": 0,
+    },
+    "ponto_orphaned_payment": {
+        "label": "Ponto Payment Orphaned By A Failed Submit (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when submitting a Ponto Payment Request or Link failed after Ponto had created "
+        "the payment, and deleting it at Ponto failed too. The unsigned payment is still at Ponto with no "
+        "local row; the mail names its Ponto id so it can be deleted there by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
     },
     "ponto_executed_unbookable": {
         "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
@@ -618,6 +630,16 @@ NOTIFICATION_KEYS = {
         "the Payment Entry conflict alerts: a Payment Entry that already carries the request as its "
         "Reference No differs (party, paying bank account, amount, ...) or is ambiguous (a draft, or "
         "more than one). The money has moved: check the bank and book the payment by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,  # see ponto_executed_on_cancelled_row (#2248)
+    },
+    "mollie_forward_payment_staff_cancelled": {
+        "label": "Mollie Payment Delivered After Its Payment Entry Was Cancelled (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Mollie delivers a payment again after staff cancelled its Payment Entry. "
+        "The payment is NOT booked again; staff decide by hand. Sent once per payment. The mail names the "
+        "Mollie payment id and the amount.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
@@ -903,6 +925,8 @@ NOTIFICATION_KEYS = {
         "description": "Alert sent when automatic Payment Entry creation fails.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Finance staff, not the admin pair (maintainer ruling on #1330). Also moves the ING Checkout alerts on this key.
+        "recipient_roles": "Verenigingen Financial Manager",
     },
     "payment_alert_reconciliation": {
         "label": "Payment Reconciliation Alert",
@@ -931,6 +955,8 @@ REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
         "ponto_executed_unbookable",
+        "ponto_orphaned_payment",
+        "mollie_forward_payment_staff_cancelled",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",

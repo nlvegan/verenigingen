@@ -14,10 +14,13 @@ Mollie and books any charge that has no Donation yet, via
 uses. No booking logic is duplicated here.
 """
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import frappe
+from frappe.utils import get_datetime
 
+from ...services.journal_entry_booking_support import find_journal_entry_by_reference
 from ..core.client import MollieClient
 from ..utils.common_helpers import read_payment_field
 from .donation_processor import DonationProcessor
@@ -45,6 +48,12 @@ _PAYMENTS_PAGE_LIMIT = 250
 # whole sweep.
 _MAX_PAGES_PER_SUBSCRIPTION = 40
 
+# Mollie retries a failing webhook delivery for 26 hours. A paid charge younger
+# than this (plus an hour of margin) may still have its own delivery in flight,
+# and booking is check-then-act with no lock, so the sweep leaves it to the
+# webhook instead of racing it into a second Journal Entry.
+_WEBHOOK_RETRY_WINDOW = timedelta(hours=27)
+
 
 def sweep_recurring_donation_charges() -> Dict[str, Any]:
     """Scheduled entry point (see hooks/scheduler.py, "daily").
@@ -57,6 +66,9 @@ def sweep_recurring_donation_charges() -> Dict[str, Any]:
         "subscriptions_checked": 0,
         "charges_booked": 0,
         "charges_already_booked": 0,
+        "charges_booking_cancelled": 0,
+        "charges_too_recent": 0,
+        "cancelled_payment_ids": [],
         "charges_not_paid": 0,
         "errors": [],
     }
@@ -79,9 +91,22 @@ def sweep_recurring_donation_charges() -> Dict[str, Any]:
             )
             continue
 
+    if summary["cancelled_payment_ids"]:
+        # Left alone on purpose, so say so where staff can see it rather than
+        # skipping silently.
+        frappe.log_error(
+            title="Recurring Donation Sweep Skipped Cancelled Bookings",
+            message="Charges whose booking Journal Entry was cancelled after it posted were not "
+            f"re-booked; staff decide: {summary['cancelled_payment_ids']}",
+        )
+
     if summary["errors"]:
-        frappe.logger().warning(
-            f"Recurring donation charge sweep: {len(summary['errors'])} problem(s) -- {summary['errors']}"
+        # frappe.log_error, not frappe.logger(): a bare logger writes only to
+        # logs/frappe.log, which nobody reads, and this sweep is the last line
+        # of defence for money (#945).
+        frappe.log_error(
+            title="Recurring Donation Charge Sweep Problems",
+            message=f"{len(summary['errors'])} problem(s) -- {summary['errors']}",
         )
 
     return summary
@@ -114,8 +139,34 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
         return
 
     payment_id = read_payment_field(payment, "id")
-    if frappe.db.exists("Donation", {"payment_id": payment_id}):
+    # "Booked" means the charge reached the ledger, not that a Donation row
+    # exists: ensure_donation_for_recurring_charge inserts the row BEFORE
+    # booking runs, so a charge whose booking failed has a row and no Journal
+    # Entry, and keying on the row skipped it forever (#945). A live entry
+    # (a draft included) is the same key the booking itself uses for
+    # idempotency, so a booked charge is never sent through again. A draft
+    # stranded before its submit is therefore NOT recovered here (nor by the
+    # webhook; #2535).
+    if find_journal_entry_by_reference(payment_id):
         summary["charges_already_booked"] += 1
+        return
+
+    # Only cancelled Journal Entries exist. Donation.journal_entry (written
+    # solely by DonationJournalEntryCreator._update_donation_journal_entry, and
+    # only once the entry posted) tells the two causes apart: a staff cancel of
+    # a booked charge leaves it pointing at the cancelled entry, while an entry
+    # the creator discarded after a failed submit never set it. No ruling covers
+    # a staff-cancelled donation booking, so that one is left for staff rather
+    # than re-booked (cf. #2406 for forward Payment Entries).
+    if frappe.db.exists("Journal Entry", {"cheque_no": payment_id}) and frappe.db.get_value(
+        "Donation", {"payment_id": payment_id}, "journal_entry"
+    ):
+        summary["charges_booking_cancelled"] += 1
+        summary["cancelled_payment_ids"].append(payment_id)
+        return
+
+    if _is_within_webhook_retry_window(payment):
+        summary["charges_too_recent"] += 1
         return
 
     try:
@@ -134,6 +185,19 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
                 "message": result.get("message"),
             }
         )
+
+
+def _is_within_webhook_retry_window(payment: Any) -> bool:
+    """Is this paid charge young enough that its webhook may still be retrying?"""
+    stamp = read_payment_field(payment, "paid_at", "paidAt") or read_payment_field(
+        payment, "created_at", "createdAt"
+    )
+    if not stamp:
+        return False
+    moment = get_datetime(stamp)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - moment < _WEBHOOK_RETRY_WINDOW
 
 
 def _active_donation_subscriptions() -> List[Any]:

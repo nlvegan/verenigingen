@@ -976,7 +976,6 @@ def escalate_conflicts(batch_id, conflicts):
             recipients=recipients,
             subject=f"Direct Debit Batch Conflicts - {batch_id}",
             message=escalation_message,
-            delayed=False,
             notification_key="sepa_batch_error",
         )
         # A skip (cooldown, disabled key, opt-out) or a failure notified nobody (#2178)

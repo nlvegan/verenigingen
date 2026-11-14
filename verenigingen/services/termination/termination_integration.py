@@ -23,7 +23,7 @@ from frappe.utils import today
 from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
@@ -562,7 +562,19 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         return False
 
 
-def end_board_positions_safe(member_name, end_date, reason):
+def _record_board_position_failure(failures, title, message, user_message):
+    """Leave a durable trace of a board seat that was not ended (#832).
+
+    frappe.logger() writes only to a rotating file nobody reads, so the failure also
+    goes to the Error Log, and `user_message` is handed to the caller's `failures` list
+    so the termination's own audit trail can name the seat that is still active.
+    """
+    frappe.log_error(title=title, message=message)
+    if failures is not None:
+        failures.append(user_message)
+
+
+def end_board_positions_safe(member_name, end_date, reason, failures=None):
     """
     End board positions safely by updating through parent Chapter document
     Child table records must be saved through their parent, not directly
@@ -572,6 +584,11 @@ def end_board_positions_safe(member_name, end_date, reason):
     saved successfully, never at mark time. A chapter whose save fails
     contributes nothing, and other chapters are unaffected -- each chapter
     save is independent, not all-or-nothing.
+
+    `failures` (#832): an optional list the caller passes in. Every seat that could
+    NOT be ended appends one operator-readable line to it (and an Error Log row is
+    written), so the caller can record the shortfall instead of reading a bare count.
+    A non-resumable DB error still propagates and never reaches `failures`.
     """
     try:
         # Get volunteer records for this member
@@ -620,22 +637,50 @@ def end_board_positions_safe(member_name, end_date, reason):
                     raise
                 except Exception as e:
                     frappe.logger().error(f"Failed to end board position {position.name}: {str(e)}")
+                    _record_board_position_failure(
+                        failures,
+                        "Termination: board position not ended",
+                        f"Board position {position.name} at {position.parent} for member "
+                        f"{member_name}: {e}\n{frappe.get_traceback()}",
+                        f"Failed to end board position {position.chapter_role} at {position.parent}",
+                    )
 
         # Save all modified chapters. Only count positions belonging to a chapter that
         # actually persisted -- a position marked in memory but never saved must not be
         # reported to the caller as ended (#476).
         positions_ended = 0
         for chapter_name, chapter_doc in chapters_to_save.items():
+            # Per-chapter savepoint (#832): a save that fails AFTER the board rows were
+            # written (e.g. in on_update) must not leave them half-ended in the transaction
+            # the termination commits, while the failure message says they were not ended.
+            savepoint_name = "end_board_positions_chapter"
+            frappe.db.savepoint(savepoint_name)
             try:
                 chapter_doc.save()
+                frappe.db.release_savepoint(savepoint_name)
                 frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
                 positions_ended += positions_marked_by_chapter.get(chapter_name, 0)
             except frappe.PermissionError as pe:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+                _record_board_position_failure(
+                    failures,
+                    "Termination: board positions not saved (permission)",
+                    f"Chapter {chapter_name} for member {member_name}: {pe}\n{frappe.get_traceback()}",
+                    f"Board position(s) at {chapter_name} were NOT ended: permission denied saving the chapter",
+                )
             except NON_RESUMABLE_DB_ERRORS:
+                # Ahead of the rollback: a 1213 has already destroyed the savepoint.
                 raise
             except Exception as e:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
+                _record_board_position_failure(
+                    failures,
+                    "Termination: board positions not saved",
+                    f"Chapter {chapter_name} for member {member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Board position(s) at {chapter_name} were NOT ended: the chapter could not be saved",
+                )
 
         return positions_ended
 
@@ -643,6 +688,12 @@ def end_board_positions_safe(member_name, end_date, reason):
         raise
     except Exception as e:
         frappe.logger().error(f"Failed to end board positions for {member_name}: {str(e)}")
+        _record_board_position_failure(
+            failures,
+            "Termination: board positions not ended",
+            f"Member {member_name}: {e}\n{frappe.get_traceback()}",
+            "Board positions could not be ended: unexpected error (see Error Log)",
+        )
         return 0
 
 

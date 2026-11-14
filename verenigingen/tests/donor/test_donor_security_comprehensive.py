@@ -287,10 +287,17 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
                 test_donor.insert()
 
                 try:
+                    # #2205 (ruling 2026-11-11): identity is Member.user only, so link a real User.
+                    member_user = self.create_test_user_with_roles(
+                        email=f"linked_{frappe.generate_hash(length=8)}0@example.com",
+                        roles=["Verenigingen Volunteer"],  # not Member (empty list defaults to it): unmocked stays 1=0
+                    ).name
+                    frappe.db.set_value("Member", test_member.name, "user", member_user, update_modified=False)
+
                     # Without a role granting member-scoped access, the query is
                     # always the restrictive "1=0" - the escaping branch below
                     # never runs for this call, so assert the deterministic value.
-                    query = get_donor_permission_query(test_member.email)
+                    query = get_donor_permission_query(member_user)
                     self.assertEqual(query, "1=0")
 
                     # Grant the member role to exercise the actual escaping path:
@@ -298,7 +305,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
                     # safe to execute even though the member's name contains
                     # SQL-special characters.
                     with frappe.mock_roles(["Verenigingen Member"]):
-                        scoped_query = get_donor_permission_query(test_member.email)
+                        scoped_query = get_donor_permission_query(member_user)
 
                     self.assertIn(f"`tabDonor`.member = {frappe.db.escape(test_member.name)}", scoped_query)
                     test_sql = f"SELECT COUNT(*) FROM `tabDonor` WHERE {scoped_query}"

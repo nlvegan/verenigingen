@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
@@ -41,7 +42,7 @@ def _make_supplier(test_case):
     """Create a real Supplier party for Pay-type reversal Payment Entries."""
     supplier = frappe.new_doc("Supplier")
     supplier.supplier_name = f"Refund Test Supplier {frappe.generate_hash(length=6)}"
-    supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+    supplier.supplier_group = resolve_non_group_supplier_group()
     supplier.save()
     test_case.track_doc("Supplier", supplier.name)
     return supplier.name

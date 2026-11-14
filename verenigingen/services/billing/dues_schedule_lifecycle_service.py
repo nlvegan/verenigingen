@@ -166,6 +166,59 @@ class DuesScheduleLifecycleService(StatelessService):
         schedule_doc.last_invoice_coverage_end = None
         schedule_doc.next_invoice_date = schedule_doc.calculate_next_invoice_date(from_date=start_date)
 
+    def is_reusable_for_rejoin(self, member_name: str, schedule_name: str) -> bool:
+        """Whether a Cancelled schedule may be reactivated for the member's next membership (#1741, #2134).
+
+        Cancelled is terminal except for two endings, both of which mean "the member left and may
+        come back": a Voluntary termination (the latest executed one decides, as for the Quit
+        reapplication gate), and, when the member has no executed termination at all, a schedule
+        cancelled together with its Membership (staff cancel, docstatus 2, or an End-of-Period
+        cancellation). A schedule cancelled any other way (a non-voluntary termination, schedule
+        maintenance, an amendment) is left alone.
+        """
+        row = frappe.db.get_value(
+            "Membership Dues Schedule", schedule_name, ["status", "membership"], as_dict=True
+        )
+        if not row or row.status != "Cancelled":
+            return False
+
+        from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
+
+        termination_type = get_latest_executed_termination_type(member_name)
+        if termination_type:
+            return termination_type == "Voluntary"
+        return self._membership_was_cancelled(row.membership)
+
+    @staticmethod
+    def _membership_was_cancelled(membership_name) -> bool:
+        if not membership_name:
+            return False
+        membership = frappe.db.get_value(
+            "Membership",
+            membership_name,
+            ["docstatus", "status", "cancellation_date", "cancellation_type"],
+            as_dict=True,
+        )
+        if not membership:
+            return False
+        end_of_period_reached = bool(membership.cancellation_date) and (
+            membership.cancellation_type == "End of Period" and membership.status == "Expired"
+        )
+        return membership.docstatus == 2 or membership.status == "Cancelled" or end_of_period_reached
+
+    def find_reusable_cancelled_schedule(self, member_name: str) -> Optional[str]:
+        """The member's most recent Cancelled schedule, when it may be reused and nothing live exists."""
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "is_template": 0},
+            fields=["name", "status"],
+            order_by="modified desc, creation desc",
+        )
+        if not schedules or any(s.status != "Cancelled" for s in schedules):
+            return None
+        latest = schedules[0].name
+        return latest if self.is_reusable_for_rejoin(member_name, latest) else None
+
     def validate_status_transition(self, schedule_doc: "Document") -> None:
         """
         Validate that a status transition is allowed.

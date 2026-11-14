@@ -208,8 +208,8 @@ class TestRoleProfileSystemIntegration(EnhancedTestCase):
             finally:
                 frappe.set_user(current_user)
         
-        # Test assignment to non-existent entity (should fail gracefully)
-        result = _team_manager.assign_role_profile(
+        # Test removal for a non-existent entity (should fail gracefully)
+        result = _team_manager.remove_role_profile(
             "test.integration@example.com",
             "Non-Existent Team"
         )

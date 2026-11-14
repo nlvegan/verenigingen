@@ -307,6 +307,25 @@ class BankStatementImporter:
             frappe.log_error(f"Payment entry creation error: {str(e)}", "Bank Import Payment Error")
             return False
 
+    @staticmethod
+    def _named_unpayable_invoice(reference: str) -> Optional[tuple]:
+        """(name, "a draft"/"cancelled") for an existing non-submitted invoice named in
+        the reference, using the same patterns as the shared resolver; else None."""
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            INVOICE_REFERENCE_PATTERNS,
+        )
+
+        candidates = [reference] if reference else []
+        for pattern in INVOICE_REFERENCE_PATTERNS:
+            match = re.search(pattern, reference or "")
+            if match:
+                candidates.append(match.group(1))
+        for candidate in candidates:
+            docstatus = frappe.db.get_value("Sales Invoice", candidate, "docstatus")
+            if docstatus is not None and docstatus != 1:
+                return candidate, ("cancelled" if docstatus == 2 else "a draft")
+        return None
+
     def _find_matching_invoice(self, transaction: Dict) -> Optional[str]:
         """Find matching sales invoice for transaction"""
         from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
@@ -323,6 +342,18 @@ class BankStatementImporter:
         invoice_from_reference = resolve_invoice_from_reference(reference)
         if invoice_from_reference:
             return invoice_from_reference
+
+        # The reference may name an invoice that exists but is not payable (draft or
+        # cancelled, #939). Report it and stop: falling through to the amount+customer
+        # match below would pay a DIFFERENT invoice for a line that named this one.
+        unpayable = self._named_unpayable_invoice(reference)
+        if unpayable:
+            invoice_name, state = unpayable
+            self.warnings.append(
+                f"Reference names Sales Invoice {invoice_name}, which is {state} and cannot be paid; "
+                f"transaction not matched: {reference}"
+            )
+            return None
 
         # Try to match by amount and customer.
         #

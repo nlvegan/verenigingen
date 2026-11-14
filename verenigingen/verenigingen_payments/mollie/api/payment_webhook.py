@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 # Import extracted handlers
@@ -17,6 +18,9 @@ from verenigingen.verenigingen_payments.mollie.services.handlers import (
     find_donation_for_payment as _handler_find_donation_for_payment,
     find_donation_for_payment_by_id as _handler_find_donation_for_payment_by_id,
     find_donation_for_subscription_payment as _handler_find_donation_for_subscription_payment,
+)
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
 )
 
 
@@ -239,6 +243,12 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
     # STEP 1: Create Payment Entry FIRST (atomic transaction protection)
     if not idempotency_status["payment_entry_created"]:
         frappe.logger().info("🔄 Creating Payment Entry for %s", donation.name)
+
+        # A staff-cancelled entry is refused (alert raised once): acknowledge, do not raise, so
+        # Mollie stops retrying, and leave the donation and its history untouched (#2406).
+        if refuse_staff_cancelled_forward_payment(payment.id, donation.amount, "the donation webhook"):
+            results["refused"] = "payment_entry_cancelled_by_staff"
+            return results
 
         payment_entry = create_payment_entry_for_donation(donation, mollie_data)
         if payment_entry:
@@ -500,13 +510,25 @@ def create_payment_entry_for_donation(donation, mollie_data):
         # Check if Payment Entry already exists
         existing_pe = frappe.db.get_value(
             "Payment Entry",
-            {"payment_type": "Receive", "reference_no": mollie_data["payment_id"], "party": customer},
+            {
+                "payment_type": "Receive",
+                "reference_no": mollie_data["payment_id"],
+                "party": customer,
+                # A cancelled entry is not a booking (#2406)
+                "docstatus": ["!=", 2],
+            },
             "name",
         )
 
         if existing_pe:
             frappe.logger().info("⚠️ Payment Entry already exists: %s", existing_pe)
             return frappe.get_doc("Payment Entry", existing_pe)
+
+        # Staff cancelled this payment's entry: do not book it again, staff decide (#2406)
+        if refuse_staff_cancelled_forward_payment(
+            mollie_data["payment_id"], donation.amount, "the donation webhook writer"
+        ):
+            return None
 
         # Get company and accounts
         settings = frappe.get_single("Verenigingen Settings")
@@ -582,37 +604,26 @@ def create_payment_entry_for_donation(donation, mollie_data):
 
         # Use proper webhook user permissions - no bypass needed
         try:
-            pe.insert()
-            pe.submit()
+            # One unit: a failed submit must not leave a draft, or a docstatus-1 row with
+            # no ledger, claiming this payment's reference (#2406).
+            insert_and_submit_atomically(pe)
             frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
             return pe
         except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
             # Race condition: another webhook created the PE between our check and insert.
             #
-            # patches/v2_1/add_mollie_payment_entry_unique_index.py is INTENDED
-            # to add a composite UNIQUE INDEX on (reference_no, payment_type,
-            # party) as this guard's DB-level backstop -- a multi-column unique
-            # isn't expressible via DocType `unique: 1`, so a collision on it
-            # would classify as UniqueValidationError, not DuplicateEntryError
-            # (unrelated classes -- see #699), which DuplicateEntryError alone
-            # would miss.
-            #
-            # That index is NOT currently present, on either veg11 or
-            # test_site_1 (checked via `SHOW INDEX`): the patch bails out
-            # without creating it whenever pre-existing duplicate Mollie
-            # references are found (it did, on both), and because the patch is
-            # recorded in Patch Log as already run, Frappe will not retry it.
-            # So today this whole `except` branch is unreachable in practice --
-            # Payment Entry's only real unique constraints are `PRIMARY` and
-            # `eboekhouden_mutation_nr`, and this code path sets neither. Kept
-            # anyway because it is correct once the index exists and harmless
-            # while it doesn't; see the follow-up issue for actually landing
-            # the index (clear the stale Patch Log entries, resolve the
-            # existing duplicate Payment Entries, re-run the patch).
+            # The unique key on custom_mollie_idempotency_key (hash of reference_no,
+            # payment_type, party) is the DB-level backstop that makes this branch reachable:
+            # two concurrent inserts for one payment collide on it. (Measured on test_site_2, 2026-11-11: that unique index exists. The composite unique
+            # index patches/v2_1/add_mollie_payment_entry_unique_index.py intended is absent
+            # on veg11 and test_site_1; this comment used to call the branch unreachable for
+            # that reason, which was wrong: the key column is a real unique index, and a
+            # cancelled row holding it is what made it fire for a redelivery after a staff
+            # cancel, #2406.) A cancelled row is not a booking, so the lookup excludes it.
             frappe.logger().info("⚠️ Duplicate Payment Entry detected, fetching existing")
             existing_pe = frappe.db.get_value(
                 "Payment Entry",
-                {"reference_no": mollie_data["payment_id"], "party": customer},
+                {"reference_no": mollie_data["payment_id"], "party": customer, "docstatus": ["!=", 2]},
                 "name",
             )
             if existing_pe:

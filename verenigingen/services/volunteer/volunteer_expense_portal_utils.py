@@ -431,9 +431,9 @@ def validate_volunteer_organization_access(
             return False
 
         elif organization_type == "Team":
-            # Direct team membership check
+            # Direct team membership check (an inactive row is not membership, #1714)
             team_membership = frappe.db.exists(
-                "Team Member", {"parent": organization_name, "volunteer": volunteer_name}
+                "Team Member", {"parent": organization_name, "volunteer": volunteer_name, "is_active": 1}
             )
             return bool(team_membership)
 

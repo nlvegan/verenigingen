@@ -6,6 +6,7 @@ Tests the complete end-to-end flow including JavaScript-Python integration
 import frappe
 import unittest
 from unittest.mock import patch
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
 
@@ -241,6 +242,9 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         
         # Use REAL system settings - no mocking of business configuration
         self._ensure_system_email_settings()
+        # CI has no default outgoing Email Account; without one the send is refused
+        # ("No active email account configured") and this passed here only on a leaked account.
+        ensure_outgoing_email_account(self)
         
         # A skipped send is also success=True; own the key so the fallback send is proven (#2010).
         own_notification_keys(self, "member_application_approved")

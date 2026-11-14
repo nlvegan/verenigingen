@@ -10,6 +10,7 @@ from frappe.utils import now, today
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from .base_manager import BaseManager
@@ -251,25 +252,19 @@ class MemberManager(BaseManager):
                 # Log but don't fail - broken pipe errors during bulk imports shouldn't prevent member addition
                 frappe.logger().warning(f"Failed to create audit comment for member {member_id}: {str(e)}")
 
-            # Send notification - don't fail member addition if this fails
-            if notify:
+            # Send notification - don't fail member addition if this fails. Only when the
+            # member actually joined: a disabled row (non-Active member) is hidden from the
+            # roster, so "welcome to the chapter" would be false (#1842, as #1798 for the board).
+            if notify and chapter_enabled:
                 try:
                     self.chapter_doc.communication_manager.notify_member_added(member_id)
                 except Exception as e:
                     # Log but don't fail - notification failures shouldn't prevent member addition
                     frappe.logger().warning(f"Failed to send notification for member {member_id}: {str(e)}")
 
-            # Notify the board of the new member (independent of member's own notification).
-            # Only when the member actually joined: a disabled row (non-Active member) is
-            # hidden from the roster, so "member joined" would be false (#1798). The
-            # re-enable branch likewise sends nothing for a row that stays disabled.
-            if chapter_enabled:
-                try:
-                    self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
-                except Exception as e:
-                    frappe.logger().warning(
-                        f"Failed to send board notification for member join {member_id}: {str(e)}"
-                    )
+            # The board is told of the join by Chapter.on_update -> notify_board_of_joins,
+            # which sees every writer of an enabled row (#1843); nothing to send here, or
+            # an Active member's add would mail the board twice.
 
             self.log_action(
                 "Member added", {"member": member_id, "member_name": member_doc.full_name, "enabled": enabled}
@@ -554,18 +549,7 @@ class MemberManager(BaseManager):
 
             self.chapter_doc.save()
 
-            # Update membership history
-            ChapterMembershipHistoryManager.add_membership_history(
-                member_id=member_id,
-                chapter_name=self.chapter_name,
-                assignment_type="Member",
-                start_date=today(),
-                reason=f"Membership approved by {approved_by or frappe.session.user}",
-                # WHY: add_membership_history accepts `status=`, not `new_status=`.
-                # The wrong kwarg raised a swallowed TypeError, so approvals never
-                # recorded history and returned a failure result.
-                status="Active",
-            )
+            self._activate_history_entry(member_id, approved_by)
 
             # Create audit comment
             member_doc = frappe.get_doc("Member", member_id)
@@ -584,6 +568,37 @@ class MemberManager(BaseManager):
         except Exception as e:
             frappe.log_error(f"Error approving member request: {str(e)}")
             return {"success": False, "message": str(e)}
+
+    def _activate_history_entry(self, member_id: str, approved_by: str = None):
+        """Move the member's Pending history entry for this chapter to Active (#2430).
+
+        request_to_join / a rejoin leave a Pending entry, and add_membership_history refuses to add an
+        Active one beside it (returning False, which used to be ignored), so the entry stayed Pending for
+        an Active member. Update the Pending entry; only when there is none (history never written) add an
+        Active one. A failure of both is logged, not raised: the row is already Active and saved.
+        """
+        reason = f"Membership approved by {approved_by or frappe.session.user}"
+        if ChapterMembershipHistoryManager.update_membership_status(
+            member_id=member_id,
+            chapter_name=self.chapter_name,
+            assignment_type="Member",
+            new_status="Active",
+            reason=reason,
+        ):
+            return
+        added = ChapterMembershipHistoryManager.add_membership_history(
+            member_id=member_id,
+            chapter_name=self.chapter_name,
+            assignment_type="Member",
+            start_date=today(),
+            reason=reason,
+            status="Active",
+        )
+        if not added:
+            frappe.log_error(
+                title="Chapter join approval: history not activated",
+                message=f"Approved {member_id} in {self.chapter_name} but no history entry became Active",
+            )
 
     def reject_member_request(self, member_id: str, reason: str = None, rejected_by: str = None) -> Dict:
         """
@@ -1549,6 +1564,72 @@ class MemberManager(BaseManager):
                         "end_date": today(),
                     },
                 )
+
+    def notify_board_of_joins(self, old_doc):
+        """Tell the board about every real join in this save (#1843).
+
+        A join is a row that is ``enabled`` with status Active now and was not before:
+        a new row, a re-enabled row, or a Pending row flipped Active at application
+        approval. Diffing the saved table is the one place that sees every writer
+        (add_member, activation, direct append + save, board seating), so no caller
+        sends its own mail. A row that was already live and is re-saved is not a join,
+        and a row for a non-Active member (the roster hides it, #1798) is not one either.
+        Best effort: a mail failure must not fail the chapter save.
+        """
+        if not old_doc:
+            return
+        seated = self.chapter_doc.flags.pop("board_seated_member_ids", None) or set()
+        # Gate first: with the (default-off) setting off, a chapter save pays only the
+        # setting read -- no Member query, no communication manager (its construction
+        # selects from Email Account).
+        if self._join_notifications_suppressed() or not self._board_join_mail_enabled():
+            return
+        old_live = {m.name for m in old_doc.members or [] if m.name and self._is_live_row(m)}
+        candidates = [
+            member.member
+            for member in sorted(self.chapter_doc.members or [], key=lambda m: m.member or "")
+            if member.member
+            and member.member not in seated
+            and member.name not in old_live
+            and self._is_live_row(member)
+        ]
+        if not candidates:
+            return
+        # One query per save, not one per row (the bulk-add query-count cap)
+        active = set(
+            frappe.get_all("Member", filters={"name": ["in", candidates], "status": "Active"}, pluck="name")
+        )
+        for member_id in candidates:
+            if member_id not in active:
+                continue
+            try:
+                self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
+            except NON_RESUMABLE_DB_ERRORS:
+                # a broken transaction must not be logged past and reported as success
+                raise
+            except Exception as e:
+                frappe.log_error(
+                    title=f"Board join notification failed: {self.chapter_name}",
+                    message=f"member={member_id}: {e}\n{frappe.get_traceback()}",
+                )
+
+    @staticmethod
+    def _join_notifications_suppressed():
+        """Imports and patches save many chapters; they must not mail every board (#1843)."""
+        flags = frappe.flags
+        return bool(flags.in_import or flags.in_bulk_import or flags.is_bulk_import or flags.in_patch)
+
+    @staticmethod
+    def _board_join_mail_enabled():
+        """The existing board lifecycle gate, read without building the communication manager."""
+        from .communication_manager import CommunicationManager
+
+        return CommunicationManager._board_lifecycle_notifications_enabled()
+
+    @staticmethod
+    def _is_live_row(row):
+        """enabled and Active (a blank status is the field default, Active)."""
+        return bool(row.enabled) and (row.status or "Active") == "Active"
 
     def handle_member_additions(self, old_doc):
         """
