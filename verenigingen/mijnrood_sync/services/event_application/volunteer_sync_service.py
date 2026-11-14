@@ -324,7 +324,9 @@ class MijnRoodVolunteerSyncService:
             # Turning this into a per-member "failed" status would let the sync run march
             # on to the next member inside a transaction the server has already discarded,
             # and frappe.log_error() below would be a write on it. Let it reach whoever
-            # owns the transaction boundary so the whole sync run is retried instead.
+            # owns the transaction boundary. Whether that job retries is its own policy
+            # (execute_job retries only InternalError/RetryBackgroundJobError), so this
+            # guarantees the failure is seen, not that the run is retried.
             raise
         except Exception as e:
             self.logger.error(

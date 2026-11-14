@@ -831,7 +831,10 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
         # Concurrent sync created the Employee between our check and insert
         frappe.logger().debug("Employee for %s already exists (concurrent creation)", user)
     except NON_RESUMABLE_DB_ERRORS:
-        raise  # #1888: the transaction is gone; the user.save() that follows would run on a new one
+        # #1888: after a 1213 the transaction is gone and the user.save() that follows
+        # would run on a fresh one; after a 1205 it is still live but half-applied (only
+        # the failed statement was rolled back). Either way the unit of work is abandoned.
+        raise
     except Exception as e:
         # Surfaces as an error log entry, not just a logger line: when this
         # stub insert fails, the board member loses their Employee-bearing
@@ -937,9 +940,9 @@ def sync_user_role_profile(
             and the record is written. (2) Roles held directly, i.e. supplied by none of
             the user's old profiles, are kept across the save (User.validate otherwise
             resets roles to the profiles' roles). (3) A write inside a savepoint that
-            fails is rolled back, and a deadlock/timeout is re-raised instead of being
-            swallowed, so the run stops rather than resuming on a damaged transaction.
-            The event-driven callers keep the replace behaviour (#1293).
+            fails is rolled back. (A deadlock/timeout is re-raised for EVERY caller, not
+            only this mode: see Raises.) The event-driven callers keep the replace
+            behaviour (#1293).
 
     Raises:
         frappe.QueryDeadlockError, frappe.QueryTimeoutError: always (#1888). After a 1213

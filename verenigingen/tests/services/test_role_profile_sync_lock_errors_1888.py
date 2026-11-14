@@ -18,6 +18,7 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 
 CALCULATE = "verenigingen.services.member.account.user_role_profile_calculator.calculate_user_role_profile"
 USER_VALIDATE = "frappe.core.doctype.user.user.User.validate"
+ACR_AUTO_SYNC = "verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change"
 SYNC_FAILURE_TITLE = "Role Profile Sync Failed"
 LOCK_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
 
@@ -247,13 +248,20 @@ class TestRoleProfileSyncLockErrors1888(VereningingenTestCase):
                 manager._sync_role_profile()
 
     def test_account_creation_phase_3_still_swallows_an_ordinary_error(self):
-        """Control: the Phase 3 non-fatal contract is intact for anything but a lock error."""
+        """Control: the Phase 3 non-fatal contract is intact for anything but a lock error.
+
+        Patched at the name the ACR imports (the deprecated ``utils`` re-export), at
+        ``auto_sync_on_role_change`` itself: a fault injected any deeper is swallowed by
+        auto_sync before it reaches ``_sync_role_profile``'s handler, which would leave
+        this control unable to fail under ``except Exception: raise`` there.
+        """
         from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 
         manager = object.__new__(AccountCreationManager)
         manager.created_user = self._user()[1].name
-        with patch.object(calc, "sync_user_role_profile", side_effect=RuntimeError("x")):
-            manager._sync_role_profile()
+        with patch(ACR_AUTO_SYNC, side_effect=RuntimeError("x")) as injected:
+            manager._sync_role_profile()  # must not raise
+        injected.assert_called_once_with(manager.created_user)
 
     def test_bulk_board_sync_propagates_a_lock_error_instead_of_listing_it_as_failed(self):
         from verenigingen.services.chapter import chapter_role_profile_manager as crpm
@@ -360,3 +368,77 @@ class TestRoleProfileSyncLockErrors1888(VereningingenTestCase):
         with patch("frappe.model.document.Document.insert", insert):
             with self.assertRaises(frappe.QueryDeadlockError):
                 calc.sync_user_role_profile(user.name)
+
+    def test_employee_stub_ordinary_error_is_logged_and_the_sync_completes(self):
+        """Control for the handler above: only a lock error escapes _ensure_employee_for_profile.
+        Any other failure writes the 'Employee Stub Failed' Error Log row and the sync goes on."""
+        title = "Role Profile Sync: Employee Stub Failed"
+        self.expectErrorLog(title)
+        member, user = self._user()
+        self.create_test_volunteer(member=member.name)
+        real_insert = frappe.model.document.Document.insert
+        seen = []
+
+        def insert(doc, *args, **kwargs):
+            if doc.doctype == "Employee":
+                seen.append(doc.user_id)
+                raise frappe.ValidationError("boom")
+            return real_insert(doc, *args, **kwargs)
+
+        with self.assertErrorLog(title):
+            with patch("frappe.model.document.Document.insert", insert):
+                result = calc.sync_user_role_profile(user.name)
+        self.assertEqual(seen, [user.name], "the Employee stub path was never reached")
+        self.assertTrue(result["success"], result)
+
+    # ------------------------------------------------ F1 (review round 3): chapter wrapper
+
+    def _chapter_with_board_member(self):
+        member, user = self._user()
+        volunteer = self.create_test_volunteer(member=member.name)
+        chapter = self.create_test_chapter(
+            chapter_name=f"LockErr Bulk {frappe.generate_hash(length=6)}",
+            postal_codes="1000-9999",
+            published=1,
+        )
+        role = self.create_test_chapter_role()
+        chapter = frappe.get_doc("Chapter", chapter.name)
+        with patch(USER_VALIDATE):  # seat without provisioning anything
+            chapter.append(
+                "board_members",
+                {
+                    "volunteer": volunteer.name,
+                    "chapter_role": role.name if hasattr(role, "name") else role,
+                    "from_date": frappe.utils.today(),
+                    "is_active": 1,
+                },
+            )
+            chapter.save()
+        return chapter, user
+
+    def test_bulk_apply_chapter_board_role_profiles_propagates_a_lock_error(self):
+        """Whitelisted wrapper: its ``except Exception`` returned
+        {'success': False, 'error': '1213'}. Injected at calculate_user_role_profile, the
+        depth the review probe used, through the real chapter and board member."""
+        from verenigingen.verenigingen.doctype.chapter.chapter import bulk_apply_chapter_board_role_profiles
+
+        chapter, _user = self._chapter_with_board_member()
+        with patch(CALCULATE, side_effect=frappe.QueryDeadlockError("1213")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                bulk_apply_chapter_board_role_profiles(chapter.name)
+
+    def test_bulk_apply_chapter_board_role_profiles_still_returns_an_ordinary_error(self):
+        """Control: anything but a lock error keeps the {'success': False} answer."""
+        from verenigingen.services.chapter import chapter_role_profile_manager as crpm
+        from verenigingen.verenigingen.doctype.chapter.chapter import bulk_apply_chapter_board_role_profiles
+
+        title = "Bulk Chapter Board Role Profile Assignment Error"
+        self.expectErrorLog(title)
+        chapter, _user = self._chapter_with_board_member()
+        with self.assertErrorLog(title):
+            with patch.object(
+                crpm, "bulk_assign_chapter_board_role_profiles", side_effect=frappe.ValidationError("boom")
+            ):
+                result = bulk_apply_chapter_board_role_profiles(chapter.name)
+        self.assertFalse(result["success"])
+        self.assertIn("boom", result["error"])
