@@ -398,6 +398,7 @@ COMMIT_EXEMPT tests/payment/test_payment_gateways_subscription_sweep.py::3  # or
 COMMIT_EXEMPT tests/payment/test_payment_gateways_sweep2_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_hook.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_payment_plan_paid_after_pe.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/payment/test_payment_plan_pe_failure_alert_1330.py::9  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_account_identity_2125_unit.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_paused_executed_payment_2125_unit.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/payment/test_ponto_payment_request_paid_after_pe.py::1  # order-dep-exempt

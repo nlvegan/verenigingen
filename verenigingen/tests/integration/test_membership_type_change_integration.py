@@ -139,6 +139,10 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         )
 
         original_schedule_name = original_schedule.name
+        original_frequency = original_schedule.billing_frequency
+        # Control for the #1937 assertion below: the target Type's cadence must differ from
+        # the member's, or "kept" and "taken from the Type" would be indistinguishable.
+        self.assertNotEqual(original_frequency, self.quarterly_type.billing_period)
 
         # Create and apply type change amendment
         amendment = frappe.get_doc({
@@ -177,7 +181,9 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         updated_schedule = frappe.get_doc("Membership Dues Schedule", original_schedule_name)
         self.assertEqual(updated_schedule.membership_type, self.quarterly_type.name)
         self.assertEqual(updated_schedule.dues_rate, self.quarterly_type.minimum_amount)
-        self.assertEqual(updated_schedule.billing_frequency, "Quarterly")
+        # #1937 maintainer ruling (2026-11-11): the member keeps their own cadence on a type
+        # change; the new Type's frequency no longer applies. This used to assert "Quarterly".
+        self.assertEqual(updated_schedule.billing_frequency, original_frequency)
         self.assertEqual(updated_schedule.status, "Active")
 
     def test_membership_type_history_recorded(self):

@@ -25,6 +25,11 @@ def validate_expense_claim_chapter_access(doc):
     if not chapter:
         return
 
+    # A team member's claim carries its team's chapter (#1714): that is attribution, not the member
+    # picking a chapter to file against. Anyone else naming it still goes through the gate below.
+    if _is_team_attribution(doc, chapter):
+        return
+
     # Get accessible chapters for current user
     accessible_chapters = get_user_accessible_chapters(user)
 
@@ -53,6 +58,28 @@ def validate_expense_claim_chapter_access(doc):
             indicator="red",
             raise_exception=True,
         )
+
+
+def _is_team_attribution(doc, chapter):
+    """The chapter is the team's, or one the claim already held (a team may move later), and
+    the claimant is an active member of that team."""
+    from verenigingen.services.volunteer.expense_approval_limits import claimant_is_active_team_member
+
+    if not claimant_is_active_team_member(doc):
+        return False
+    if chapter == frappe.db.get_value("Team", doc.get("custom_team"), "chapter"):
+        return True
+    unchanged = not (doc.has_value_changed("custom_chapter") or doc.has_value_changed("custom_team"))
+    return unchanged and not doc.is_new()
+
+
+def derive_team_claim_chapter(doc):
+    """Attribute a team member's claim to the team's chapter, whichever path created it."""
+    from verenigingen.services.volunteer.expense_approval_limits import claimant_is_active_team_member
+
+    if doc.get("custom_chapter") or not claimant_is_active_team_member(doc):
+        return
+    doc.custom_chapter = frappe.db.get_value("Team", doc.get("custom_team"), "chapter") or None
 
 
 def validate_journal_entry(doc, method):
@@ -163,6 +190,8 @@ def validate_expense_claim(doc, method):
         from verenigingen.services.volunteer.expense_approval_limits import route_claim_above_limit
 
         route_claim_above_limit(doc)
+
+    derive_team_claim_chapter(doc)
 
     # Auto-populate department from custom_chapter for ERPNext native filtering
     if doc.custom_chapter and not doc.department:  # ast-skip: Custom Field
