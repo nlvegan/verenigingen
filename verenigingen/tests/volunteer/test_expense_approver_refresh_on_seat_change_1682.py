@@ -79,15 +79,22 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         return volunteer, employee
 
     def _ensure_board_department(self):
-        """The Board department the sync writes to (a chapter's own is not always created)."""
+        """The Board department the sync writes to (a chapter's own is not always created).
+
+        Built in the company the sync resolves departments in (Verenigingen
+        Settings.company), not the claimant Employee's: the lookup is
+        company-scoped since #2551, so a same-named department elsewhere is
+        never the target.
+        """
         name = f"Chapter {self.chapter.name} Board"
-        if frappe.db.exists("Department", {"department_name": name}):
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        if frappe.db.exists("Department", {"department_name": name, "company": company}):
             return
         dept = frappe.get_doc(
             {
                 "doctype": "Department",
                 "department_name": name,
-                "company": self.employee.company,
+                "company": company,
                 "parent_department": "All Departments",
             }
         ).insert()

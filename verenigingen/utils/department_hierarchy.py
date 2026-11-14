@@ -14,6 +14,9 @@ class DepartmentHierarchyManager:
         if not settings.company:
             frappe.throw(_("Company not configured in Verenigingen Settings"))
         self.company = settings.company
+        # Departments an approver sync could not find for self.company (#2551);
+        # the daily sync reports these instead of claiming a clean success.
+        self.skipped_departments = []
 
     def setup_association_departments(self):
         """Create complete department structure mirroring association hierarchy"""
@@ -84,12 +87,16 @@ class DepartmentHierarchyManager:
         _ensure_department would re-insert and hit a duplicate-PK error).
 
         Returns the real record name if a Department with this department_name
-        exists, otherwise None.
+        exists FOR THIS MANAGER'S COMPANY, otherwise None. Both lookups are
+        company-scoped: another company's same-named department must never be
+        resolved, or ``_ensure_group`` would promote it (#2551).
         """
         # Exact record-name match first (already-abbreviated / no-company sites)
-        if frappe.db.exists("Department", dept_name):
+        if frappe.db.exists("Department", {"name": dept_name, "company": self.company}):
             return dept_name
-        return frappe.db.get_value("Department", {"department_name": dept_name}, "name")
+        return frappe.db.get_value(
+            "Department", {"department_name": dept_name, "company": self.company}, "name"
+        )
 
     def _ensure_department(self, dept_name, parent=None):
         """Create department if it doesn't exist"""
@@ -104,8 +111,15 @@ class DepartmentHierarchyManager:
         if parent:
             # Parents are referenced by their human-readable name but stored
             # abbreviated, so resolve to the actual record name.
-            dept.parent_department = self._resolve_department_name(parent) or parent
-            self._ensure_group(dept.parent_department)
+            resolved_parent = self._resolve_department_name(parent)
+            if not resolved_parent:
+                # Never fall back to the raw name: it may be another company's
+                # record, which must be neither promoted nor attached to (#2551).
+                frappe.throw(
+                    _("Parent department {0} not found for company {1}").format(parent, self.company)
+                )
+            dept.parent_department = resolved_parent
+            self._ensure_group(resolved_parent)
 
         result = secure_document_operation(
             operation="insert",
@@ -378,7 +392,10 @@ class DepartmentHierarchyManager:
         """Update department's expense approvers"""
         resolved = self._resolve_department_name(dept_name)
         if not resolved:
-            frappe.logger().debug(f"Department {dept_name} does not exist, skipping approver sync")
+            # Visible skip (#2551): the caller reports it in the sync result.
+            skipped = {"department": dept_name, "company": self.company}
+            if skipped not in self.skipped_departments:
+                self.skipped_departments.append(skipped)
             return
 
         dept = frappe.get_doc("Department", resolved)

@@ -115,6 +115,19 @@ def sync_all_department_approvers():
         manager = DepartmentHierarchyManager()
         manager.sync_all_approvers()
 
+        skipped = manager.skipped_departments
+        if skipped:
+            # Departments missing for the configured company (e.g. the company
+            # was changed after setup): say so instead of reporting a clean sync.
+            return {
+                "success": True,
+                "message": (
+                    f"Department approvers synced with {len(skipped)} department(s) skipped: not found "
+                    f"for company {manager.company}. Re-run department setup for this company."
+                ),
+                "company": manager.company,
+                "skipped_departments": skipped,
+            }
         return {"success": True, "message": "Department approvers synced successfully"}
     except Exception as e:
         frappe.log_error(
