@@ -23,7 +23,10 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.security.test_staff_expense_approval_1606 import _roles_shipped_for_profile
+from verenigingen.tests.security.test_staff_expense_approval_1606 import (
+    StaffExpenseBase,
+    _roles_shipped_for_profile,
+)
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
 
@@ -220,3 +223,70 @@ class TestApproverEmployeeUserPermission1655(EnhancedTestCase):
         listed = self._listed_as(plain, "Leave Application")
         self.assertIn(own.name, listed, "control: their own leave application is visible")
         self.assertNotIn(other.name, listed)
+
+
+class TestChapterSeatApproverEmployeeUserPermission1655(StaffExpenseBase):
+    """The case the ruling names: a Financial board seat approver, who is NOT a full-access role.
+
+    Staff reaches claims through ``get_user_accessible_chapters`` and the chapter branch of
+    ``has_expense_claim_permission``, not through the full-access shortcut the Treasurer takes.
+    Probe shortcut, stated: the Staff user's auto-made Employee stub is replaced by an Employee
+    inserted as the desk form does (``create_user_permission`` left at ERPNext's default of 1),
+    because the stub is built with the permission off; the seat itself and the Staff profile come
+    from the real Team and Chapter Board Member flows in ``StaffExpenseBase``.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.set_national(None)
+        self._give_staff_a_hand_made_employee()
+        self.claim_a = self.claim(self.volunteer_emp, chapter=self.chapter_a)
+        self.claim_b = self.claim(self.volunteer_emp, chapter=self.chapter_b)
+        self.claim_none = self.claim(self.volunteer_emp)
+
+    def _give_staff_a_hand_made_employee(self):
+        for name in frappe.get_all("Employee", filters={"user_id": self.staff.name}, pluck="name"):
+            frappe.db.set_value("Employee", name, "user_id", None)
+        for name in frappe.get_all(
+            "User Permission", filters={"user": self.staff.name, "allow": "Employee"}, pluck="name"
+        ):
+            frappe.delete_doc("User Permission", name, force=1)
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"H{frappe.generate_hash(length=5)}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": self.company,
+                "user_id": self.staff.name,
+            }
+        ).insert()
+        self._track_test_document("Employee", emp.name, priority=2)
+        self.assertEqual(frappe.db.get_value("Employee", emp.name, "create_user_permission"), 1)
+        pinned = frappe.get_all(
+            "User Permission", filters={"user": self.staff.name, "allow": "Employee"}, pluck="for_value"
+        )
+        self.assertEqual(pinned, [emp.name], "control: the default really pinned the approver to their Employee")
+        self.assertNotIn(
+            "Verenigingen Treasurer", frappe.get_roles(self.staff.name), "control: not a full-access role"
+        )
+        frappe.clear_cache(user=self.staff.name)
+
+    def test_seat_approver_with_an_employee_user_permission_reads_lists_and_approves_a_chapter_claim(self):
+        self.assertTrue(self.can_read(self.staff, self.claim_a))
+        self.assertIn(self.claim_a.name, self.visible_to(self.staff))
+        self.assertTrue(frappe.has_permission("Expense Claim", "write", doc=self.claim_a.name, user=self.staff.name))
+
+        self.decide(self.staff, self.claim_a.name, "Approved")
+
+        self.assertEqual(frappe.db.get_value("Expense Claim", self.claim_a.name, "approval_status"), "Approved")
+
+    def test_control_the_same_approver_still_cannot_reach_another_chapters_claim(self):
+        self.assertFalse(self.can_read(self.staff, self.claim_b))
+        self.assertNotIn(self.claim_b.name, self.visible_to(self.staff))
+
+    def test_control_the_same_approver_still_cannot_reach_an_unattributed_claim(self):
+        self.assertFalse(self.can_read(self.staff, self.claim_none))
+        self.assertNotIn(self.claim_none.name, self.visible_to(self.staff))
