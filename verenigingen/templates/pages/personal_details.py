@@ -121,8 +121,8 @@ def update_personal_details():
         frappe.throw(_("Security violation: member parameter tampering detected"), frappe.PermissionError)
 
     # Validate required fields
-    first_name = form_data.get("first_name", "").strip()
-    last_name = form_data.get("last_name", "").strip()
+    first_name = (form_data.get("first_name") or "").strip()
+    last_name = (form_data.get("last_name") or "").strip()
 
     if not first_name:
         frappe.throw(_("First name is required"))
@@ -138,22 +138,22 @@ def update_personal_details():
         frappe.throw(_("Last name contains invalid characters"))
 
     # Validate middle name if provided
-    middle_name = form_data.get("middle_name", "").strip()
+    middle_name = (form_data.get("middle_name") or "").strip()
     if middle_name and not validate_name_format(middle_name, allow_prefixes=True):
         frappe.throw(_("Middle name contains invalid characters"))
 
     # Validate tussenvoegsel if provided
-    tussenvoegsel = form_data.get("tussenvoegsel", "").strip()
+    tussenvoegsel = (form_data.get("tussenvoegsel") or "").strip()
     if tussenvoegsel and not validate_name_format(tussenvoegsel, allow_prefixes=True):
         frappe.throw(_("Tussenvoegsel contains invalid characters"))
 
     # Validate contact number if provided
-    contact_number = form_data.get("contact_number", "").strip()
+    contact_number = (form_data.get("contact_number") or "").strip()
     if contact_number and not validate_phone_number(contact_number):
         frappe.throw(_("Please enter a valid phone number"))
 
     # Validate birth date if provided
-    birth_date = form_data.get("birth_date", "").strip()
+    birth_date = (form_data.get("birth_date") or "").strip()
     if birth_date:
         from frappe.utils import getdate
 
@@ -170,8 +170,8 @@ def update_personal_details():
             frappe.throw(_("Birth date cannot be in the future"))
 
     # Handle pronouns
-    pronouns = form_data.get("pronouns", "").strip()
-    custom_pronouns = form_data.get("custom_pronouns", "").strip()
+    pronouns = (form_data.get("pronouns") or "").strip()
+    custom_pronouns = (form_data.get("custom_pronouns") or "").strip()
 
     if pronouns == "custom":
         if not custom_pronouns:

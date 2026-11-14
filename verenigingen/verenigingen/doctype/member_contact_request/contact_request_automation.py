@@ -165,6 +165,8 @@ def escalate_contact_request(request, overdue_days):
             reference_doctype="Member Contact Request",
             reference_name=request.name,
             notification_key="contact_request_escalated",
+            # Per request: another overdue request within the hour must still be escalated (#2310).
+            cooldown_scope=request.name,
         )
 
         # The note claims the managers were notified, so only a real send may write it (#2178)

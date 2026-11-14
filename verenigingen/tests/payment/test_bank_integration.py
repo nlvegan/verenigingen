@@ -524,6 +524,8 @@ class TestInvoiceReferenceMatching(VereningingenTestCase):
         super().setUp()
         self.importer = BankStatementImporter()
         self.invoice = self.create_test_sales_invoice()
+        # Only a submitted invoice resolves (#939); the helper only saves a draft.
+        self.invoice.submit()
 
     def test_shared_resolver_direct_name_match(self):
         from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
@@ -703,6 +705,135 @@ class TestInvoiceAmountMatching(VereningingenTestCase):
             matched,
             f"debtor name {bank_debtor_name!r} is not a literal substring of any customer name; "
             f"got {matched} (wrongly attached to {customer}'s invoice {invoice.name})",
+        )
+
+
+class TestMT940ImportOnlyPaysSubmittedInvoices(VereningingenTestCase):
+    """#939: the MT940 importer built a Payment Entry against ANY invoice name found
+    in the bank reference, because `resolve_invoice_from_reference` matched on
+    existence alone and `_create_payment_entry` then read `outstanding_amount`
+    without a docstatus check (the class #856/#209 fixed at the Ponto, ING and
+    Mollie sites). Only a SUBMITTED invoice is payable; a draft or cancelled one
+    is refused with a warning, never silently dropped and never paid.
+
+    Driven through the real `_import_mt940` parse (a real MT940 text, no stubs).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company, _income = self._owned_company_and_income_account()
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"MT940 Debtor {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
+        self.track_doc("Customer", customer.name)
+        self.customer = customer.name
+        self.customer_name = customer.customer_name
+
+    def _mt940_invoice(self, submit=False, cancel=False):
+        invoice = self.create_test_sales_invoice(customer=self.customer, company=self.company)
+        if submit or cancel:
+            invoice.submit()
+        if cancel:
+            invoice.cancel()
+        invoice.reload()
+        return invoice
+
+    def _import(self, reference, amount="25,00", name="Nobody"):
+        # :61: is YYMMDD MMDD C amount <swift code> /<reference>; the importer takes
+        # the text after the "/" as the transaction reference.
+        content = f":20:STARTUMSE\n:25:NL91ABNA0417164300\n:61:2611120112C{amount}NTRF/{reference}\n:86:/NAME/{name}\n"
+        importer = BankStatementImporter()
+        result = importer._import_mt940(content)
+        return importer, result
+
+    def _payment_entries(self, invoice):
+        return frappe.get_all(
+            "Payment Entry", filters={"reference_no": f"BANK_IMPORT_{invoice.name}"}, pluck="name"
+        )
+
+    def test_a_submitted_invoice_named_in_the_reference_is_still_paid(self):
+        """Control: the guard must not refuse what is payable."""
+        invoice = self._mt940_invoice(submit=True)
+        self.assertEqual(invoice.docstatus, 1)
+        importer, result = self._import(invoice.name)
+        self.assertEqual(result["transactions_imported"], 1, (importer.errors, importer.warnings))
+        pes = self._payment_entries(invoice)
+        self.assertEqual(len(pes), 1)
+        for name in pes:
+            self.track_doc("Payment Entry", name)
+
+    def test_a_draft_invoice_named_in_the_reference_is_refused(self):
+        invoice = self._mt940_invoice()
+        self.assertEqual(invoice.docstatus, 0, "premise: a draft")
+        importer, result = self._import(invoice.name)
+        self.assertEqual(result["transactions_imported"], 0)
+        self.assertEqual(self._payment_entries(invoice), [])
+        self.assertEqual(importer.errors, [])
+        self.assertTrue(
+            any("No matching invoice found" in w for w in importer.warnings),
+            f"the bank line must be surfaced, not dropped: {importer.warnings}",
+        )
+
+    def test_a_cancelled_invoice_named_in_the_reference_is_refused(self):
+        invoice = self._mt940_invoice(cancel=True)
+        self.assertEqual(invoice.docstatus, 2, "premise: cancelled")
+        importer, result = self._import(invoice.name)
+        self.assertEqual(result["transactions_imported"], 0)
+        self.assertEqual(self._payment_entries(invoice), [])
+        self.assertEqual(importer.errors, [])
+        self.assertTrue(any("No matching invoice found" in w for w in importer.warnings))
+
+    def _assert_named_invoice_is_not_replaced_by_the_amount_match(self, named, state):
+        """F1 (review of #939): the reference NAMES `named`; a different submitted
+        invoice of the same customer and amount must not be paid instead.
+
+        The debtor name is the real customer's, so the amount+customer fallback
+        in `_find_matching_invoice` has exactly one candidate to find.
+        """
+        other = self._mt940_invoice(submit=True)
+        self.assertEqual(other.docstatus, 1)
+        self.assertAlmostEqual(float(other.outstanding_amount), float(named.grand_total), places=2)
+        importer, result = self._import(named.name, name=self.customer_name)
+        self.assertEqual(result["transactions_imported"], 0, (importer.errors, importer.warnings))
+        self.assertEqual(self._payment_entries(other), [], "paid the OTHER invoice")
+        self.assertEqual(self._payment_entries(named), [])
+        other.reload()
+        self.assertAlmostEqual(float(other.outstanding_amount), float(other.grand_total), places=2)
+        self.assertEqual(importer.errors, [])
+        self.assertTrue(
+            any(named.name in w and state in w for w in importer.warnings),
+            f"the warning must name the invoice and its state: {importer.warnings}",
+        )
+
+    def test_a_draft_reference_is_not_replaced_by_an_amount_match(self):
+        draft = self._mt940_invoice()
+        self._assert_named_invoice_is_not_replaced_by_the_amount_match(draft, "draft")
+
+    def test_a_cancelled_reference_is_not_replaced_by_an_amount_match(self):
+        cancelled = self._mt940_invoice(cancel=True)
+        self._assert_named_invoice_is_not_replaced_by_the_amount_match(cancelled, "cancelled")
+
+    def test_the_amount_match_still_works_when_the_reference_names_nothing(self):
+        """Control: with no invoice named, the unambiguous amount match still pays."""
+        other = self._mt940_invoice(submit=True)
+        importer, result = self._import("no invoice here", name=self.customer_name)
+        self.assertEqual(result["transactions_imported"], 1, (importer.errors, importer.warnings))
+        pes = self._payment_entries(other)
+        self.assertEqual(len(pes), 1)
+        for pe in pes:
+            self.track_doc("Payment Entry", pe)
+
+    def test_the_resolver_skips_a_draft_embedded_in_noisy_text(self):
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            resolve_invoice_from_reference,
+        )
+
+        draft = self._mt940_invoice()
+        submitted = self._mt940_invoice(submit=True)
+        self.assertIsNone(resolve_invoice_from_reference(f"PAYMENT {draft.name} THANKS"))
+        self.assertEqual(
+            resolve_invoice_from_reference(f"PAYMENT {submitted.name} THANKS"), submitted.name
         )
 
 
