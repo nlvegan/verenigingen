@@ -26,7 +26,10 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
-from verenigingen.mijnrood_sync.services.event_application import config_fault_alerts
+from verenigingen.mijnrood_sync.services.event_application import (
+    config_fault_alerts,
+    member_step_alerts,
+)
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
@@ -146,6 +149,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Sync - Address Creation Failed: {member_name}",
                 message=frappe.get_traceback(),
             )
+            self.alert_step_failed("address", member_name, str(e)[:200])
             return _("Address creation failed: {0}").format(str(e)[:200])
 
         return None
@@ -187,6 +191,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Sync - Mollie Sync Failed: {member_name}",
                 message=frappe.get_traceback(),
             )
+            self.alert_step_failed("mollie", member_name, str(e)[:200])
             return _("Mollie sync failed: {0}").format(str(e)[:200])
 
     def _assign_chapter_from_division(
@@ -347,6 +352,14 @@ class MijnRoodRelatedRecordsOrchestrator:
             "MijnRood dues-template alert failed",
         )
 
+    def alert_step_failed(self, step: str, member_name: str, reason: str) -> None:
+        """Queue the per-member step-failure alert (#2309 part 2), sent after the event's commit."""
+        self.queue_alert(
+            member_step_alerts.step_failed_claim(step, member_name, reason),
+            lambda: member_step_alerts.send_step_failed_alert(step, member_name, reason),
+            "MijnRood step-failure alert failed",
+        )
+
     def _send_chapter_move_failed_alert(
         self, member_name: str, chapter_name: str, reason: str, event_name: str
     ) -> bool:
@@ -455,6 +468,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             return refusal
         except Exception as e:
             frappe.log_error(title="MijnRood account creation failed", message=frappe.get_traceback())
+            self.alert_step_failed("account", member_name, str(e)[:200])
             return _("Account creation failed: {0}").format(str(e)[:200])
 
     def _queue_account_request(self, queue_fn, member_name: str, **kwargs):
@@ -490,6 +504,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             title="MijnRood account creation refused",
             message=f"Member {member_name}: {reason} {detail}".strip(),
         )
+        self.alert_step_failed("account", member_name, reason)
         return None, _("Account creation not queued: {0}").format(reason)
 
     def _skip_for_blocking_request(self, member_name: str, blocking_request: str):
@@ -512,6 +527,9 @@ class MijnRoodRelatedRecordsOrchestrator:
                     f"{blocking_request} is Failed and still retryable. Retry or cancel it."
                 ),
             )
+        # Every event for this member alerts again after 24h while the request stays Failed: it is a
+        # stuck account, and nothing else tells staff (mark_failed only writes an Error Log row, #2066).
+        self.alert_step_failed("account", member_name, f"blocked by failed request {blocking_request}")
         return None, _("Account creation blocked by failed request {0}").format(blocking_request)
 
     def _ensure_membership_and_dues(self, member_name: str, row_data: dict) -> Optional[str]:
@@ -580,6 +598,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Sync - Membership Creation Failed: {member_name}",
                 message=frappe.get_traceback(),
             )
+            self.alert_step_failed("membership", member_name, str(e)[:200])
             return _("Membership creation failed: {0}").format(str(e)[:200])
 
         return None
@@ -639,6 +658,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Sync - Dues Schedule Backfill Failed: {member_doc.name}",
                 message=frappe.get_traceback(),
             )
+            self.alert_step_failed("dues_backfill", member_doc.name, str(e)[:200])
             return _("Dues schedule backfill failed: {0}").format(str(e)[:200])
 
     def _update_existing_dues_schedule(self, member_name: str, new_rate: float) -> Optional[str]:
@@ -675,6 +695,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 title=f"MijnRood Sync - Dues Schedule Update Failed: {member_name}",
                 message="; ".join(result.errors or [result.message]),
             )
+            self.alert_step_failed("dues_update", member_name, result.message[:200])
             return _("Dues schedule update failed: {0}").format(result.message[:200])
 
         if result.method_used == "no_change_needed":
@@ -729,6 +750,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             return refusal
         except Exception as e:
             frappe.log_error(title="MijnRood account creation failed", message=frappe.get_traceback())
+            self.alert_step_failed("account", member_name, str(e)[:200])
             return _("Account creation failed: {0}").format(str(e)[:200])
 
     def _create_related_records(self, member_name: str, row_data: dict, event=None) -> list[str]:
