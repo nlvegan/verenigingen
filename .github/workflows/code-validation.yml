@@ -312,11 +312,65 @@ jobs:
         echo "Baseline did not grow."
 
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
-    # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
-    # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only
-    # and include a check that the tree is still at or below its baseline.
+    # WRITE whose failure never reaches the caller). The validator itself is ADVISORY
+    # (bare run exits 0), so the enforcement is the baseline: #1431 found that only
+    # its unit tests ran here, so nothing regenerated or diffed the baseline against
+    # the tree and a new site could land with no CI signal. The two steps after the
+    # unit tests are the same shape as the submittability-drift pair above: the shrink
+    # gate hard-fails a NEW key or a higher count (growth), and "did not grow" catches
+    # a regenerated-and-committed baseline that recorded a new site instead of fixing it.
     - name: Unit-test the failed-write guard
       run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
+
+    - name: Run the failed-write guard over the tree
+      run: python scripts/validation/failed_write_validator.py
+
+    - name: Baseline is in sync with the tree
+      env:
+        # merge_group: push semantics ON PURPOSE (#2184), as the sibling steps.
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
+      run: |
+        python scripts/validation/failed_write_validator.py --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/failed_write_baseline.txt \
+          "python scripts/validation/failed_write_validator.py --update-baseline" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
+
+    # Regenerating the baseline so a NEW site is recorded rather than fixed leaves
+    # baseline and tree in sync; the only signal is that the baseline GREW, which is
+    # legitimate solely when the validator's own detection rules changed in the PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: |
+        BASELINE=scripts/validation/failed_write_baseline.txt
+        VALIDATOR=scripts/validation/failed_write_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline sites: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new failed-write site was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
 
     # The class-teardown harness-logger census. verenigingen/tests/harness_logger.py
     # justifies its `>= ERROR` mirror gate with a count of which teardown routes log
