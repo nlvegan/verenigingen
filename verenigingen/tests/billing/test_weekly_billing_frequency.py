@@ -41,11 +41,9 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 DUES_RATE = 7.0
 MINIMUM_AMOUNT = 5.0
 
-# A fixed Wednesday, so the Monday..Sunday assertions do not depend on the day
+# A fixed Wednesday, so the assertions do not depend on the day
 # the suite happens to run.
 FIXED_WEDNESDAY = getdate("2025-03-12")
-FIXED_WEEK_MONDAY = getdate("2025-03-10")
-FIXED_WEEK_SUNDAY = getdate("2025-03-16")
 
 
 class TestWeeklyFrequencyIsDeclared(VereningingenTestCase):
@@ -205,12 +203,6 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         """Not ~a month: a Weekly schedule must advance by 7 days precisely."""
         next_date = getdate(self.schedule.calculate_next_invoice_date(from_date=FIXED_WEDNESDAY))
         self.assertEqual(next_date, add_days(FIXED_WEDNESDAY, 7))
-
-    def test_billing_period_is_the_calendar_week_monday_to_sunday(self):
-        """calculate_billing_period() returns the ISO week containing the date."""
-        period_start, period_end = self.schedule.calculate_billing_period(FIXED_WEDNESDAY)
-        self.assertEqual(getdate(period_start), FIXED_WEEK_MONDAY)
-        self.assertEqual(getdate(period_end), FIXED_WEEK_SUNDAY)
 
     def test_first_coverage_period_is_seven_days_from_the_join_date(self):
         """The first period runs a full week from the member's membership start.

@@ -9,6 +9,7 @@ Every chapter-scope test seats a real board member in chapter A and puts a REAL 
 (and one with no chapter), so a surface that ignores the permission query has something to leak.
 """
 
+import inspect
 import json
 
 import frappe
@@ -564,6 +565,26 @@ class TestDashboardWiring(EnhancedTestCase):
         self.assertIn("escape_html(f.error", report, "the server message is escaped before it is shown")
         self.assertIn("results.failed.length || invoice_failed.length ? 'orange'", report)
         self.assertEqual(report.count("escape_html(f."), 2, "one escaping helper serves both lists")
+
+    def test_an_approval_without_a_dues_schedule_is_shown_orange_not_as_a_green_success(self):
+        """#1930: the server says `dues_schedule_failed` (the approval stands, the schedule step failed);
+        both approve buttons must show that, not the green success toast. Source check (the callbacks run in
+        the browser; no JS harness here), tied to the payload key the server really sends below."""
+        import re
+
+        from verenigingen.api import membership_application_review as review
+
+        self.assertIn('"dues_schedule_failed": dues_schedule_failed', inspect.getsource(review))
+        dashboard = self._read("public/js/chapter_dashboard.js")
+        page = self._read("verenigingen/page/membership_application_review/membership_application_review.js")
+        for source, green in ((dashboard, "Member approved successfully"), (page, "Application approved for")):
+            self.assertIn("dues_schedule_failed", source)
+            branch = source.index("dues_schedule_failed")
+            self.assertLess(branch, source.index(green), "the orange branch is tested before the green toast")
+            shown = source[branch : source.index(green)]
+            self.assertIn("indicator: 'orange'", shown)
+            self.assertIn("escape_html(", shown)
+            self.assertIsNone(re.search(r"indicator: 'green'", shown))
 
     def test_staff_may_open_the_review_page(self):
         import json

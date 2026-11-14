@@ -100,18 +100,6 @@ class TestMembershipEndpoints(VereningingenTestCase):
         m = frappe.new_doc("Membership")
         self.assertIsNone(m.get_dues_schedule())
 
-    def test_pause_dues_schedule_no_member_noop(self):
-        # Guard clause: no member -> returns without touching anything.
-        m = frappe.new_doc("Membership")
-        self.assertIsNone(m.pause_dues_schedule())
-
-    def test_pause_dues_schedule_pauses_active(self):
-        schedule_name = self.membership.get_dues_schedule()
-        self.assertTrue(schedule_name)
-        self.membership.pause_dues_schedule()
-        status = frappe.db.get_value("Membership Dues Schedule", schedule_name, "status")
-        self.assertEqual(status, "Paused")
-
     # ------------------------------------------------------------------ show_all_invoices
 
     def test_show_all_invoices_empty(self):

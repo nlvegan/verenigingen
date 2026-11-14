@@ -77,7 +77,7 @@
         "action": "Verify and Activate",
         "allow_self_approval": 0,
         "allowed": "Verenigingen Administrator",
-        "condition": "doc.identification_verified or doc.donor_signature_received",
+        "condition": "doc.donor_signature_received",
         "next_state": "Active",
         "state": "Pending Verification"
       },

@@ -252,9 +252,12 @@ doc_events = {
     # this block argues against.
     #
     # native_expense_helpers.update_employee_approver. The daily scheduled
-    # refresh_all_expense_approvers (hooks/scheduler.py) already recomputes
+    # refresh_all_expense_approvers (hooks/scheduler.py) recomputes
     # Employee.expense_approver for every volunteer with an employee_id, through
-    # this same function. A Volunteer on_update is the wrong trigger regardless:
+    # this same function, and since #1682 a seat change (BoardManager.
+    # flush_pending_board_profile_syncs) and a Chapter Role level/active change
+    # refresh it at once too; the daily run is no longer the only trigger (it still
+    # never CLEARS an approver). A Volunteer on_update is the wrong trigger regardless:
     # the value derives from Chapter Board Member / Chapter Member / Team Member
     # rows and Verenigingen Settings, none of which touch the Volunteer doc.
     # Nothing writes Volunteer.employee_id through the ORM either: the ACR pipeline

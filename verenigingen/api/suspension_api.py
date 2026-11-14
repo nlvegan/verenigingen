@@ -396,7 +396,9 @@ def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
         team_details = []
         if user_email:
             # First get volunteer record for this user
-            volunteer = frappe.db.get_value("Volunteer", {"email": user_email}, "name")
+            # The member's own Volunteer is linked by Volunteer.member; Volunteer.email is a
+            # contact address, not an identity (#2206).
+            volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
             if volunteer:
                 teams = frappe.get_all(
                     "Team Member", filters={"volunteer": volunteer, "is_active": 1}, fields=["parent", "role"]

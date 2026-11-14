@@ -156,6 +156,49 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
         doc = frappe.get_doc(DOCTYPE, self.agreement.name)
         self.assertIn("Complete Agreement", [t.action for t in get_transitions(doc)])
 
+    # --- #1808 (maintainer ruling 2026-11-12): activation requires the donor signature. The old
+    # condition `doc.identification_verified or doc.donor_signature_received` read a Donor field the
+    # agreement does not have, so its first half was dead. The linked Donor's identification is NOT
+    # an alternative to the signature.
+
+    def _offered(self):
+        from frappe.model.workflow import get_transitions
+
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        return [t.action for t in get_transitions(doc)]
+
+    def test_activation_condition_is_the_signature_alone(self):
+        """Reads the shipped fixture AND the loaded Workflow row (setUp loads the fixture)."""
+        row = next(r for r in _shipped_workflows() if r["name"] == WORKFLOW)
+        shipped = [t["condition"] for t in row["transitions"] if t["action"] == "Verify and Activate"]
+        loaded = [
+            t.condition
+            for t in frappe.get_doc("Workflow", WORKFLOW).transitions
+            if t.action == "Verify and Activate"
+        ]
+        self.assertEqual(shipped, ["doc.donor_signature_received"])
+        self.assertEqual(loaded, shipped)
+
+    def test_verified_donor_without_signature_cannot_activate(self):
+        """Control row: the linked Donor IS identification-verified (asserted below), the
+        agreement has no signature. PROBE SHORTCUT: the donor flag is set with db.set_value."""
+        frappe.db.set_value("Donor", self.agreement.donor, "identification_verified", 1)
+        self.assertEqual(frappe.db.get_value("Donor", self.agreement.donor, "identification_verified"), 1)
+        self._step("Submit for Verification")
+        self._prepare(donor_signature_received=0)
+        self.assertNotIn("Verify and Activate", self._offered())
+        with self.assertRaises(frappe.ValidationError):
+            self._step("Verify and Activate")
+        doc = frappe.get_doc(DOCTYPE, self.agreement.name)
+        self._assert_at(doc, "Pending Verification", "Draft")
+
+    def test_signature_offers_and_activates_even_when_the_donor_is_unverified(self):
+        frappe.db.set_value("Donor", self.agreement.donor, "identification_verified", 0)
+        self._step("Submit for Verification")
+        self._prepare(donor_signature_received=1)
+        self.assertIn("Verify and Activate", self._offered())
+        self._assert_at(self._step("Verify and Activate"), "Active", "Active")
+
     # --- #1811: the form's "Activate Agreement" button must not bypass the workflow. It did
     # `frm.set_value('status', 'Active'); frm.save()`, a plain save skipping the "Verify and
     # Activate" transition and its condition; the server must refuse it while a workflow is active.

@@ -45,12 +45,16 @@ class ChapterBoardMember(Document):
         """
         self._flush_board_access_for(self.volunteer, inserting=True)
 
-    def _flush_board_access_for(self, *volunteers, inserting=False):
+    def _flush_board_access_for(self, *volunteers, inserting=False, financial_before=()):
         """Recalculate board access for volunteers whose seat a standalone row write changed.
 
         Shared by after_insert, on_update and after_delete (#1922, #1953); all run only when
         the row is written OUTSIDE a Chapter save, which has its own flush. The database must
         already show the new state, hence ``after_delete`` rather than ``on_trash``.
+
+        ``financial_before``: the volunteers who held an active Financial seat through the row
+        before this write (#1682). The database already shows the new state here, so the
+        board manager cannot read it and must be told; only these can leave a stale approver.
         """
         volunteers = [v for v in dict.fromkeys(volunteers) if v]
         if not (self.parent and self.parenttype == "Chapter" and volunteers):
@@ -65,7 +69,9 @@ class ChapterBoardMember(Document):
             return
         board_manager = frappe.get_doc("Chapter", self.parent).board_manager
         for volunteer in volunteers:
-            board_manager._defer_board_access_recalculation(volunteer)
+            board_manager._defer_board_access_recalculation(
+                volunteer, held_financial_before=volunteer in financial_before
+            )
         board_manager.flush_pending_board_profile_syncs()
 
     def on_trash(self):
@@ -84,7 +90,9 @@ class ChapterBoardMember(Document):
         as a live seat, and the direct role removal it used to do is undone by the board
         role profile on the next User save (#211).
         """
-        self._flush_board_access_for(self.volunteer)
+        self._flush_board_access_for(
+            self.volunteer, financial_before=(self.volunteer,) if self._is_financial_seat(self) else ()
+        )
 
     def on_update(self):
         """Re-evaluate board access when a standalone row write changes the seat (#1953).
@@ -103,7 +111,23 @@ class ChapterBoardMember(Document):
         if self.flags.in_insert or not self._seat_changed():
             return
         before = self.get_doc_before_save()
-        self._flush_board_access_for(self.volunteer, before.volunteer if before else None)
+        financial_before = (before.volunteer,) if before and self._is_financial_seat(before) else ()
+        self._flush_board_access_for(
+            self.volunteer, before.volunteer if before else None, financial_before=financial_before
+        )
+
+    @staticmethod
+    def _is_financial_seat(row):
+        """Whether the row is an active seat in an active Financial Chapter Role (#1682)."""
+        if not (row.is_active and row.chapter_role):
+            return False
+        role = frappe.db.get_value(
+            "Chapter Role", row.chapter_role, ["permissions_level", "is_active"], as_dict=True
+        )
+        level, active = (
+            (role.permissions_level, role.is_active) if role else (None, 0)  # ast-skip: Chapter Role
+        )
+        return level == "Financial" and bool(active)
 
     def _seat_changed(self):
         return any(self.has_value_changed(f) for f in ("volunteer", "chapter_role", "is_active", "to_date"))

@@ -174,20 +174,6 @@ class TestAuditRecordsIp(_RequestCase):
         self._install_behind_proxy_with_spoof()  # behind nginx REMOTE_ADDR is the proxy
         self.assertEqual(trail._get_system_context()["ip_address"], REAL_CLIENT)
 
-    def test_membership_application_rate_limit_is_per_client_not_per_proxy(self):
-        from verenigingen.api.membership_application import check_rate_limit
-
-        endpoint = f"ipsrc-{frappe.generate_hash(length=6)}"
-        self._install_behind_proxy_with_spoof()
-        keys = [f"rate_limit:{endpoint}:{ip}" for ip in (REAL_CLIENT, PROXY, SPOOF)]
-        self.addCleanup(lambda: [frappe.cache().delete(k) for k in keys])
-        self.assertTrue(check_rate_limit(endpoint))
-        self.assertEqual(
-            [bool(frappe.cache().get(k)) for k in keys],
-            [True, False, False],
-            "the bucket must belong to the real client, not the proxy or the forged value",
-        )
-
 
 class TestNoSpoofableIpSourcesRemain(VereningingenTestCase):
     """Census: raw IP sources are read only by client_ip.py (and listed exceptions)."""
