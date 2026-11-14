@@ -135,12 +135,18 @@ class MijnRoodVolunteerSyncService:
             if result.get("success") is False:
                 error = result.get("error", "Unknown error")
                 self.logger.warning("Volunteer creation skipped for %s: %s", member_name, error)
+                get_related_records_orchestrator().alert_step_failed(
+                    "volunteer", member_name, str(error)[:200]
+                )
                 return _("Volunteer creation skipped: {0}").format(error)
 
             volunteer_name = result.get("volunteer_name")
             if create_account and result.get("account_creation_queued") is False:
                 # The volunteer exists but its ACR was refused (and Error-Logged by
                 # create_volunteer_from_member). Do not dedup or report it as queued (#1613).
+                get_related_records_orchestrator().alert_step_failed(
+                    "account", member_name, str(result.get("account_creation_error"))[:200]
+                )
                 return _("Volunteer {0} created; account creation not queued: {1}").format(
                     volunteer_name, result.get("account_creation_error")
                 )
@@ -167,6 +173,7 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Volunteer Creation Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("volunteer", member_name, str(e)[:200])
             return _("Volunteer creation failed: {0}").format(str(e)[:200])
 
     def _ensure_user_role(self, member_name: str, role: str, event=None) -> Optional[str]:
@@ -204,6 +211,7 @@ class MijnRoodVolunteerSyncService:
             return _("Role '{0}' assigned to {1}").format(role, user)
         except Exception as e:
             self.logger.error("Role assignment failed for %s (role %s): %s", user, role, e)
+            get_related_records_orchestrator().alert_step_failed("role", member_name, str(e)[:200])
             return _("Role assignment failed: {0}").format(str(e)[:200])
 
     def _prune_orphan_team_members(self, team_doc, team_name: str) -> int:
@@ -337,6 +345,7 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Chapter Board Addition Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("board", member_name, str(e)[:200])
             return _("Chapter board addition failed: {0}").format(str(e)[:200])
 
     def _end_chapter_board_membership(
@@ -765,6 +774,7 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Team Addition Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("team", member_name, str(e)[:200])
             return _("Team addition failed: {0}").format(str(e)[:200])
 
     def _end_team_membership(
