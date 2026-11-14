@@ -26,6 +26,7 @@
     "requested_amount",
     "new_billing_interval",
     "requested_membership_type",
+    "replacement_billing_frequency",
     "column_break_3",
     "reason",
     "impact_preview",
@@ -176,6 +177,14 @@
       "options": "Membership Type"
     },
     {
+      "depends_on": "eval:doc.amendment_type == 'Membership Type Change' || (doc.amendment_type == 'Fee Change' && doc.requested_membership_type && doc.requested_membership_type != doc.current_membership_type)",
+      "description": "Leave empty to keep the member's current billing frequency.",
+      "fieldname": "replacement_billing_frequency",
+      "fieldtype": "Select",
+      "label": "Replacement Billing Frequency",
+      "options": "\nAnnual\nSemi-Annual\nQuarterly\nMonthly\nWeekly\nDaily"
+    },
+    {
       "fieldname": "column_break_3",
       "fieldtype": "Column Break"
     },
@@ -318,7 +327,7 @@
     }
   ],
   "links": [],
-  "modified": "2025-06-11 13:36:00",
+  "modified": "2026-11-11 13:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "Contribution Amendment Request",

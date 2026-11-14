@@ -387,7 +387,6 @@ class ContributionAmendmentApprovalService(StatefulService):
 
             # Get new membership type details for billing info
             new_type_doc = frappe.get_doc("Membership Type", self.request.requested_membership_type)
-            new_billing_frequency = getattr(new_type_doc, "billing_period", None)
             new_dues_rate = self.request.requested_amount or new_type_doc.minimum_amount
 
             # Update existing dues schedule instead of cancel/recreate
@@ -401,7 +400,8 @@ class ContributionAmendmentApprovalService(StatefulService):
                     schedule_name=existing_schedule_info.name,
                     new_membership_type=self.request.requested_membership_type,
                     new_dues_rate=new_dues_rate,
-                    new_billing_frequency=new_billing_frequency,
+                    # None keeps the schedule's own frequency (#1937)
+                    new_billing_frequency=self.request.replacement_billing_frequency or None,
                     reason=f"Amendment {self.request.name}: {self.request.reason}",
                 )
                 if not update_result.success:
@@ -493,7 +493,9 @@ class ContributionAmendmentApprovalService(StatefulService):
 
             # Deactivate existing active or paused dues schedule
             repo = DuesScheduleRepository()
-            existing_schedule_info = repo.get_active_or_paused_schedule(self.request.member, fields=["name"])
+            existing_schedule_info = repo.get_active_or_paused_schedule(
+                self.request.member, fields=["name", "billing_frequency"]
+            )
 
             if existing_schedule_info:
                 cancel_result = repo.cancel_schedule(
@@ -526,15 +528,9 @@ class ContributionAmendmentApprovalService(StatefulService):
             dues_schedule.contribution_mode = "Fixed"
             dues_schedule.dues_rate = self.request.requested_amount
 
-            # Get billing frequency from membership type's template
-            membership_type_to_use = (
-                self.request.requested_membership_type
-                if self.request.amendment_type == "Membership Type Change"
-                and self.request.requested_membership_type
-                else membership.membership_type
+            dues_schedule.billing_frequency = self._replacement_billing_frequency(
+                existing_schedule_info, dues_schedule.membership_type
             )
-
-            dues_schedule.billing_frequency = self._get_billing_frequency(membership_type_to_use)
             dues_schedule.status = "Active"
             dues_schedule.auto_generate = 1
             dues_schedule.test_mode = 0
@@ -566,6 +562,18 @@ class ContributionAmendmentApprovalService(StatefulService):
                 f"Error creating dues schedule for amendment: {str(e)}", "Amendment Dues Schedule Error"
             )
             frappe.throw(_("Error creating dues schedule: {0}").format(str(e)))
+
+    def _replacement_billing_frequency(self, replaced_schedule, membership_type_name: str) -> str:
+        """Frequency for a schedule that replaces `replaced_schedule` (#1937).
+
+        The amendment's explicit request wins, then the member's own cadence. The Membership
+        Type's template only decides when there is no schedule being replaced.
+        """
+        return (
+            self.request.replacement_billing_frequency
+            or (replaced_schedule and replaced_schedule.billing_frequency)
+            or self._get_billing_frequency(membership_type_name)
+        )
 
     def _get_billing_frequency(self, membership_type_name: str) -> str:
         """Get billing frequency for a membership type."""

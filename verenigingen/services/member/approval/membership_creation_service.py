@@ -34,6 +34,8 @@ Exception pattern provides:
 See: docs/patterns/ERROR_HANDLING_PATTERNS.md
 """
 
+import contextlib
+
 import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, today
@@ -129,6 +131,7 @@ class MembershipCreationService(StatelessService):
         custom_rate_reason=None,
         is_csv_import=False,
         approval_fields=None,
+        system_follow_on=False,
     ):
         """
         Create membership record when application is approved.
@@ -143,6 +146,10 @@ class MembershipCreationService(StatelessService):
             custom_rate_reason: Reason for custom dues rate
             is_csv_import: Flag indicating CSV import with historic date
             approval_fields: Dict of approval fields to set
+            system_follow_on: Run the dues schedule and invoice steps (4 and 5) with permission checks
+                bypassed, as the acting user.
+                Only for a caller that has already authorised the approver (#1930: a chapter board
+                approver); every other caller keeps its own permissions for those steps.
 
         Returns:
             Membership: Created or reused membership document
@@ -176,12 +183,14 @@ class MembershipCreationService(StatelessService):
             )
 
             # Step 4: Ensure dues schedule exists
-            self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
+            with self._follow_on_privileges(system_follow_on):
+                self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
 
             # Step 5: Generate invoice (if needed)
             invoice = None
             if create_invoice:
-                invoice = self._create_membership_invoice(member_doc, membership, membership_type)
+                with self._follow_on_privileges(system_follow_on):
+                    invoice = self._create_membership_invoice(member_doc, membership, membership_type)
 
             # Step 6: Consolidate all member field updates
             dues_schedule = self._consolidate_member_updates(
@@ -526,16 +535,29 @@ class MembershipCreationService(StatelessService):
         return None
 
     def _is_voluntary_quit_rejoin(self, member_doc, schedule_name):
-        """A Cancelled schedule left by a voluntary Quit: the only Cancelled one approval reuses (#1741).
+        """A Cancelled schedule that a rejoin may reuse (#1741 voluntary Quit; #2134 staff/EoP cancel).
 
-        The evidence is the one submit_application's _handle_existing_member lets a rejoiner in
-        on: the LATEST executed termination is Voluntary. A schedule cancelled any other way (schedule maintenance, an admin) is left alone.
+        The rule lives in DuesScheduleLifecycleService.is_reusable_for_rejoin, which the Membership
+        submit path shares; a schedule cancelled any other way is left alone.
         """
-        if frappe.db.get_value("Membership Dues Schedule", schedule_name, "status") != "Cancelled":
-            return False
-        from verenigingen.services.termination.termination_utils import get_latest_executed_termination_type
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
 
-        return get_latest_executed_termination_type(member_doc.name) == "Voluntary"
+        return get_dues_schedule_lifecycle_service().is_reusable_for_rejoin(member_doc.name, schedule_name)
+
+    def reuse_cancelled_schedule(self, member_doc, membership, membership_type):
+        """Reactivate the member's reusable Cancelled schedule for ``membership``; its name, or None (#2134)."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        schedule_name = get_dues_schedule_lifecycle_service().find_reusable_cancelled_schedule(
+            member_doc.name
+        )
+        if schedule_name:
+            self._reactivate_schedule_for_rejoin(schedule_name, member_doc, membership, membership_type)
+        return schedule_name
 
     def _reactivate_schedule_for_rejoin(self, schedule_name, member_doc, membership, membership_type):
         """Reuse the earlier schedule for the new membership: new template and amount, billed from now.
@@ -548,6 +570,8 @@ class MembershipCreationService(StatelessService):
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         if template_name:
             self._apply_template_and_amount(schedule, template_name, member_doc)
+        # The new Membership may be of another type; invoicing refuses a schedule whose type differs (#2134).
+        schedule.membership_type = membership.membership_type
 
         from verenigingen.services.billing.dues_schedule_lifecycle_service import (
             get_dues_schedule_lifecycle_service,
@@ -561,6 +585,15 @@ class MembershipCreationService(StatelessService):
             f"MembershipCreationService: Reactivated dues schedule {schedule_name} for rejoining "
             f"member {member_doc.name} from {membership.start_date}"
         )
+
+    @staticmethod
+    def _follow_on_privileges(system_follow_on):
+        """Permission bypass for one follow-on step when the caller asked for it, else no change."""
+        if not system_follow_on:
+            return contextlib.nullcontext()
+        from verenigingen.utils.secure_operations import authorised_follow_on_steps
+
+        return authorised_follow_on_steps()
 
     def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
         """

@@ -1190,7 +1190,11 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
 
     def test_a_cancelled_row_is_no_longer_offered_as_pending_or_payable(self):
         """Readers of status on a docstatus-2 row, driven through their real entry points."""
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
+        from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+            PAYMENT_PAGE_TOKEN_PURPOSE,
+            payment_page,
+        )
         from verenigingen.verenigingen_payments.ponto.services.payment_initiation_service import (
             cancel_payment,
             list_pending_payments,
@@ -1200,7 +1204,9 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
         self.assertNotIn(req.name, [r.name for r in list_pending_payments()])
         with self.assertRaises(frappe.ValidationError):
             cancel_payment(req.name)
-        with fake_request(link=link.name):
+        # payment_page needs a token signed for the link (#1817); the payer holds one.
+        token = generate_guest_return_token(PAYMENT_PAGE_TOKEN_PURPOSE, link.name)
+        with fake_request(link=link.name, token=token):
             self.assertEqual(payment_page()["status"], "cancelled")
 
     # --- #1907: the poll moves REALLY submitted rows -------------------------

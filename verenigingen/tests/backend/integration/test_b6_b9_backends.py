@@ -22,6 +22,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.expense_notifications import send_overdue_reminders
 from verenigingen.verenigingen.doctype.member.member import create_organization_user
@@ -124,7 +125,7 @@ class TestCreateOrganizationUser(VereningingenTestCase):
                 )
 
 
-class TestSendOverdueReminders(VereningingenTestCase):
+class TestSendOverdueReminders(EnhancedTestCase):
     """B9 — expense_notifications.send_overdue_reminders."""
 
     def setUp(self):
@@ -190,7 +191,7 @@ class TestSendOverdueReminders(VereningingenTestCase):
         self.track_doc("User", email)
         return email
 
-    def _make_overdue_claim(self, approver, days_ago=30, employee_name=None):
+    def _make_overdue_claim(self, approver, days_ago=30, employee_name=None, chapter=None):
         """Create a Draft Expense Claim with a controlled posting_date/approver."""
         claim = frappe.new_doc("Expense Claim")
         claim.employee = self.employee
@@ -221,6 +222,8 @@ class TestSendOverdueReminders(VereningingenTestCase):
         updates["expense_approver"] = approver or ""
         if employee_name is not None:
             updates["employee_name"] = employee_name
+        if chapter:
+            updates["custom_chapter"] = chapter
         for field, value in updates.items():
             frappe.db.set_value("Expense Claim", claim.name, field, value, update_modified=False)
         return claim.name
@@ -292,3 +295,132 @@ class TestSendOverdueReminders(VereningingenTestCase):
         with patch("frappe.sendmail"):
             with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
                 send_overdue_reminders(days_overdue=7)
+
+    # --- #1809: a board member's reminder covers only their own chapter(s) ---------------
+
+    def _two_chapters_with_claims(self):
+        """Chapter A (board member caller) and B, each with overdue claims and its own approver.
+
+        Also one chapterless approver-less claim: unattributed claims are staff-only.
+        """
+        self.chapter_a = self.create_test_chapter()
+        self.chapter_b = self.create_test_chapter()
+        self.approver_a = self._make_approver()
+        self.approver_b = self._make_approver()
+        self.a_claims = [
+            self._make_overdue_claim(self.approver_a, chapter=self.chapter_a.name) for _ in range(2)
+        ]
+        self.a_unassigned = self._make_overdue_claim(None, chapter=self.chapter_a.name)
+        self.b_claims = [
+            self._make_overdue_claim(self.approver_b, chapter=self.chapter_b.name) for _ in range(3)
+        ]
+        self.b_unassigned = self._make_overdue_claim(None, chapter=self.chapter_b.name)
+        self.no_chapter_claim = self._make_overdue_claim(None)
+        self.board_a = self.create_test_board_member(self.chapter_a.name)
+
+    def _approvers_mailed(self, *addresses):
+        """Which of ``addresses`` frappe.sendmail was asked to mail. EnhancedTestCase captures the
+        call at the sendmail boundary (it replaces the Email Queue write), so this reads that capture."""
+        return {a for a in addresses if self.get_sent_emails(to=a, method="frappe.sendmail")}
+
+    def test_board_member_counts_cover_only_own_chapter(self):
+        self._two_chapters_with_claims()
+        self.assertIn(send_overdue_reminders, frappe.whitelisted)
+        frappe.set_user(self.board_a.user)
+        result = send_overdue_reminders(days_overdue=7)
+        # A: 2 assigned + 1 unassigned. B's 4 claims and the chapterless claim are not theirs.
+        self.assertEqual(result["claims_found"], 3)
+        self.assertEqual(result["unassigned"], 1)
+        self.assertEqual(result["approvers_notified"], 1)
+        self.assertIn("covering 2 overdue", result["message"])
+
+    def test_board_member_mails_only_own_chapter_approvers(self):
+        self._two_chapters_with_claims()
+        frappe.set_user(self.board_a.user)
+        send_overdue_reminders(days_overdue=7)
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), {self.approver_a})
+
+    def test_staff_caller_keeps_org_wide_run(self):
+        self._two_chapters_with_claims()
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        admin = self._make_approver()
+        assign_role_profile_to_user(admin, "Verenigingen Administrator")
+        frappe.set_user(admin)
+        result = send_overdue_reminders(days_overdue=7)
+        # lower bounds: the site may hold other overdue claims
+        self.assertGreaterEqual(result["claims_found"], 3 + 4 + 1)
+        self.assertGreaterEqual(result["unassigned"], 3)
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), {self.approver_a, self.approver_b})
+
+    def test_board_member_with_no_active_seat_is_refused_and_nothing_is_mailed(self):
+        self._two_chapters_with_claims()
+        frappe.db.set_value("Chapter Board Member", {"parent": self.chapter_a.name}, "is_active", 0)
+        frappe.set_user(self.board_a.user)
+        log_len = len(frappe.message_log)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            send_overdue_reminders(days_overdue=7)
+        self.assertEqual(str(ctx.exception), "You are not permitted to send expense reminders")
+        # frappe.throw appends to message_log before raising: it must carry only that message
+        self.assertEqual(len(frappe.message_log) - log_len, 1)
+        self.assertIn("not permitted to send expense reminders", str(frappe.message_log[-1]))
+        del frappe.message_log[log_len:]
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), set())
+
+    def test_ordinary_chapter_member_without_a_seat_gets_nothing(self):
+        """A plain Chapter Member of B (no board seat) holding the board role: refused, nothing mailed.
+        Catches a fix that resolves chapters by membership instead of board seats."""
+        self._two_chapters_with_claims()
+        other = self.create_test_board_member(self.chapter_a.name)
+        frappe.db.set_value("Chapter Board Member", {"volunteer": other.volunteer}, "is_active", 0)
+        self.add_member_to_test_chapter(other.member, self.chapter_b.name)
+        frappe.set_user(other.user)
+        with self.assertRaises(frappe.ValidationError):
+            send_overdue_reminders(days_overdue=7)
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), set())
+
+    def test_national_board_seat_also_covers_chapterless_claims(self):
+        self._two_chapters_with_claims()
+        national = self.create_test_chapter()
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        national_approver = self._make_approver()
+        national_claim = self._make_overdue_claim(national_approver)  # no custom_chapter
+        board = self.create_test_board_member(national.name)
+        frappe.set_user(board.user)
+        result = send_overdue_reminders(days_overdue=7)
+        # the chapterless claim(s): national_claim plus the fixture's unassigned one; none of A/B
+        self.assertGreaterEqual(result["claims_found"], 2)
+        self.assertEqual(self._approvers_mailed(national_approver, self.approver_a, self.approver_b),
+                         {national_approver})
+        self.assertIn(national_claim, str(self.get_sent_emails(to=national_approver)))
+
+    def test_non_national_board_member_never_sees_chapterless_claims(self):
+        """Control for the national rule: a national board chapter exists and a chapterless claim
+        with an approver exists, but chapter A's board member gets neither."""
+        self._two_chapters_with_claims()
+        national = self.create_test_chapter()
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        national_approver = self._make_approver()
+        self._make_overdue_claim(national_approver)
+        frappe.set_user(self.board_a.user)
+        result = send_overdue_reminders(days_overdue=7)
+        self.assertEqual(result["claims_found"], 3)
+        self.assertEqual(self._approvers_mailed(national_approver), set())
+
+    def test_foreign_chapter_data_leaves_no_trace_on_any_channel(self):
+        """A seat on a chapter with NO overdue claims, while another chapter has some: the answer is
+        zeros, no mail, and no message_log / Error Log residue, exactly as if nothing existed."""
+        self._two_chapters_with_claims()
+        empty = self.create_test_chapter()
+        quiet_board = self.create_test_board_member(empty.name)
+        frappe.set_user(quiet_board.user)
+        log_len = len(frappe.message_log)
+        errors = frappe.db.count("Error Log")
+        result = send_overdue_reminders(days_overdue=7)
+        self.assertEqual(
+            (result["claims_found"], result["unassigned"], result["approvers_notified"]), (0, 0, 0)
+        )
+        self.assertIn("covering 0 overdue", result["message"])
+        self.assertEqual(len(frappe.message_log), log_len)
+        self.assertEqual(frappe.db.count("Error Log"), errors)
+        self.assertEqual(self._approvers_mailed(self.approver_a, self.approver_b), set())

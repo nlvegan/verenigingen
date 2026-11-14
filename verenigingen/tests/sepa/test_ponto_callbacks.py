@@ -24,7 +24,10 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import RETURN_PROOF_PURPOSE
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+    PAYMENT_PAGE_TOKEN_PURPOSE,
+    RETURN_PROOF_PURPOSE,
+)
 
 
 @contextmanager
@@ -54,6 +57,11 @@ def fake_request(**args):
     finally:
         frappe.local.request = original_request
         frappe.local.response = frappe._dict(original_response)
+
+
+def _page_token_for(doc):
+    """The signed proof payment_page requires (#1817)."""
+    return generate_guest_return_token(PAYMENT_PAGE_TOKEN_PURPOSE, doc.name)
 
 
 def _return_proof_for(doc):
@@ -297,7 +305,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
 
         doc = self._make_payment_link(status="Pending Authorization")
-        with fake_request(link=doc.name):
+        with fake_request(link=doc.name, token=_page_token_for(doc)):
             result = payment_page()
         self.assertEqual(result["status"], "pending")
         self.assertEqual(result["payment_link"], doc.name)
@@ -308,7 +316,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
 
         doc = self._make_payment_link(status="Executed")
-        with fake_request(link=doc.name):
+        with fake_request(link=doc.name, token=_page_token_for(doc)):
             result = payment_page()
         self.assertEqual(result["status"], "already_paid")
 
@@ -316,7 +324,7 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
 
         doc = self._make_payment_link(status="Cancelled")
-        with fake_request(link=doc.name):
+        with fake_request(link=doc.name, token=_page_token_for(doc)):
             result = payment_page()
         self.assertEqual(result["status"], "cancelled")
 
@@ -324,6 +332,15 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
 
         with fake_request():
+            with self.assertRaises(frappe.exceptions.DoesNotExistError):
+                payment_page()
+
+    def test_payment_page_refuses_a_known_name_without_a_token(self):
+        """#1817: the sequential name alone must not disclose the link (WSGI test compares channels)."""
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
+
+        doc = self._make_payment_link(status="Pending Authorization")
+        with fake_request(link=doc.name):
             with self.assertRaises(frappe.exceptions.DoesNotExistError):
                 payment_page()
 

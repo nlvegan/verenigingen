@@ -22094,22 +22094,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "retry_failed_migration_records",
-  "operation_name": "retry_failed_migration_records",
-  "operation_type": "reporting",
-  "description": "Execute retry failed migration records operation",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "System operations for verenigingen.utils.migration.migration_error_recovery module functionality",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "get_migration_performance_report",
   "operation_name": "get_migration_performance_report",
   "operation_type": "admin",

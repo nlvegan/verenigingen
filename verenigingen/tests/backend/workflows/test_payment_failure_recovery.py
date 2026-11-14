@@ -8,18 +8,13 @@ Tests payment failure scenarios and recovery processes
 """
 
 
-import unittest
-
 import frappe
-from frappe.utils import add_days, add_months, today
+from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
-from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager, TestUserFactory
-
-# Its only test is permanently @unittest.skip'd (Customer read PermissionError, #2467); remove this
-# marker when #2467 un-skips it.
-CI_ALWAYS_SKIPS = "only test is @unittest.skip'd pending #2467 (Customer read PermissionError for the admin test user)"
+from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
@@ -27,11 +22,14 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
     Payment Failure & Recovery Test
 
     Stage 1: Create member with SEPA mandate
-    Stage 2: Simulate payment failure
-    Stage 3: Send notifications
-    Stage 4: Retry payment
-    Stage 5: Multiple failures - suspension
-    Stage 6: Payment recovery - reactivation
+    Stage 2: A membership invoice is left unpaid (the collection failed)
+    Stage 3: The payment retry is scheduled through the real API
+    Stage 4: Retries are exhausted and the failure is escalated
+    Stage 5: The member is suspended (staff action; not triggered by escalation in production)
+    Stage 6: The invoice is paid and the member is reactivated (not triggered by payment in production)
+
+    Every stage drives production code (retry_failed_payment, PaymentRetryManager,
+    suspend_member_safe, unsuspend_member_safe) and asserts what that code wrote.
     """
 
     def setUp(self):
@@ -40,37 +38,77 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         self.state_manager = TestStateManager()
         self.test_data_builder = TestDataBuilder()
 
-        # Create admin user first - needed for permission context
-        self.admin_user = TestUserFactory.create_admin_user()
+        # The acting user is staff registered the way real staff are: through a staff Team whose
+        # default role profile is Verenigingen Administrator (#2467). Roles alone are not enough:
+        # the @critical_api(FINANCIAL) endpoints grant CRITICAL through a Role Profile only.
+        self.admin_user = self._create_team_registered_admin()
 
         # Ensure ERPNext infrastructure exists for payment testing
         self.erpnext_infra = self.ensure_erpnext_infrastructure()
 
         # Create test environment with proper permissions
         self.test_chapter = self.create_test_chapter(
-            chapter_name="Payment Test Chapter",
+            chapter_name=f"Payment Test Chapter {frappe.generate_hash(length=6)}",
             postal_codes="3000-7999",
             introduction="Test chapter for payment failure testing",
         )
 
-        # Ensure a Membership Type exists (the hardcoded "Annual" type is not
-        # seeded on isolated test sites, which raised LinkValidationError).
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="Annual", amount=120.0
-        )
+        # A uniquely named type: "Annual" is get-or-created by other modules' fixtures, so a
+        # literal name collides in setUp when they run first in a shard.
+        self.membership_type = self.create_test_membership_type()
 
-    @unittest.skip(
-        "Permission-infra root cause (Stage 2): Sales Invoice insert -> erpnext _get_party_details "
-        "calls frappe.has_permission('Customer', 'read', party, throw=True), which raises "
-        "PermissionError for the freshly-created admin test user. Verified in isolation: a brand-new "
-        "user holding System Manager + Accounts Manager + Accounts User + Sales Manager (all of which "
-        "have read=1 in Customer DocPerms) still gets has_permission('Customer','read') == False on "
-        "test_site_3 under v16. There is no Verenigingen has_permission hook for Customer, so this is "
-        "a framework/seed permission anomaly, not app logic. To un-skip: diagnose why the granted "
-        "Accounts/Sales roles don't yield Customer read here (e.g. missing role-permission seed / "
-        "ptype handling), or insert the ERPNext financial infra docs with ignore_permissions since "
-        "they are scaffolding, not the unit under test (the membership failure/recovery state machine)."
-    )
+        # The escalation mail is queued only when a default outgoing account exists (CI has none).
+        ensure_outgoing_email_account(self)
+
+    def tearDown(self):
+        # Seating a profile that carries Employee creates one for the user (#1694); drain it.
+        for user in [d["name"] for d in self._test_docs if d["doctype"] == "User"]:
+            for employee in frappe.get_all("Employee", filters={"user_id": user}, pluck="name"):
+                self.track_doc("Employee", employee)
+        super().tearDown()
+
+    def _create_team_registered_admin(self):
+        """A user whose Verenigingen Administrator profile comes from a Team membership"""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+        from verenigingen.setup import create_default_team_roles
+
+        email = f"payrecovery.admin.{frappe.generate_hash(length=8)}@test.invalid"
+        user = self.create_test_user(email)
+        self.track_doc("User", user.name)
+        member = self.create_test_member(
+            first_name="PayAdmin", last_name="Staff", email=email, status="Active"
+        )
+        member.db_set("user", user.name, update_modified=False)
+        volunteer = self.create_test_volunteer(member=member.name)
+
+        create_default_team_roles()
+        team = frappe.get_doc(
+            {
+                "doctype": "Team",
+                "team_name": f"Payment Recovery Admins {frappe.generate_hash(length=6)}",
+                "status": "Active",
+                "team_type": "Project Team",
+                "start_date": today(),
+                "default_role_profile": "Verenigingen Administrator",
+                "is_association_wide": 1,
+            }
+        )
+        team.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "team_role": "Team Member",
+                "from_date": today(),
+                "status": "Active",
+            },
+        )
+        team.insert()
+        self.track_doc("Team", team.name)
+        sync_user_role_profile(user.name)
+        return frappe.get_doc("User", user.name)
+
     def test_payment_failure_recovery_workflow(self):
         """Test the complete payment failure and recovery workflow"""
 
@@ -80,17 +118,17 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "function": self._stage_1_create_member_sepa,
                 "validations": [self._validate_member_sepa_created]},
             {
-                "name": "Stage 2: Simulate Payment Failure",
-                "function": self._stage_2_simulate_failure,
+                "name": "Stage 2: Invoice Left Unpaid",
+                "function": self._stage_2_unpaid_invoice,
                 "validations": [self._validate_payment_failed]},
             {
-                "name": "Stage 3: Send Notifications",
-                "function": self._stage_3_send_notifications,
-                "validations": [self._validate_notifications_sent]},
+                "name": "Stage 3: Schedule Payment Retry",
+                "function": self._stage_3_schedule_retry,
+                "validations": [self._validate_retry_scheduled]},
             {
-                "name": "Stage 4: Retry Payment",
-                "function": self._stage_4_retry_payment,
-                "validations": [self._validate_payment_retried]},
+                "name": "Stage 4: Retries Exhausted - Escalation",
+                "function": self._stage_4_escalate,
+                "validations": [self._validate_escalated]},
             {
                 "name": "Stage 5: Multiple Failures - Suspension",
                 "function": self._stage_5_multiple_failures_suspension,
@@ -192,6 +230,9 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "status": "Active"}
         )
         membership.insert(ignore_permissions=True)
+        # An Active membership is a submitted one: a draft is status "Draft" whatever is passed in,
+        # and PaymentRetryManager only links an Active membership.
+        membership.submit()
 
         # Record state
         self.state_manager.record_state("Member", member.name, "Created with SEPA")
@@ -218,433 +259,260 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         self.assertEqual(sepa_mandate.status, "Active")
         self.assertEqual(sepa_mandate.member, member_name)
 
-    # Stage 2: Simulate Payment Failure
-    def _stage_2_simulate_failure(self, context):
-        """Stage 2: Simulate a payment failure"""
-        member_name = context.get("member_name")
-        customer_name = context.get("customer_name")
-
-        # Use ERPNext infrastructure from setUp
-        company = self.erpnext_infra["company"]
-        debtors_account = self.erpnext_infra["debtors_account"]
-        cash_account = self.erpnext_infra["cash_account"]
-        membership_item = self.erpnext_infra["membership_item"]
-        cost_center = self.erpnext_infra["cost_center"]
-        income_account = self.erpnext_infra["income_account"]
+    def _make_invoice(self, customer_name):
+        """Submit a EUR-safe membership invoice for the customer (ERPNext scaffolding)"""
+        infra = self.erpnext_infra
 
         with self.as_user(self.admin_user.name):
-            # Create invoice for membership fee using infrastructure
             invoice = frappe.get_doc(
                 {
                     "doctype": "Sales Invoice",
                     "customer": customer_name,
-                    "company": company,
+                    "company": infra["company"],
+                    "currency": frappe.db.get_value("Company", infra["company"], "default_currency"),
+                    "selling_price_list": None,
                     "posting_date": today(),
                     "due_date": add_days(today(), 30),
                     "payment_terms_template": None,
                     "items": [
                         {
-                            "item_code": membership_item,
+                            "item_code": infra["membership_item"],
                             "description": "Annual Membership Fee",
                             "qty": 1,
                             "rate": 100.00,
                             "amount": 100.00,
-                            "cost_center": cost_center,
-                            "income_account": income_account}
+                            "cost_center": infra["cost_center"],
+                            "income_account": infra["income_account"]}
                     ]}
             )
-            invoice.insert()  # Admin user context provides permissions
+            invoice.insert()
             invoice.submit()
+        self.track_doc("Sales Invoice", invoice.name)
+        return invoice
 
-            # Simulate payment attempt and failure
-            payment_entry = frappe.get_doc(
-                {
-                    "doctype": "Payment Entry",
-                    "payment_type": "Receive",
-                    "party_type": "Customer",
-                    "party": customer_name,
-                    "paid_amount": 100.00,
-                    "received_amount": 100.00,
-                    "target_exchange_rate": 1.0,
-                    "posting_date": today(),
-                    "company": company,
-                    "paid_from": debtors_account,
-                    "paid_to": cash_account,
-                    "mode_of_payment": "SEPA Direct Debit",
-                    "references": [
-                        {
-                            "reference_doctype": "Sales Invoice",
-                            "reference_name": invoice.name,
-                            "allocated_amount": 100.00}
-                    ]}
-            )
+    # Stage 2: Invoice left unpaid
+    def _stage_2_unpaid_invoice(self, context):
+        """Stage 2: A membership invoice that nobody has paid (the collection failed).
 
-            try:
-                payment_entry.insert()  # Admin user context provides permissions
-                payment_entry.submit()
-                # Now cancel to simulate failure
-                payment_entry.reload()
-                payment_entry.cancel()
-                payment_entry.add_comment("Comment", "Payment failed - insufficient funds")
-                failure_recorded = True
-            except (frappe.ValidationError, frappe.PermissionError) as e:
-                # If payment entry creation fails due to validation/permission, record the failure
-                invoice.add_comment("Comment", f"Payment failed: {str(e)}")
-                failure_recorded = True
+        Only the ERPNext scaffolding runs here; the app behaviour under test starts at Stage 3.
+        """
+        invoice = self._make_invoice(context.get("customer_name"))
 
-        # Record state
         self.state_manager.record_state("Payment", invoice.name, "Failed")
-
-        return {"invoice_name": invoice.name, "payment_failed": failure_recorded}
+        return {"invoice_name": invoice.name}
 
     def _validate_payment_failed(self, context):
-        """Validate payment failure was recorded"""
-        invoice_name = context.get("invoice_name")
-        payment_failed = context.get("payment_failed")
-
-        self.assertTrue(payment_failed, "Payment failure should be recorded")
-
-        # Check invoice is still outstanding (Unpaid or Overdue depending on due date)
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        """The invoice is submitted and still outstanding"""
+        invoice = frappe.get_doc("Sales Invoice", context.get("invoice_name"))
+        self.assertEqual(invoice.docstatus, 1)
+        self.assertEqual(invoice.outstanding_amount, 100.00)
         self.assertIn(invoice.status, ["Unpaid", "Overdue"], "Invoice should still be outstanding")
 
-    # Stage 3: Send Notifications
-    def _stage_3_send_notifications(self, context):
-        """Stage 3: Send payment failure notifications"""
-        member_name = context.get("member_name")
+    # Stage 3: Schedule the payment retry
+    def _stage_3_schedule_retry(self, context):
+        """Stage 3: The member asks for a retry through the real whitelisted endpoint"""
+        from verenigingen.api.payment_dashboard import retry_failed_payment
+
         invoice_name = context.get("invoice_name")
 
-        notifications_sent = []
-
         with self.as_user(self.admin_user.name):
-            # Send notification to member
-            try:
-                from verenigingen.utils.payment_notifications import send_payment_failure_notification
+            first = retry_failed_payment(invoice_name)
+            # A second request while the first is Scheduled must be refused, not queue a duplicate.
+            second = retry_failed_payment(invoice_name)
+            # A different invoice of the same member is a separate retry: the duplicate guard is
+            # per invoice, not per member.
+            other_invoice = self._make_invoice(context.get("customer_name"))
+            other = retry_failed_payment(other_invoice.name)
 
-                notification_result = send_payment_failure_notification(
-                    member_name, invoice_name, failure_reason="Insufficient funds"
-                )
+        return {
+            "first_retry": first,
+            "second_retry": second,
+            "other_retry": other,
+            "other_invoice_name": other_invoice.name,
+        }
 
-                if notification_result:
-                    notifications_sent.append("member_notification")
-            except (ImportError, AttributeError):
-                # Notification utility not available, fallback to communication record
-                communication = frappe.get_doc(
-                    {
-                        "doctype": "Communication",
-                        "communication_type": "Communication",
-                        "subject": "Payment Failure Notification",
-                        "content": f"Payment failed for invoice {invoice_name}",
-                        "status": "Sent",
-                        "sent_or_received": "Sent",
-                        "reference_doctype": "Member",
-                        "reference_name": member_name}
-                )
-                communication.insert()  # Admin user context provides permissions
-                notifications_sent.append("fallback_notification")
-
-            # Send notification to admin
-            try:
-                admin_communication = frappe.get_doc(
-                    {
-                        "doctype": "Communication",
-                        "communication_type": "Communication",
-                        "subject": f"Payment Failure Alert - {member_name}",
-                        "content": f"Payment failed for member {member_name}, invoice {invoice_name}",
-                        "status": "Sent",
-                        "sent_or_received": "Sent",
-                        "reference_doctype": "Member",
-                        "reference_name": member_name}
-                )
-                admin_communication.insert()  # Admin user context provides permissions
-                notifications_sent.append("admin_notification")
-            except frappe.ValidationError:
-                pass  # Admin notification is optional
-
-        # Record state
-        self.state_manager.record_state("Notification", member_name, "Sent")
-
-        return {"notifications_sent": notifications_sent}
-
-    def _validate_notifications_sent(self, context):
-        """Validate notifications were sent"""
-        notifications_sent = context.get("notifications_sent", [])
-        member_name = context.get("member_name")
-
-        self.assertTrue(len(notifications_sent) > 0, "At least one notification should be sent")
-
-        # Check communication records exist
-        communications = frappe.get_all(
-            "Communication", filters={"reference_doctype": "Member", "reference_name": member_name}
+    def _validate_retry_scheduled(self, context):
+        """The first call scheduled a retry record; the second was refused"""
+        first = context.get("first_retry")
+        second = context.get("second_retry")
+        # The @critical_api wrapper serialises OperationResult to a dict.
+        self.assertTrue(first["success"], f"retry_failed_payment refused: {first}")
+        self.assertFalse(second["success"], "A second retry request must be refused while one is Scheduled")
+        self.assertIn("already scheduled", second["error"]["message"])
+        self.assertTrue(
+            context.get("other_retry")["success"],
+            f"A second invoice of the same member must still be retryable: {context.get('other_retry')}",
         )
-        self.assertTrue(len(communications) > 0, "Communication records should exist")
 
-    # Stage 4: Retry Payment
-    def _stage_4_retry_payment(self, context):
-        """Stage 4: Retry the failed payment"""
-        context.get("member_name")
+        retry = self._get_retry_record(context)
+        self.assertEqual(retry.status, "Scheduled")
+        self.assertEqual(retry.retry_count, 1)
+        self.assertEqual(retry.member, context.get("member_name"))
+        self.assertEqual(retry.membership, context.get("membership_name"))
+        self.assertGreater(getdate(retry.next_retry_date), getdate(today()))
+        self.assertEqual(len(retry.retry_log), 1)
+
+    def _get_retry_record(self, context):
+        retry_name = frappe.db.get_value("SEPA Payment Retry", {"invoice": context.get("invoice_name")})
+        self.assertTrue(retry_name, "retry_failed_payment should have created a SEPA Payment Retry")
+        return frappe.get_doc("SEPA Payment Retry", retry_name)
+
+    # Stage 4: Retries exhausted
+    def _stage_4_escalate(self, context):
+        """Stage 4: Retries run out through real schedule_retry calls, then the next one escalates.
+
+        Stage 3 made attempt 1 through the API; the loop makes the remaining max_retries - 1 real
+        attempts, then one more call hits the limit.
+        """
+        from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
+
         invoice_name = context.get("invoice_name")
-        customer_name = context.get("customer_name")
+        manager = PaymentRetryManager()
+        max_retries = manager.retry_config["max_retries"]
 
         with self.as_user(self.admin_user.name):
-            # Attempt payment retry
-            try:
-                from verenigingen.api.payment_processing import retry_failed_payment
+            attempts = [
+                manager.schedule_retry(invoice_name, "AM04", f"Insufficient funds {n}")
+                for n in range(2, max_retries + 1)
+            ]
+            result = manager.schedule_retry(invoice_name, "AM04", "Insufficient funds")
 
-                retry_result = retry_failed_payment(invoice_name)
-
-                if retry_result and retry_result.get("success"):
-                    payment_retry_success = True
-                else:
-                    payment_retry_success = False
-            except (ImportError, AttributeError):
-                # Retry utility not available, fallback to manual retry
-                retry_payment = frappe.get_doc(
-                    {
-                        "doctype": "Payment Entry",
-                        "payment_type": "Receive",
-                        "party_type": "Customer",
-                        "party": customer_name,
-                        "paid_amount": 100.00,
-                        "received_amount": 100.00,
-                        "target_exchange_rate": 1.0,
-                        "posting_date": add_days(today(), 1),
-                        "company": "Test Company",
-                        "paid_from": "Debtors - TC",
-                        "paid_to": "Cash - TC",
-                        "payment_method": "SEPA Direct Debit",
-                        "references": [
-                            {
-                                "reference_doctype": "Sales Invoice",
-                                "reference_name": invoice_name,
-                                "allocated_amount": 100.00}
-                        ]}
-                )
-
-                try:
-                    retry_payment.insert()
-                    # This retry also fails
-                    retry_payment.docstatus = 2
-                    retry_payment.add_comment("Comment", "Payment retry failed - still insufficient funds")
-                    retry_payment.save()
-                    payment_retry_success = False
-                except (frappe.ValidationError, frappe.PermissionError):
-                    payment_retry_success = False
-
-        # Record state
         self.state_manager.record_state("Payment", invoice_name, "Retry Failed")
+        return {"retry_attempts": attempts, "escalation_result": result, "max_retries": max_retries}
 
-        return {"payment_retry_attempted": True, "retry_success": payment_retry_success}
+    def _validate_escalated(self, context):
+        """The manager refuses further retries, marks the record Escalated, notes the membership
+        and queues the escalation mail"""
+        max_retries = context.get("max_retries")
+        attempts = context.get("retry_attempts")
+        self.assertEqual(len(attempts), max_retries - 1)
+        for number, attempt in enumerate(attempts, start=2):
+            self.assertTrue(attempt["scheduled"], f"attempt {number} should have been scheduled")
+            self.assertEqual(attempt["attempt_number"], number)
 
-    def _validate_payment_retried(self, context):
-        """Validate payment retry was attempted"""
-        payment_retry_attempted = context.get("payment_retry_attempted")
-        invoice_name = context.get("invoice_name")
+        result = context.get("escalation_result")
+        self.assertFalse(result["scheduled"])
+        self.assertIn("escalated", result["message"].lower())
 
-        self.assertTrue(payment_retry_attempted, "Payment retry should be attempted")
+        retry = self._get_retry_record(context)
+        self.assertEqual(retry.status, "Escalated")
+        self.assertEqual(retry.retry_count, max_retries)
+        self.assertEqual(len(retry.retry_log), max_retries)
+        self.assertTrue(retry.escalated_on)
 
-        # Check invoice is still outstanding after retry
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Membership", "reference_name": context.get("membership_name")},
+            pluck="content",
+        )
+        self.assertTrue(
+            any("Escalated for manual review" in c for c in comments),
+            f"Membership should carry the escalation comment, got {comments}",
+        )
+
+        queued = frappe.get_all(
+            "Email Queue",
+            filters={"reference_doctype": "Member", "reference_name": context.get("member_name")},
+            pluck="name",
+        )
+        self.assertTrue(queued, "The escalation mail to staff should be queued")
+
+        invoice = frappe.get_doc("Sales Invoice", context.get("invoice_name"))
         self.assertIn(invoice.status, ["Overdue", "Unpaid"])
 
-    # Stage 5: Multiple Failures - Suspension
+    # Stage 5: Suspension
     def _stage_5_multiple_failures_suspension(self, context):
-        """Stage 5: Handle multiple failures and suspend member"""
+        """Stage 5: Suspend the member through the real termination-integration service.
+
+        Hand-sequenced: nothing in production suspends a member when a retry escalates. This
+        stage checks the suspend service itself, in the order a staff member would run it.
+        """
+        from verenigingen.services.termination.termination_integration import suspend_member_safe
+
         member_name = context.get("member_name")
 
         with self.as_user(self.admin_user.name):
-            # Record multiple payment failures using Communication (standard DocType)
-            # instead of non-existent Payment Failure Log
-            for i in range(3):
-                try:
-                    member_doc = frappe.get_doc("Member", member_name)
-                    member_doc.add_comment(
-                        "Comment",
-                        f"Payment failure attempt {i + 1}: Failed on {add_days(today(), i)}"
-                    )
-                except (frappe.ValidationError, frappe.DoesNotExistError):
-                    pass  # Member may not exist or comment failed
+            result = suspend_member_safe(
+                member_name, "Multiple payment failures", suspend_user=False, suspend_teams=False
+            )
 
-            # Suspend member due to multiple payment failures
-            try:
-                from verenigingen.utils.termination_integration import suspend_member_safe
-
-                suspension_result = suspend_member_safe(
-                    member_name,
-                    reason="Multiple payment failures",
-                    suspend_user=False
-                )
-
-                if suspension_result and suspension_result.get("success"):
-                    member_suspended = True
-                else:
-                    member_suspended = False
-            except (ImportError, AttributeError, TypeError):
-                # Suspension utility not available or incompatible, fallback to manual suspend
-                member = frappe.get_doc("Member", member_name)
-                member.status = "Suspended"
-                if member.notes:
-                    member.notes += f"\n\nSuspension: Multiple payment failures ({today()})"
-                else:
-                    member.notes = f"Suspension: Multiple payment failures ({today()})"
-                member.save()  # Admin user context provides permissions
-                member_suspended = True
-
-        # Record state
         self.state_manager.record_state("Member", member_name, "Suspended")
-
-        return {"member_suspended": member_suspended}
+        return {"suspension_result": result}
 
     def _validate_member_suspended(self, context):
-        """Validate member was suspended"""
-        member_name = context.get("member_name")
-        member_suspended = context.get("member_suspended")
+        """The service reports success and the Member row really changed"""
+        result = context.get("suspension_result")
+        self.assertTrue(result["success"], f"suspend_member_safe failed: {result}")
+        self.assertTrue(result["member_suspended"])
 
-        self.assertTrue(member_suspended, "Member should be suspended")
-
-        member = frappe.get_doc("Member", member_name)
+        member = frappe.get_doc("Member", context.get("member_name"))
         self.assertEqual(member.status, "Suspended")
+        self.assertIn("Reason: Multiple payment failures", member.notes)
+        self.assertIn("(Pre-suspension status: Active)", member.notes)
 
-    # Stage 6: Payment Recovery - Reactivation
+    # Stage 6: Recovery
     def _stage_6_payment_recovery(self, context):
-        """Stage 6: Process payment recovery and reactivate member"""
+        """Stage 6: The invoice is paid with a real Payment Entry, then the member is reactivated.
+
+        Hand-sequenced: nothing in production reactivates a member (or closes the retry record)
+        when the invoice is paid. This checks the unsuspend service and the invoice settlement.
+        """
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        from verenigingen.services.termination.termination_integration import unsuspend_member_safe
+
         member_name = context.get("member_name")
         invoice_name = context.get("invoice_name")
-        customer_name = context.get("customer_name")
-
-        # Use infrastructure values
-        company = self.erpnext_infra["company"]
-        debtors_account = self.erpnext_infra["debtors_account"]
-        cash_account = self.erpnext_infra["cash_account"]
 
         with self.as_user(self.admin_user.name):
-            # Process successful payment
-            try:
-                recovery_payment = frappe.get_doc(
-                    {
-                        "doctype": "Payment Entry",
-                        "payment_type": "Receive",
-                        "party_type": "Customer",
-                        "party": customer_name,
-                        "paid_amount": 100.00,
-                        "received_amount": 100.00,
-                        "target_exchange_rate": 1.0,
-                        "posting_date": add_days(today(), 5),
-                        "company": company,
-                        "paid_from": debtors_account,
-                        "paid_to": cash_account,
-                        "mode_of_payment": "Cash",
-                        "references": [
-                            {
-                                "reference_doctype": "Sales Invoice",
-                                "reference_name": invoice_name,
-                                "allocated_amount": 100.00}
-                        ]}
-                )
-                recovery_payment.insert()  # Admin user context provides permissions
-                recovery_payment.submit()
-                payment_recovered = True
-            except (frappe.ValidationError, frappe.PermissionError):
-                # Payment creation failed, fallback to direct db update
-                frappe.db.set_value("Sales Invoice", invoice_name, "outstanding_amount", 0)
-                frappe.db.set_value("Sales Invoice", invoice_name, "status", "Paid")
-                payment_recovered = True
+            payment = get_payment_entry("Sales Invoice", invoice_name)
+            payment.paid_to = self.erpnext_infra["cash_account"]
+            payment.reference_no = f"RECOVERY-{invoice_name}"
+            payment.reference_date = today()
+            payment.insert()
+            payment.submit()
+            reactivation = unsuspend_member_safe(member_name, "Payment recovered", restore_teams=False)
+        self.track_doc("Payment Entry", payment.name)
 
-            # Reactivate member
-            if payment_recovered:
-                try:
-                    from verenigingen.utils.termination_integration import unsuspend_member_safe
-
-                    reactivation_result = unsuspend_member_safe(
-                        member_name,
-                        reason="Payment recovered",
-                        restore_teams=False
-                    )
-
-                    if reactivation_result and reactivation_result.get("success"):
-                        member_reactivated = True
-                    else:
-                        member_reactivated = False
-                except (ImportError, AttributeError, TypeError):
-                    # Unsuspend utility not available or incompatible, fallback to manual
-                    member = frappe.get_doc("Member", member_name)
-                    member.status = "Active"
-                    if member.notes:
-                        member.notes += f"\n\nReactivation: Payment recovered ({today()})"
-                    else:
-                        member.notes = f"Reactivation: Payment recovered ({today()})"
-                    member.save()  # Admin user context provides permissions
-                    member_reactivated = True
-            else:
-                member_reactivated = False
-
-        # Record state
         self.state_manager.record_state("Payment", invoice_name, "Recovered")
         self.state_manager.record_state("Member", member_name, "Reactivated")
-
-        return {"payment_recovered": payment_recovered, "member_reactivated": member_reactivated}
+        return {"recovery_payment": payment.name, "reactivation_result": reactivation}
 
     def _validate_member_reactivated(self, context):
-        """Validate member was reactivated after payment recovery"""
-        member_name = context.get("member_name")
-        payment_recovered = context.get("payment_recovered")
-        member_reactivated = context.get("member_reactivated")
-        invoice_name = context.get("invoice_name")
-
-        self.assertTrue(payment_recovered, "Payment should be recovered")
-        self.assertTrue(member_reactivated, "Member should be reactivated")
-
-        # Check member status
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.status, "Active")
-
-        # Check invoice is paid
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        """The invoice is Paid and the member is back to its pre-suspension status"""
+        invoice = frappe.get_doc("Sales Invoice", context.get("invoice_name"))
         self.assertEqual(invoice.status, "Paid")
+        self.assertEqual(invoice.outstanding_amount, 0)
+
+        reactivation = context.get("reactivation_result")
+        self.assertTrue(reactivation["success"], f"unsuspend_member_safe failed: {reactivation}")
+        self.assertTrue(reactivation["member_unsuspended"])
+
+        member = frappe.get_doc("Member", context.get("member_name"))
+        self.assertEqual(member.status, "Active")
+        self.assertIn("Reason: Payment recovered", member.notes)
 
     def _validate_complete_payment_recovery(self):
-        """Final validation of complete payment recovery workflow"""
-        # Check that all major state transitions occurred
-        transitions = self.state_manager.get_transitions()
+        """The recorded states form the failure -> suspension -> recovery sequence, and the
+        database agrees with them (the recorder alone would only prove the test ran)"""
+        context = self.get_workflow_context()
+        member_name = context.get("member_name")
+        invoice_name = context.get("invoice_name")
 
-        # Should have transitions for: Member, Payment, SEPA Mandate, Notification
-        entity_types = set(t["entity_type"] for t in transitions)
-        expected_entities = {"Member", "Payment"}
+        member_states = [
+            t["to_state"] for t in self.state_manager.get_transitions("Member", member_name)
+        ]
+        self.assertEqual(member_states, ["Suspended", "Reactivated"])
 
-        for entity in expected_entities:
-            self.assertIn(entity, entity_types, f"No transitions found for {entity}")
+        payment_states = [
+            t["to_state"] for t in self.state_manager.get_transitions("Payment", invoice_name)
+        ]
+        self.assertEqual(payment_states, ["Retry Failed", "Recovered"])
 
-        # Check payment recovery progression
-        workflow_context = self.get_workflow_context()
-        member_name = workflow_context.get("member_name")
-
-        if member_name:
-            # Check member went through suspension and reactivation
-            member_transitions = self.state_manager.get_transitions("Member", member_name)
-            member_states = [t["to_state"] for t in member_transitions]
-
-            self.assertIn("Suspended", member_states, "Member should have been suspended")
-            self.assertIn("Reactivated", member_states, "Member should have been reactivated")
-
-            # Check payment recovery
-            invoice_name = workflow_context.get("invoice_name")
-            if invoice_name:
-                payment_transitions = self.state_manager.get_transitions("Payment", invoice_name)
-                # Include both from_state and to_state since initial states don't create transitions
-                payment_states = []
-                for t in payment_transitions:
-                    if t.get("from_state") and t["from_state"] not in payment_states:
-                        payment_states.append(t["from_state"])
-                    if t.get("to_state") and t["to_state"] not in payment_states:
-                        payment_states.append(t["to_state"])
-
-                self.assertIn("Failed", payment_states, "Payment should have failed")
-                self.assertIn("Recovered", payment_states, "Payment should have been recovered")
-
-            # Final state should be active member with paid invoice
-            final_member_state = self.state_manager.get_state("Member", member_name)
-            self.assertEqual(final_member_state, "Reactivated", "Member should be in reactivated state")
-
-            # Check that member is active
-            member = frappe.get_doc("Member", member_name)
-            self.assertEqual(member.status, "Active", "Member should be active after recovery")
+        self.assertEqual(frappe.db.get_value("Member", member_name, "status"), "Active")
+        self.assertEqual(frappe.db.get_value("Sales Invoice", invoice_name, "status"), "Paid")
+        # Characterisation of CURRENT behaviour, not a requirement: paying the invoice does not
+        # close the retry record. Drop this line if a payment hook ever starts to.
+        self.assertEqual(
+            frappe.db.get_value("SEPA Payment Retry", {"invoice": invoice_name}, "status"), "Escalated"
+        )

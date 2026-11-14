@@ -1503,6 +1503,11 @@ def activate_pending_chapter_membership(member, chapter_name):
         # Activate the pending record
         pending_member.status = "Active"
         pending_member.chapter_join_date = today()  # Update join date to approval date
+        # Chapter.handle_member_changes activates the history entry in this save (#2499); give it the
+        # reason the update_membership_status call below would write.
+        chapter_doc.flags.history_activation_reason = (
+            f"Membership application approved for {chapter_name} chapter"
+        )
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         from verenigingen.utils.secure_operations import secure_document_operation

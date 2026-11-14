@@ -182,6 +182,14 @@ function approveApplication(applicationName) {
 						}
 					});
 					refreshDashboardData();
+				} else if (r.message && r.message.success && r.message.dues_schedule_failed) {
+					// Approved, but no dues schedule was created (#1930): the message says what to do.
+					frappe.msgprint({
+						title: __('Approved without dues schedule'),
+						message: frappe.utils.escape_html(r.message.message),
+						indicator: 'orange'
+					});
+					refreshDashboardData();
 				} else if (r.message && r.message.success) {
 					frappe.show_alert({
 						message: __('Member approved successfully'),

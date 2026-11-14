@@ -207,60 +207,6 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.FINANCIAL)
-def create_donation_payment():
-    """
-    Create a payment for a donation.
-
-    Expected form data:
-    - donation_id: The donation document name
-    - amount: Payment amount
-    - currency: Payment currency (default: EUR)
-    - return_url: URL to redirect after payment
-    - method: Optional payment method restriction
-
-    Returns:
-        Dict with payment creation results
-    """
-    try:
-        # Get form data
-        donation_id = frappe.form_dict.get("donation_id")
-        amount = frappe.form_dict.get("amount")
-        currency = frappe.form_dict.get("currency", "EUR")
-        return_url = frappe.form_dict.get("return_url")
-        method = frappe.form_dict.get("method")
-
-        if not donation_id:
-            frappe.throw(_("Donation ID is required"))
-        if not amount:
-            frappe.throw(_("Amount is required"))
-        if not return_url:
-            frappe.throw(_("Return URL is required"))
-
-        # Get donation document
-        donation_doc = frappe.get_doc("Donation", donation_id)
-
-        # Prepare form data for service
-        form_data = {"amount": amount, "currency": currency, "return_url": return_url}
-        if method:
-            form_data["method"] = method
-
-        # Create payment using service layer
-        service = CompletePaymentService()
-        result = service.create_donation_payment(donation_doc, form_data)
-
-        return result
-
-    except frappe.DoesNotExistError:
-        frappe.throw(_("Donation not found"))
-    except MollieValidationError as e:
-        frappe.throw(_(str(e)))
-    except MolliePaymentError as e:
-        frappe.log_error(f"Payment creation error: {e}", "Payment Creation Error")
-        frappe.throw(_("Failed to create payment. Please try again."))
-
-
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def create_subscription():
     """
