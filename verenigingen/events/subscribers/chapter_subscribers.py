@@ -10,6 +10,7 @@ import time
 import frappe
 from frappe import _
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.user_role_grant import ensure_role_survives_profile_resync
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -42,6 +43,10 @@ def handle_board_role_assignments(event_name, event_data, is_bulk_import=False, 
 
         frappe.logger("events").info(f"Processed board role assignment for {volunteer} in {chapter_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # #1888: fail the job (visible Error Log row; the nightly sync repairs it) instead
+        # of logging it as handled. Frappe does NOT retry a QueryDeadlockError job.
+        raise
     except Exception as e:
         frappe.log_error(
             f"Failed to handle board role assignment: {str(e)}", "Chapter Board Role Assignment Error"
@@ -318,6 +323,8 @@ def handle_permissions_updates(event_name, event_data, is_bulk_import=False, **k
 
         frappe.logger("events").info(f"Updated permissions for chapter {chapter_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: _update_chapter_permissions re-raises; do not absorb it here
     except Exception as e:
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Chapter Permissions Update Error")
 
@@ -640,6 +647,8 @@ def _update_chapter_permissions(chapter_name):
 
         frappe.logger("events").info(f"Updated chapter permissions for {chapter_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888
     except Exception as e:
         frappe.logger("events").warning(f"Failed to update chapter permissions: {str(e)}")
 

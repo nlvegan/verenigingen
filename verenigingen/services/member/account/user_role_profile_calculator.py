@@ -830,6 +830,11 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
     except frappe.DuplicateEntryError:
         # Concurrent sync created the Employee between our check and insert
         frappe.logger().debug("Employee for %s already exists (concurrent creation)", user)
+    except NON_RESUMABLE_DB_ERRORS:
+        # #1888: after a 1213 the transaction is gone and the user.save() that follows
+        # would run on a fresh one; after a 1205 it is still live but half-applied (only
+        # the failed statement was rolled back). Either way the unit of work is abandoned.
+        raise
     except Exception as e:
         # Surfaces as an error log entry, not just a logger line: when this
         # stub insert fails, the board member loses their Employee-bearing
@@ -913,7 +918,6 @@ def sync_user_role_profile(
     allow_disabled: bool = False,
     withdraw: tuple = (),
     nightly: bool = False,
-    reraise_non_resumable: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -936,13 +940,15 @@ def sync_user_role_profile(
             and the record is written. (2) Roles held directly, i.e. supplied by none of
             the user's old profiles, are kept across the save (User.validate otherwise
             resets roles to the profiles' roles). (3) A write inside a savepoint that
-            fails is rolled back, and a deadlock/timeout is re-raised instead of being
-            swallowed, so the run stops rather than resuming on a damaged transaction.
-            The event-driven callers keep the replace behaviour (#1293).
-        reraise_non_resumable: Re-raise a deadlock/lock-wait instead of returning
-            success=False, WITHOUT the other nightly behaviours. For a caller whose own
-            save must abort when the transaction is broken (the Chapter board seating
-            flush, #1672). Default False: every other event-driven caller is unchanged.
+            fails is rolled back. (A deadlock/timeout is re-raised for EVERY caller, not
+            only this mode: see Raises.) The event-driven callers keep the replace
+            behaviour (#1293).
+
+    Raises:
+        frappe.QueryDeadlockError, frappe.QueryTimeoutError: always (#1888). After a 1213
+            MariaDB has already rolled the transaction back, so returning success=False
+            would let the caller's save carry on without the role-profile write. Every
+            other exception is logged and returned as success=False.
 
     Returns:
         dict: {
@@ -1178,13 +1184,11 @@ def sync_user_role_profile(
             ),
         }
 
-    except NON_RESUMABLE_DB_ERRORS as e:
-        if nightly or reraise_non_resumable:
-            raise
-        return _sync_failed(user, e)
-    # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always
-    # been handed success=False instead and must keep that contract (#1293).
-    except Exception as e:  # non-resumable-ok: legacy swallow contract for non-nightly callers
+    except NON_RESUMABLE_DB_ERRORS:
+        # Every caller, event-driven or nightly (#1888): the server has discarded the
+        # transaction, so the unit of work must be abandoned, not logged and resumed.
+        raise
+    except Exception as e:
         if nightly:
             rollback_to_savepoint(savepoint)
         return _sync_failed(user, e)
@@ -1194,8 +1198,9 @@ def _sync_failed(user: str, e: Exception) -> dict:
     # Surface as Error Log too: the warning-only path lost us a
     # TimestampMismatchError regression for weeks (issue surfaced 2026-04-19
     # when the customer_group bug stopped masking it). Callers
-    # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow,
-    # so this is the last reachable point before silent absorption.
+    # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow
+    # ordinary errors, so this is the last reachable point before silent
+    # absorption. A 1213/1205 never gets here: it is re-raised (#1888).
     frappe.logger().error(f"Error syncing role profile for {user}: {str(e)}")
     frappe.log_error(
         message=f"Error syncing role profile for {user}: {e}",
@@ -1233,7 +1238,9 @@ def _restore_direct_roles(user: str, roles: list) -> None:
 def resync_chapter_seat_holders(chapter_name: str) -> list:
     """Recalculate the role profiles of everyone holding an active seat on a chapter's board.
 
-    Returns the users that could not be synced; one failure never stops the rest.
+    Returns the users that could not be synced; an ordinary failure never stops the rest.
+    A deadlock/lock-wait (1213/1205) does: it propagates (#1888), so a caller such as the
+    Verenigingen Settings save is aborted rather than left on a discarded transaction.
     """
     seats = frappe.db.get_all(
         "Chapter Board Member", filters={"parent": chapter_name, "is_active": 1}, pluck="volunteer"
@@ -1277,7 +1284,8 @@ def sync_role_profiles_for_users(users: list, dry_run: bool = False, nightly: bo
     Plain (non-whitelisted) so the scheduler can call it without going through
     high_security_api. sync_user_role_profile catches its own failures (one Error Log
     row each) and returns success=False, which is counted here; with ``nightly`` it
-    also rolls the failed user's partial writes back, and re-raises a deadlock/timeout.
+    also rolls the failed user's partial writes back. A deadlock/timeout (1213/1205) is
+    re-raised for every caller, nightly or not (#1888), and stops the run.
     """
     results = {
         "total": len(users),
@@ -1377,6 +1385,8 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
 
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: the transaction is gone; {"success": False} would hide that
     except Exception as e:
         frappe.log_error(
             title="Role Profile Bulk Sync Error",
@@ -1394,13 +1404,17 @@ def auto_sync_on_role_change(user: str):
     - Team leadership changes
     - Volunteer status changes
 
-    This is a fire-and-forget function that logs errors but doesn't throw.
+    This is a fire-and-forget function that logs errors but doesn't throw, except for a
+    deadlock/lock-wait (1213/1205), which must reach whoever owns the transaction (#1888).
+    Frappe does not retry a background job that fails this way; see the callers.
     """
     try:
         result = sync_user_role_profile(user, dry_run=False)
         if not result.get("success"):
             frappe.logger().warning(f"Auto-sync failed for {user}: {result.get('error')}")
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error in auto-sync for {user}: {str(e)}")
 

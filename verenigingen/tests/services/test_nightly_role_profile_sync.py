@@ -144,7 +144,7 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         )
         self.assertEqual([r.method for r in rows], ["Role Profile Sync Failed"])
 
-    def test_a_deadlock_stops_the_nightly_run_but_not_the_event_path(self):
+    def test_a_deadlock_stops_the_nightly_run_and_reaches_the_event_path_too(self):
         bad, after = self._nightly_member_user(), self._nightly_member_user()
         self._drift_to_volunteer(after)
         self._error_log_rows(bad)
@@ -152,8 +152,13 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
             with self.assertRaises(frappe.QueryDeadlockError):
                 sync_role_profiles_for_users([bad, after], nightly=True)
             self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(after), "run must have stopped")
-            # Event-driven callers keep swallowing (unchanged contract).
-            self.assertFalse(sync_user_role_profile(bad)["success"])
+            # #1888: the event path no longer swallows a lock error either. The old premise
+            # ("unchanged contract") was the defect: after a 1213 the transaction is gone.
+            with self.assertRaises(frappe.QueryDeadlockError):
+                sync_user_role_profile(bad)
+            # Control: an ordinary error is still returned, not raised, on the event path.
+            with self._raise_for(bad, RuntimeError("boom")):
+                self.assertFalse(sync_user_role_profile(bad)["success"])
 
     def test_a_failure_after_the_save_rolls_the_users_writes_back(self):
         user = self._nightly_member_user()
