@@ -17,7 +17,7 @@
 # change to the validator's own detection rules, which must land in the same
 # commit as the regeneration.
 #
-# Totals at generation: 132 sites across 110 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 14, FALLS_THROUGH 114
+# Totals at generation: 131 sites across 109 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 14, FALLS_THROUGH 113
 
 scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
 scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
@@ -113,7 +113,6 @@ verenigingen/verenigingen/doctype/member/scheduler.py::refresh_all_member_financ
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::send_follow_up_reminders::1
 verenigingen/verenigingen/doctype/member_import/member_import.py::MemberImport._create_addresses::1
 verenigingen/verenigingen/doctype/membership/membership.py::Membership.create_or_update_dues_schedule::1
-verenigingen/verenigingen/doctype/membership/membership.py::process_membership_statuses::1
 verenigingen/verenigingen/doctype/membership/scheduler.py::_process_expired_memberships_impl::1
 verenigingen/verenigingen/doctype/membership_type/membership_type.py::MembershipType.update_dues_schedule_template::1
 verenigingen/verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py::process_import_background::1
