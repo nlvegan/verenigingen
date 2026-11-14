@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -655,6 +656,8 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 description=description,
                 party_type="Customer",
                 party=customer,
+                # A Mollie payment id is issued by Mollie, unique by construction (#1349).
+                **{SYSTEM_ISSUED_FIELDNAME: 1},
             )
 
             if bank_transaction_name:

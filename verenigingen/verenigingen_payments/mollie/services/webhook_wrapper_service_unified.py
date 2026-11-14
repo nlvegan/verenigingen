@@ -26,6 +26,7 @@ from verenigingen.verenigingen_payments.services.journal_entry_booking_support i
 )
 
 # Import payment data extraction utilities
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # Import custom exceptions
@@ -1677,6 +1678,9 @@ class UnifiedWebhookWrapperService:
                 "party_type": party_type,
                 "party": party,
                 "bank_party_name": bank_party_name,
+                # The reference is build_reversal_key(): this webhook's own idempotency key, so
+                # the database must refuse a concurrent duplicate delivery (#1349, #1267).
+                SYSTEM_ISSUED_FIELDNAME: 1,
             },
             bank_account=config["bank_account"],
             company=config["company"],

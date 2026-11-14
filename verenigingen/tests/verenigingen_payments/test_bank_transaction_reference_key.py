@@ -1,4 +1,4 @@
-"""Bank Transaction's per-account reference key scope predicate and derivation (#1267).
+"""Bank Transaction's per-account reference key scope predicate and derivation (#1267, #1349).
 
 The point of these tests is the SEAM: the "is this row in scope" predicate exists twice --
 once in Python for the `validate` hook, once in SQL for the backfill patch. Two expressions
@@ -7,11 +7,10 @@ row the Python half skips keeps a stale key, and a row the SQL half skips never 
 `test_sql_and_python_predicates_agree` runs both halves against one corpus so an edit to
 either is caught.
 
-The scope itself is narrower than "any non-blank reference" (amended maintainer decision,
-after PR #1340's review found the wider scope silently dropped distinct MT940 payments that
-happened to share a payer-chosen reference): only SYSTEM-issued references -- Mollie, e-
-Boekhouden, Ponto -- get a key at all. `OUT_OF_SCOPE` below includes MT940-shaped references
-specifically to pin that a non-blank, non-system reference stays unconstrained.
+The scope is SYSTEM-issued references, as marked by their WRITER (#1349): the Check field
+`custom_reference_is_system_issued` (Mollie, e-Boekhouden) or `custom_ponto_transaction_id`
+(Ponto). It is NOT the shape of the reference: a payer can type "EB-2024" or "tr_x" on a
+statement line. `OUT_OF_SCOPE` below therefore holds unflagged rows with every old prefix.
 """
 
 import frappe
@@ -21,65 +20,71 @@ from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key imp
     build_reference_key,
     in_scope_sql_condition,
     is_system_issued_reference,
+    legacy_prefix_matches,
+    legacy_prefix_sql_condition,
 )
 
-# (bank_account, reference_number, ponto_transaction_id) triples. System-issued shapes are
-# real, profiled against actual writers (see the module docstring): Mollie tr_/stl_/baltr_
-# (dues_payment_processor.py, balance_transaction_processor.py,
-# bulk_transaction_importer.py), e-Boekhouden EB-<mutation_id> (payment_entry_handler.py,
-# processors/payment_processor.py), Ponto ids surfaced via custom_ponto_transaction_id
-# (ponto/clients/transaction_importer.py) -- never guessed from reference_number's shape
-# alone, since a Ponto id is a bare UUID with nothing distinguishing it.
+# (bank_account, reference_number, ponto_transaction_id, system_issued) rows. The signals are
+# the ones the real writers set: system_issued by dues_payment_processor.py,
+# balance_transaction_processor.py, bulk_transaction_importer.py, payment_processors.py,
+# bank_transaction_creator.create_from_mollie_payment/create_from_settlement (Mollie ids) and
+# the two e-Boekhouden writers (EB-<mutation_id>); ponto_transaction_id by
+# ponto/clients/transaction_importer.py (a bare UUID, nothing in its shape to go on).
 IN_SCOPE = [
-    ("Triodos - NL01TRIO0123456789", "EB-48213", None),
-    ("Mollie Sweep Bank - NL02INGB0001234567", "tr_WDqYK6vllg", None),
-    ("Kas - NL03ABNA0009876543", "baltr_9pqmnGh8", None),
-    ("Kas - NL03ABNA0009876543", "stl_jDk30akdN", None),
-    # Case-insensitive, to match reference_number's utf8mb4_unicode_ci collation.
-    ("Triodos - NL01TRIO0123456789", "eb-99001", None),
-    ("Triodos - NL01TRIO0123456789", "TR_UPPERCASE123", None),
+    ("Triodos - NL01TRIO0123456789", "EB-48213", None, 1),
+    ("Mollie Sweep Bank - NL02INGB0001234567", "tr_WDqYK6vllg", None, 1),
+    ("Kas - NL03ABNA0009876543", "baltr_9pqmnGh8", None, 1),
+    ("Kas - NL03ABNA0009876543", "stl_jDk30akdN", None, 1),
+    # The writer is the authority, whatever the string looks like.
+    ("Triodos - NL01TRIO0123456789", "no-prefix-at-all", None, 1),
     (
         "Ponto Account - BE00000000000000",
         "550e8400-e29b-41d4-a716-446655440000",
         "550e8400-e29b-41d4-a716-446655440000",
+        0,
     ),
 ]
 OUT_OF_SCOPE = [
-    ("Triodos - NL01TRIO0123456789", "", None),
-    ("Triodos - NL01TRIO0123456789", None, None),
-    ("", "EB-48213", None),
-    (None, "EB-48213", None),
-    ("", "", None),
-    (None, None, None),
-    # MT940 / manual: the whole reason the scope narrowed. A payer-chosen reference is not
-    # system-issued no matter how it happens to look, or whether it repeats.
-    ("Triodos - NL01TRIO0123456789", "SHARED-REF-42", None),
-    ("Triodos - NL01TRIO0123456789", "NONREF", None),
+    ("Triodos - NL01TRIO0123456789", "", None, 1),
+    ("Triodos - NL01TRIO0123456789", None, None, 1),
+    ("", "EB-48213", None, 1),
+    (None, "EB-48213", None, 1),
+    ("", "", None, 0),
+    (None, None, None, 0),
+    # MT940 / manual: a payer-chosen reference is not system-issued no matter how it looks.
+    ("Triodos - NL01TRIO0123456789", "SHARED-REF-42", None, 0),
+    ("Triodos - NL01TRIO0123456789", "NONREF", None, 0),
+    # #1349: the old system prefixes, typed by a payer. Unflagged, so unconstrained.
+    ("Triodos - NL01TRIO0123456789", "EB-2024", None, 0),
+    ("Triodos - NL01TRIO0123456789", "eb-2024", None, 0),
+    ("Triodos - NL01TRIO0123456789", "tr_payer", None, 0),
+    ("Triodos - NL01TRIO0123456789", "stl_payer", None, 0),
+    ("Triodos - NL01TRIO0123456789", "baltr_payer", None, 0),
     # A bare UUID with NO custom_ponto_transaction_id set: the shape alone proves nothing.
-    ("Ponto Account - BE00000000000000", "550e8400-e29b-41d4-a716-446655440001", None),
+    ("Ponto Account - BE00000000000000", "550e8400-e29b-41d4-a716-446655440001", None, 0),
 ]
 
 
-def _expected_in_scope(bank_account, reference_number, ponto_id):
+def _expected_in_scope(bank_account, reference_number, ponto_id, system_issued):
     return bool(bank_account) and bool(reference_number) and is_system_issued_reference(
-        reference_number, ponto_id
+        reference_number, ponto_id, system_issued
     )
 
 
 class TestBankTransactionReferenceKey(FrappeTestCase):
     def test_in_scope_triples_get_a_key(self):
-        for bank_account, reference_number, ponto_id in IN_SCOPE:
+        for bank_account, reference_number, ponto_id, flag in IN_SCOPE:
             with self.subTest(bank_account=bank_account, reference_number=reference_number):
-                self.assertTrue(is_system_issued_reference(reference_number, ponto_id))
-                self.assertIsNotNone(build_reference_key(bank_account, reference_number, ponto_id))
+                self.assertTrue(is_system_issued_reference(reference_number, ponto_id, flag))
+                self.assertIsNotNone(build_reference_key(bank_account, reference_number, ponto_id, flag))
 
     def test_out_of_scope_triples_get_none_not_empty_string(self):
         # None is what exempts the row from the unique index. "" would NOT: MariaDB
         # enforces uniqueness across empty strings, so every out-of-scope row on one
         # account would collide with every other one.
-        for bank_account, reference_number, ponto_id in OUT_OF_SCOPE:
+        for bank_account, reference_number, ponto_id, flag in OUT_OF_SCOPE:
             with self.subTest(bank_account=bank_account, reference_number=reference_number):
-                self.assertIsNone(build_reference_key(bank_account, reference_number, ponto_id))
+                self.assertIsNone(build_reference_key(bank_account, reference_number, ponto_id, flag))
 
     def test_mt940_style_reference_is_not_system_issued(self):
         # The regression #1340's review reproduced: a payer's own end-to-end reference can
@@ -88,11 +93,16 @@ class TestBankTransactionReferenceKey(FrappeTestCase):
         # again.
         self.assertFalse(is_system_issued_reference("SHARED-REF-42"))
 
-    def test_mollie_test_prefix_is_not_system_issued(self):
-        # Deliberately excluded: this app's own test factory defaults references to
-        # "test_..." shapes, so treating "test_" as Mollie-issued would drag ordinary test
-        # fixtures into the constraint.
-        self.assertFalse(is_system_issued_reference("test_payment_abc123"))
+    def test_a_system_looking_prefix_without_the_writer_flag_is_not_system_issued(self):
+        # #1349: the old rule classified by prefix, so a payer-typed "EB-2024" was constrained.
+        for reference in ("EB-2024", "eb-2024", "tr_x", "stl_x", "baltr_x"):
+            with self.subTest(reference=reference):
+                self.assertFalse(is_system_issued_reference(reference))
+                self.assertIsNone(build_reference_key("Triodos - NL01TRIO0123456789", reference))
+
+    def test_the_writer_flag_alone_decides_whatever_the_reference_looks_like(self):
+        self.assertTrue(is_system_issued_reference("no-prefix-at-all", system_issued=1))
+        self.assertTrue(is_system_issued_reference("EB-2024", system_issued=1))
 
     def test_ponto_shaped_reference_without_the_writer_signal_is_not_system_issued(self):
         # The shape (a bare UUID) is indistinguishable from an unusual manual entry, so
@@ -102,18 +112,18 @@ class TestBankTransactionReferenceKey(FrappeTestCase):
     def test_key_separates_two_accounts_sharing_one_reference(self):
         # The whole reason the index is scoped: different banks/gateways do not coordinate
         # reference numbering, and #383's idempotency lookup already depends on this.
-        first = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213")
-        second = build_reference_key("Kas - NL03ABNA0009876543", "EB-48213")
+        first = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213", system_issued=1)
+        second = build_reference_key("Kas - NL03ABNA0009876543", "EB-48213", system_issued=1)
         self.assertNotEqual(first, second)
 
     def test_key_is_sensitive_to_every_component(self):
-        base = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213")
-        self.assertNotEqual(base, build_reference_key("Kas - NL03ABNA0009876543", "EB-48213"))
-        self.assertNotEqual(base, build_reference_key("Triodos - NL01TRIO0123456789", "EB-48214"))
+        base = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213", system_issued=1)
+        self.assertNotEqual(base, build_reference_key("Kas - NL03ABNA0009876543", "EB-48213", system_issued=1))
+        self.assertNotEqual(base, build_reference_key("Triodos - NL01TRIO0123456789", "EB-48214", system_issued=1))
 
     def test_key_is_deterministic_and_fits_the_column(self):
-        key = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213")
-        self.assertEqual(key, build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213"))
+        key = build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213", system_issued=1)
+        self.assertEqual(key, build_reference_key("Triodos - NL01TRIO0123456789", "EB-48213", system_issued=1))
         # Data is varchar(140); bank_account (140) + reference_number (unbounded TEXT) can
         # exceed it, which is why the key is hashed.
         self.assertLessEqual(len(key), 140)
@@ -131,8 +141,10 @@ class TestBankTransactionReferenceKey(FrappeTestCase):
     def test_sql_and_python_predicates_agree(self):
         condition = in_scope_sql_condition()
         ponto_column_live = frappe.db.has_column("Bank Transaction", "custom_ponto_transaction_id")
+        flag_column_live = frappe.db.has_column("Bank Transaction", "custom_reference_is_system_issued")
+        self.assertTrue(flag_column_live, "custom_reference_is_system_issued is not installed")
 
-        for bank_account, reference_number, ponto_id in IN_SCOPE + OUT_OF_SCOPE:
+        for bank_account, reference_number, ponto_id, flag in IN_SCOPE + OUT_OF_SCOPE:
             if ponto_id and not ponto_column_live:
                 # The SQL half only gates on this column when it actually exists (see
                 # in_scope_sql_condition's docstring); a corpus row that depends on it
@@ -148,13 +160,30 @@ class TestBankTransactionReferenceKey(FrappeTestCase):
                     FROM (
                         SELECT {ba_literal} AS bank_account,
                                {ref_literal} AS reference_number,
-                               {ponto_literal} AS custom_ponto_transaction_id
+                               {ponto_literal} AS custom_ponto_transaction_id,
+                               {int(flag)} AS custom_reference_is_system_issued
                     ) AS corpus
                     """
                 )[0][0]
                 self.assertEqual(
                     bool(matched),
-                    _expected_in_scope(bank_account, reference_number, ponto_id),
+                    _expected_in_scope(bank_account, reference_number, ponto_id, flag),
                     f"SQL and Python scope predicates disagree on "
-                    f"{(bank_account, reference_number, ponto_id)!r}",
+                    f"{(bank_account, reference_number, ponto_id, flag)!r}",
                 )
+
+    def test_legacy_sql_and_python_prefix_rules_agree(self):
+        # The frozen pre-#1349 rule exists twice too (the patches classify old rows with the
+        # SQL half, `build_reference_key(system_issued=legacy_prefix_matches(...))` with the
+        # Python half).
+        condition = legacy_prefix_sql_condition()
+        for reference in ("EB-1", "eb-1", "tr_a", "TR_a", "stl_a", "baltr_a", "SHARED-1", "test_a", "", None):
+            with self.subTest(reference=reference):
+                ref_literal = "NULL" if reference is None else frappe.db.escape(reference)
+                matched = frappe.db.sql(
+                    f"""
+                    SELECT CASE WHEN {condition} THEN 1 ELSE 0 END
+                    FROM (SELECT 'Acct' AS bank_account, {ref_literal} AS reference_number) AS corpus
+                    """
+                )[0][0]
+                self.assertEqual(bool(matched), legacy_prefix_matches(reference))

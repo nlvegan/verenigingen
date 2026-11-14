@@ -24,6 +24,7 @@ from verenigingen.e_boekhouden.utils.data_integrity import (
     mask_pii_in_mutation,
     safe_log_mutation_error,
 )
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.bank_transaction_status import (
     RECONCILED,
     RECONCILED_OUTCOMES,
@@ -1041,6 +1042,7 @@ class PaymentProcessor(BaseTransactionProcessor):
                 "currency": "EUR",
                 "description": bt_description,
                 "reference_number": bt_reference,
+                SYSTEM_ISSUED_FIELDNAME: 1,  # EB-<mutation id>, minted here (#1349)
                 "party_type": party_type,
                 "party": party_name,
             }

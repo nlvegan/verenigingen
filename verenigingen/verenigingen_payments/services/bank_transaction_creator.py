@@ -13,6 +13,7 @@ from frappe.utils import getdate
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 from verenigingen.utils.secure_operations import is_duplicate_key_error as _is_duplicate_key_error
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 
 
 class BankTransactionCreator:
@@ -94,6 +95,8 @@ class BankTransactionCreator:
             party_type=party_type,
             party=party,
             bank_party_name=bank_party_name,
+            # A Mollie payment id is issued by Mollie, unique by construction (#1349).
+            **{SYSTEM_ISSUED_FIELDNAME: 1},
         )
 
     def create_from_settlement(
@@ -139,6 +142,8 @@ class BankTransactionCreator:
             currency=currency,
             reference_number=settlement_id,
             description=description,
+            # A Mollie settlement id is issued by Mollie, unique by construction (#1349).
+            **{SYSTEM_ISSUED_FIELDNAME: 1},
         )
 
     def create_from_dict(
