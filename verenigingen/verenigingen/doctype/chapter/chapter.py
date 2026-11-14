@@ -1373,6 +1373,8 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     try:
         result = bulk_assign_chapter_board_role_profiles(chapter_name)
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: a 1213/1205 is not a {"success": False} answer; the transaction is gone/half-applied
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Bulk Chapter Board Role Profile Assignment Error")
         return {"success": False, "error": str(e)}

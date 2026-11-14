@@ -31,6 +31,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
     require_profile_admin,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Public API surface. `_chapter_manager` is included despite the
 # underscore prefix because the deprecated shim at
@@ -230,10 +231,13 @@ def bulk_assign_chapter_board_role_profiles(chapter_name: str):
     skipped = []
     for row in board_members:
         user = row["user"] if isinstance(row, dict) else row.user
-        # auto_sync_on_role_change never raises: it RETURNS {"success": False, ...}, or None
-        # after swallowing an exception (#1718), so "no exception" is not "synced".
+        # auto_sync_on_role_change does not raise an ordinary error: it RETURNS
+        # {"success": False, ...}, or None after swallowing one (#1718), so "no exception"
+        # is not "synced". It does raise a 1213/1205 (#1888), re-raised below.
         try:
             sync = auto_sync_on_role_change(user)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #1888: the transaction is gone; a failed[] entry would hide that
         except Exception as e:
             sync = {"success": False, "error": str(e)}
         if sync is None:

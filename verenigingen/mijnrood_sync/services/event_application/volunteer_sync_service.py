@@ -324,7 +324,9 @@ class MijnRoodVolunteerSyncService:
             # Turning this into a per-member "failed" status would let the sync run march
             # on to the next member inside a transaction the server has already discarded,
             # and frappe.log_error() below would be a write on it. Let it reach whoever
-            # owns the transaction boundary so the whole sync run is retried instead.
+            # owns the transaction boundary. Whether that job retries is its own policy
+            # (execute_job retries only InternalError/RetryBackgroundJobError), so this
+            # guarantees the failure is seen, not that the run is retried.
             raise
         except Exception as e:
             self.logger.error(
@@ -511,9 +513,9 @@ class MijnRoodVolunteerSyncService:
         - Both ``remove_board_member_role()`` and ``_sync_role_profile_for_volunteer()``
           go through BoardManager._log_or_reraise, which logs and continues for
           everything that is not a broken transaction.
-        - ``auto_sync_on_role_change`` is explicitly fire-and-forget: it logs and
-          returns, and turns a non-exception failure (``success: False``) into a
-          logged warning.
+        - ``auto_sync_on_role_change`` is fire-and-forget for ordinary failures: it
+          logs and returns, and turns a non-exception failure (``success: False``)
+          into a logged warning. A 1213/1205 is the exception: it is re-raised (#1888).
 
         So re-running sync_user_role_profile() here is not a belt-and-braces retry —
         after the save it is the first recalculation that can see the seat is gone, and
@@ -754,6 +756,11 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
             return _("Added to team '{0}'").format(team_name)
+        except NON_RESUMABLE_DB_ERRORS:
+            # The save's on_team_members_change hook re-raises a 1213/1205 (#1888). The
+            # transaction is already discarded, so log_error() below would write on a dead
+            # one and the event would be reported as handled; let it reach the owner.
+            raise
         except Exception as e:
             self.logger.error(
                 "Failed to add %s to team %s: %s",
@@ -854,8 +861,7 @@ class MijnRoodVolunteerSyncService:
         except NON_RESUMABLE_DB_ERRORS:
             # The transaction is already discarded — log_error() below would be a
             # write on it. Let it reach the transaction owner (same clause and
-            # reasoning as _ensure_chapter_board_membership; the team *addition*
-            # path has no such clause).
+            # reasoning as _ensure_chapter_board_membership and _ensure_team_membership).
             raise
         except Exception as e:
             self.logger.error("Failed to end team membership for %s in %s: %s", member_name, team_name, e)
@@ -870,13 +876,15 @@ class MijnRoodVolunteerSyncService:
 
         Ending the Team Member row is bookkeeping; the recalculation triggered by
         ``on_team_members_change`` is what withdraws the access. That recalculation
-        cannot fail loudly — it is swallowed twice:
+        cannot fail loudly for ordinary errors:
 
         - ``team_role_profile_hooks.on_team_members_change`` catches every
           exception per volunteer and ``continue``s.
-        - ``user_role_profile_calculator.auto_sync_on_role_change`` is explicitly
-          fire-and-forget: it logs and returns, and turns a non-exception failure
-          (``success: False``) into a logged warning.
+        - ``user_role_profile_calculator.auto_sync_on_role_change`` is fire-and-forget:
+          it logs and returns, and turns a non-exception failure (``success: False``)
+          into a logged warning.
+
+        Only a deadlock/lock-wait (1213/1205) gets through both: it is re-raised (#1888).
 
         So a disabled User (``sync_user_role_profile`` refuses to touch one — it
         would re-enable the account via the Employee/User status lockstep), a
