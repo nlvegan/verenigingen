@@ -568,6 +568,9 @@ class SEPAAuditLogger:
                     """,
                     now=True,
                     notification_key="audit_alert",
+                    # Per event type: the key's per-recipient cooldown would otherwise let one event
+                    # type's alert silence every other type's for an hour (#2310).
+                    cooldown_scope=event_type,
                 )
 
         except Exception as e:

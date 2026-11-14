@@ -459,9 +459,13 @@ class TestStaffAlertEvent(FrappeTestCase):
                 "mijnrood_disabled_default_type",
                 "mijnrood_chapter_move_failed",
                 "mollie_payment_not_found",
+                "mijnrood_division_unmapped",
+                "mijnrood_role_mapping_invalid",
+                "mijnrood_dues_template_unresolved",
                 # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
                 # is marked staff_alert=True like the rest; the loop below still checks every flag.
                 "ponto_executed_unbookable",
+                "ponto_orphaned_payment",  # #2294
                 # "mollie_forward_payment_staff_cancelled" (#2406) likewise: literal key, staff_alert=True.
                 "mollie_forward_payment_staff_cancelled",
             },

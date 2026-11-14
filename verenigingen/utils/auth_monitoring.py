@@ -242,7 +242,6 @@ def _send_failed_login_alert(failed_logins):
         recipients=recipients,
         subject=subject,
         message=message,
-        delayed=False,
         notification_key=AUTH_ALERT_KEY,
     )
     if not result.success:

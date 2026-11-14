@@ -152,7 +152,6 @@ class AlertManager:
             recipients=recipients,
             subject=subject,
             message=body,
-            delayed=False,
             notification_key=ALERT_GROUPS[group]["notification_key"],
             bypass_cooldown=bypass_cooldown,
         )

@@ -824,15 +824,18 @@ function mark_as_processed_dialog(frm) {
 			frappe.show_progress(__('Processing Payments'), 0, 100);
 
 			frappe.call({
-				method: 'mark_invoices_as_paid',
-				doc: frm.doc,
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.mark_invoices_as_paid',
+				args: { batch_name: frm.doc.name },
 				callback(r) {
-					frappe.hide_progress();
 					if (!r.exc && r.message) {
 						frm.reload_doc();
 						frappe.msgprint(__('Successfully processed {0} payments', [r.message]));
 						dialog.hide();
 					}
+				},
+				// callback runs on success only; a 403 or thrown error must not leave the dialog up
+				always() {
+					frappe.hide_progress();
 				}
 			});
 		}

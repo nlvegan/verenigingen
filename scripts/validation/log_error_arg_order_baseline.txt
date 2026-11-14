@@ -596,7 +596,6 @@ verenigingen/verenigingen_payments/mollie/api/sync.py::sync_member_subscriptions
 verenigingen/verenigingen_payments/mollie/api/sync.py::sync_payment_status::1
 verenigingen/verenigingen_payments/mollie/api/sync.py::sync_subscription_status::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::cancel_subscription::1
-verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_donation_payment::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::create_subscription::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_client_info::1
 verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py::get_payment_status::1
