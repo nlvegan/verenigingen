@@ -1974,7 +1974,7 @@ def mollie_subscription_webhook():
         subscription_id = parsed["subscription_id"]
         payment_id = parsed["payment_id"]
 
-        member_name, customer_name, customer_id = _find_member_for_subscription(subscription_id)
+        member_name, customer_name, customer_id = _find_member_for_subscription(subscription_id, payment_id)
         if not member_name:
             return {"status": "ignored", "reason": "No member found for subscription"}
 
@@ -2132,7 +2132,7 @@ def _authenticate_and_parse_subscription_payload():
     return {"subscription_id": subscription_id, "payment_id": payment_id}, None
 
 
-def _find_member_for_subscription(subscription_id):
+def _find_member_for_subscription(subscription_id, payment_id=None):
     """Find the member and customer linked to a Mollie subscription.
 
     Returns:
@@ -2142,6 +2142,7 @@ def _find_member_for_subscription(subscription_id):
         "Customer",
         filters={"custom_mollie_subscription_id": subscription_id},
         fields=["name", "custom_mollie_customer_id"],
+        order_by="name asc",
     )
 
     if not customers:
@@ -2151,19 +2152,40 @@ def _find_member_for_subscription(subscription_id):
         )
         return None, None, None
 
-    customer_name = customers[0]["name"]
-    customer_id = customers[0]["custom_mollie_customer_id"]
+    # Neither the Customer field nor the Member link is unique (#2576): several Customers may carry
+    # the id and several Members may hang off one Customer. This is a delivery path that writes the
+    # subscription status, so more than one distinct Member is refused, never first-wins.
+    owners = {}
+    for customer in customers:
+        for member in get_members_by_customer(customer["name"], fields=["name"]):
+            owners.setdefault(member["name"], customer)
 
-    members = get_members_by_customer(customer_name, fields=["name"])
+    if len(owners) > 1:
+        from types import SimpleNamespace
 
-    if not members:
-        frappe.log_error(
-            title="Mollie Subscription Webhook",
-            message=f"No member found for customer {customer_name} with subscription {subscription_id}",
+        from verenigingen.verenigingen_payments.mollie.domain.payment_classification import (
+            refuse_shared_member_id,
+        )
+
+        # The payload's payment id keys the Error Log row and the alert; the subscription id when absent
+        refuse_shared_member_id(
+            SimpleNamespace(id=payment_id or subscription_id),
+            "mollie_subscription_id",
+            subscription_id,
+            sorted(owners)[:3],
+            alert_staff=True,
         )
         return None, None, None
 
-    return members[0]["name"], customer_name, customer_id
+    if not owners:
+        frappe.log_error(
+            title="Mollie Subscription Webhook",
+            message=f"No member found for customer {customers[0]['name']} with subscription {subscription_id}",
+        )
+        return None, None, None
+
+    member_name, customer = next(iter(owners.items()))
+    return member_name, customer["name"], customer["custom_mollie_customer_id"]
 
 
 def _update_subscription_status(gateway, customer_id, subscription_id, member_name, result):

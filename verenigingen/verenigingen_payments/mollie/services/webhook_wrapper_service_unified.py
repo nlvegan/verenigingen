@@ -524,7 +524,7 @@ class UnifiedWebhookWrapperService:
                 # DUES payments: Create Payment Entries for membership dues
                 elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
-                    result = router.route_payment(payment_id, payment)
+                    result = router.route_payment(payment_id, payment, alert_staff=True)
                     result = self._book_dues_reversals(payment_id, payment, result)
 
                     # Add timing information

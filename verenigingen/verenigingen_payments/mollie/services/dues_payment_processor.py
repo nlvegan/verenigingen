@@ -138,7 +138,7 @@ class DuesPaymentProcessor:
         result = self.classifier.classify(payment, alert_staff)
         return result.payment_type
 
-    def find_member_for_payment(self, payment) -> Optional[str]:
+    def find_member_for_payment(self, payment, alert_staff: bool = False) -> Optional[str]:
         """
         Find the Member record associated with a Mollie payment.
 
@@ -152,16 +152,18 @@ class DuesPaymentProcessor:
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
-            str: Member name if found, None otherwise
+            str: Member name if found, None otherwise (also None when the payment's customer
+            id is shared by several Members, #2576)
         """
         from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
             get_member_payment_matcher,
         )
 
         matcher = get_member_payment_matcher()
-        member = matcher.find_member_for_payment(payment)
+        member = matcher.find_member_for_payment(payment, alert_staff)
 
         if member:
             frappe.logger().info(f"[Mollie] Found member {member['name']} for payment {payment.id}")
@@ -723,6 +725,7 @@ class DuesPaymentProcessor:
         payment=None,
         creation_mode: Optional[str] = None,
         invoice_name: Optional[str] = None,
+        alert_staff: bool = False,
     ) -> Dict[str, Any]:
         """
         Process a membership dues payment from Mollie.
@@ -738,6 +741,8 @@ class DuesPaymentProcessor:
                          "Bank Transaction" to create Bank Transaction for reconciliation
                          None (default) to use centralized configuration
             invoice_name: Optional pre-matched invoice name to allocate PE against
+            alert_staff: True only from a delivery path (the webhook, #1497 (2)): a customer id
+                several Members share raises the staff alert (#2576)
 
         Returns:
             dict: Processing result with status, payment_entry, member, etc.
@@ -808,7 +813,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Find associated member
-            member_name = self.find_member_for_payment(payment)
+            member_name = self.find_member_for_payment(payment, alert_staff)
             if not member_name:
                 result["status"] = "error"
                 result["error"] = "No member found for this payment"

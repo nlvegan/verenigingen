@@ -39,6 +39,8 @@ class MemberPaymentMatcher:
 
     def __init__(self):
         self._customer_id_map: dict = {}
+        # customer ids that more than one Member holds -> their names (#2576)
+        self._shared_customer_ids: dict = {}
         self._all_members: list = []
         self._loaded: bool = False
         self._loaded_signature: Optional[Tuple[str, int, Optional[datetime]]] = None
@@ -113,26 +115,50 @@ class MemberPaymentMatcher:
             fields=["name", "full_name", "mollie_customer_id", "email", "status"],
         )
 
-        # Build customer_id lookup map
-        self._customer_id_map = {m.mollie_customer_id: m for m in self._all_members}
+        # Build customer_id lookup map. The id is not unique on Member (#2576): a shared id is
+        # kept OUT of the map, so no lookup can silently return whichever row came last.
+        by_customer_id: dict = {}
+        for m in self._all_members:
+            by_customer_id.setdefault(m.mollie_customer_id, []).append(m)
+        self._customer_id_map = {cid: rows[0] for cid, rows in by_customer_id.items() if len(rows) == 1}
+        self._shared_customer_ids = {
+            cid: sorted(r.name for r in rows)[:3] for cid, rows in by_customer_id.items() if len(rows) > 1
+        }
 
         self._loaded = True
         self._loaded_signature = current_signature
 
-    def find_member_for_payment(self, payment) -> Optional[dict]:
+    def find_member_for_payment(self, payment, alert_staff: bool = False) -> Optional[dict]:
         """
         Find member for a Mollie payment.
 
         Args:
             payment: Mollie payment object with customer_id, description attributes
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
-            Member dict with name, full_name, status, etc. or None if not found
+            Member dict with name, full_name, status, etc. or None if not found. Also None when
+            the customer id is held by more than one Member (#2576): refused as ambiguous, not
+            rescued by the description, logged once per payment as in the classifier.
         """
         self._load_lookups()
 
         customer_id = getattr(payment, "customer_id", None)
         description = getattr(payment, "description", "") or ""
+
+        if customer_id and customer_id in self._shared_customer_ids:
+            from verenigingen.verenigingen_payments.mollie.domain.payment_classification import (
+                refuse_shared_member_id,
+            )
+
+            refuse_shared_member_id(
+                payment,
+                "mollie_customer_id",
+                customer_id,
+                self._shared_customer_ids[customer_id],
+                alert_staff,
+            )
+            return None
 
         # Method 1: Customer ID match (O(1) lookup)
         if customer_id and customer_id in self._customer_id_map:
@@ -213,11 +239,12 @@ class MemberPaymentMatcher:
     def is_customer_id_known(self, customer_id: str) -> bool:
         """Check if a customer_id belongs to any member."""
         self._load_lookups()
-        return customer_id in self._customer_id_map
+        return customer_id in self._customer_id_map or customer_id in self._shared_customer_ids
 
     def reset(self) -> None:
         """Reset cached lookups (useful for testing or after member changes)."""
         self._customer_id_map = {}
+        self._shared_customer_ids = {}
         self._all_members = []
         self._loaded = False
         self._loaded_signature = None

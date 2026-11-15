@@ -233,6 +233,20 @@ def _ambiguous_result(
     )
 
 
+def refuse_shared_member_id(
+    payment, field_name: str, field_value: str, names: List[str], alert_staff: bool = False
+) -> None:
+    """Log (once per payment) and, on a delivery path, alert for a Mollie id several Members hold (#2576).
+
+    For a lookup outside the classifier (the member matcher) that must refuse the same way
+    #1497's classifier does: same deduplicated Error Log row, same staff alert, same
+    ``alert_staff`` rule. The caller then attributes the payment to nobody.
+    """
+    _ambiguous_result(
+        "Member", field_name, field_value, names, payment, field_name, ConfidenceLevel.NONE, alert_staff
+    )
+
+
 def _ambiguity_details(payment_id: str, field_name: str, field_value: str, names: List[str], doctype: str):
     return (
         f"Payment {payment_id} carries {field_name} {field_value}, which more than one {doctype} row "
