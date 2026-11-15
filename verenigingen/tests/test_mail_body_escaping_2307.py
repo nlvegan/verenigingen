@@ -45,6 +45,11 @@ def hostile(tag):
 
 
 class MailBodyEscapingBase(VereningingenTestCase):
+    # A subclass whose code under test COMMITS (e.g. ``_cleanup_stock_email_templates``) sets this True: the
+    # commit then makes the seed permanent, so a commit cleanup is registered below to make the restore
+    # permanent too. Left False, ``own_notification_keys`` fails the test on any stray commit.
+    NOTIFICATION_STATE_COMMITS = False
+
     def setUp(self):
         super().setUp()
         self.prior_user = frappe.session.user
@@ -54,7 +59,10 @@ class MailBodyEscapingBase(VereningingenTestCase):
         ensure_outgoing_email_account(self)
         # Seeds no key (each test puts its own row with its own policy), switches the master switch on and
         # restores the rows and the switch afterwards; the switch used to leak (#2541).
-        own_notification_keys(self)
+        if self.NOTIFICATION_STATE_COMMITS:
+            # Registered BEFORE the helper: cleanups are LIFO, so this commit runs after the restore.
+            self.addCleanup(frappe.db.commit)
+        own_notification_keys(self, commits=self.NOTIFICATION_STATE_COMMITS)
         ensure_notification_registry_rows()
         clear_email_cooldowns()
         self.token = frappe.generate_hash(length=6)

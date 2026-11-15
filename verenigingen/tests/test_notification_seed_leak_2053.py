@@ -50,6 +50,8 @@ CALLERS = [
     ("verenigingen.tests.test_mail_body_escaping_2307", "TestExpulsionMails", None),
     ("verenigingen.tests.test_mail_body_escaping_2307", "TestSepaValidationAlert", None),
     ("verenigingen.tests.test_mail_body_escaping_2307", "TestPaymentAlertMails", None),
+    # Commits by design (``_cleanup_stock_email_templates``), so the base declares ``NOTIFICATION_STATE_COMMITS``.
+    ("verenigingen.tests.payment.test_urgent_reminder_custom_message_2442", "TestUrgentReminderCustomMessage", None),
 ]
 
 
