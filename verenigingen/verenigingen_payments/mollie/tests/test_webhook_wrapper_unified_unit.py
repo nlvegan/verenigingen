@@ -380,7 +380,9 @@ class TestProcessPaymentWebhookRouting(WebhookTestBase):
                     "matched_by": "stub",
                 }
 
-            def route_payment(self_inner, pid, payment):
+            def route_payment(self_inner, pid, payment, alert_staff=False):
+                # The dues member match raises the staff alert only for a delivery path (#2576)
+                self.route_alert_staff_seen = alert_staff
                 return dict(route_result)
 
         import verenigingen.verenigingen_payments.mollie.services.payment_type_router as router_mod
@@ -396,6 +398,7 @@ class TestProcessPaymentWebhookRouting(WebhookTestBase):
         self.assertEqual(result["payment_entry"], "PE-1")
         self.assertIn("duration_seconds", result)
         self.assertTrue(self.alert_staff_seen, "the webhook must classify with alert_staff=True")
+        self.assertTrue(self.route_alert_staff_seen, "the webhook must route dues with alert_staff=True")
 
     def test_order_payment_routed_to_order_processor(self):
         self._stub_router("order", {"status": "success", "bank_transaction": "BT-1"})

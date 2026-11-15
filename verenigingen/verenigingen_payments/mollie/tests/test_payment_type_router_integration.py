@@ -106,7 +106,10 @@ class TestRoutePayment(EnhancedTestCase):
         )
         frappe.db.set_value("Member", member.name, "mollie_customer_id", cid)
 
-        def _process_dues(payment_id, payment):
+        seen = {}
+
+        def _process_dues(payment_id, payment, alert_staff=None):
+            seen["alert_staff"] = alert_staff  # route_payment defaults to quiet (#2576)
             return {"status": "success", "member": member.name}
 
         dues = SimpleNamespace(process_dues_payment=_process_dues)
@@ -117,6 +120,7 @@ class TestRoutePayment(EnhancedTestCase):
         self.assertEqual(result["processor"], "DuesPaymentProcessor")
         self.assertEqual(result["payment_type"], "dues")
         self.assertEqual(result["member"], member.name)
+        self.assertIs(seen["alert_staff"], False)
 
     def test_donation_branch_routes_to_donation_processor(self):
         # A payment whose customer_id matches a real Donor classifies as

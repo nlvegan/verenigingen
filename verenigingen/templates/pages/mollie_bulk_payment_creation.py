@@ -191,7 +191,7 @@ def validate_csv_members(
                     "mollie_customer_id",
                 ],
             ):
-                members_by_customer_id[m.mollie_customer_id] = m
+                members_by_customer_id.setdefault(m.mollie_customer_id, []).append(m)
 
         for row in all_rows:
             customer_id = row.get("customer_id", "").strip()
@@ -247,7 +247,18 @@ def validate_csv_members(
                 result["description"] = row["description"].strip()[:140]  # Mollie limit
 
             # Look up member by Mollie customer ID (prefetched above)
-            member = members_by_customer_id.get(customer_id)
+            members = members_by_customer_id.get(customer_id, [])
+
+            if len(members) > 1:
+                # #2576: the id is not unique on Member; never validate (name, status, mandate)
+                # against whichever row came last.
+                result["status"] = "error"
+                names = ", ".join(sorted(m.name for m in members)[:3])
+                result["issues"].append(f"Customer ID is held by more than one member ({names})")
+                validation_results.append(result)
+                continue
+
+            member = members[0] if members else None
 
             if not member:
                 result["status"] = "error"

@@ -93,13 +93,17 @@ class PaymentTypeRouter:
 
         return result
 
-    def route_payment(self, payment_id: str, payment: Optional[Any] = None) -> Dict[str, Any]:
+    def route_payment(
+        self, payment_id: str, payment: Optional[Any] = None, alert_staff: bool = False
+    ) -> Dict[str, Any]:
         """
         Route payment to appropriate processor based on type.
 
         Args:
             payment_id: Mollie payment ID
             payment: Optional pre-fetched payment object
+            alert_staff: True only from a delivery path (the webhook, #1497 (2)); handed to the
+                dues processor's member match (#2576)
 
         Returns:
             Dict with processing result:
@@ -139,7 +143,9 @@ class PaymentTypeRouter:
                 result["processor"] = "DuesPaymentProcessor"
 
                 # Process as membership dues
-                dues_result = self.dues_processor.process_dues_payment(payment_id, payment)
+                dues_result = self.dues_processor.process_dues_payment(
+                    payment_id, payment, alert_staff=alert_staff
+                )
                 result.update(dues_result)
 
             elif classification["payment_type"] == PaymentType.DONATION:
