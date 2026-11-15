@@ -154,8 +154,8 @@ def suspend_member(
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(
-            f"Non-resumable DB error in suspend_member for {{member_name}}\n{{traceback.format_exc()}}",
-            "Suspension API Exception",
+            title="Suspension API Exception",
+            message=f"Non-resumable DB error in suspend_member for {member_name}\n{traceback.format_exc()}",
         )
         raise
 
@@ -250,8 +250,8 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(
-            f"Non-resumable DB error in unsuspend_member for {{member_name}}\n{{traceback.format_exc()}}",
-            "Suspension API Exception",
+            title="Suspension API Exception",
+            message=f"Non-resumable DB error in unsuspend_member for {member_name}\n{traceback.format_exc()}",
         )
         raise
 
