@@ -19,6 +19,7 @@ from unittest.mock import patch, MagicMock
 
 import frappe
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import (
     ConfigurationError,
     mask_iban,
@@ -41,18 +42,13 @@ from verenigingen.utils.secure_operations import (
 
 @contextmanager
 def session_user(user):
-    """Temporarily set frappe.session.user, restoring it afterwards.
-
-    frappe.session is a werkzeug LocalProxy, so unittest.mock.patch.object on it
-    fails in get_original(). Setting the attribute directly is the supported way
-    to control the session user in tests.
-    """
-    previous = getattr(frappe.session, "user", None)
-    frappe.session.user = user
+    """Temporarily switch the session user via frappe.set_user, restoring it afterwards."""
+    previous = getattr(frappe.session, "user", None) or "Administrator"
+    frappe.set_user(user)
     try:
         yield
     finally:
-        frappe.session.user = previous
+        frappe.set_user(previous)
 
 
 class TestMaskIban(unittest.TestCase):
@@ -640,67 +636,97 @@ class TestSecureUserContextRestores(unittest.TestCase):
                 self.assertIn("disabled", str(context.exception).lower())
 
 
-class TestSecureDocumentOperationAuthorization(unittest.TestCase):
-    """Tests for secure_document_operation() authorization requirements"""
+class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
+    """secure_document_operation()'s gates, run against REAL users and roles (#2284).
+
+    Nothing here patches validate_permissions / can_use_bypass_validations /
+    can_request_system_escalation: the acting user is a real enabled User row
+    carrying real roles, so a regression in those helpers (or in how
+    secure_document_operation consumes them) can fail these tests.
+    """
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        super().tearDown()
+
+    @contextmanager
+    def _acting_as(self, user):
+        previous = frappe.session.user
+        frappe.set_user(user)
+        try:
+            yield
+        finally:
+            frappe.set_user(previous)
+
+    def _make_user(self, roles):
+        """Enabled System User carrying exactly ``roles`` (plus Frappe defaults)."""
+        return self.factory.create_user_with_roles(roles=list(roles)).name
+
+    def _new_customer(self, label):
+        doc = frappe.new_doc("Customer")
+        doc.customer_name = f"{label} {frappe.generate_hash(length=8)}"
+        return doc
+
+    def _create_customer_fixture(self, label):
+        """Persist a Customer as Administrator so the test user is a stranger to it."""
+        doc = self._new_customer(label)
+        doc.insert(ignore_permissions=True)
+        self.track_doc("Customer", doc.name)
+        return doc
+
+    def _new_brand(self, label):
+        """A doctype neither test role can create (fixture-checked in each test)."""
+        doc = frappe.new_doc("Brand")
+        doc.brand = f"{label} {frappe.generate_hash(length=8)}"
+        return doc
+
+    def _brand_exists(self, doc):
+        return bool(frappe.db.exists("Brand", doc.brand))
+
+    def _customer_exists(self, doc):
+        return bool(frappe.db.exists("Customer", {"customer_name": doc.customer_name}))
 
     def test_unauthorized_user_cannot_use_bypass_validations(self):
-        """Test that users without bypass_validations permission get PermissionError"""
-        mock_doc = MagicMock()
-        mock_doc.doctype = "Test DocType"
-        mock_doc.name = "test-001"
+        """A user holding an ESCALATION role but no bypass role is refused at the bypass gate.
 
-        with patch("frappe.session") as mock_session:
-            mock_session.user = "regular_user@example.com"
+        Attacker clears every earlier gate: valid justification, and (as the
+        escalation-role control below shows) the DocPerm check is not what stops
+        them, so the refusal can only come from can_use_bypass_validations.
+        """
+        user = self._make_user(["Verenigingen Staff"])
+        doc = self._new_customer("Bypass Attacker")
 
-            with patch(
-                "verenigingen.utils.secure_operations.can_use_bypass_validations"
-            ) as mock_can_bypass:
-                mock_can_bypass.return_value = False
+        with self._acting_as(user):
+            with self.assertRaises(frappe.PermissionError) as context:
+                secure_document_operation(
+                    operation="create",
+                    doc=doc,
+                    justification="Test operation with valid justification",
+                    bypass_validations=["link_validation"],
+                )
 
-                with self.assertRaises(frappe.PermissionError) as context:
-                    secure_document_operation(
-                        operation="save",
-                        doc=mock_doc,
-                        justification="Test operation with valid justification",
-                        bypass_validations=["link_validation"],
-                    )
-
-                self.assertIn("bypass validations", str(context.exception).lower())
+        self.assertIn("do not have permission to bypass validations", str(context.exception))
+        self.assertFalse(self._customer_exists(doc), "refused operation must not write the row")
 
     def test_authorized_user_can_use_bypass_validations(self):
-        """Test that System Manager can use bypass_validations"""
-        mock_doc = MagicMock()
-        mock_doc.doctype = "Test DocType"
-        mock_doc.name = "test-001"
+        """A real System Manager passes the bypass gate and the write lands."""
+        user = self._make_user(["System Manager"])
+        doc = self._new_customer("Bypass Admin")
 
-        with patch("frappe.session") as mock_session:
-            mock_session.user = "admin@example.com"
+        with self._acting_as(user):
+            result = secure_document_operation(
+                operation="create",
+                doc=doc,
+                justification="Test operation with valid justification",
+                bypass_validations=["link_validation"],
+            )
 
-            with patch(
-                "verenigingen.utils.secure_operations.can_use_bypass_validations"
-            ) as mock_can_bypass:
-                mock_can_bypass.return_value = True
-
-                with patch(
-                    "verenigingen.utils.secure_operations.validate_permissions"
-                ) as mock_validate_perms:
-                    mock_validate_perms.return_value = True
-
-                    with patch(
-                        "verenigingen.utils.secure_operations._execute_document_operation"
-                    ):
-                        # Should not raise PermissionError
-                        result = secure_document_operation(
-                            operation="save",
-                            doc=mock_doc,
-                            justification="Test operation with valid justification",
-                            bypass_validations=["link_validation"],
-                        )
-
-                        self.assertTrue(result.success)
+        self.assertTrue(result.success, f"errors: {result.errors}")
+        self.assertTrue(self._customer_exists(doc))
+        self.track_doc("Customer", doc.name)
 
     def test_unauthorized_user_cannot_request_escalation(self):
-        """Test that users without escalation permission are denied.
+        """A user lacking both the DocPerm and any escalation role is denied.
 
         secure_document_operation captures the escalation-denial PermissionError
         in its try/except and surfaces it as a failed SecureOperationResult
@@ -709,37 +735,83 @@ class TestSecureDocumentOperationAuthorization(unittest.TestCase):
         behaviour in test_secure_operations_security_audit.py. The security
         property under test is that the operation is DENIED, not how the denial
         is signalled.
+
+        Attacker clears every earlier gate (valid justification, no bypass
+        requested) and is denied only by can_request_system_escalation.
         """
-        mock_doc = MagicMock()
-        mock_doc.doctype = "Test DocType"
-        mock_doc.name = "test-001"
+        self.expectErrorLog("Secure Operation Failed")
+        user = self._make_user(["Verenigingen Member"])
+        doc = self._new_brand("Escalation Attacker")
 
-        with patch("frappe.session") as mock_session:
-            mock_session.user = "guest@example.com"
+        with self._acting_as(user):
+            self.assertFalse(
+                frappe.has_permission("Brand", "create"),
+                "fixture check: the attacker must lack the DocPerm, else this tests nothing",
+            )
+            result = secure_document_operation(
+                operation="create",
+                doc=doc,
+                justification="Test operation with valid justification",
+                allow_system_user=True,
+            )
 
-            with patch(
-                "verenigingen.utils.secure_operations.validate_permissions"
-            ) as mock_validate_perms:
-                mock_validate_perms.return_value = False  # User lacks permissions
+        self.assertFalse(result.success, "Unauthorized escalation request must be denied")
+        self.assertIn(
+            "do not have permission to request elevated system operations", " ".join(result.errors)
+        )
+        self.assertFalse(self._brand_exists(doc), "denied escalation must not write the row")
 
-                with patch(
-                    "verenigingen.utils.secure_operations.can_request_system_escalation"
-                ) as mock_can_escalate:
-                    mock_can_escalate.return_value = False
+    def test_escalation_role_user_is_not_refused_at_the_escalation_gate(self):
+        """Control: the same operation by an escalation-role user gets PAST the gate.
 
-                    result = secure_document_operation(
-                        operation="save",
-                        doc=mock_doc,
-                        justification="Test operation with valid justification",
-                        allow_system_user=True,
-                    )
+        Without this row an always-deny can_request_system_escalation would keep
+        the denial test above green. Whatever happens after the gate (system user
+        configuration), the refusal text must not be the escalation one.
+        """
+        self.expectErrorLog("Secure Operation Failed")
+        user = self._make_user(["Verenigingen Staff"])
+        doc = self._new_brand("Escalation Staff")
 
-                    self.assertFalse(
-                        result.success,
-                        "Unauthorized escalation request must be denied",
-                    )
-                    error_text = " ".join(result.errors).lower()
-                    self.assertIn("permission", error_text)
+        with self._acting_as(user):
+            self.assertFalse(frappe.has_permission("Brand", "create"))
+            result = secure_document_operation(
+                operation="create",
+                doc=doc,
+                justification="Test operation with valid justification",
+                allow_system_user=True,
+            )
+
+        self.assertNotIn(
+            "do not have permission to request elevated system operations", " ".join(result.errors)
+        )
+
+    def test_user_without_write_permission_is_refused_without_fallback(self):
+        """validate_permissions maps save -> write against the real DocPerm.
+
+        The user can READ the Customer but not write it, so a regression that
+        maps save to read (or ignores the check) lets the save through.
+        """
+        self.expectErrorLog("Secure Operation Failed")
+        customer = self._create_customer_fixture("Read Only Target")
+        user = self._make_user(["Verenigingen Member"])
+        frappe.share.add("Customer", customer.name, user, read=1, write=0, flags={"ignore_share_permission": True})
+
+        with self._acting_as(user):
+            self.assertTrue(frappe.has_permission("Customer", "read", customer), "fixture: readable")
+            self.assertFalse(frappe.has_permission("Customer", "write", customer), "fixture: not writable")
+            customer.customer_name = customer.customer_name + " edited"
+            result = secure_document_operation(
+                operation="save",
+                doc=customer,
+                justification="Test operation with valid justification",
+                allow_system_user=False,
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("system user fallback not allowed", " ".join(result.errors))
+        self.assertNotIn(
+            "edited", frappe.db.get_value("Customer", customer.name, "customer_name"), "write must not land"
+        )
 
 
 class TestBypassValidationAllowedRolesConfiguration(unittest.TestCase):
