@@ -572,7 +572,7 @@ repos:
           or by returning/recording an explicit failure the caller reads; a genuinely
           best-effort write opts out with
           `# failed-write-ok: best-effort|caller-verifies|reported-elsewhere|false-positive`.
-          Ratcheted against scripts/validation/failed_write_baseline.txt (162 known
+          Ratcheted against scripts/validation/failed_write_baseline.txt (132 known
           sites) so existing code does not block commits — the baseline should only
           ever shrink. ADVISORY while that inventory is triaged: it prints and exits
           0; add --strict to the entry below to make a new site fail the commit.

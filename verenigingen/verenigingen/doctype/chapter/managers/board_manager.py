@@ -1220,6 +1220,7 @@ class BoardManager(BaseManager):
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             self._assert_board_access_withdrawn(volunteer_name)
+            self._refresh_volunteer_status(volunteer_name)
         self._refresh_expense_approvers(departed)
 
     def _refresh_expense_approvers(self, departed_volunteers):
@@ -1247,6 +1248,23 @@ class BoardManager(BaseManager):
             self._log_or_reraise(
                 "Failed to refresh expense approvers", {"volunteers": list(departed_volunteers)}, e
             )
+
+    def _refresh_volunteer_status(self, volunteer_name: str):
+        """Re-derive Volunteer.status once the seat change is in the database (#2540).
+
+        The history writes in validate() refresh the status too, but they run before the
+        Chapter Board Member rows are persisted: has_current_assignment() still finds the
+        seat being ended in `tabChapter Board Member` and keeps the volunteer Active. This
+        is the first frame where that read is truthful, same reason as the profile sync.
+        The derivation only moves status on real assignment evidence (never writes
+        Retired or Onboarding), so a volunteer who still holds another seat stays Active.
+        """
+        try:
+            from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_name)
+        except Exception as e:
+            self._log_or_reraise("Failed to refresh volunteer status", {"volunteer": volunteer_name}, e)
 
     def _withdraw_board_role_if_unseated(self, volunteer_name: str):
         """Drop the Frappe board role from a volunteer who no longer holds a seat.
@@ -1371,11 +1389,10 @@ class BoardManager(BaseManager):
                 sync_user_role_profile,
             )
 
-            # reraise_non_resumable: the grant this sync replaced (#1672) ran in validate(),
-            # where a 1213/1205 aborted the Chapter save. The sync swallows them by default,
-            # which would let a seat commit with no role until the nightly sync.
-            # A non-lock failure comes back as success=False and is already in the Error Log.
-            sync_user_role_profile(user, reraise_non_resumable=True)
+            # The grant this sync replaced (#1672) ran in validate(), where a 1213/1205 aborted
+            # the Chapter save; the sync re-raises them (#1888), so a seat cannot commit with
+            # no role. A non-lock failure comes back as success=False and is in the Error Log.
+            sync_user_role_profile(user)
         except Exception as e:
             self._log_or_reraise(
                 "Failed to sync role profile for volunteer", {"volunteer": volunteer_name}, e

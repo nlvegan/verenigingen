@@ -73,7 +73,9 @@ class _BankTxnFixtureMixin:
     def _ref(self, prefix="ref"):
         return f"{prefix}-{frappe.generate_hash(length=12)}"
 
-    def _insert_draft_bank_transaction(self, reference_number, bank_account, company=COMPANY, amount=12.0):
+    def _insert_draft_bank_transaction(
+        self, reference_number, bank_account, company=COMPANY, amount=12.0, system_issued=False
+    ):
         """Simulate a Bank Transaction left in draft by an earlier caller who
         lacked submit permission -- exactly what ``_create_bank_transaction``
         produces on that branch."""
@@ -91,6 +93,8 @@ class _BankTxnFixtureMixin:
                 "status": "Unreconciled",
                 "unallocated_amount": amount,
                 "allocated_amount": 0.0,
+                # What a Mollie / e-Boekhouden writer sets, so the row carries a key (#1349).
+                "custom_reference_is_system_issued": 1 if system_issued else 0,
             }
         )
         draft.insert(ignore_permissions=True)

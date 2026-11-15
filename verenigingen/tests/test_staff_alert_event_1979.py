@@ -461,6 +461,8 @@ class TestStaffAlertEvent(FrappeTestCase):
                 "mijnrood_division_unmapped",
                 "mijnrood_role_mapping_invalid",
                 "mijnrood_dues_template_unresolved",
+                "mijnrood_sync_step_failed",
+                "mijnrood_sync_money_step_failed",
                 # "ponto_executed_unbookable" (#2125) is a staff-alert call site added after #1979 and
                 # is marked staff_alert=True like the rest; the loop below still checks every flag.
                 "ponto_executed_unbookable",

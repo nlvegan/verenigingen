@@ -66,7 +66,7 @@ class TestSyncRoleProfileForVolunteer(EnhancedTestCase):
             mgr = self._make_board_manager()
             mgr._sync_role_profile_for_volunteer("VOL-001")
 
-            mock_sync.assert_called_once_with("user@example.com", reraise_non_resumable=True)
+            mock_sync.assert_called_once_with("user@example.com")
 
     @patch(
         "verenigingen.verenigingen.doctype.chapter.managers.board_manager.frappe"

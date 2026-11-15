@@ -1236,7 +1236,7 @@ class MembershipApplicationReview {
 		// One decision for the whole selection; each application keeps its own membership type
 		// and chapter. They are approved one after the other, and every outcome is reported.
 		frappe.confirm(`Are you sure you want to approve ${selected.length} applications?`, async () => {
-			const results = { done: [], invoice_failed: [], failed: [] };
+			const results = { done: [], invoice_failed: [], dues_schedule_failed: [], failed: [] };
 			for (const application_name of selected) {
 				const app = this.applications.find((a) => a.name === application_name);
 				try {
@@ -1250,12 +1250,16 @@ class MembershipApplicationReview {
 						}
 					});
 					// Approved, but the invoice could not be created (#1774): not a clean approval, and
-					// not a failed one either, so it gets its own bucket.
+					// not a failed one either, so it gets its own bucket. Likewise an approval without a
+					// dues schedule (#1930, #2560). An item with both is listed once, under the invoice
+					// bucket; the server message it shows names both.
 					const bucket = !response.message?.success
 						? results.failed
 						: response.message.invoice_failed
 							? results.invoice_failed
-							: results.done;
+							: response.message.dues_schedule_failed
+								? results.dues_schedule_failed
+								: results.done;
 					bucket.push({ application_name, error: response.message?.message });
 				} catch (error) {
 					results.failed.push({ application_name, error: error.message });
@@ -1309,12 +1313,18 @@ class MembershipApplicationReview {
 		const invoice_failed = results.invoice_failed || [];
 		const failures = list_items(results.failed);
 		const invoice_failures = list_items(invoice_failed);
+		const dues_failed = results.dues_schedule_failed || [];
+		const dues_failures = list_items(dues_failed);
 		frappe.msgprint({
 			title: __('Bulk result'),
-			indicator: results.failed.length || invoice_failed.length ? 'orange' : 'green',
+			indicator: results.failed.length || invoice_failed.length || dues_failed.length ? 'orange' : 'green',
 			message: `<p>${frappe.utils.escape_html(label)}: ${results.done.length}</p>${
 				invoice_failures
 					? `<p>${__('Approved, but the invoice could NOT be created')}: ${invoice_failed.length}</p><ul>${invoice_failures}</ul>`
+					: ''
+			}${
+				dues_failures
+					? `<p>${__('Approved, but the dues schedule could NOT be created')}: ${dues_failed.length}</p><ul>${dues_failures}</ul>`
 					: ''
 			}${failures ? `<p>${__('Failed')}: ${results.failed.length}</p><ul>${failures}</ul>` : ''}`
 		});

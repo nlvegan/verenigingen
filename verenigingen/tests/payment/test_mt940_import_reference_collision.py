@@ -71,3 +71,32 @@ class TestMT940ImportReferenceCollision(MT940BankAccountFixtureMixin, EnhancedTe
         )
         self.assertEqual(len(bts), 2)
         self.assertEqual(sorted(float(bt.deposit) for bt in bts), [42.0, 99.0])
+
+    def _assert_prefixed_payer_reference_imports_twice(self, eref):
+        result = M.process_mt940_document(
+            S.shared_eref_distinct_payments(eref), self.bank_account, self.company
+        )
+
+        self.assertTrue(result["success"], msg=result.get("message"))
+        self.assertEqual(result["errors"], [], f"the payer reference {eref!r} was refused as a duplicate")
+        self.assertEqual(result["transactions_created"], 2)
+        bts = frappe.get_all(
+            "Bank Transaction",
+            filters={"bank_account": self.bank_account, "reference_number": eref},
+            fields=["name", "deposit", "custom_reference_number_key", "custom_reference_is_system_issued"],
+        )
+        self.assertEqual(sorted(float(bt.deposit) for bt in bts), [42.0, 99.0])
+        for bt in bts:
+            self.assertIsNone(bt.custom_reference_number_key)
+            self.assertFalse(bt.custom_reference_is_system_issued)
+
+    def test_a_payer_reference_typed_with_the_e_boekhouden_prefix_imports_twice(self):
+        # #1349: "EB-2024" is a member-typed EREF here, not an e-Boekhouden mutation id.
+        self._assert_prefixed_payer_reference_imports_twice("EB-2024")
+
+    def test_a_payer_reference_typed_with_a_mollie_prefix_imports_twice(self):
+        # #1349: the Mollie prefixes (tr_/stl_/baltr_) are no more reliable on a statement line.
+        for eref in ("tr_payer1", "stl_payer2", "baltr_payer3"):
+            with self.subTest(eref=eref):
+                self._cleanup_bank_transactions()
+                self._assert_prefixed_payer_reference_imports_twice(eref)

@@ -16,6 +16,7 @@ from verenigingen.utils.validation.iban_validator import validate_iban
 
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..core.mollie_base_client import MollieBaseClient
+from ..utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from ..utils.timezone_utils import ensure_timezone_aware, mollie_timestamp_to_local_date
 from .balances_client import BalancesClient
 from .payments_client import PaymentsClient
@@ -499,6 +500,7 @@ class BulkTransactionImporter(MollieBaseClient):
                     "description": f"Mollie Settlement {settlement.get('reference', settlement.get('id', ''))}",
                     "reference_number": settlement.get("id"),
                     # Mollie-specific custom fields
+                    SYSTEM_ISSUED_FIELDNAME: 1,  # a Mollie settlement id (#1349)
                     "custom_mollie_settlement_id": settlement.get("id"),
                     "custom_mollie_reference": settlement.get("reference"),
                     "custom_mollie_import_source": "Bulk Import",
@@ -637,6 +639,7 @@ class BulkTransactionImporter(MollieBaseClient):
                     "bank_party_iban": consumer_iban,
                     "bank_party_account_number": consumer_account,
                     # Mollie-specific custom fields
+                    SYSTEM_ISSUED_FIELDNAME: 1,  # a Mollie payment id (#1349)
                     "custom_mollie_payment_id": payment.get("id"),
                     "custom_mollie_status": payment.get("status"),
                     "custom_mollie_method": payment.get("method"),

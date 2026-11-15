@@ -36,6 +36,7 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
 )
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     forward_payment_staff_cancelled,
     refuse_staff_cancelled_forward_payment,
@@ -1511,6 +1512,8 @@ class DuesPaymentProcessor:
             party_type="Customer",
             party=customer,
             custom_member=member_name,
+            # A Mollie payment id is issued by Mollie, unique by construction (#1349).
+            **{SYSTEM_ISSUED_FIELDNAME: 1},
         )
 
         if bank_transaction_name:
