@@ -100,9 +100,9 @@ verenigingen/api/suspension_api.py::bulk_suspend_members::2
 verenigingen/api/suspension_api.py::can_suspend_member::2
 verenigingen/api/suspension_api.py::get_suspension_preview::2
 verenigingen/api/suspension_api.py::get_suspension_status_safe::1
-verenigingen/api/suspension_api.py::suspend_member::7
+verenigingen/api/suspension_api.py::suspend_member::6
 verenigingen/api/suspension_api.py::test_bank_details_debug::1
-verenigingen/api/suspension_api.py::unsuspend_member::7
+verenigingen/api/suspension_api.py::unsuspend_member::6
 verenigingen/api/team_management.py::bulk_apply_team_role_profiles::1
 verenigingen/api/team_management.py::sync_team_with_volunteers::1
 verenigingen/api/termination_api.py::execute_safe_termination::2
