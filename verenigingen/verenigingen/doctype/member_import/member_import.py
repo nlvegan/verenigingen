@@ -19,6 +19,7 @@ from verenigingen.utils.csv_import_processor import (
     CSVImportBackgroundProcessor,
     bulk_member_operations,
     ensure_bulk_import_members_set,
+    single_run_per_import_doc,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.member_import_provenance import mark_member_imported
@@ -350,6 +351,7 @@ def validate_import_file(import_doc_name: str) -> dict:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@single_run_per_import_doc("Member Import")
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
     doc, test_mode = prepare_background_import("Member Import", import_doc_name, test_mode)
