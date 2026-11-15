@@ -235,9 +235,7 @@ class TestControls(AmbiguousPartyBase):
 
 
 class TestBatch(AmbiguousPartyBase):
-    """classify_batch has no production caller. Customer-ONLY payments are used on purpose: with both
-    id kinds in one call the pre-fetch's ``or_filters`` returns no rows (a separate defect) and every
-    payment falls back to the single path, so the batch lines would never run."""
+    """classify_batch has no production caller (only tests; #2585)."""
 
     def test_batch_refuses_shared_member_id_and_resolves_the_unique_one(self):
         shared = self._share("Member", "mollie_customer_id", self.members)
@@ -260,6 +258,56 @@ class TestBatch(AmbiguousPartyBase):
         self.assertEqual(result.payment_type, PaymentType.DONATION)
         self.assertEqual(result.matched_by, "customer_id_ambiguous_donor")
         self.assertIsNone(result.donor_id)
+
+    def test_mixed_id_kinds_prefetch_rows_and_match_the_single_path(self):
+        """#2585: both id kinds in one batch used to return 0 rows (list filters + or_filters=True), so
+        every payment fell back to the single path. Prove the pre-fetch returns rows AND that the
+        cache path (not the fallback) classified, then that batch == single for each payment."""
+        from unittest.mock import patch
+
+        shared = self._share("Member", "mollie_customer_id", self.members)
+        sub = f"sub_{frappe.generate_hash(length=10)}"
+        sub_member = self.create_test_member(
+            first_name="Amb5", last_name="Member", email=f"amb1497.m5.{frappe.generate_hash(length=6)}@example.com"
+        )
+        self._set("Member", sub_member.name, "mollie_subscription_id", sub)
+        donor_cust = f"cst_{frappe.generate_hash(length=10)}"
+        self._set("Donor", self.donors[0].name, "mollie_customer_id", donor_cust)
+        ids = [f"tr_{frappe.generate_hash(length=10)}" for _ in range(3)]
+        self.addCleanup(_purge, ids)
+        payments = [
+            self.payment(id=ids[0], subscription_id=sub),
+            self.payment(id=ids[1], customer_id=shared),
+            self.payment(id=ids[2], customer_id=donor_cust),
+        ]
+        single = [PaymentClassifier().classify(p) for p in payments]
+
+        prefetched = {}
+        real_get_all = frappe.db.get_all
+
+        def spy(doctype, *args, **kwargs):
+            rows = real_get_all(doctype, *args, **kwargs)
+            prefetched[doctype] = rows
+            return rows
+
+        classifier = PaymentClassifier()
+        with patch.object(frappe.db, "get_all", side_effect=spy), patch.object(
+            PaymentClassifier, "classify", wraps=classifier.classify
+        ) as fallback:
+            batched = classifier.classify_batch(payments)
+
+        self.assertTrue(prefetched.get("Member"), "Member pre-fetch returned no rows")
+        self.assertTrue(prefetched.get("Donor"), "Donor pre-fetch returned no rows")
+        self.assertEqual(fallback.call_count, 0, "a payment fell back to the single path")
+        self.assertEqual(batched[0].member_id, sub_member.name)
+        self.assertEqual(batched[1].payment_type, PaymentType.AMBIGUOUS)
+        self.assertIsNone(batched[1].member_id)
+        self.assertEqual(batched[2].donor_id, self.donors[0].name)
+        for b, s in zip(batched, single):
+            self.assertEqual(
+                (b.payment_type, b.confidence, b.matched_by, b.member_id, b.donor_id),
+                (s.payment_type, s.confidence, s.matched_by, s.member_id, s.donor_id),
+            )
 
 
 class _Forbidden:
