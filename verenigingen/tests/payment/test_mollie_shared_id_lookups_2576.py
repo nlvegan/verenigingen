@@ -264,3 +264,84 @@ class TestBulkPaymentCsvValidation(SharedIdBase):
         (row,) = result["results"]
         self.assertEqual(row["member_id"], third.name)
         self.assertFalse(any("more than one member" in issue for issue in row["issues"]), row["issues"])
+
+
+class TestSubscriptionWebhookRefusesASharedId(SharedIdBase):
+    """``_find_member_for_subscription`` feeds a live write (db_set of subscription_status) from the
+    whitelisted subscription webhook, a delivery path: the staff alert is raised.
+
+    Probe shortcut, stated: the Customer link and the subscription id are set with ``db.set_value``."""
+
+    def setUp(self):
+        super().setUp()
+        self.sub = f"sub_{frappe.generate_hash(length=10)}"
+
+    def _insert_customer_2576(self):
+        return frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": f"TEST 2576 {frappe.generate_hash(length=8)}",
+                "customer_type": "Individual",
+                "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+            }
+        ).insert(ignore_permissions=True)
+
+    def _customer(self, member):
+        customer = self._insert_customer_2576()
+        frappe.db.set_value(
+            "Customer",
+            customer.name,
+            {"custom_mollie_subscription_id": self.sub, "custom_mollie_customer_id": f"cst_{customer.name[-6:]}"},
+        )
+        frappe.db.set_value("Member", member.name, "customer", customer.name)
+        return customer
+
+    def _find(self):
+        from verenigingen.verenigingen_payments.utils.payment_gateways import _find_member_for_subscription
+
+        return _find_member_for_subscription(self.sub, self.payment_id)
+
+    def assertRefused(self, result):
+        self.assertEqual(result, (None, None, None), "the webhook picked one of the Members")
+        rows = [r for r in self._error_rows(MEMBER_LOG_TITLE)]
+        self.assertEqual(len(rows), 1)
+        for member in self.members:
+            self.assertIn(member.name, rows[0])
+        self.assertEqual(len(self._alert_events()), 1, "a delivery path must raise the staff alert once")
+
+    def test_two_customers_carrying_the_subscription_id_for_different_members(self):
+        self._staff_recipient()
+        for member in self.members:
+            self._customer(member)
+        self.assertRefused(self._find())
+
+    def test_one_customer_with_two_members(self):
+        self._staff_recipient()
+        customer = self._customer(self.members[0])
+        frappe.db.set_value("Member", self.members[1].name, "customer", customer.name)
+        self.assertRefused(self._find())
+
+    def test_a_redelivery_does_not_alert_or_log_again(self):
+        self._staff_recipient()
+        for member in self.members:
+            self._customer(member)
+        self._find()
+        self.assertEqual(self._find(), (None, None, None))
+        self.assertEqual(len(self._error_rows(MEMBER_LOG_TITLE)), 1)
+        self.assertEqual(len(self._alert_events()), 1)
+
+    def test_one_customer_one_member_still_resolves(self):
+        customer = self._customer(self.members[0])
+        found = self._find()
+        self.assertEqual(found, (self.members[0].name, customer.name, f"cst_{customer.name[-6:]}"))
+        self.assertEqual(self._error_rows(MEMBER_LOG_TITLE), [])
+
+    def test_two_customers_of_the_same_member_still_resolve(self):
+        """Control with a real second row: duplicate Customers of ONE Member are not ambiguous."""
+        first = self._customer(self.members[0])
+        second = self._insert_customer_2576()
+        frappe.db.set_value("Customer", second.name, "custom_mollie_subscription_id", self.sub)
+        frappe.db.set_value("Member", self.members[0].name, "customer", first.name)
+        name, _customer_name, _cid = self._find()
+        self.assertEqual(name, self.members[0].name)
+        self.assertEqual(self._error_rows(MEMBER_LOG_TITLE), [])
