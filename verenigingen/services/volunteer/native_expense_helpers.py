@@ -3,6 +3,8 @@ Helper utilities for native ERPNext expense system
 Replaces the complex department hierarchy with simple role-based approvals
 """
 
+from functools import partial
+
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -185,23 +187,27 @@ _JOBS = "verenigingen.services.volunteer.native_expense_helpers."
 
 
 def _enqueue_once(method, job_key, **kwargs):
-    """Enqueue after the caller's commit, unless an identical job still waits in the queue.
+    """After the caller's commit, enqueue unless an identical job still waits in the queue.
+
+    The "is it queued" check runs in the after-commit callback (#2553), never at
+    registration. Checked at registration, an uncommitted change saw a job queued by an
+    earlier commit and skipped; if a worker started that job before this change committed,
+    the job had read older state and the change was never processed. After the commit, a job
+    still QUEUED will start later and so read this change; one already started may not.
 
     ``deduplicate=True`` is inert together with ``enqueue_after_commit`` (the check runs
-    when the callback fires, after the job id was already chosen), so the check is made here.
-    Only a QUEUED job counts: one already running may have read state older than this change.
+    when the callback fires, after the job id was already chosen), hence the own callback.
+    A rollback drops it with the other after-commit callbacks.
     """
     job_id = f"expense_approver_refresh|{job_key}"
+    frappe.db.after_commit.add(partial(_enqueue_unless_queued, method, job_id, kwargs))
+
+
+def _enqueue_unless_queued(method, job_id, kwargs):
+    """The after-commit half of ``_enqueue_once``. Only a QUEUED job counts as covering this change."""
     if _job_is_queued(job_id):
         return
-    frappe.enqueue(
-        method,
-        queue="long",
-        timeout=1800,
-        job_id=job_id,
-        enqueue_after_commit=True,
-        **kwargs,
-    )
+    frappe.enqueue(method, queue="long", timeout=1800, job_id=job_id, **kwargs)
 
 
 def _job_is_queued(job_id):
