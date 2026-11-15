@@ -723,8 +723,18 @@ class BoardManager(BaseManager):
             if not old_board_member:
                 continue
 
-            # Check for role changes (same volunteer, same activity status, different role)
+            # Volunteer reassigned on an existing active row (#2553): the old holder loses
+            # the seat, the new one is seated by _newly_seated_board_members. Checked first:
+            # the role-change branch below would end the NEW volunteer's assignment instead.
             if (
+                old_board_member.is_active == 1
+                and old_board_member.volunteer
+                and old_board_member.volunteer != board_member.volunteer
+            ):
+                self._end_replaced_holder(old_board_member, board_member)
+
+            # Check for role changes (same volunteer, same activity status, different role)
+            elif (
                 old_board_member.is_active == 1
                 and board_member.is_active == 1
                 and board_member.volunteer
@@ -791,6 +801,28 @@ class BoardManager(BaseManager):
 
         # Handle deleted board members (existed in old doc but not in new)
         self.handle_board_member_deletions(old_doc)
+
+    def _end_replaced_holder(self, old_board_member, board_member):
+        """End the previous holder's seat when a save hands the same row to another volunteer (#2553)."""
+        end_date = board_member.to_date if not board_member.is_active and board_member.to_date else today()
+        self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
+            old_board_member.volunteer,
+            old_board_member.chapter_role,
+            old_board_member.from_date,
+            end_date,
+        )
+        # The database still shows the old holder's seat here, which is what makes a
+        # Financial departure (and so a stale expense approver) detectable.
+        self._defer_board_access_recalculation(old_board_member.volunteer)
+        self.log_action(
+            "Board seat reassigned to another volunteer",
+            {
+                "old_volunteer": old_board_member.volunteer,
+                "new_volunteer": board_member.volunteer,
+                "role": old_board_member.chapter_role,
+                "end_date": end_date,
+            },
+        )
 
     def handle_board_member_deletions(self, old_doc):
         """
@@ -935,7 +967,8 @@ class BoardManager(BaseManager):
         new role (the differing start_date slipped past the dedup).
 
         Role changes on an existing active row are handled by
-        handle_board_member_changes(), not here.
+        handle_board_member_changes(), not here. A volunteer handed an existing active
+        row IS seated here (#2553); the previous holder is ended there.
 
         Shared by the two passes that act on a seating -- the `members` append and the
         assignment history / role grant. They run at different points in the save
@@ -949,7 +982,18 @@ class BoardManager(BaseManager):
             old_board_member = old_board_members_by_name.get(board_member.name) if board_member.name else None
             is_new_row = old_board_member is None
             is_reactivation = old_board_member is not None and not old_board_member.is_active
-            if board_member.is_active and board_member.volunteer and (is_new_row or is_reactivation):
+            # Another volunteer on an existing active row is a seating for the new one (#2553).
+            is_handover = (
+                old_board_member is not None
+                and bool(old_board_member.is_active)
+                and bool(old_board_member.volunteer)
+                and old_board_member.volunteer != board_member.volunteer
+            )
+            if (
+                board_member.is_active
+                and board_member.volunteer
+                and (is_new_row or is_reactivation or is_handover)
+            ):
                 yield board_member
 
     def _log_or_reraise(self, action: str, details: Dict, error: Exception) -> None:
