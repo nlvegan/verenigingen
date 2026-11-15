@@ -563,9 +563,8 @@ class PaymentClassifier:
 
             members = frappe.db.get_all(
                 "Member",
-                filters=filters,
+                or_filters=filters,
                 fields=["name", "mollie_subscription_id", "mollie_customer_id"],
-                or_filters=True if len(filters) > 1 else False,
             )
 
             for member in members:
@@ -587,9 +586,8 @@ class PaymentClassifier:
 
             donors = frappe.db.get_all(
                 "Donor",
-                filters=filters,
+                or_filters=filters,
                 fields=["name", "mollie_subscription_id", "mollie_customer_id"],
-                or_filters=True if len(filters) > 1 else False,
             )
 
             for donor in donors:
