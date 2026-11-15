@@ -782,6 +782,35 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
             "do not have permission to request elevated system operations", " ".join(result.errors)
         )
 
+    def test_user_with_read_but_no_create_permission_is_refused_without_fallback(self):
+        """validate_permissions maps create -> create against the real DocPerm.
+
+        Verenigingen Staff holds read=1, create=0, write=0 on Region (stock DocPerm,
+        no Custom DocPerm), so a regression mapping create to read lets the insert
+        through. allow_system_user=False keeps the escalation branch (Staff is an
+        escalation role) out of the way, so the DocPerm check is what refuses.
+        """
+        self.expectErrorLog("Secure Operation Failed")
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Staff"]).name
+        region_name = f"Create Denied {frappe.generate_hash(length=8)}"
+        doc = frappe.get_doc(
+            {"doctype": "Region", "region_name": region_name, "region_code": frappe.generate_hash(length=6)}
+        )
+
+        with self._acting_as(user):
+            self.assertTrue(frappe.has_permission("Region", "read"), "fixture: readable")
+            self.assertFalse(frappe.has_permission("Region", "create"), "fixture: not creatable")
+            result = secure_document_operation(
+                operation="create",
+                doc=doc,
+                justification="Test operation with valid justification",
+                allow_system_user=False,
+            )
+
+        self.assertFalse(result.success)
+        self.assertIn("Insufficient permissions for create on Region", " ".join(result.errors))
+        self.assertFalse(frappe.db.exists("Region", region_name), "refused create must not write the row")
+
     def test_user_without_write_permission_is_refused_without_fallback(self):
         """validate_permissions maps save -> write against the real DocPerm.
 
