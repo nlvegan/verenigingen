@@ -658,18 +658,11 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
         finally:
             frappe.set_user(previous)
 
-    def _make_user(self, roles):
-        """Enabled System User carrying exactly ``roles`` (plus Frappe defaults)."""
-        return self.factory.create_user_with_roles(roles=list(roles)).name
-
-    def _new_customer(self, label):
-        doc = frappe.new_doc("Customer")
-        doc.customer_name = f"{label} {frappe.generate_hash(length=8)}"
-        return doc
-
     def _create_customer_fixture(self, label):
         """Persist a Customer as Administrator so the test user is a stranger to it."""
-        doc = self._new_customer(label)
+        doc = frappe.get_doc(
+            {"doctype": "Customer", "customer_name": f"{label} {frappe.generate_hash(length=8)}"}
+        )
         doc.insert(ignore_permissions=True)
         self.track_doc("Customer", doc.name)
         return doc
@@ -693,8 +686,10 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
         escalation-role control below shows) the DocPerm check is not what stops
         them, so the refusal can only come from can_use_bypass_validations.
         """
-        user = self._make_user(["Verenigingen Staff"])
-        doc = self._new_customer("Bypass Attacker")
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Staff"]).name
+        doc = frappe.get_doc(
+            {"doctype": "Customer", "customer_name": "Bypass Attacker " + frappe.generate_hash(length=8)}
+        )
 
         with self._acting_as(user):
             with self.assertRaises(frappe.PermissionError) as context:
@@ -710,8 +705,10 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
 
     def test_authorized_user_can_use_bypass_validations(self):
         """A real System Manager passes the bypass gate and the write lands."""
-        user = self._make_user(["System Manager"])
-        doc = self._new_customer("Bypass Admin")
+        user = self.factory.create_user_with_roles(roles=["System Manager"]).name
+        doc = frappe.get_doc(
+            {"doctype": "Customer", "customer_name": "Bypass Admin " + frappe.generate_hash(length=8)}
+        )
 
         with self._acting_as(user):
             result = secure_document_operation(
@@ -740,7 +737,7 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
         requested) and is denied only by can_request_system_escalation.
         """
         self.expectErrorLog("Secure Operation Failed")
-        user = self._make_user(["Verenigingen Member"])
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Member"]).name
         doc = self._new_brand("Escalation Attacker")
 
         with self._acting_as(user):
@@ -769,7 +766,7 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
         configuration), the refusal text must not be the escalation one.
         """
         self.expectErrorLog("Secure Operation Failed")
-        user = self._make_user(["Verenigingen Staff"])
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Staff"]).name
         doc = self._new_brand("Escalation Staff")
 
         with self._acting_as(user):
@@ -793,7 +790,7 @@ class TestSecureDocumentOperationAuthorization(EnhancedTestCase):
         """
         self.expectErrorLog("Secure Operation Failed")
         customer = self._create_customer_fixture("Read Only Target")
-        user = self._make_user(["Verenigingen Member"])
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Member"]).name
         frappe.share.add("Customer", customer.name, user, read=1, write=0, flags={"ignore_share_permission": True})
 
         with self._acting_as(user):
