@@ -730,8 +730,10 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # 217 -> 213 findings, 196 -> 194 keys (#2053): both `_enable_notifications` copies
         # (2 PERMISSION BYPASS findings each, 2 keys) were deleted with the move to
         # own_notification_keys. Baseline shrink committed with the code.
-        self.assertEqual(213, len(self.findings), "finding count moved")
-        self.assertEqual(194, len(tqe.counts_of(self.findings)), "key count moved")
+        # 213 -> 211 findings, 194 -> 192 keys (#2284): TestSecureDocumentOperationAuthorization's
+        # two BUSINESS LOGIC MOCK findings went with its rewrite onto real users and roles.
+        self.assertEqual(211, len(self.findings), "finding count moved")
+        self.assertEqual(192, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
