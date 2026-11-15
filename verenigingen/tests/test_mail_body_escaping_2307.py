@@ -49,10 +49,12 @@ class MailBodyEscapingBase(VereningingenTestCase):
         super().setUp()
         self.prior_user = frappe.session.user
         self.addCleanup(frappe.set_user, self.prior_user)
+        # First, so its cleanup runs LAST: on a site with no outgoing account (CI) it creates one and its
+        # cleanup commits, which must come after the notification restore below, not while it is armed.
+        ensure_outgoing_email_account(self)
         # Seeds no key (each test puts its own row with its own policy), switches the master switch on and
         # restores the rows and the switch afterwards; the switch used to leak (#2541).
         own_notification_keys(self)
-        ensure_outgoing_email_account(self)
         ensure_notification_registry_rows()
         clear_email_cooldowns()
         self.token = frappe.generate_hash(length=6)
