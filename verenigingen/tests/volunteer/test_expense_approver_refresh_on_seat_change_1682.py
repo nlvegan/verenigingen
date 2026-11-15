@@ -520,6 +520,11 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
             )
 
         self.assertTrue(assignments(second.name), "new holder has an assignment")
+        new_member = frappe.db.get_value("Volunteer", second.name, "member")
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"parent": self.chapter.name, "member": new_member}),
+            "the new holder is seated as a chapter member",
+        )
         old_holder = assignments(self.treasurer.name)
         self.assertTrue(old_holder, "the old holder had an assignment to end")
         self.assertTrue(all(a.status != "Active" for a in old_holder))
@@ -546,3 +551,39 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         finally:
             frappe.set_user(caller)
         self.assertIsNone(self._employee_approver() or None)
+
+    def test_a_job_that_started_before_the_commit_does_not_suppress_the_enqueue(self):
+        """#2553 item 1. T1 queued job J; T2 (uncommitted) registers while J still waits; a
+        worker starts J (it reads pre-T2 state) before T2 commits. T2's change must be
+        enqueued: the queued-check belongs AFTER the commit, where J's state is final.
+
+        Probe shortcut (stated): ``_job_is_queued`` is stubbed to model Redis's view at each
+        moment. CI has no RQ workers and this bench's workers run develop's code, so the
+        interleaving is driven by hand and the queued method is run directly afterwards."""
+        national = self._national_chapter()
+        queue_state = {"j_is_queued": True}
+        # Mock justified: the queue's own state, moved between registration and commit.
+        with patch(
+            "verenigingen.services.volunteer.native_expense_helpers._job_is_queued",
+            side_effect=lambda job_id: queue_state["j_is_queued"],
+        ):
+            with self._captured_enqueues() as jobs:
+                self._seat_volunteer_on_chapter(self.treasurer.name, chapter_name=national.name)
+                self.assertEqual(jobs, [], "nothing is enqueued before the commit fires")
+                queue_state["j_is_queued"] = False  # the worker started J
+                self._fire_our_commit_callbacks()
+                self.assertEqual(len(jobs), 1, "T2's change is enqueued after J started")
+        self._run_enqueued(jobs)
+        self.assertEqual(self._employee_approver(), self.treasurer_user.email)
+
+    def test_a_job_still_waiting_at_commit_time_is_not_enqueued_again(self):
+        """Control: J still QUEUED when T2's commit fires will read T2's committed state, so
+        the dedup still holds. (Fails a fix that simply drops the dedup.)"""
+        national = self._national_chapter()
+        # Mock justified: the queue's own state (J waits under this id at commit time).
+        with patch(
+            "verenigingen.services.volunteer.native_expense_helpers._job_is_queued", return_value=True
+        ):
+            with self._captured_enqueues() as jobs:
+                self._seat_volunteer_on_chapter(self.treasurer.name, chapter_name=national.name)
+        self.assertEqual(jobs, [])
