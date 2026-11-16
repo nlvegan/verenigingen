@@ -85,6 +85,8 @@ def _sync_team_lead_role(user):
         elif not is_still_leading and has_role:
             frappe.delete_doc("Has Role", has_role, ignore_permissions=True)
             frappe.logger().info(f"Removed Team Lead role from {user}")
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #2669: a 1213/1205 here leaves the Team save on a dead/half-applied transaction
     except Exception as e:
         frappe.log_error(
             f"Failed to sync Team Lead role for {user}: {e}",
