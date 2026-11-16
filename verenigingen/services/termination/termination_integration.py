@@ -1379,6 +1379,19 @@ def suspend_member_safe(
         return {"success": False, "error": str(e), "actions_taken": [], "errors": [str(e)]}
 
 
+def partial_failure_errors(results):
+    """The lines naming steps NOT done, when `results` is a success that is not the whole job.
+
+    suspend_member_safe / unsuspend_member_safe return success=True with a non-empty
+    `errors` when the member changed but a team row (or the user account) did not (#2517).
+    Callers must not answer a plain "success" then (#2597). A failed result has its own
+    `error`, so it yields [].
+    """
+    if not results.get("success"):
+        return []
+    return [str(e) for e in results.get("errors") or []]
+
+
 def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
     """
     Unsuspend a member (restore from suspension)
@@ -1676,7 +1689,15 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     sync_user_role_profile,
                 )
 
-                sync_result = sync_user_role_profile(user_email, allow_disabled=True)
+                # #2597: a RAISE here used to reach the outer handler, which discards `results`
+                # and returns volunteers_terminated=0 although the volunteers above were already
+                # saved Inactive. Report it like a success=False return and keep the count.
+                try:
+                    sync_result = sync_user_role_profile(user_email, allow_disabled=True)
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
+                except Exception as sync_error:
+                    sync_result = {"success": False, "error": str(sync_error)}
                 if sync_result.get("changed"):
                     results["actions_taken"].append(
                         f"Updated role profile for {user_email}: "
