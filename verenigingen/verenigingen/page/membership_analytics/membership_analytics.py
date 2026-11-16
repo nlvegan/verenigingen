@@ -28,7 +28,7 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 def get_dashboard_data(
     year=None,
     period="year",
-    compare_previous=False,
+    compare_previous: bool = False,
     cohort_interval="monthly",
     filters: dict | str | None = None,
 ):
