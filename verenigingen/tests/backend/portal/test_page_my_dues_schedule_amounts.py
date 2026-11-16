@@ -97,9 +97,59 @@ class TestMyDuesScheduleAmounts(PortalPageTestBase):
         self.assertIsNone(info["percentage"])
         self.assertIsNone(info["covered_months"])
 
-    def test_template_guards_unknown_values(self):
-        html = frappe.read_file(
-            frappe.get_app_path("verenigingen", "templates", "pages", "my_dues_schedule.html")
-        )
-        self.assertIn("current_schedule.monthly_amount is not none", html)
-        self.assertIn("coverage_percentage is not none", html)
+    def _render(self, user):
+        from frappe.website.serve import get_response_content
+
+        with self.as_user(user):
+            return get_response_content("my_dues_schedule")
+
+    def _monthly_card(self, html):
+        """The text of the Monthly Amount card, so asserts cannot match elsewhere."""
+        start = html.index("Monthly Amount")
+        return html[start : html.index("</p>", html.index("</p>", start) + 1)]
+
+    def _coverage_card(self, html):
+        start = html.index(">Coverage<")
+        return html[start : html.index("</p>", html.index("</p>", start) + 1)]
+
+    def test_rendered_page_shows_monthly_amount(self):
+        # Annual at RATE: one invoice a year, so RATE / 12 per month.
+        _member, user = self._member_with_schedule("Annual", 0, "Days")
+        card = self._monthly_card(self._render(user))
+        self.assertIn(frappe.format_value(RATE / 12, {"fieldtype": "Currency"}), card)
+        self.assertNotIn("--", card)
+
+    def test_rendered_page_shows_nothing_for_custom_without_interval(self):
+        _member, user = self._member_with_schedule("Custom", 0, "Days")
+        html = self._render(user)
+        self.assertIn("--", self._monthly_card(html))
+        coverage = self._coverage_card(html)
+        self.assertIn("--", coverage)
+        self.assertNotIn("%", coverage)
+
+    def _pay_one_invoice(self, member):
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        invoice = self.create_test_sales_invoice(member.name)
+        if invoice.docstatus == 0:
+            invoice.submit()
+        entry = get_payment_entry(invoice.doctype, invoice.name)
+        entry.reference_no = f"TEST-{invoice.name}"
+        entry.reference_date = frappe.utils.today()
+        entry.insert()
+        entry.submit()
+        self.track_doc("Payment Entry", entry.name)
+        invoice.reload()
+        self.assertEqual(invoice.outstanding_amount, 0)
+
+    def test_get_coverage_info_counts_a_real_paid_invoice(self):
+        """SQL path: one real submitted, fully paid invoice covers one billing period."""
+        from verenigingen.templates.pages.my_dues_schedule import get_coverage_info
+
+        for frequency, months in (("Annual", 12), ("Monthly", 1)):
+            with self.subTest(frequency=frequency):
+                member, user = self._member_with_schedule(frequency, 0, "Days")
+                self._pay_one_invoice(member)
+                schedule = self._context(user).current_schedule
+                info = get_coverage_info(member.name, schedule)
+                self.assertEqual(info["covered_months"], months)
