@@ -596,16 +596,18 @@ class APISecurityFramework:
         client out of CRITICAL endpoints. Once per process per distinct value, so a bad
         config does not write a row per request. Never raises: the caller still denies.
         """
-        key = repr(value)
+        # Keyed by site too: the set is per process and a worker serves several sites.
+        key = (frappe.local.site, repr(value))
         if key in self._reported_invalid_allowlist:
             return
-        self._reported_invalid_allowlist.add(key)
         try:
             frappe.log_error(
                 title="Invalid critical_api_ip_allowlist configuration",
                 message=f"{problem}: {value!r}. Invalid entries are skipped; if none remain, "
                 "every client is denied on CRITICAL endpoints.",
             )
+            # Only after the write succeeded, so a failed write is retried next request.
+            self._reported_invalid_allowlist.add(key)
         except Exception:
             frappe.logger("verenigingen.api_security").error(
                 f"Invalid critical_api_ip_allowlist ({problem}): {value!r}"
