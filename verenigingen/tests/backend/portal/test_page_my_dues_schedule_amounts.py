@@ -138,7 +138,10 @@ class TestMyDuesScheduleAmounts(PortalPageTestBase):
         entry.reference_date = frappe.utils.today()
         entry.insert()
         entry.submit()
-        self.track_doc("Payment Entry", entry.name)
+        # Priority 6 releases the Payment Entry before its party (Member 5, Customer 3). At the
+        # default tier it is cancelled after the Customer is gone and leaks with "Could not find
+        # Party" (the CI leak ratchet caught exactly that on the merge-queue run of #2690).
+        self.factory.track_document("Payment Entry", entry.name, priority=6)
         invoice.reload()
         self.assertEqual(invoice.outstanding_amount, 0)
 
