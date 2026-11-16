@@ -45,6 +45,20 @@ class TestSuspensionApiReportsPartialResult2597(_SuspensionBase):
         # Not suspending the team does not undo the suspension itself.
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Suspended")
 
+    def test_a_permission_failure_on_the_team_write_is_also_partial(self):
+        """The PermissionError catch branch of suspend_team_memberships_safe surfaces too."""
+        from verenigingen.api.suspension_api import suspend_member
+
+        with self._failing_set_value(frappe.PermissionError("no")):
+            result = suspend_member(self.member.name, "policy")
+
+        data = self._payload(result)
+        self.assertTrue(data.get("partial"), data)
+        self.assertEqual(
+            len([e for e in data["errors"] if self.team.name in e and "permission" in e.lower()]), 1, data
+        )
+        self.assertEqual(self._team_row_state().is_active, 1)
+
     def test_a_clean_suspend_member_stays_a_plain_success(self):
         """CONTROL: the team row really is suspended and no partial marker appears."""
         from verenigingen.api.suspension_api import suspend_member
@@ -114,6 +128,19 @@ class TestMemberMixinReportsPartialResult2597(_SuspensionBase):
         warned = [m for m in frappe.message_log if self.team.name in str(m)]
         self.assertTrue(warned, "no desk message names the team that is still active")
 
+    def test_the_desk_message_escapes_html_in_a_team_name(self):
+        """A team whose name is markup must reach the msgprint escaped, not as HTML."""
+        hostile = "<b>x2597</b>"
+        frappe.db.sql("UPDATE `tabTeam Member` SET parent=%s WHERE name=%s", (hostile, self.team_row))
+        member = frappe.get_doc("Member", self.member.name)
+        with self._failing_set_value(Exception("write boom")):
+            results = member.suspend_member("policy")
+
+        self.assertTrue(any(hostile in e for e in results["errors"]), results)
+        shown = " ".join(str(m) for m in frappe.message_log)
+        self.assertIn("&lt;b&gt;x2597&lt;/b&gt;", shown)
+        self.assertNotIn(hostile, shown)
+
     def test_member_suspend_member_control_clean_is_not_partial(self):
         """CONTROL."""
         results = frappe.get_doc("Member", self.member.name).suspend_member("policy")
@@ -150,3 +177,21 @@ class TestTerminateVolunteerKeepsCountWhenRoleSyncRaises2597(_Base):
         self.assertEqual(results["volunteers_terminated"], 1, results)
         self.assertTrue(any("sync boom" in e for e in results["errors"]), results)
         self.assertTrue(any(self.volunteer.name in a or "volunteer" in a.lower() for a in results["actions_taken"]), results)
+
+    def test_a_non_resumable_db_error_in_the_role_sync_still_propagates(self):
+        """The new wrap must not swallow a 1213/1205: the transaction is already gone."""
+        from verenigingen.services.termination.termination_integration import (
+            terminate_volunteer_records_safe,
+        )
+
+        user = self.create_test_user(f"vol2597b.{frappe.generate_hash(length=6)}@example.com")
+        frappe.db.set_value("Member", self.member.name, "user", user.name)
+        for error in (frappe.QueryDeadlockError, frappe.QueryTimeoutError):
+            with self.subTest(error=error.__name__):
+                with patch(
+                    "verenigingen.services.member.account.user_role_profile_calculator."
+                    "sync_user_role_profile",
+                    side_effect=error,
+                ):
+                    with self.assertRaises(error):
+                        terminate_volunteer_records_safe(self.member.name, "Voluntary", None, "r")
