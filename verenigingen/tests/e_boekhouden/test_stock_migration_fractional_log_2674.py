@@ -78,6 +78,9 @@ class TestMigrationRunReporting(EnhancedTestCase):
 
         settings = frappe._dict(api_token="x")
         with (
+            # The wrapper is @development_only_api; CI runs with developer_mode=0, so
+            # satisfy the EnvironmentValidator (it reads frappe.conf["developer_mode"]).
+            patch.dict(frappe.conf, {"developer_mode": 1}),
             patch(f"{MOD}.frappe.get_single", return_value=settings),
             patch(self.API, side_effect=RuntimeError("api down")),
             patch("frappe.log_error"),
