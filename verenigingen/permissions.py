@@ -490,6 +490,10 @@ def has_member_permission(doc, user=None, ptype=None):
     if not user:
         user = frappe.session.user
 
+    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it
+    if not has_unforged_owner(doc, user):
+        return False
+
     # Log for debugging
     frappe.logger().debug(f"Checking Member permissions for user {user} with roles {frappe.get_roles(user)}")
 
@@ -902,6 +906,27 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 # Member.save() by that point, and the create failed one step later on Membership
 # itself for the identical underlying reason.
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
+
+
+def has_unforged_owner(doc, user=None, ptype=None):
+    """has_permission hook: refuse a document whose ``owner`` was posted by the client (#2562).
+
+    ``frappe.handler.run_doc_method`` (and the v2 twin) with ``docs=`` builds the document from the
+    CLIENT's dict and runs the permission check on it, so a role's ``if_owner`` row was satisfied by
+    posting ``owner=<me>``. Frappe's own check cannot tell, so deny here: a non-new document whose
+    claimed owner is the caller but whose stored row says otherwise (or has no stored row) is refused.
+    An unknown name is refused too, so it matches the forbidden one on every channel (a bare 404
+    would tell the caller which ids exist). Only the owner claim is examined, and only when it names
+    the caller, so staff and the real owner pay one lookup and are otherwise untouched.
+    """
+    if isinstance(doc, str):
+        return True
+    user = user or frappe.session.user
+    claimed = (doc.get("owner") or "").lower()
+    if claimed != user.lower() or doc.get("__islocal") or not doc.get("name"):
+        return True
+    stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner")
+    return (stored or "").lower() == claimed
 
 
 def has_donation_permission(doc, user=None, ptype=None):
