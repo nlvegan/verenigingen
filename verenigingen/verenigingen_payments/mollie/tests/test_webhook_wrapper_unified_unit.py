@@ -47,6 +47,8 @@ class _FakeState:
         self.pending_chargebacks = kw.get("pending_chargebacks", [])
         self.payment_history_missing = kw.get("payment_history_missing", [])
         self.refunds_processed = kw.get("refunds_processed", [])
+        # #1805: the wrapper reads this to answer a Mollie 404 like a known id.
+        self.payment_not_found = kw.get("payment_not_found", False)
 
     def is_fully_processed(self):
         return self.payment_entry_exists and self.payment_history_updated and self.donation_status_updated
