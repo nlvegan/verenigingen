@@ -46,8 +46,18 @@ import re
 from contextlib import contextmanager
 
 import frappe
+import pymysql
 
 NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
+
+# Base class of every SQL error the driver raises (OperationalError, ProgrammingError,
+# InternalError, DataError ... all subclass it; the ``frappe.db.<Name>Error`` aliases are
+# these same classes). ``frappe.db`` and ``frappe`` expose NO ``DatabaseError`` of their own,
+# so ``except frappe.db.DatabaseError`` raises AttributeError (#2700). It does NOT cover
+# ``NON_RESUMABLE_DB_ERRORS``: frappe's dispatch converts 1213/1205 into those, and both derive
+# from plain ``Exception`` (measured), so a handler that wants them to escape must still not
+# sit behind a broader ``except Exception``.
+DATABASE_ERROR = pymysql.err.DatabaseError
 
 # MariaDB "SAVEPOINT <name> does not exist". Canonical home: financial_history_batch_processor
 # had the only correct copy and now imports these from here.

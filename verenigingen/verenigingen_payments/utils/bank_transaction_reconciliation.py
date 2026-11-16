@@ -13,7 +13,7 @@ from verenigingen.utils.security.authorization import (
     require_sepa_permission,
 )
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
-from verenigingen.utils.transaction_errors import insert_and_submit_atomically
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils import bank_transaction_status
@@ -426,7 +426,7 @@ class PaymentReconciliationManager:
                 },
                 as_dict=True,
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error in amount/reference matching: {str(e)}")
             return None
 
@@ -905,7 +905,7 @@ class PaymentReconciliationManager:
                 {"amount": amount},
                 as_dict=True,
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error in fuzzy matching: {str(e)}")
             return None
 
@@ -948,7 +948,7 @@ class PaymentReconciliationManager:
             """,
                 {"member_id": member_id, "amount": amount},
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error getting unpaid invoices: {str(e)}")
             return []
 
