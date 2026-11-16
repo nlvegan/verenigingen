@@ -1376,6 +1376,8 @@ class _FormDataReadVisitor(_EnclosingFunctionVisitor):
     def visit_Attribute(self, node):
         # #2632: ``form_data.key`` is a read of ``key``. Dict methods
         # (``.get``, ``.items``, ...) are not keys, whether called or not.
+        # A key named like a dict method would be a runtime bug on frappe._dict
+        # anyway, so skipping those names hides no real reader.
         if (
             isinstance(node.ctx, ast.Load)
             and isinstance(node.value, ast.Name)
@@ -1408,6 +1410,9 @@ class TestFormDataReadVisitorSeesAttributeReads(unittest.TestCase):
         reads = self._reads(source)
         self.assertEqual(set(reads), {"k"})
 
+    def test_attribute_stores_and_deletes_are_not_reads(self):
+        self.assertEqual(self._reads("form_data.x = 1\ndel form_data.y\n"), {})
+
     def test_attribute_reads_on_other_names_are_ignored(self):
         self.assertEqual(self._reads("x = other.invented_key\ny = self.form_data.invented_key\n"), {})
 
@@ -1422,6 +1427,7 @@ class TestFormDataReadVisitorSeesAttributeReads(unittest.TestCase):
     def test_an_attribute_read_of_a_posted_key_is_not_an_orphan(self):
         reads = self._reads("x = form_data.subscription_interval\ny = form_data.anonymous\n")
         self.assertEqual(set(reads), {"subscription_interval", "anonymous"})
+        self.assertTrue(set(reads) <= _donate_form_writers())
 
 
 class TestDonateFormKeysHaveWriters(unittest.TestCase):
