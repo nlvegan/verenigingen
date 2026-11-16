@@ -918,6 +918,12 @@ def has_unforged_owner(doc, user=None, ptype=None):
     An unknown name is refused too, so it matches the forbidden one on every channel (a bare 404
     would tell the caller which ids exist). Only the owner claim is examined, and only when it names
     the caller, so staff and the real owner pay one lookup and are otherwise untouched.
+
+    Deliberate behaviour change: an UNSAVED document owned by the caller now returns False for every
+    ptype except ``create`` (it was True), because "unsaved" is exactly what a forged posted dict looks
+    like. Returning True from a has_permission hook never grants access; it only falls through to
+    Frappe's own check. That is why the non-``get`` input path (a bare name) may return True: a name
+    carries no posted owner, so there is nothing to refuse and Frappe's DocPerm/if_owner check decides.
     """
     if not hasattr(doc, "get"):  # a bare name or other non-document input: nothing was posted
         return True

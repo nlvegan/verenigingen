@@ -208,3 +208,13 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         new = frappe.new_doc("Contribution Amendment Request")
         new.owner = user
         self.assertTrue(frappe.has_permission("Contribution Amendment Request", "create", doc=new, user=user))
+
+    def test_an_unsaved_doc_owned_by_the_caller_is_refused_for_read(self):
+        """Pins the deliberate change: an unsaved doc claiming the caller as owner is False for any
+        ptype but `create` (it was True, which is the forged-owner hole). Mutant: with the guard's
+        `return` forced True this assertion reddens."""
+        email = f"unsaved-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
+        new = frappe.new_doc("Donation Campaign")
+        new.owner = user
+        self.assertFalse(frappe.has_permission("Donation Campaign", "read", doc=new, user=user))
