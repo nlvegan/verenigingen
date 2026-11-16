@@ -947,6 +947,41 @@ class TestSepaReturnParsing(ReconBase):
         with self.assertRaises(Exception):
             recon.parse_sepa_return_xml("<not-valid-pain002>")
 
+    def test_parse_xml_failures_log_a_static_title_and_the_cause_as_message(self):
+        """#2644: the three handlers passed (message, title) positionally, so the cause
+        landed in the 140-char `method` (title) column and the label in `error`.
+
+        The parser is patched ONLY to raise each exception class deterministically
+        (a probe shortcut: the real parser's messages carry no per-test token).
+        """
+        from verenigingen.utils.secure_xml import XMLSecurityError
+
+        parser = "verenigingen.verenigingen_payments.utils.sepa_return_parser.parse_sepa_return_file"
+        title = "SEPA Return Processing"
+        for label, exc_class, expected in (
+            ("security", XMLSecurityError, XMLSecurityError),
+            ("invalid", ValueError, ValueError),
+            ("generic", RuntimeError, ValueError),
+        ):
+            with self.subTest(label):
+                self.expectErrorLog(title)
+                token = f"2644-{label}-{frappe.generate_hash(length=8)}"
+                with patch(parser, side_effect=exc_class(token)):
+                    with self.assertRaises(expected):
+                        recon.parse_sepa_return_xml("<x/>")
+                assert_error_log(self, title, unique=token, must_contain=[token])
+
+    def test_a_malformed_return_file_is_reported_as_a_failure_not_as_nothing_processed(self):
+        """#2644 (swallow half): the parse error is re-raised and the endpoint turns it into
+        success False with the error, so a bank file that failed to parse is not
+        indistinguishable from an empty one."""
+        self.expectErrorLog("SEPA Return Processing")
+        self.expectErrorLog("SEPA Return File Processing Failed")
+        result = recon.process_sepa_return_file("<not-valid-pain002>", file_type="xml")
+        self.assertFalse(result["success"], msg=result)
+        self.assertTrue(result.get("error"), msg=result)
+        self.assertNotIn("total_processed", result)
+
 
 # =============================================================================
 # process_individual_return + reverse_failed_sepa_payment (full return flow)

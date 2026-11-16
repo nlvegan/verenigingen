@@ -877,13 +877,15 @@ def parse_sepa_return_xml(xml_content: str) -> List[Dict]:
     try:
         return parse_sepa_return_file(xml_content)
     except XMLSecurityError as e:
-        frappe.log_error(f"Security violation in SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(
+            title="SEPA Return Processing", message=f"Security violation in SEPA return file: {e}"
+        )
         raise
     except ValueError as e:
-        frappe.log_error(f"Invalid SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(title="SEPA Return Processing", message=f"Invalid SEPA return file: {e}")
         raise
     except Exception as e:
-        frappe.log_error(f"Error parsing SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(title="SEPA Return Processing", message=f"Error parsing SEPA return file: {e}")
         raise ValueError(f"Failed to parse SEPA return file: {e}") from e
 
 
