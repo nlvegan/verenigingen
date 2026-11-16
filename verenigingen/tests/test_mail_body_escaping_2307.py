@@ -30,17 +30,12 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.tests.payment.test_sepa_literal_recipients import (
-    _put_key_row,
-    _restore_rows,
-    _snapshot_rows,
-)
+from verenigingen.tests.payment.test_sepa_literal_recipients import _put_key_row
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns, ensure_outgoing_email_account
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
-
-CONFIG = "Verenigingen Email Configuration"
 
 
 def hostile(tag):
@@ -50,16 +45,26 @@ def hostile(tag):
 
 
 class MailBodyEscapingBase(VereningingenTestCase):
+    # A subclass whose code under test COMMITS (e.g. ``_cleanup_stock_email_templates``) sets this True: the
+    # commit then makes the seed permanent, so a commit cleanup is registered below to make the restore
+    # permanent too. Left False, ``own_notification_keys`` fails the test on any stray commit.
+    NOTIFICATION_STATE_COMMITS = False
+
     def setUp(self):
         super().setUp()
         self.prior_user = frappe.session.user
         self.addCleanup(frappe.set_user, self.prior_user)
-        rows = _snapshot_rows()
-        self.addCleanup(_restore_rows, rows)
+        # First, so its cleanup runs LAST: on a site with no outgoing account (CI) it creates one and its
+        # cleanup commits, which must come after the notification restore below, not while it is armed.
         ensure_outgoing_email_account(self)
+        # Seeds no key (each test puts its own row with its own policy), switches the master switch on and
+        # restores the rows and the switch afterwards; the switch used to leak (#2541).
+        if self.NOTIFICATION_STATE_COMMITS:
+            # Registered BEFORE the helper: cleanups are LIFO, so this commit runs after the restore.
+            self.addCleanup(frappe.db.commit)
+        own_notification_keys(self, commits=self.NOTIFICATION_STATE_COMMITS)
         ensure_notification_registry_rows()
         clear_email_cooldowns()
-        frappe.db.set_single_value(CONFIG, "master_email_enabled", 1)
         self.token = frappe.generate_hash(length=6)
         self._baseline = {}
         # Mock justified: the SMTP transport. Email Queue rows are still written (and read below);
@@ -175,7 +180,10 @@ class TestRenewalReminder(MailBodyEscapingBase):
             {"end_date": add_days(today(), 30), "donor_name": hostile("donor")[0]},
         )
         self.mark(donor.donor_email)
-        result = send_renewal_reminders(days_before_expiry=90)
+        # Mock justified: send_renewal_reminders commits; a commit here would make the master switch
+        # permanent for every later class (#2541). The mail is read back in the same transaction.
+        with patch.object(frappe.db, "commit"):
+            result = send_renewal_reminders(days_before_expiry=90)
         self.assertGreaterEqual(result["data"]["sent_count"], 1, result)
         self.assert_escaped(self.html_to(donor.donor_email), "donor", live="<strong>To continue your support")
 
