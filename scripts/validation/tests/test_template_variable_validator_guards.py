@@ -213,5 +213,54 @@ class TestIfGuards(unittest.TestCase):
         self.assertIn("ws", null_risks(tpl))
 
 
+class TestLegacyGuardPaths(unittest.TestCase):
+    """#2443: the previous-line and for-loop shortcuts accepted closed or unrelated blocks."""
+
+    def test_a_same_prefix_if_on_the_previous_line_does_not_protect(self):
+        for guard in ("{% if wsx %}", "{% if ws_old %}"):
+            with self.subTest(guard=guard):
+                self.assertIn("ws", null_risks(guard + "\n{{ ws.a.b.c }}\n"))
+
+    def test_prose_mentioning_the_variable_on_the_previous_line_does_not_protect(self):
+        self.assertIn("ws", null_risks("<p>{{ ws.title }} difference</p>\n{{ ws.a.b.c }}\n"))
+
+    def test_a_closed_if_on_the_previous_line_does_not_protect(self):
+        self.assertIn("ws", null_risks("{% if ws and ws.a %}x{% endif %}\n{{ ws.a.b.c }}\n"))
+
+    def test_a_commented_out_if_on_the_previous_line_does_not_protect(self):
+        self.assertIn("ws", null_risks("{# {% if ws and ws.a %} #}\n{{ ws.a.b.c }}\n"))
+
+    def test_a_closed_for_loop_over_the_variable_does_not_protect(self):
+        tpl = "{% for x in ws %}\n<p></p>\n{% endfor %}\n{{ ws.a.b.c }}\n"
+        self.assertIn("ws", null_risks(tpl))
+
+    def test_a_closed_for_loop_binding_the_name_does_not_protect(self):
+        tpl = "{% for ws in rows %}\n<p></p>\n{% endfor %}\n{{ ws.a.b.c }}\n"
+        self.assertIn("ws", null_risks(tpl))
+
+    def test_the_else_branch_of_a_one_line_if_does_not_protect(self):
+        self.assertIn("ws", null_risks("{% if ws and ws.a %}x{% else %}{{ ws.a.b.c }}{% endif %}\n"))
+
+    # Controls: what must stay accepted.
+    def test_an_if_opened_on_the_same_line_protects(self):
+        self.assertNotIn("ws", null_risks("{% if ws and ws.a %}{{ ws.a.b.c }}{% endif %}\n"))
+
+    def test_an_if_on_the_previous_line_still_protects(self):
+        self.assertNotIn("ws", null_risks("{% if ws and ws.a %}\n{{ ws.a.b.c }}\n{% endif %}\n"))
+
+    def test_an_open_for_loop_over_the_variable_protects(self):
+        self.assertNotIn("ws", null_risks("{% for x in ws %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"))
+
+    def test_an_open_for_loop_binding_the_name_protects(self):
+        self.assertNotIn("ws", null_risks("{% for ws in rows %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"))
+
+    def test_an_open_for_loop_over_another_variable_does_not_protect(self):
+        self.assertIn("ws", null_risks("{% for x in rows %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"))
+
+    def test_a_for_loop_nested_in_an_if_keeps_both(self):
+        tpl = "{% if ws and ws.a %}\n{% for x in rows %}\n{{ ws.a.b.c }}\n{% endfor %}\n{% endif %}\n"
+        self.assertNotIn("ws", null_risks(tpl))
+
+
 if __name__ == "__main__":
     unittest.main()
