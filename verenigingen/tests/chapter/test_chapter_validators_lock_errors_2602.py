@@ -65,7 +65,6 @@ class TestChapterValidatorsLockErrors2602(EnhancedTestCase):
         self.create_test_board_member(self.chapter.name)
         self.chapter.reload()
 
-
     def _assert_save_raises_from(self, target, factory, helper_name):
         for error in LOCK_ERRORS:
             with self.subTest(error=error.__name__):
