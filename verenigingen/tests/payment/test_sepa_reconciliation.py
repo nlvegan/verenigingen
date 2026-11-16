@@ -1917,6 +1917,43 @@ class TestNonResumableErrorsEscapeTheBatchReconciliation681(ReconBase):
         self.assertEqual(result["type"], "transaction_error", msg=result)
         rollback.assert_called()
 
+    # ---- #2644: the three batch-reconciliation Error Log rows carry a static title ----
+    def test_batch_reconciliation_failures_log_a_static_title_and_the_cause_as_message(self):
+        """#2644: the three handlers passed (message, title) positionally, so the cause
+        landed in the 140-char title column. Each branch is driven by raising a unique token
+        from the real call site (probe shortcut: the exceptions are injected, not organic)."""
+        title = "SEPA Batch Reconciliation"
+        self.expectErrorLog(title)
+
+        with self.subTest("concurrent_operation"):
+            token = f"2644-concurrent-{frappe.generate_hash(length=8)}"
+            _, batch, bt = self._batch("R2644Conc")
+            with patch.object(frappe.db, "rollback"):
+                with patch.object(
+                    recon, "_create_payment_entry_atomic", side_effect=recon.ConcurrentOperationError(token)
+                ):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "concurrent_operation", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token])
+
+        with self.subTest("atomic_failure"):
+            token = f"2644-atomic-{frappe.generate_hash(length=8)}"
+            it, batch, bt = self._batch("R2644Atom")
+            with patch.object(frappe.db, "rollback"):
+                with _681_pe_insert_raising(ValueError(token)):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "atomic_failure", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token, it["invoice"].name])
+
+        with self.subTest("transaction_error"):
+            token = f"2644-outer-{frappe.generate_hash(length=8)}"
+            _, batch, bt = self._batch("R2644Outer")
+            with patch.object(frappe.db, "rollback"):
+                with _681_sql_raising_on_for_update(ValueError(token)):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "transaction_error", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token])
+
     def test_control_an_ordinary_validation_failure_is_still_collected_per_item(self):
         it, batch, bt = self._batch("R681CtlVal")
         items = frappe.get_all(
