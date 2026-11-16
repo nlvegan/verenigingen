@@ -47,7 +47,9 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
         # #2461: identity is an explicit link (Member.user), never the email. Probe
         # shortcut: db.set_value stands in for staff filling the Member.user field.
-        self.login_user = self.create_test_user("unit.test.login@example.com").name
+        self.login_user = self.create_test_user(
+            f"unit.test.login.{frappe.generate_hash(length=8)}@example.com"
+        ).name
         frappe.db.set_value("Member", self.test_member.name, "user", self.login_user, update_modified=False)
 
     def test_function_returns_all_required_fields(self):

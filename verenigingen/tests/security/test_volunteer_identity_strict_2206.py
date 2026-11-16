@@ -197,6 +197,19 @@ class TestVolunteerIdentityStrict2206(EnhancedTestCase):
             self.assertEqual(record["member_name"], late_member.name)
             self.assertTrue(record["volunteer_name"])
 
+    def test_expense_portal_resolver_resolves_volunteer_user_link_without_member(self):
+        """Control: a Volunteer linked ONLY by Volunteer.user, with no Member row at all,
+        resolves with member None (the LEFT JOIN) and does not raise."""
+        solo = self.create_test_volunteer(member=self.create_test_member())
+        frappe.db.set_value("Volunteer", solo.name, {"member": None, "user": self.nobody_user})
+        self.assertFalse(frappe.db.get_value("Volunteer", solo.name, "member"))
+
+        wrapper, optimized = self._expense_portal_record_as(self.nobody_user)
+        for record in (wrapper, optimized):
+            self.assertEqual(record["name"], solo.name)
+            self.assertIsNone(record["member"])
+            self.assertIsNone(record["member_name"])
+
     def test_expense_portal_resolver_resolves_volunteer_user_link(self):
         """Control: Volunteer.user alone is an explicit link (ruling)."""
         frappe.db.set_value("Volunteer", self.email_volunteer.name, "user", self.email_user)
