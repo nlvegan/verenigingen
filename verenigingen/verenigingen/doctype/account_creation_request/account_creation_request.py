@@ -27,6 +27,7 @@ from frappe.model.document import Document
 from frappe.utils import add_to_date, now
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -654,14 +655,13 @@ def bulk_queue_requests(request_names):
             except json.JSONDecodeError:
                 frappe.throw(_("Invalid request_names format"))
 
-    # Set flag to indicate we're in a bulk operation
-    # This prevents nested queue_processing() calls from being rate limited individually
-    frappe.flags.bulk_account_creation = True
-
     queued_count = 0
     errors = []
 
-    try:
+    # Flag a bulk operation so nested queue_processing() calls are not rate limited
+    # individually. #2577: restore the caller's value (the #2559 endpoints already set it), not False.
+    with restored_flags("bulk_account_creation"):
+        frappe.flags.bulk_account_creation = True
         for name in request_names:
             try:
                 doc = frappe.get_doc("Account Creation Request", name)
@@ -675,9 +675,6 @@ def bulk_queue_requests(request_names):
                 queued_count += 1
             except Exception as e:
                 errors.append(f"{name}: {str(e)}")
-    finally:
-        # Always clear the flag when done
-        frappe.flags.bulk_account_creation = False
 
     return {
         "success": len(errors) == 0,
