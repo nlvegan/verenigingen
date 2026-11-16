@@ -132,7 +132,10 @@ def restoring_session_user():
     try:
         yield
     finally:
-        frappe.set_user(original[0])
+        # set_user also wipes form_dict, local.cache and jenv, so only call it when the block
+        # actually left a different user behind
+        if session.user != original[0]:
+            frappe.set_user(original[0])
         session.sid, session.data = original[1], original[2]
 
 
