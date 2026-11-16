@@ -119,7 +119,7 @@ class _FakeDuesProcessor:
 class _NotProcessedCreator:
     """BankTransactionCreator stub: nothing is already processed."""
 
-    def check_already_processed(self, reference_number, check_payment_entry=False):
+    def check_mollie_payment_processed(self, reference_number, check_payment_entry=False):
         return {"already_processed": False, "payment_entry": None, "bank_transaction": None}
 
 

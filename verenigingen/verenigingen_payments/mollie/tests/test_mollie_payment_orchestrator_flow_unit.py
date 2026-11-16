@@ -371,8 +371,6 @@ class TestProcessPaymentFlow(unittest.TestCase):
 
 class TestProcessOrphanedPayment(unittest.TestCase):
     def test_existing_bt_is_idempotent(self):
-        import frappe
-
         orch = _make_orchestrator(bt=_FakeBTCreator(existing_bt="BT-EXISTING"))
         out = orch.process_orphaned_payment("tr_1", payment=_payment())
         self.assertEqual(out.status, "already_processed")
@@ -426,8 +424,6 @@ class TestProcessOrphanedPayment(unittest.TestCase):
 
 class TestProcessBtOnlyPayment(unittest.TestCase):
     def test_existing_bt_is_idempotent(self):
-        import frappe
-
         orch = _make_orchestrator(bt=_FakeBTCreator(existing_bt="BT-EXISTING"))
         out = orch.process_bt_only_payment("tr_1", payment=_payment())
         self.assertEqual(out.status, "already_processed")

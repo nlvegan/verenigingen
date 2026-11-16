@@ -553,6 +553,10 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
         # Fetch recent transactions from Mollie
         transactions = processor.balances_client.list_balance_transactions(balance_id=balance_id, limit=limit)
 
+        # Resolve the Mollie account once, not once per transaction (#2620)
+        creator = get_bank_transaction_creator()
+        mollie_config = creator.get_mollie_bank_account_config()
+
         # Process each transaction into ERPNext
         processed = 0
         already_exists = 0
@@ -562,7 +566,7 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
             try:
                 # Check if already processed
                 # Mollie bank account, live rows only (#2620)
-                existing = get_bank_transaction_creator().find_mollie_bank_transaction(transaction.id)
+                existing = creator.find_mollie_bank_transaction(transaction.id, config=mollie_config)
                 if existing:
                     already_exists += 1
                     continue

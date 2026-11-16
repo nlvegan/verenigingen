@@ -907,6 +907,15 @@ class MolliePaymentOrchestrator:
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
                 return result
 
+            # Resolve the BT configuration BEFORE the customer step: with an unresolvable
+            # Mollie account the lookup above sees no row, and creating a Customer for a
+            # payment that may already be booked would be a side effect with no BT (#2620).
+            config = self._get_bank_account_config()
+            if config.get("error"):
+                result.status = "error"
+                result.error = f"Bank account config error: {config['error']}"
+                return result
+
             # Get Mollie customer ID and try to find/create Customer
             mollie_customer_id = getattr(payment, "customer_id", None)
             customer_name = None
@@ -922,13 +931,6 @@ class MolliePaymentOrchestrator:
             else:
                 # Anonymous payment - no customer ID available
                 result.actions_taken.append("Anonymous payment (no Mollie customer ID)")
-
-            # Get BT configuration
-            config = self._get_bank_account_config()
-            if config.get("error"):
-                result.status = "error"
-                result.error = f"Bank account config error: {config['error']}"
-                return result
 
             # Build description based on available info
             description_parts = ["Orphaned payment (no member match)"]

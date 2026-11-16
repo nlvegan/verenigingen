@@ -40,14 +40,14 @@ class BankTransactionScopeCase(EnhancedTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def seed_bt(self, suffix, bank_account, docstatus=1, reference=None, transaction_id=None):
+    def seed_bt(self, suffix, bank_account, docstatus=1, reference=None, transaction_id=None, date="2026-01-15"):
         name = f"TEST-2620-{suffix}-{self.ref}"
         frappe.db.sql(
             """INSERT INTO `tabBank Transaction`
                (name, creation, modified, owner, modified_by, docstatus,
-                bank_account, company, reference_number, transaction_id)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', %s, %s, %s, %s, %s)""",
-            (name, docstatus, bank_account, COMPANY, reference or self.ref, transaction_id),
+                bank_account, company, reference_number, transaction_id, date)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', %s, %s, %s, %s, %s, %s)""",
+            (name, docstatus, bank_account, COMPANY, reference or self.ref, transaction_id, date),
         )
         self.addCleanup(frappe.db.sql, "DELETE FROM `tabBank Transaction` WHERE name = %s", name)
         return name
@@ -81,11 +81,23 @@ class TestCreatorMollieLookup2620(BankTransactionScopeCase):
             self.assertEqual(creator.find_mollie_bank_transactions([self.ref]), {})
 
     def test_mollie_check_newer_cancelled_row_does_not_hide_a_live_one(self):
-        own = self.seed_bt("OWN", MOLLIE_ACCOUNT)
-        self.age(own)
-        self.seed_bt("NEWER-CANCELLED", MOLLIE_ACCOUNT, docstatus=2)
+        # check_already_processed orders by the doctype sort field (date DESC): the cancelled
+        # row must be the NEWER one by DATE, or the two rows tie and the test proves nothing.
+        own = self.seed_bt("OWN", MOLLIE_ACCOUNT, date="2026-01-10")
+        self.seed_bt("NEWER-CANCELLED", MOLLIE_ACCOUNT, docstatus=2, date="2026-02-10")
         result = get_bank_transaction_creator().check_mollie_payment_processed(self.ref)
         self.assertTrue(result["already_processed"])
+        self.assertEqual(result["bank_transaction"], own)
+
+    def test_mollie_check_cancelled_only_is_not_processed(self):
+        self.seed_bt("CANCELLED", MOLLIE_ACCOUNT, docstatus=2)
+        self.assertFalse(get_bank_transaction_creator().check_mollie_payment_processed(self.ref)["already_processed"])
+
+    def test_mollie_check_unresolvable_account_falls_back_to_the_unscoped_live_lookup(self):
+        own = self.seed_bt("ANY", OTHER_ACCOUNT)
+        self.seed_bt("CANCELLED-NEWER", OTHER_ACCOUNT, docstatus=2, date="2026-03-01")
+        with patch.object(BankTransactionCreator, "get_mollie_bank_account_config", return_value={"error": "x"}):
+            result = get_bank_transaction_creator().check_mollie_payment_processed(self.ref)
         self.assertEqual(result["bank_transaction"], own)
 
     def test_mollie_check_other_accounts_row_is_not_processed(self):
@@ -284,3 +296,141 @@ class TestBalanceTransactionLookups2620(BankTransactionScopeCase):
         result = check_transaction_status(baltr)
         self.assertTrue(result["processed"])
         self.assertEqual(result["bank_transaction"]["name"], own)
+
+
+class TestCallersOfTheCheck2620(BankTransactionScopeCase):
+    """The two callers of check_already_processed that stayed unscoped after the first round."""
+
+    def test_bulk_checker_customer_path_ignores_other_accounts_and_cancelled_rows(self):
+        from verenigingen.tests.payment.test_bulk_payment_checker import (
+            _build_checker,
+            _FakeSDKClient,
+            _sdk_payment,
+        )
+
+        foreign_id, cancelled_id, own_id = (f"{self.ref}{s}" for s in "fco")
+        self.seed_bt("OTHER", OTHER_ACCOUNT, reference=foreign_id)
+        self.seed_bt("CANCELLED", MOLLIE_ACCOUNT, docstatus=2, reference=cancelled_id)
+        own = self.seed_bt("OWN", MOLLIE_ACCOUNT, reference=own_id)
+        sdk = _FakeSDKClient(
+            payments_by_customer={"cst_1": [_sdk_payment(i) for i in (foreign_id, cancelled_id, own_id)]}
+        )
+        result = _build_checker(sdk).check_payments_for_customer("cst_1", "MEM-1")
+        rows = {p["id"]: p for p in result["payments"]}
+        self.assertFalse(rows[foreign_id]["already_processed"])
+        self.assertFalse(rows[cancelled_id]["already_processed"])
+        self.assertTrue(rows[own_id]["already_processed"])
+        self.assertEqual(rows[own_id]["bank_transaction"], own)
+
+    def test_dues_processor_asks_for_the_mollie_account_scope(self):
+        """Wiring test: the processor's idempotency call reaches the creator's real query with the
+        Mollie account (the webhook money path; a foreign row would otherwise select partial
+        processing). Spies on the creator; the query itself is covered above."""
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        calls = []
+        real = BankTransactionCreator.check_already_processed
+
+        def spy(creator, *args, **kwargs):
+            calls.append(kwargs)
+            return real(creator, *args, **kwargs)
+
+        processor = object.__new__(DuesPaymentProcessor)
+        processor.bank_tx_creator = get_bank_transaction_creator()
+        payment = SimpleNamespace(status="paid", amount={"value": "10.00", "currency": "EUR"})
+        with patch.object(BankTransactionCreator, "check_already_processed", spy):
+            processor.process_dues_payment(self.ref, payment=payment)
+        self.assertTrue(calls, "the processor must run the idempotency check")
+        self.assertEqual(calls[0].get("bank_account"), MOLLIE_ACCOUNT)
+        self.assertEqual(calls[0].get("company"), COMPANY)
+
+
+class TestBalanceRaceAndConfig2620(BankTransactionScopeCase):
+    def _transaction(self):
+        return SimpleNamespace(
+            id=f"baltr_{self.ref}",
+            type="payment",
+            context={"paymentId": self.ref},
+            result_amount=None,
+            initial_amount=None,
+            created_at=None,
+            get_total_deductions=lambda: 0,
+        )
+
+    def _process(self):
+        from verenigingen.verenigingen_payments.services.balance_transaction_processor import (
+            BalanceTransactionProcessor,
+        )
+
+        return BalanceTransactionProcessor.__new__(BalanceTransactionProcessor)._process_single_transaction(
+            self._transaction()
+        )
+
+    def test_duplicate_entry_requery_ignores_foreign_and_cancelled_rows(self):
+        self.seed_bt("OTHER", OTHER_ACCOUNT)
+        self.seed_bt("CANCELLED", MOLLIE_ACCOUNT, docstatus=2, transaction_id=f"x-{self.ref}")
+        with patch.object(BankTransactionCreator, "create", side_effect=frappe.DuplicateEntryError("BT", "x", None)):
+            result = self._process()
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("existing Bank Transaction not found", result["error"])
+
+    def test_duplicate_entry_requery_finds_the_concurrent_row_on_the_mollie_account(self):
+        self.seed_bt("OTHER", OTHER_ACCOUNT)
+        result = self._race_with_winner_on_balance_id()
+        self.assertEqual(result["status"], "already_processed", result)
+
+    def _race_with_winner_on_balance_id(self):
+        winner = self.seed_bt("WINNER2", MOLLIE_ACCOUNT, docstatus=0, reference=f"baltr_{self.ref}")
+
+        def create(*args, **kwargs):
+            raise frappe.DuplicateEntryError("BT", "x", None)
+
+        # Strategy 1 would already see the winner; hide it from strategies 1-3 only.
+        with patch.object(BankTransactionCreator, "_find_matching_bank_transaction", return_value=None), patch.object(
+            BankTransactionCreator, "create", side_effect=create
+        ):
+            result = self._process()
+        self.assertEqual(result.get("bank_transaction"), winner)
+        return result
+
+    def test_config_error_comes_before_the_idempotency_check(self):
+        self.seed_bt("OWN", MOLLIE_ACCOUNT, reference=f"baltr_{self.ref}")
+        with patch.object(BankTransactionCreator, "get_mollie_bank_account_config", return_value={"error": "x"}):
+            result = self._process()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["error"], "x")
+
+    def test_fetch_recent_resolves_the_mollie_account_once(self):
+        from verenigingen.verenigingen_payments.api import balance_transaction_processing as api
+
+        processor = MagicMock()
+        processor.balances_client.list_balance_transactions.return_value = [
+            SimpleNamespace(id=f"baltr_{self.ref}{i}") for i in range(3)
+        ]
+        processor._process_single_transaction.return_value = {"status": "error", "error": "stop"}
+        config = MagicMock(return_value={"bank_account": MOLLIE_ACCOUNT, "company": COMPANY})
+        with patch.object(api, "BalanceTransactionProcessor", return_value=processor), patch.object(
+            BankTransactionCreator, "get_mollie_bank_account_config", config
+        ):
+            result = api.fetch_recent_transactions_for_search(limit=3)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(config.call_count, 1)
+
+
+class TestOrphanConfigBeforeCustomer2620(BankTransactionScopeCase):
+    def test_unresolvable_account_creates_no_customer(self):
+        from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+            MolliePaymentOrchestrator,
+        )
+
+        orchestrator = MolliePaymentOrchestrator()
+        orchestrator._find_or_create_customer_from_mollie = MagicMock(return_value="CUST-X")
+        payment = SimpleNamespace(status="paid", customer_id="cst_x")
+        with patch.object(BankTransactionCreator, "get_mollie_bank_account_config", return_value={"error": "x"}):
+            orchestrator._bank_config_cache = None
+            result = orchestrator.process_orphaned_payment(self.ref, payment=payment)
+        self.assertEqual(result.status, "error")
+        self.assertIn("config error", result.error)
+        orchestrator._find_or_create_customer_from_mollie.assert_not_called()

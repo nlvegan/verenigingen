@@ -416,7 +416,9 @@ class BulkPaymentChecker:
                     )
                     break
 
-                idempotency_check = creator.check_already_processed(payment.id, check_payment_entry=True)
+                idempotency_check = creator.check_mollie_payment_processed(
+                    payment.id, check_payment_entry=True
+                )
                 payment_type = self.dues_processor.identify_payment_type(payment)
                 amount_value = extract_amount_value(payment.amount)
                 currency = extract_amount_currency(payment.amount)
