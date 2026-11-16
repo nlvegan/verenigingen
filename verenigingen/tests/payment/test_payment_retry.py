@@ -375,7 +375,6 @@ class TestEscalation(RetryBase):
         )
         self.assertTrue(any("Escalated for manual review" in c for c in comments))
 
-
     # --- #2590: a member with no Active membership must still be escalated ---
 
     def _escalate_through_schedule_retry(self, member, invoice):
@@ -428,7 +427,13 @@ class TestEscalation(RetryBase):
                 self.assertTrue(any("Escalated for manual review" in c for c in comments))
 
     def test_escalation_for_customer_without_member_still_notifies(self):
-        """retry_record.member is nullable too (Customer with no linked Member)."""
+        """send_escalation_notification must cope with a nullable retry_record.member.
+
+        NOT an end-to-end claim: in production a Customer without a Member does not
+        reach escalation, because schedule_retry raises earlier on every
+        non-escalating retry at sepa_notifications.py send_payment_retry_notification
+        (#2685 item 1). This test lifts retry_count with db_set to reach the escalation
+        branch directly, so it proves only that branch."""
         member = self._make_member_with_customer("EscNoMember")
         invoice = self._make_unpaid_invoice(member)
         frappe.db.set_value("Member", member.name, "customer", None)
@@ -442,6 +447,8 @@ class TestEscalation(RetryBase):
         kwargs = email_service.send_templated_email.call_args.kwargs
         self.assertEqual(kwargs["reference_doctype"], "Sales Invoice")
         self.assertEqual(kwargs["reference_name"], invoice.name)
+        self.assertIn(member.customer, kwargs["subject_override"])
+        self.assertIn("No member is linked", kwargs["context"]["action_required"])
 
 
 # =============================================================================
