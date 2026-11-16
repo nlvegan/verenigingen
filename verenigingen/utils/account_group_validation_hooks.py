@@ -228,8 +228,40 @@ def validate_expense_claim_approval_limit(doc):
     validate_amount_within_approval_limit(doc, frappe.session.user)
 
 
+def validate_expense_claim_employee_change(doc):
+    """Refuse re-pointing an existing claim at another employee unless staff or an approver may (#2600).
+
+    Frappe judges write permission on the in-memory, already-modified doc, so a user who may write
+    their own claims could set ``employee`` to themselves on someone else's Draft and pass. The
+    stored claim is the one that says whose it is, so it is compared here, whatever write path
+    reached validate (save, set_value, bulk update) and whether or not ``custom_chapter`` is set.
+    Staff (``Roles.ADMIN_ROLES``, #1101) may reassign; an Expense Approver only a claim they may
+    already see as stored, which includes an approver who IS the stored claim's employee (own
+    claim): they may re-point it to any employee. That is deliberate policy, pinned by a test.
+    The refusal repeats what Frappe's own failed write check emits (the controller-check message
+    plus the no-permission error), so over HTTP it reads like editing any claim one cannot write.
+    """
+    if doc.is_new() or doc.flags.ignore_permissions:
+        return
+    saved = doc.get_doc_before_save()
+    if not saved or saved.employee == doc.employee:  # ast-skip: HRMS Expense Claim field
+        return
+
+    from verenigingen.permissions import has_expense_claim_permission
+
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user)
+    if Roles.ADMIN_ROLES.intersection(user_roles):
+        return
+    if Roles.EXPENSE_APPROVER in user_roles and has_expense_claim_permission(saved, user):
+        return
+    frappe.msgprint(_("Not allowed via controller permission check"))
+    doc.raise_no_permission_to("write")
+
+
 def validate_expense_claim(doc, method):
     """Validate expense claim against account group mappings and chapter access"""
+    validate_expense_claim_employee_change(doc)
     validate_expense_claim_approval(doc)
     validate_expense_claim_approval_limit(doc)
     if doc.approval_status == "Draft" and doc.docstatus == 0:
