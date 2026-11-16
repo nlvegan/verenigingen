@@ -536,8 +536,6 @@ verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::test_notific
 verenigingen/verenigingen_payments/api/sepa_batch_ui.py::create_sepa_batch_validated::1
 verenigingen/verenigingen_payments/api/sepa_batch_ui_secure.py::create_sepa_batch_validated_secure::1
 verenigingen/verenigingen_payments/api/sepa_mandate_management.py::periodic_sepa_mandate_child_table_sync::1
-verenigingen/verenigingen_payments/api/sepa_reconciliation.py::parse_sepa_return_xml::3
-verenigingen/verenigingen_payments/api/sepa_reconciliation.py::reconcile_full_sepa_batch::3
 verenigingen/verenigingen_payments/api/settlement_processing.py::batch_process_recent_settlements::1
 verenigingen/verenigingen_payments/api/settlement_processing.py::get_settlement_status::1
 verenigingen/verenigingen_payments/api/settlement_processing.py::process_settlement_deposit::1
