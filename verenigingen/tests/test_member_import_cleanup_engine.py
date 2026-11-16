@@ -21,9 +21,14 @@ here depends on mocks.
 from unittest.mock import patch
 
 import frappe
+import pymysql
 
 from scripts.migration import member_import_cleanup as cleanup
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+# A real 1205: it carries the MySQL code in args[0], which is what the cleanup classifies on.
+# frappe.QueryTimeoutError("...") has a string in args[0] and so can never match a code.
+LOCK_WAIT_TIMEOUT = pymysql.err.OperationalError(1205, "Lock wait timeout exceeded")
 
 
 class TestCleanupEngineInvariants(EnhancedTestCase):
@@ -691,7 +696,7 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         def save_hook(real_save, doc, *args, **kwargs):
             if not refused:
                 refused.append(doc.name)
-                raise frappe.QueryTimeoutError("Lock wait timeout exceeded")
+                raise LOCK_WAIT_TIMEOUT
             return real_save(doc, *args, **kwargs)
 
         results = self._run_live_with_save_hook(save_hook)
@@ -909,11 +914,33 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
         self.assertEqual(results["orphaned_invoices"]["deleted"], 0)
         self.assertEqual(len(calls), 2)
 
+    def test_force_cleanup_abort_rolls_back_work_still_pending_after_a_1305(self):
+        # A swallowed 1213 followed by a 1305 leaves the connection holding uncommitted work
+        # (no rollback was issued). "Nothing persisted" must hold if a caller commits next.
+        self._committed_orphan_invoices(3)
+        gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
+        real = frappe.delete_doc
+        seen = []
+
+        def delete_doc(dt, name=None, *args, **kwargs):
+            if dt == "Sales Invoice":
+                seen.append(name)
+                if len(seen) == 2:
+                    frappe.db.set_value("Sales Invoice", name, "remarks", "DIRTY-2595")
+                    raise gone
+            return real(dt, name, *args, **kwargs)
+
+        with patch.object(frappe, "delete_doc", delete_doc):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertTrue(results["aborted"])
+        self.assertNotEqual(frappe.db.get_value("Sales Invoice", seen[1], "remarks"), "DIRTY-2595")
+
     def test_force_cleanup_ordinary_item_error_still_carries_on(self):
         # Control: an ordinary per-item error keeps today's behaviour, and 1205 is not a lost
         # transaction (it only undoes the failed statement).
         names = self._committed_orphan_invoices(2)
-        timeout = frappe.QueryTimeoutError("Lock wait timeout exceeded")
+        timeout = LOCK_WAIT_TIMEOUT
         real = frappe.delete_doc
         failed = []
 
@@ -1004,7 +1031,7 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
         def delete_doc(dt, name=None, *args, **kwargs):
             if dt == "Contact" and name in names and not failed:
                 failed.append(name)
-                raise frappe.QueryTimeoutError("Lock wait timeout exceeded")  # 1205: not a lost txn
+                raise LOCK_WAIT_TIMEOUT  # 1205: not a lost txn
             return real(dt, name, *args, **kwargs)
 
         with patch.object(frappe, "delete_doc", delete_doc):
@@ -1058,7 +1085,7 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
             if text.lstrip().startswith("DELETE dl FROM `tabDynamic Link`"):
                 if lose:
                     self._roll_back_as_a_deadlock_victim(error)
-                raise frappe.QueryTimeoutError("Lock wait timeout exceeded")
+                raise LOCK_WAIT_TIMEOUT
             return real_sql(query, *args, **kwargs)
 
         with patch.object(frappe.db, "sql", sql):
@@ -1069,6 +1096,12 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
     def _scan_data(result):
         """The endpoint decorator hands back the OperationResult as a dict."""
         return result.get("data", result) if isinstance(result, dict) else result.data
+
+    def _assert_aborted_scan(self, result):
+        """An aborted run is a FAILED result, like a failure at the final commit."""
+        self.assertIs(result["success"], False, result)
+        self.assertIn("ABORTED", result["error"]["message"])
+        self.assertIs(result["meta"]["context"]["aborted"], True)
 
     def test_scan_clean_run_clears_and_persists(self):
         row = self._broken_link_fixtures()
@@ -1086,11 +1119,8 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
 
         # Control: the Link-field row really was nulled, then the rollback undid it.
         self.assertIsNotNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
-        data = self._scan_data(result)
-        self.assertTrue(data["aborted"])
-        self.assertEqual(data["cleared"], 0)
-        self.assertIn("ABORTED", data["summary"])
-        self.assertNotIn("Cleared", data["summary"])
+        self._assert_aborted_scan(result)
+        self.assertNotIn("Cleared", str(result))
 
     def test_scan_deadlock_stops_the_run_and_commits_nothing(self):
         self._broken_link_fixtures()
@@ -1099,7 +1129,7 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
         with patch.object(frappe.db, "commit", lambda *a, **k: committed.append(1)):
             result, statements = self._scan_with_failing_dynamic_delete()
 
-        self.assertTrue(self._scan_data(result)["aborted"])
+        self._assert_aborted_scan(result)
         self.assertEqual(committed, [], "a lost transaction must not be committed")
         # No further clearing: no UPDATE/DELETE after the failing one (the endpoint's own
         # audit-log INSERT is not part of the cleanup).
@@ -1108,15 +1138,12 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
         self.assertEqual(writes, [])
 
     def test_scan_1305_after_a_swallowed_deadlock_aborts(self):
-        import pymysql
-
         row = self._broken_link_fixtures()
         gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
 
         result, _statements = self._scan_with_failing_dynamic_delete(gone)
 
-        self.assertTrue(self._scan_data(result)["aborted"])
-        self.assertEqual(self._scan_data(result)["cleared"], 0)
+        self._assert_aborted_scan(result)
         self.assertIsNotNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
 
     def test_scan_lock_wait_timeout_does_not_abort(self):

@@ -467,6 +467,7 @@ def _lost_the_transaction(error):
 
 def _report_aborted_run(results):
     """Nothing from an aborted run persisted, so the counters must say so (#2482)."""
+    frappe.db.rollback()
     results["orphaned_removed"] = 0
     results["chapters_cleaned"] = 0
     failed = results["chapters_failed"][-1] if results["chapters_failed"] else "a chapter"
@@ -487,6 +488,9 @@ def _zero_cleanup_counters(results, buckets):
 
 def _report_aborted_cleanup(results, buckets):
     """Counterpart of `_report_aborted_run` for the cleanups whose counters sit in buckets."""
+    # Roll back explicitly: after a swallowed 1213 the 1305 arrives while the connection may
+    # still hold work, and "nothing persisted" must also hold if a caller commits next.
+    frappe.db.rollback()
     _zero_cleanup_counters(results, buckets)
     results["aborted"] = True
     results["summary"] = (
@@ -2470,11 +2474,13 @@ def scan_and_clear_broken_links(
 
 def _aborted_broken_link_scan(results):
     """The server rolled the whole run back, so every reference counted as cleared is back (#2595)."""
+    frappe.db.rollback()
     results["cleared"] = 0
     results["aborted"] = True
     results["summary"] = (
         "ABORTED: the database rolled this run back (deadlock), so no broken links were "
         "cleared. Run the scan again."
     )
-    # ok(), not fail(): the caller reads `cleared`/`aborted` off the data, as for any other run.
-    return OperationResult.ok(results, message=_(results["summary"]))
+    return OperationResult.fail(
+        _(results["summary"]), errors=results["errors"], context={"aborted": True}
+    )
