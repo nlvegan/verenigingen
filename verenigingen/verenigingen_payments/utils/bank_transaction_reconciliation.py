@@ -108,6 +108,9 @@ class PaymentReconciliationManager:
 
     # Prefix of the Comment `_record_near_miss` writes for a sub-threshold best match (#560).
     NEAR_MISS_COMMENT_MARKER = "Near-miss reconciliation candidate"
+    # #2520: the Comment left when a description names a draft/cancelled invoice.
+    NON_SUBMITTED_INVOICE_COMMENT_MARKER = "names a Sales Invoice that is not submitted"
+    DESCRIPTION_INVOICE_PATTERN = r"INVOICE\s+([A-Z0-9-]+)"
 
     # Every DocType a Mollie settlement books. The settlement is refused unless the
     # acting user can SUBMIT all of them -- see `_require_submit_permission`.
@@ -247,6 +250,11 @@ class PaymentReconciliationManager:
     def match_transaction(self, transaction):
         """Try to match a bank transaction with SEPA payments"""
 
+        # #2520: a description naming a draft/cancelled invoice contradicts any other
+        # candidate, so no strategy may book this line (see _refuse_non_submitted_invoice).
+        if self._refuse_non_submitted_invoice(transaction):
+            return False
+
         # Try different matching strategies
         matches = []
 
@@ -279,6 +287,50 @@ class PaymentReconciliationManager:
             self._record_near_miss(transaction, best_match)
 
         return False
+
+    def _refuse_non_submitted_invoice(self, transaction):
+        """True (after leaving a Comment) when the description names an existing Sales
+        Invoice that is a draft or cancelled, so the line is NOT auto-reconciled (#2520).
+
+        Not only "do not suggest that invoice": `match_transaction` takes the highest
+        confidence, so dropping the 0.9 description match alone lets the 0.95
+        amount+reference strategy book a DIFFERENT same-amount invoice (measured: it
+        did, with the cancelled invoice named in the description). The payer cited an
+        invoice that cannot be paid; which live invoice they meant is a choice for
+        staff. The line stays Pending (retryable), unlike a failed Payment Entry build,
+        which marked it terminally 'Reconciliation Failed'.
+        """
+        match = re.search(self.DESCRIPTION_INVOICE_PATTERN, (transaction.get("description") or "").upper())
+        if not match:
+            return False
+        invoice = match.group(1)
+        docstatus = frappe.db.get_value("Sales Invoice", invoice, "docstatus")
+        if docstatus is None or docstatus == 1:
+            return False
+        self._comment_non_submitted_invoice(transaction, invoice, docstatus)
+        return True
+
+    def _comment_non_submitted_invoice(self, transaction, invoice, docstatus):
+        """Comment once per distinct content: the daily pool revisits every Pending line."""
+        name = transaction.get("name")
+        if not name:
+            return
+        state = "cancelled" if docstatus == 2 else "a draft"
+        content = (
+            f"Not auto-reconciled: the description {self.NON_SUBMITTED_INVOICE_COMMENT_MARKER}: "
+            f"{invoice} is {state}. Reconcile this transaction manually."
+        )
+        try:
+            if self._near_miss_already_recorded(name, content):
+                return
+            bank_trans = frappe.get_doc("Bank Transaction", name)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Comment",
+                f"Could not read comment history for {name}: {str(e)}. Content was: {content}",
+            )
+            return
+        self._add_comment_without_failing(bank_trans, content)
 
     def _record_near_miss(self, transaction, best_match):
         """Leave a Comment saying which candidate nearly matched and why it was refused.
@@ -458,7 +510,7 @@ class PaymentReconciliationManager:
 
         # Common patterns in SEPA descriptions
         patterns = [
-            (r"INVOICE\s+([A-Z0-9-]+)", "invoice"),
+            (self.DESCRIPTION_INVOICE_PATTERN, "invoice"),
             (r"MEMBERSHIP\s+([A-Z0-9-]+)", "membership"),
             (r"MEMBER\s+ID\s*:?\s*([A-Z0-9-]+)", "member"),
             (r"MANDATE\s*:?\s*([A-Z0-9-]+)", "mandate"),
@@ -470,7 +522,9 @@ class PaymentReconciliationManager:
                 reference = match.group(1)
 
                 if match_type == "invoice":
-                    if frappe.db.exists("Sales Invoice", reference):
+                    # docstatus 1 only (#2520, class of #856/#209/#939): a draft or
+                    # cancelled invoice is not payable.
+                    if frappe.db.exists("Sales Invoice", {"name": reference, "docstatus": 1}):
                         return {
                             "type": "invoice",
                             "reference": reference,
