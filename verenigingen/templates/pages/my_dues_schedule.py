@@ -6,6 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, format_date, getdate, now_datetime, today
 
+from verenigingen.services.billing.billing_period_calculator import get_periods_per_year
+from verenigingen.templates.pages.payment_dashboard import get_current_dues_schedule
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name_required
 from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
@@ -74,29 +76,6 @@ def get_context(context):
     )
 
     return context
-
-
-def get_current_dues_schedule(member):
-    """Get the current active dues schedule for a member"""
-
-    schedule = frappe.db.get_value(
-        "Membership Dues Schedule",
-        {"member": member, "status": "Active"},
-        [
-            "name",
-            "contribution_mode",
-            "billing_frequency",
-            "next_invoice_date",
-            "last_invoice_date",
-            "dues_rate",
-            "payment_terms_template",
-            "auto_generate",
-            "notes",
-        ],
-        as_dict=True,
-    )
-
-    return schedule
 
 
 def get_payment_data(member):
@@ -228,19 +207,25 @@ def get_coverage_info(member, current_schedule):
         },
     )
 
-    # Determine expected invoices based on billing frequency
-    billing_frequency = current_schedule.get("billing_frequency", "Monthly")
-    frequency_map = {
-        "Monthly": 12,
-        "Quarterly": 4,
-        "Half-Yearly": 2,
-        "Yearly": 1,
-    }
-    total_expected = frequency_map.get(billing_frequency, 12)
+    return coverage_from_paid_count(current_schedule, paid_count)
 
-    # Months covered = paid invoices * months per invoice
-    months_per_invoice = 12 // total_expected
-    covered_months = min(int(paid_count) * months_per_invoice, 12)
+
+def coverage_from_paid_count(current_schedule, paid_count):
+    """Coverage for `paid_count` paid invoices of the schedule's own period (#2611).
+
+    A paid invoice buys one full running period, so months per invoice come from the
+    schedule's real period. None values when the period is unknown (Custom without an
+    interval): show nothing, not a guess.
+    """
+    periods_per_year = get_periods_per_year(
+        current_schedule.get("billing_frequency"),
+        current_schedule.get("custom_frequency_number"),
+        current_schedule.get("custom_frequency_unit"),
+    )
+    if periods_per_year is None:
+        return {"percentage": None, "covered_months": None, "total_months": 12}
+
+    covered_months = min(round(int(paid_count) * 12 / periods_per_year), 12)
     percentage = round((covered_months / 12) * 100)
 
     return {"percentage": percentage, "covered_months": covered_months, "total_months": 12}
