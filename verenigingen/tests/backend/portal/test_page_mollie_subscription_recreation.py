@@ -262,7 +262,7 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
                 "subscription_data": {
                     "amount": "25.00 EUR",
                     "next_payment_date": "2020-01-01",
-                    "status": "cancelled",
+                    "status": "canceled",
                     "interval": "1 month",
                     "description": "Dues",
                     "mandate_id": "mdt_x",
