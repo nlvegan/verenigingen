@@ -217,6 +217,14 @@ describe('mollie_member_reconciliation.html', () => {
 		expect(document.getElementById('member-list').textContent).toContain(PAYLOAD);
 	});
 
+	test('a tag-bearing member id is URL-encoded in the member link and renders no element', () => {
+		load();
+		window.displayMembers([member({ member_id: PAYLOAD })]);
+		expect(injected()).toEqual({ img: null, onerror: null });
+		const href = document.querySelector('#member-list h5 a').getAttribute('href');
+		expect(href).toBe(`/app/member/${encodeURIComponent(PAYLOAD)}`);
+	});
+
 	test('Apply Quick Fix button: an id with a quote cannot run script and arrives verbatim', () => {
 		load();
 		window.displayMembers([member({ member_id: BREAKOUT, suggested_subscription_id: BREAKOUT })]);
@@ -448,7 +456,7 @@ describe('ponto_api_debug.html', () => {
 describe('eboekhouden_mapping_review.html', () => {
 	const REL = 'verenigingen/templates/pages/eboekhouden_mapping_review.html';
 
-	function run(accountOverrides = {}) {
+	function run(accountOverrides = {}, loadResponse = null) {
 		const script = pageScript(REL, 'function displayAccountTypes');
 		const jq = makeJquery();
 		const account = {
@@ -463,7 +471,7 @@ describe('eboekhouden_mapping_review.html', () => {
 		baseFrappe({
 			call: (opts) => {
 				if (/get_account_type_recommendations/.test(opts.method)) {
-					opts.callback({ message: { success: true, recommendations: [account] } });
+					opts.callback({ message: loadResponse || { success: true, recommendations: [account] } });
 				} else if (/frappe.client.get_list/.test(opts.method) && opts.args.doctype === 'Company') {
 					opts.callback({ message: [{ name: 'Test Co' }] });
 				} else if (/frappe.client.get_list/.test(opts.method)) {
@@ -487,6 +495,13 @@ describe('eboekhouden_mapping_review.html', () => {
 		jq.handlers['#load-account-types']();
 		return jq;
 	}
+
+	test('a load error from the server is escaped in the msgprint', () => {
+		run({}, { success: false, error: PAYLOAD });
+		const dialog = window.frappe.msgprint.mock.calls.map((c) => c[0]).find((c) => c && c.title === 'Error');
+		expect(dialog).toBeDefined();
+		expectNoInjection(dialog.message);
+	});
 
 	test('account table and existing-mapping rows render no payload element', () => {
 		const jq = run();
@@ -664,6 +679,14 @@ describe('www/dues-coverage-manager.html', () => {
 		render();
 		expect(injected()).toEqual({ img: null, onerror: null });
 		expect(document.getElementById('members-tbody').textContent).toContain(PAYLOAD);
+	});
+
+	test('a tag-bearing member id renders no element and is URL-encoded in the href', () => {
+		render({ member: PAYLOAD });
+		expect(injected()).toEqual({ img: null, onerror: null });
+		const href = document.querySelector('#members-tbody a').getAttribute('href');
+		expect(href).toBe(`/app/member/${encodeURIComponent(PAYLOAD)}`);
+		expect(document.querySelector('.member-checkbox').dataset.member).toBe(PAYLOAD);
 	});
 
 	test('Details button and checkbox: a member id with a quote cannot run script', () => {
