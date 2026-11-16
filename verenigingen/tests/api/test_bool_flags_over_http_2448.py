@@ -7,7 +7,7 @@ Python. The mechanism used here is Frappe's own: a parameter annotated ``bool`` 
 truthy, anything else is refused with a type error), so the body never sees the raw string.
 
 * ``TestAnnotationCoercesOverHttp`` drives the real WSGI app for one endpoint that echoes its flag.
-* ``TestEveryUnsafeFlagIsAnnotated`` pins the 18 parameters this issue fixed, by name, on the real
+* ``TestEveryUnsafeFlagIsAnnotated`` pins the parameters this issue fixed, by name, on the real
   function objects (most sit behind rate limits, role gates or side effects that cannot be driven over
   HTTP from a unit test).
 * ``TestNoUnguardedBoolFlagLeft`` is the class guard: an AST census of every whitelisted function with
@@ -35,7 +35,7 @@ from verenigingen.tests.support.wsgi_http_session import (
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
-SAFE_CALLS = {"cbool", "cint", "is_dry_run", "is_confirmed", "int", "bool", "safe_int", "sbool"}
+SAFE_CALLS = {"prepare_background_import", "cbool", "cint", "is_dry_run", "is_confirmed", "int", "bool", "safe_int", "sbool"}
 
 # "module:qualname" -> parameters fixed by #2448 (a bare ``if`` on a string flag). Parameters that were
 # already annotated on develop are not listed (the census never flagged them: see the class guard).
@@ -51,13 +51,6 @@ FIXED = {
     "verenigingen.services.billing.invoice_management:cleanup_orphaned_member_references": ["dry_run"],
     "verenigingen.services.billing.invoice_management:cleanup_orphaned_membership_data": ["dry_run"],
     "verenigingen.verenigingen_payments.api.sepa_mandate_management:create_missing_sepa_mandates": ["dry_run"],
-    "verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import:process_import_background": [
-        "test_mode"
-    ],
-    "verenigingen.verenigingen.doctype.procurios_membership_import.procurios_membership_import:process_import_background": [
-        "test_mode"
-    ],
-    "verenigingen.verenigingen.doctype.member_import.member_import:process_import_background": ["test_mode"],
     "verenigingen.e_boekhouden.services.account_hierarchy_service:reorganize_account_hierarchy": ["dry_run"],
     "verenigingen.e_boekhouden.services.account_hierarchy_service:reclassify_accounts_by_group_mappings": [
         "dry_run"
@@ -104,7 +97,8 @@ def _converted_first(fn, param):
             and node.test.args[0].id == param
         ):
             return True
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == param for t in node.targets):
+        targets = [e for t in getattr(node, "targets", []) for e in (t.elts if isinstance(t, ast.Tuple) else [t])]
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == param for t in targets):
             for call in ast.walk(node.value):
                 if isinstance(call, ast.Call) and getattr(call.func, "id", getattr(call.func, "attr", "")) in SAFE_CALLS:
                     return True
@@ -114,6 +108,9 @@ def _converted_first(fn, param):
 def unguarded_bool_flags(source):
     """[(function, param)] for whitelisted functions testing a bool-default param bare, unannotated."""
     found = []
+    # Under ``from __future__ import annotations`` the annotation is the STRING "bool", which Frappe's
+    # transform_parameter_types skips (measured): it is not a guard there.
+    stringly = "from __future__ import annotations" in source
     for fn in ast.walk(ast.parse(source)):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -126,7 +123,7 @@ def unguarded_bool_flags(source):
         for arg, default in pairs:
             if not (isinstance(default, ast.Constant) and isinstance(default.value, bool)):
                 continue
-            annotated = arg.annotation is not None and ast.unparse(arg.annotation) == "bool"
+            annotated = not stringly and arg.annotation is not None and ast.unparse(arg.annotation) == "bool"
             if not annotated and _tested_bare(fn, arg.arg) and not _converted_first(fn, arg.arg):
                 found.append((fn.name, arg.arg))
     return found
@@ -142,6 +139,9 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
             "def not_whitelisted(force=False):\n    if force:\n        pass\n"
         )
         self.assertEqual(unguarded_bool_flags(source), [("bad", "force")])
+        # Control: under ``from __future__ import annotations`` the annotation is a string Frappe skips.
+        future = "from __future__ import annotations\n" + source.split("@frappe.whitelist()\ndef converted")[0]
+        self.assertEqual(unguarded_bool_flags(future), [("bad", "force"), ("annotated", "force")])
 
     def test_no_whitelisted_function_tests_an_unannotated_bool_flag_bare(self):
         root = os.path.dirname(os.path.dirname(verenigingen.__file__))
@@ -171,9 +171,9 @@ class TestEveryUnsafeFlagIsAnnotated(VereningingenTestCase):
             hints = inspect.signature(func).parameters
             for param in params:
                 self.assertIn(param, hints, (target, param))
-                self.assertIn(hints[param].annotation, (bool, "bool"), (target, param))
+                self.assertIs(hints[param].annotation, bool, (target, param))  # a string annotation is skipped by Frappe
                 checked += 1
-        self.assertEqual(checked, 18)  # the 18 parameters the census listed; guards a silently shrunk table
+        self.assertEqual(checked, 15)  # the 15 parameters the census listed; guards a silently shrunk table
 
 
 class TestAnnotationCoercesOverHttp(CommittedLoginUsersMixin, VereningingenTestCase):
@@ -199,7 +199,7 @@ class TestAnnotationCoercesOverHttp(CommittedLoginUsersMixin, VereningingenTestC
             self.assertEqual(response["status"], 200, (flag, response["body"][:300]))
             message = json.loads(response["body"])["message"]
             data = message.get("data", message)
-            self.assertEqual(bool(data["dry_run"]), expected, (flag, data))
+            self.assertEqual(data["dry_run"], expected, (flag, data))  # int 0/1 for "0"/"1": ==, not is
 
     def test_an_unrecognised_string_is_refused_not_treated_as_a_flag(self):
         response = self._post("maybe")

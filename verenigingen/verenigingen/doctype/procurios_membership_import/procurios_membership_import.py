@@ -467,7 +467,7 @@ def validate_import_file(import_doc_name: str) -> dict:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 @single_run_per_import_doc("Procurios Membership Import")
-def process_import_background(import_doc_name: str, test_mode: bool = False):
+def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback
 
