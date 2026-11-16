@@ -251,6 +251,31 @@ class BTRBase(EnhancedTestCase):
             bt.submit()
         return bt
 
+    def _near_miss_fixture(self, first_name, grand_total):
+        """A real Member + unpaid invoice, and a bank description that is the member's name
+        with two letters changed: fuzzy name matching then scores it above its 0.6 floor
+        but, at 0.9x, below the 0.85 auto-match threshold.
+
+        Probe shortcut (same as TestFuzzyAndMemberInvoices): the invoice status and
+        outstanding are set with db.set_value to put it in the fuzzy query's pool.
+        """
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
+        frappe.db.set_value(
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": grand_total},
+            update_modified=False,
+        )
+        name = it["member"].full_name.upper()
+        description = name[:-5] + "QXQXQ"
+        bt = self._make_bank_transaction(
+            deposit=grand_total,
+            description=description,
+            reference_number="NO-BATCH-TOKEN",
+            date=today(),
+        )
+        return it, bt
+
     def _txn_dict(self, bt):
         """Build the lightweight dict the matching strategies operate on
         (mirrors the fields reconcile_bank_transactions selects)."""
@@ -934,31 +959,6 @@ class TestMatchTransactionAndReconcile(BTRBase):
     # --- #560: a sub-threshold best match must leave a trace -----------------------
 
     NEAR_MISS_MARKER = "Near-miss reconciliation candidate"
-
-    def _near_miss_fixture(self, first_name, grand_total):
-        """A real Member + unpaid invoice, and a bank description that is the member's name
-        with two letters changed: fuzzy name matching then scores it above its 0.6 floor
-        but, at 0.9x, below the 0.85 auto-match threshold.
-
-        Probe shortcut (same as TestFuzzyAndMemberInvoices): the invoice status and
-        outstanding are set with db.set_value to put it in the fuzzy query's pool.
-        """
-        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
-        frappe.db.set_value(
-            "Sales Invoice",
-            it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": grand_total},
-            update_modified=False,
-        )
-        name = it["member"].full_name.upper()
-        description = name[:-5] + "QXQXQ"
-        bt = self._make_bank_transaction(
-            deposit=grand_total,
-            description=description,
-            reference_number="NO-BATCH-TOKEN",
-            date=today(),
-        )
-        return it, bt
 
     def _near_miss_comments(self, bt):
         return [
