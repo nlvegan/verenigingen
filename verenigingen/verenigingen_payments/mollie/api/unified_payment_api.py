@@ -19,6 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.service_user import restores_session_user
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
 from verenigingen.verenigingen_payments.utils.payment_services.refund_utility import (
@@ -125,6 +126,7 @@ def _ack_refund_not_paid_out(messages_before: int, webhook_data: Dict[str, Any],
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.PUBLIC)
+@restores_session_user
 def handle_payment_webhook(payment_id: Optional[str] = None):
     """
     Unified webhook handler for all Mollie payment notifications.
@@ -383,6 +385,7 @@ def test_webhook_processing():
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.PUBLIC)
+@restores_session_user
 def handle_refund_webhook():
     """
     Handle Mollie refund webhooks.
@@ -492,6 +495,7 @@ def handle_refund_webhook():
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.PUBLIC)
+@restores_session_user
 def handle_chargeback_webhook():
     """
     Handle Mollie chargeback webhooks.
