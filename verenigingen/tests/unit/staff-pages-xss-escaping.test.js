@@ -31,7 +31,7 @@ function read(rel) {
 function pageScript(rel, marker) {
 	// Case-insensitive and attribute/whitespace tolerant (CodeQL js/bad-tag-filter); this
 	// extracts our own templates' scripts for the test, it is not a sanitiser.
-	const blocks = [...read(rel).matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((m) => m[1]);
+	const blocks = [...read(rel).matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi)].map((m) => m[1]);
 	const block = blocks.find((b) => b.includes(marker));
 	if (!block) throw new Error(`no inline <script> containing ${marker} in ${rel}`);
 	return block
