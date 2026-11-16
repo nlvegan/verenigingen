@@ -74,11 +74,17 @@ class TestPaymentAlertRecipients2555(EnhancedTestCase):
         config.save()
 
     def test_each_alert_reaches_staff_without_the_hook(self):
-        """Seeded rows: failure -> Financial Managers (#1330 ruling); the other two keep the seeded admin pair."""
-        for alert_type, key in (
-            ("payment_entry_failure", KEYS[0]),
-            ("overpayment", KEYS[1]),
-            ("reconciliation", KEYS[2]),
+        """Rows set explicitly (not seed-dependent): failure -> Financial Managers (#1330 ruling);
+        the other two on the stock admin pair, as seeded."""
+        admin_holder = f"va-2555-{frappe.generate_hash(length=5)}@example.org"
+        self.create_test_user(admin_holder, roles=[Roles.VERENIGINGEN_ADMIN])
+        _put_key_row(KEYS[0], "Role-Based", recipient_roles=Roles.FINANCIAL_MANAGER)
+        for key in KEYS[1:]:
+            _put_key_row(key, "Role-Based", recipient_roles=f"{Roles.SYSTEM_MANAGER}, {Roles.VERENIGINGEN_ADMIN}")
+        for alert_type, key, expected in (
+            ("payment_entry_failure", KEYS[0], self.finance),
+            ("overpayment", KEYS[1], admin_holder),
+            ("reconciliation", KEYS[2], admin_holder),
         ):
             with self.subTest(alert_type=alert_type):
                 sent, calls = self._send_alert_2555(alert_type)
@@ -86,12 +92,12 @@ class TestPaymentAlertRecipients2555(EnhancedTestCase):
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(calls[0].kwargs["notification_key"], key)
                 recipients = calls[0].kwargs["recipients"]
-                self.assertTrue(recipients)
+                self.assertIn(expected, recipients)
                 self.assertNotIn(self.finance_gone, recipients)  # a disabled holder is not reached
                 self.assertNotIn(self.admin_email, recipients)
                 self.assertNotIn("Administrator", recipients)
         _, calls = self._send_alert_2555("payment_entry_failure")
-        self.assertIn(self.finance, calls[0].kwargs["recipients"])
+        self.assertNotIn(admin_holder, calls[0].kwargs["recipients"])  # failure is finance only
 
     def test_with_no_key_row_each_alert_reaches_enabled_financial_managers(self):
         self._drop_key_rows()
