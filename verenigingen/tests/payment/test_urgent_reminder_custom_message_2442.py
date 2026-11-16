@@ -42,6 +42,9 @@ NOTIFICATION_KEY = {
 
 
 class TestUrgentReminderCustomMessage(MailBodyEscapingBase):
+    # _cleanup_stock_email_templates commits, in the test and as a cleanup.
+    NOTIFICATION_STATE_COMMITS = True
+
     def _send_reminder(self, reminder_type, message=MESSAGE):
         template = REMINDERS[reminder_type]
         _cleanup_stock_email_templates([template])
