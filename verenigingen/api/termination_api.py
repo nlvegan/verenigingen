@@ -124,7 +124,10 @@ def execute_safe_termination(
 
         # 4. Suspend team memberships
         teams_suspended = suspend_team_memberships_safe(
-            member_name, termination_date, f"Member terminated - Request: {request_name or 'Direct'}"
+            member_name,
+            termination_date,
+            f"Member terminated - Request: {request_name or 'Direct'}",
+            failures=results["errors"],
         )
         if teams_suspended > 0:
             results["actions_taken"].append(f"Suspended {teams_suspended} team membership(s)")

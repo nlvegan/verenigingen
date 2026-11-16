@@ -15,6 +15,7 @@ from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import SAVEPOINT_DOES_NOT_EXIST, mysql_error_code
 
 
 def validate_cleanup_permissions():
@@ -403,8 +404,16 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 results["errors"].append(f"{chapter.name}: {str(e)}")
                 if orphaned_indices and not dry_run:
                     results["chapters_failed"].append(chapter.name)
+                if not dry_run and _lost_the_transaction(e):
+                    # Not resumable (#2482): the server rolled back every chapter cleaned
+                    # earlier in this run too, so carrying on would only pile more
+                    # uncommitted work onto a transaction that is no longer ours.
+                    results["aborted"] = True
+                    break
 
-        if dry_run:
+        if results.get("aborted"):
+            _report_aborted_run(results)
+        elif dry_run:
             results["summary"] = (
                 f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
             )
@@ -425,6 +434,34 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _lost_the_transaction(error):
+    """True when the server rolled the WHOLE transaction back (1213, or its aftermath).
+
+    Two shapes: the 1213 itself reaching us, or a 1213 swallowed below `Chapter.save`
+    (the chapter validators catch `Exception`), after which `save()` returns normally and
+    the savepoint release raises 1305. In this function a 1305 can only mean the
+    transaction is gone: nothing here commits, so no nested commit can have cleared it.
+
+    A 1205 lock-wait timeout is deliberately not matched: with `innodb_rollback_on_timeout`
+    OFF it only undoes the failed statement, so earlier chapters are still pending.
+    """
+    return isinstance(error, frappe.QueryDeadlockError) or mysql_error_code(error) in (
+        1213,
+        SAVEPOINT_DOES_NOT_EXIST,
+    )
+
+
+def _report_aborted_run(results):
+    """Nothing from an aborted run persisted, so the counters must say so (#2482)."""
+    results["orphaned_removed"] = 0
+    results["chapters_cleaned"] = 0
+    failed = results["chapters_failed"][-1] if results["chapters_failed"] else "a chapter"
+    results["summary"] = (
+        f"ABORTED at {failed}: the database rolled this run back (deadlock), so no orphans "
+        "were removed. Run the cleanup again."
+    )
 
 
 def _remove_orphans_atomically(chapter_doc, orphaned_indices):
@@ -1339,12 +1376,24 @@ def _run_cleanup_phases(sets, results, dry_run):
     _step(results, "donors", "Donor", "member", members, dry_run)
 
     # --- PHASE 3: volunteer graph --------------------------------------------
-    for bucket, doctype in (
-        ("chapter_board_members", "Chapter Board Member"),
-        ("team_members", "Team Member"),
-        ("movement_members", "Movement Member"),
-    ):
-        _step(results, bucket, doctype, "volunteer", volunteers, dry_run)
+    # A Chapter Board Member / Team Member row is reachable by BOTH its doomed
+    # volunteer and its doomed parent chapter/team. Counting it under two selectors
+    # (phase 3 and again in phase 4) doubled the dry run, because the live run
+    # deletes a row reached through both in phase 3, so phase 4's parent selector
+    # found nothing left for it. Rows held only by a SURVIVING volunteer were still
+    # deleted in phase 4 via the parent. Resolve the union of row names and delete
+    # it exactly once, here; the live outcome is unchanged.
+    board_member_rows = sorted(
+        set(_pluck_in("Chapter Board Member", "volunteer", volunteers))
+        | set(_pluck_in("Chapter Board Member", "parent", chapters))
+    )
+    _step(results, "chapter_board_members", "Chapter Board Member", "name", board_member_rows, dry_run)
+    team_member_rows = sorted(
+        set(_pluck_in("Team Member", "volunteer", volunteers))
+        | set(_pluck_in("Team Member", "parent", teams))
+    )
+    _step(results, "team_members", "Team Member", "name", team_member_rows, dry_run)
+    _step(results, "movement_members", "Movement Member", "volunteer", volunteers, dry_run)
     for bucket, doctype in (
         ("volunteer_skills", "Volunteer Skill"),
         ("volunteer_assignments", "Volunteer Assignment"),
@@ -1368,8 +1417,6 @@ def _run_cleanup_phases(sets, results, dry_run):
         | set(_pluck_in("Chapter Member", "parent", chapters))
     )
     _step(results, "chapter_members", "Chapter Member", "name", chapter_member_rows, dry_run)
-    _step(results, "chapter_board_members", "Chapter Board Member", "parent", chapters, dry_run)
-    _step(results, "team_members", "Team Member", "parent", teams, dry_run)
     _step(results, "chapters", "Chapter Join Request", "member", members, dry_run)
     if not dry_run and members:
         _update_in("Chapter", "chapter_head = NULL", "chapter_head", members)

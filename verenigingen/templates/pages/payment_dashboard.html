@@ -491,7 +491,7 @@
                                     <span class="text-sm font-medium">
                                         {% set frequency_label = {"Monthly": _("month"), "Quarterly": _("quarter"), "Semi-Annual": _("6 months"), "Annual": _("year")}.get(current_schedule.billing_frequency, current_schedule.billing_frequency) %}
                                         {{ frappe.format_value(current_schedule.dues_rate, {"fieldtype": "Currency"})|e }} / {{ frequency_label|e }}
-                                        {% if current_schedule.billing_frequency != "Monthly" %}
+                                        {% if current_schedule.billing_frequency != "Monthly" and current_schedule.monthly_amount is not none %}
                                             <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}/{{ _("month") }})</span>
                                         {% endif %}
                                     </span>
@@ -534,15 +534,10 @@
                             <div class="mt-6">
                                 <h4 class="text-md font-semibold text-gray-800 mb-3">{{ _("Upcoming Dates") }}</h4>
                                 <div class="bg-gray-50 rounded-lg p-4">
-                                    {% set months_map = {"Monthly": 1, "Quarterly": 3, "Semi-Annual": 6, "Annual": 12} %}
-                                    {% set months = months_map.get(current_schedule.billing_frequency, 1) %}
-                                    {% set start_date = current_schedule.next_invoice_date %}
                                     {% set is_auto_payment = (mollie_subscription and mollie_subscription.status == "active") or member_doc.ing_checkout_active %}
 
                                     <div class="space-y-2">
-                                        {% for i in range(4) %}
-                                            {% set payment_date = frappe.utils.add_months(start_date, i * months) %}
-                                            {% if not current_schedule.last_invoice_date or payment_date <= current_schedule.last_invoice_date %}
+                                        {% for payment_date in upcoming_dates %}
                                             <div class="flex items-center text-sm {% if loop.first %}font-medium text-gray-900{% else %}text-gray-600{% endif %}">
                                                 <i class="fa fa-calendar-o w-5 mr-2 {% if loop.first %}text-primary-600{% else %}text-gray-400{% endif %}"></i>
                                                 <span>{{ frappe.format_value(payment_date, {"fieldtype": "Date"})|e }}</span>
@@ -550,7 +545,6 @@
                                                     <span class="ml-2 text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">{{ _("Next") }}</span>
                                                 {% endif %}
                                             </div>
-                                            {% endif %}
                                         {% endfor %}
                                     </div>
 

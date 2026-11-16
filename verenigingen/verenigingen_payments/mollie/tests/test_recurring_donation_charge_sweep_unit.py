@@ -114,9 +114,9 @@ class _SweepTestBase(EnhancedTestCase):
     def _book_live_journal_entry(self, payment_id):
         """A live Journal Entry keyed by the payment id: what 'booked' means (#945).
 
-        Left as a DRAFT on purpose: find_journal_entry_by_reference counts a
-        draft as work in flight, which is exactly the state the sweep must not
-        re-run, and a draft needs no ledger posting to build.
+        Built as a DRAFT because that is the cheapest row the lookup counts;
+        the sweep's resolve_journal_entry_by_reference now submits it (#2535),
+        which is fine here: it still reads as booked, which is what is asserted.
         """
         accounts = frappe.get_all(
             "Account",
@@ -390,3 +390,65 @@ class TestPagination(_SweepTestBase):
             summary["charges_booked"] + summary["charges_already_booked"] + summary["charges_not_paid"]
         )
         self.assertEqual(total_seen, sweep_module._MAX_PAGES_PER_SUBSCRIPTION)
+
+
+class TestResolveJournalEntryByReference(_SweepTestBase):
+    """The shared lookup every booker uses (donation, refund, dues reversal, sweep): #2535."""
+
+    def test_a_stranded_draft_is_submitted_and_its_name_returned(self):
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            resolve_journal_entry_by_reference,
+        )
+
+        ref = f"tr_resolve_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+        self.assertEqual(resolve_journal_entry_by_reference(ref, 1.0), name)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 1)
+
+    def test_an_unknown_reference_resolves_to_none_and_the_pure_lookup_never_submits(self):
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            find_journal_entry_by_reference,
+            resolve_journal_entry_by_reference,
+        )
+
+        self.assertIsNone(
+            resolve_journal_entry_by_reference(f"tr_none_{frappe.generate_hash(length=8)}", 1.0)
+        )
+        ref = f"tr_pure_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+
+        self.assertEqual(find_journal_entry_by_reference(ref), name)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+    def test_an_unknown_amount_fails_closed_and_the_draft_is_left(self):
+        """There is no "skip the check": a caller without an amount must not auto-submit."""
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            resolve_journal_entry_by_reference,
+        )
+
+        ref = f"tr_noamt_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+        self.expectErrorLog("Journal Entry Draft Amount Mismatch")
+
+        self.assertEqual(resolve_journal_entry_by_reference(ref, None), name)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+
+class TestTotalReversedWithDrafts(_SweepTestBase):
+    """total_reversed counts a draft (a booking in flight) but never submits it: it has no amount to check (#2535)."""
+
+    def test_a_draft_counts_and_is_left_a_draft(self):
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+            build_reversal_key,
+            total_reversed,
+        )
+
+        payment_id = f"tr_tot_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(build_reversal_key(payment_id, "refund", "re_1"))
+
+        self.assertEqual(total_reversed(payment_id), 1.0)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)

@@ -336,7 +336,7 @@ COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_unlink_donor_customer_remove_flag_2327.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_history_audit_improvements.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::3  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_membership_application.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_sepa_reconciliation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_setup_add_settings_fields.py::1  # order-dep-exempt
@@ -350,8 +350,10 @@ COMMIT_EXEMPT tests/backend/features/test_application_submission_validation.py::
 COMMIT_EXEMPT tests/backend/integration/test_chapter_cost_center_seeding.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_concurrency_safety.py::5  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_sepa_duplicate_prevention_core.py::3  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/integration/test_sepa_idempotency_rollback.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_sepa_security_feedback.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/integration/test_volunteer_portal_integration.py::3  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/security/test_security_comprehensive.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/unit/services/test_approval_notifications.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/unit/services/test_chapter_management_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/unit/utils/test_import_helpers.py::1  # order-dep-exempt
@@ -444,6 +446,8 @@ COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_drains_survive_setup_failure.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
+COMMIT_EXEMPT tests/test_member_import_cleanup_engine.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/test_notification_seed_leak_2053.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_notification_sender_keys_registered_1999.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt

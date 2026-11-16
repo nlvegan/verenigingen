@@ -20,8 +20,8 @@ from verenigingen.services.member.account.user_role_profile_calculator import (
     sync_user_role_profile,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import (
-    allow_reminder_sends,
     ensure_outgoing_email_account,
 )
 
@@ -44,7 +44,7 @@ class TestChapterJoinRequestSecondProfile2286(VereningingenTestCase):
         # A fresh CI site has no default outgoing account, so EmailService would refuse to queue
         # anything; without this the module passed only on sites that carry a leaked one.
         ensure_outgoing_email_account(self)
-        allow_reminder_sends(keys=("chapter_join_request_submitted",))
+        own_notification_keys(self, "chapter_join_request_submitted")
         # Anchor: a real seat on the request's own chapter, so every send provably reaches someone.
         self.anchor = self._person_2286("Anchor")
         self.add_board_member_to_chapter(

@@ -1053,9 +1053,11 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
         # 74 names on 2026-10-30 (75 endpoints; `get_payment_methods` exists twice, #1761).
         # 73 since #813 deliberately deleted the unused guest endpoint `process_donation_form`
         # (web_form/donation_form; maintainer ruling 2026-11-08).
+        # 72 since #2494 deleted the unused guest endpoint `payment_page` (no token minter, #1817).
         # Lower this only for an endpoint deliberately removed, never to absorb a scan regression.
-        self.assertGreaterEqual(len(names), 73)
+        self.assertGreaterEqual(len(names), 72)
         self.assertNotIn("process_donation_form", names, "control: #813 deleted this guest endpoint")
+        self.assertNotIn("payment_page", names, "control: #2494 deleted this guest endpoint")
         for webhook in ("mollie_payment_webhook", "handle_ponto_webhook", "handle_payment"):
             self.assertIn(webhook, names)
 

@@ -17,6 +17,9 @@ in their own finalize_callback, respecting Verenigingen Email Configuration sett
 Author: Verenigingen Development Team
 """
 
+import functools
+import hashlib
+import inspect
 import traceback
 from contextlib import contextmanager
 from typing import Callable, Dict, List, Optional
@@ -27,6 +30,61 @@ from frappe.utils import get_datetime, now
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
+
+def import_run_lock_name(doctype: str, import_doc_name: str) -> str:
+    """MariaDB lock name for "this import doc is being processed" (#2648).
+
+    GET_LOCK names are server-wide (not per database) and capped at 64
+    characters, so the site and doc are hashed in rather than spelled out.
+    """
+    key = f"{frappe.local.site}|{doctype}|{import_doc_name}"
+    return "csvimport:" + hashlib.sha1(key.encode()).hexdigest()
+
+
+def is_import_running(doctype: str, import_doc_name: str) -> bool:
+    """True while some connection is inside `process_import_background` for this doc."""
+    from verenigingen.utils.db_advisory_lock import is_lock_held
+
+    return is_lock_held(import_run_lock_name(doctype, import_doc_name))
+
+
+def single_run_per_import_doc(doctype: str):
+    """Decorator for a `process_import_background`: refuse a second concurrent run of one import doc.
+
+    Two overlapping runs of the same doc each walk the whole CSV, so one of them
+    hits the other's rows in the middle of a batch and the batch is rejected
+    (#2648). The lock is a MariaDB named lock held on the running connection:
+    it survives the per-batch commits, and the server releases it when that
+    connection dies, so a crashed run cannot leave it stuck. A refused run
+    raises and touches nothing, in particular not `import_status`, which belongs
+    to the run that is still going.
+    """
+
+    def decorator(fn):
+        signature = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+            import_doc_name = signature.bind(*args, **kwargs).arguments["import_doc_name"]
+            lock_name = import_run_lock_name(doctype, import_doc_name)
+            if not get_lock(lock_name, 0):
+                frappe.throw(
+                    _("{0} {1} is already being imported. Wait for that run to finish.").format(
+                        doctype, import_doc_name
+                    ),
+                    frappe.ValidationError,
+                )
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                release_lock(lock_name)
+
+        return wrapper
+
+    return decorator
 
 
 def coerce_test_mode(value) -> bool:
@@ -399,6 +457,16 @@ def queue_csv_import_processing(
     """
     if processor_method not in ALLOWED_IMPORT_PROCESSORS:
         frappe.throw(_("Invalid import processor: {0}").format(processor_method), frappe.PermissionError)
+
+    # Refuse here, where the caller can see it: a run that is refused inside the
+    # worker only shows up as a failed job nobody is watching (#2648).
+    if is_import_running(doctype, import_doc_name):
+        frappe.throw(
+            _("{0} {1} is already being imported. Wait for that run to finish.").format(
+                doctype, import_doc_name
+            ),
+            frappe.ValidationError,
+        )
 
     frappe.enqueue(
         method=processor_method,

@@ -36,7 +36,7 @@ QUEUE_WORKFLOWS = ("ci.yml", "code-validation.yml", "quality-assurance.yml", "se
 _EVENT_CONDITIONAL = re.compile(
     r"github\.(event_name|head_ref|base_ref|event\.(number|pull_request|issue))"
     r"|github\.ref(_name)?\b"
-    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME|REF)\b"
+    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME|REF(_NAME)?)\b"
     r"|context\.(issue|payload)"
 )
 _DECISION = "# merge_group:"
@@ -58,6 +58,11 @@ def undecided_lines(text: str) -> list[int]:
             continue
         j = i - 1
         decided = False
+        if _SCOPE_START.match(line):
+            # A step's opening line starts its own scope (#2204): the previous step's
+            # decision does not reach it. (A decision on this very line is already
+            # accepted above, by the `merge_group in line` skip.)
+            j = -1
         while j >= 0:
             if _DECISION in lines[j]:
                 decided = True
@@ -88,7 +93,7 @@ def queue_trigger_is_unfiltered(text: str) -> bool:
             continue
         if re.match(r"^\S|^  \S", line):  # next trigger or top-level key ends the block
             break
-        if re.match(r"^\s+(paths|paths-ignore|branches|branches-ignore):", line):
+        if re.match(r"""^\s+['"]?(paths|paths-ignore|branches|branches-ignore)['"]?\s*:""", line):
             return False
     return True
 
@@ -216,6 +221,59 @@ class TestScannerControls(unittest.TestCase):
     def test_trigger_detection_needs_a_top_level_on_key(self):
         self.assertTrue(triggers_on_merge_group("on:\n  merge_group:\n    types: [checks_requested]\n"))
         self.assertFalse(triggers_on_merge_group("on:\n  push:\n# merge_group: later\n"))
+
+
+class TestScanner2204Gaps(unittest.TestCase):
+    """#2204: three gaps in the scanner, each with a control that an over-broad fix would break."""
+
+    def test_a_conditional_on_a_steps_opening_line_does_not_inherit_the_previous_decision(self):
+        for opener in ("if: github.event_name == 'pull_request'", "run: echo $GITHUB_REF"):
+            with self.subTest(opener=opener):
+                text = (
+                    "      - name: A\n"
+                    "        # merge_group: decided for A only\n"
+                    "        run: true\n"
+                    f"      - {opener}\n"
+                )
+                self.assertEqual(undecided_lines(text), [4])
+
+    def test_a_decision_on_the_opening_line_itself_still_counts(self):
+        text = "      - if: github.event_name == 'pull_request'  # merge_group: skipped, PR-only\n"
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_a_step_opening_line_naming_merge_group_is_decided(self):
+        text = "      - if: github.event_name == 'merge_group' || github.event_name == 'push'\n"
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_a_decided_step_stays_decided_for_its_later_lines(self):
+        # Control: the opening-line rule must not make every line undecided.
+        text = (
+            "      - name: A\n"
+            "        # merge_group: decided\n"
+            "        if: github.event_name == 'pull_request'\n"
+            "        run: echo $GITHUB_REF\n"
+        )
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_github_ref_name_env_var_is_flagged(self):
+        self.assertEqual(undecided_lines("    - name: Step\n      run: echo $GITHUB_REF_NAME\n"), [2])
+
+    def test_unrelated_github_ref_prefixed_names_are_not_flagged(self):
+        # Control: `GITHUB_REF(_NAME)?` must not become a bare `GITHUB_REF` prefix match.
+        for name in ("GITHUB_REFERENCE", "GITHUB_REF_TYPE"):
+            with self.subTest(name=name):
+                self.assertEqual(undecided_lines(f"    - name: Step\n      run: echo ${name}\n"), [])
+
+    def test_a_quoted_or_spaced_filter_key_is_still_a_filter(self):
+        for key in ("'paths':", '"paths":', "paths :", "'branches-ignore' :", '"paths-ignore":'):
+            with self.subTest(key=key):
+                text = f"on:\n  merge_group:\n    types: [checks_requested]\n    {key}\n      - x\n"
+                self.assertFalse(queue_trigger_is_unfiltered(text))
+
+    def test_a_key_merely_starting_with_a_filter_name_is_not_a_filter(self):
+        # Control: a real filter-free trigger must stay accepted.
+        text = "on:\n  merge_group:\n    types: [checks_requested]\n    pathsx: [a]\n  push:\n"
+        self.assertTrue(queue_trigger_is_unfiltered(text))
 
 
 class TestQueueWorkflowsAreReady(unittest.TestCase):

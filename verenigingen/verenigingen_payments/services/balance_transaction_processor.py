@@ -31,6 +31,7 @@ from frappe.utils import getdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 
 
 class BalanceTransactionProcessor:
@@ -336,6 +337,8 @@ class BalanceTransactionProcessor:
                     reference_number=reference_number,
                     description=description,
                     transaction_id=stored_transaction_id,  # Store balance transaction ID
+                    # Mollie payment / settlement / balance transaction id: unique by construction (#1349).
+                    **{SYSTEM_ISSUED_FIELDNAME: 1},
                 )
 
                 if not bank_transaction_name:

@@ -189,6 +189,27 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mijnrood_sync_step_failed": {
+        "label": "MijnRood Sync Step Failed (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event is applied but one step for that member failed (address, "
+        "volunteer, role, chapter board, team, or account creation), so the step must be done by hand. "
+        "At most once per 24h per member, step and reason. Steps that touch money use "
+        "mijnrood_sync_money_step_failed.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_sync_money_step_failed": {
+        "label": "MijnRood Sync Money Step Failed (Admin and Finance)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event is applied but a step that touches money failed for that "
+        "member (Mollie sync, membership creation, dues schedule backfill or rate update), so it must be "
+        "done by hand. Also reaches finance. At most once per 24h per member, step and reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # The admin pair plus finance: the dues and Mollie state is theirs to reconcile (#2095, #2309).
+        "recipient_roles": "System Manager, Verenigingen Administrator, Verenigingen Financial Manager",
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -632,6 +653,15 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mollie_ambiguous_party": {
+        "label": "Mollie Payment Matches Several Members (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a Mollie customer or subscription id is held by more than one Member, so the "
+        "payment cannot be attributed and is NOT booked (Mollie keeps retrying). Sent once per payment. The mail "
+        "names the Mollie payment id, the id and the Members that hold it; staff remove it from all but one.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "door_unavailable": {
         "label": "Application Door Unavailable (Admin)",
         "category": CATEGORY_ADMIN,
@@ -947,6 +977,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "mollie_payment_not_found",
         "ponto_orphaned_payment",
         "mollie_forward_payment_staff_cancelled",
+        "mollie_ambiguous_party",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
@@ -978,6 +1009,8 @@ REQUIRES_ACTION_KEYS = frozenset(
         "mijnrood_division_unmapped",
         "mijnrood_role_mapping_invalid",
         "mijnrood_dues_template_unresolved",
+        "mijnrood_sync_step_failed",
+        "mijnrood_sync_money_step_failed",
     }
 )
 

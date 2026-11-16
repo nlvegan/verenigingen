@@ -1,0 +1,1 @@
+verenigingen.patches.v2_2.remove_dead_retry_failed_migration_records_critical_operation_rule

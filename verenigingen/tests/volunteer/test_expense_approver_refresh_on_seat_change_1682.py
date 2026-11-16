@@ -21,7 +21,6 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-
 OUR_JOBS = "verenigingen.services.volunteer.native_expense_helpers."
 
 
@@ -79,15 +78,22 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         return volunteer, employee
 
     def _ensure_board_department(self):
-        """The Board department the sync writes to (a chapter's own is not always created)."""
+        """The Board department the sync writes to (a chapter's own is not always created).
+
+        Built in the company the sync resolves departments in (Verenigingen
+        Settings.company), not the claimant Employee's: the lookup is
+        company-scoped since #2551, so a same-named department elsewhere is
+        never the target.
+        """
         name = f"Chapter {self.chapter.name} Board"
-        if frappe.db.exists("Department", {"department_name": name}):
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        if frappe.db.exists("Department", {"department_name": name, "company": company}):
             return
         dept = frappe.get_doc(
             {
                 "doctype": "Department",
                 "department_name": name,
-                "company": self.employee.company,
+                "company": company,
                 "parent_department": "All Departments",
             }
         ).insert()
@@ -114,7 +120,14 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
 
     @contextmanager
     def _captured_enqueues(self):
-        """Capture ``frappe.enqueue`` calls instead of queueing them (CI has no workers)."""
+        """Capture ``frappe.enqueue`` calls instead of queueing them (CI has no workers).
+
+        The refresh jobs are registered as after-commit callbacks (#2553), so nothing is
+        enqueued until the commit fires them. The tests never commit, so this takes OUR
+        callbacks out of ``frappe.db.after_commit`` and runs them: on exit, or earlier through
+        ``self._fire_our_commit_callbacks()`` to place a step between registration and commit.
+        Other after-commit callbacks are left where they are.
+        """
         jobs = []
         real_enqueue = frappe.enqueue
 
@@ -127,11 +140,31 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         # Mock justified: a queue boundary. The queued method is run directly by
         # _run_enqueued, so the work under test is real; only the transport is replaced.
         with patch.object(frappe, "enqueue", capture):
-            yield jobs
+            # Callbacks registered earlier (fixture setup) belong to no step under test.
+            self._callbacks_before = list(frappe.db.after_commit._functions)
+            try:
+                yield jobs
+            finally:
+                self._fire_our_commit_callbacks()
+
+    def _fire_our_commit_callbacks(self):
+        """What the commit does with this feature's callbacks, and only these."""
+        from verenigingen.services.volunteer import native_expense_helpers as helpers
+
+        pending = frappe.db.after_commit._functions
+        ours = [
+            cb
+            for cb in pending
+            if getattr(cb, "func", None) is helpers._enqueue_unless_queued
+            and cb not in self._callbacks_before
+        ]
+        for callback in ours:
+            pending.remove(callback)
+        for callback in ours:
+            callback()
 
     def _run_enqueued(self, jobs):
         for method, kwargs in jobs:
-            self.assertTrue(kwargs.get("enqueue_after_commit"), "enqueued after commit")
             self.assertTrue(kwargs.get("job_id"), "enqueued under a dedup job id")
             call_kwargs = {
                 k: v
@@ -431,3 +464,126 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         self.assertGreaterEqual(len(fed_many), len(fed_few) + 3)
         self.assertEqual(many, few)
         self.assertLessEqual(few, 2, "the join, plus at most a cold read of the national chapter setting")
+
+    # ------------------------------------------------------------- #2553 residuals
+    def _swap_seat_holder_in_chapter_save(self, row_name, new_volunteer_name, chapter_name=None):
+        """The REAL Chapter save: reassign an existing active row to another volunteer."""
+        chapter = frappe.get_doc("Chapter", chapter_name or self.chapter.name)
+        for row in chapter.board_members:
+            if row.name == row_name:
+                row.volunteer = new_volunteer_name
+        chapter.save()
+
+    def test_swapping_the_volunteer_on_a_financial_row_in_a_chapter_save_moves_the_approver(self):
+        """#2553 item 2: the old holder must not stay approver; the new one becomes it."""
+        second, second_user = self._user_backed_volunteer("sw2")
+        self._seated_treasurer()
+        row_name = self._seat_row_name(self.treasurer.name)
+        self._swap_seat_holder_in_chapter_save(row_name, second.name)
+        self.assertEqual(self._employee_approver(), second_user.email)
+        self.assertEqual(self._dept_approvers(), [second_user.email])
+
+    def test_swapping_to_a_volunteer_with_no_user_clears_the_old_approver(self):
+        """The new holder cannot approve (no user), so the old holder's approver is cleared."""
+        member = self.create_test_member(first_name="Ref", last_name="NoUser", birth_date="1990-01-01")
+        no_user = self.create_test_volunteer(member_name=member.name)
+        frappe.db.set_value("Volunteer", no_user.name, {"email": None, "personal_email": None})
+        self._seated_treasurer()
+        self._swap_seat_holder_in_chapter_save(self._seat_row_name(self.treasurer.name), no_user.name)
+        self.assertIsNone(self._employee_approver() or None)
+        self.assertNotIn(self.treasurer_user.email, self._dept_approvers())
+
+    def test_swapping_a_basic_row_does_not_clear_a_hand_set_approver(self):
+        """Control: a Basic seat was never a financial approver, so a swap leaves a hand-set one."""
+        other, other_user = self._user_backed_volunteer("swb")
+        second, _second_user = self._user_backed_volunteer("swb2")
+        self._seat_volunteer_on_chapter(other.name, role=self._chapter_role_at_level("Basic"))
+        self._write_employee_approver(other_user.email)
+        self._swap_seat_holder_in_chapter_save(self._seat_row_name(other.name), second.name)
+        self.assertEqual(self._employee_approver(), other_user.email)
+
+    def test_the_swap_ends_the_old_holders_assignment_and_starts_the_new_ones(self):
+        """The same hole carried the assignment history: both holders are handled.
+
+        (The board role itself is not asserted: this fixture chapter configures no board role
+        profile, so even an ordinary seating grants none here.)"""
+        second, _second_user = self._user_backed_volunteer("swh")
+        self._seat_volunteer_on_chapter(self.treasurer.name)
+        row_name = self._seat_row_name(self.treasurer.name)
+        self._swap_seat_holder_in_chapter_save(row_name, second.name)
+
+        def assignments(volunteer):
+            return frappe.get_all(
+                "Volunteer Assignment",
+                filters={"parent": volunteer, "reference_doctype": "Chapter", "reference_name": self.chapter.name},
+                fields=["status", "end_date"],
+            )
+
+        self.assertTrue(assignments(second.name), "new holder has an assignment")
+        new_member = frappe.db.get_value("Volunteer", second.name, "member")
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"parent": self.chapter.name, "member": new_member}),
+            "the new holder is seated as a chapter member",
+        )
+        old_holder = assignments(self.treasurer.name)
+        self.assertTrue(old_holder, "the old holder had an assignment to end")
+        self.assertTrue(all(a.status != "Active" for a in old_holder))
+
+    def test_a_chapter_admin_without_employee_write_can_swap_a_financial_holder(self):
+        """Least-privileged real caller (a Chapter Admin board member) saves the swap.
+
+        The new holder has no user, so no approver is SET and no role has to be granted: a
+        Chapter Admin cannot grant the Expense Approver role (no User write), and a swap to a
+        holder with a user then leaves the old approver in place. That is a separate defect,
+        reported with #2553 (measured: it applies to a plain new Financial seat as well)."""
+        member = self.create_test_member(first_name="Ref", last_name="AdmNoUser", birth_date="1990-01-01")
+        no_user = self.create_test_volunteer(member_name=member.name)
+        frappe.db.set_value("Volunteer", no_user.name, {"email": None, "personal_email": None})
+        self._seated_treasurer()
+        admin = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        user = getattr(admin, "user", None) or getattr(admin, "email", None)
+        row_name = self._seat_row_name(self.treasurer.name)
+        caller = frappe.session.user
+        frappe.set_user(user)
+        try:
+            self.assertFalse(frappe.has_permission("Employee", "write", doc=self.employee.name))
+            self._swap_seat_holder_in_chapter_save(row_name, no_user.name)
+        finally:
+            frappe.set_user(caller)
+        self.assertIsNone(self._employee_approver() or None)
+
+    def test_a_job_that_started_before_the_commit_does_not_suppress_the_enqueue(self):
+        """#2553 item 1. T1 queued job J; T2 (uncommitted) registers while J still waits; a
+        worker starts J (it reads pre-T2 state) before T2 commits. T2's change must be
+        enqueued: the queued-check belongs AFTER the commit, where J's state is final.
+
+        Probe shortcut (stated): ``_job_is_queued`` is stubbed to model Redis's view at each
+        moment. CI has no RQ workers and this bench's workers run develop's code, so the
+        interleaving is driven by hand and the queued method is run directly afterwards."""
+        national = self._national_chapter()
+        queue_state = {"j_is_queued": True}
+        # Mock justified: the queue's own state, moved between registration and commit.
+        with patch(
+            "verenigingen.services.volunteer.native_expense_helpers._job_is_queued",
+            side_effect=lambda job_id: queue_state["j_is_queued"],
+        ):
+            with self._captured_enqueues() as jobs:
+                self._seat_volunteer_on_chapter(self.treasurer.name, chapter_name=national.name)
+                self.assertEqual(jobs, [], "nothing is enqueued before the commit fires")
+                queue_state["j_is_queued"] = False  # the worker started J
+                self._fire_our_commit_callbacks()
+                self.assertEqual(len(jobs), 1, "T2's change is enqueued after J started")
+        self._run_enqueued(jobs)
+        self.assertEqual(self._employee_approver(), self.treasurer_user.email)
+
+    def test_a_job_still_waiting_at_commit_time_is_not_enqueued_again(self):
+        """Control: J still QUEUED when T2's commit fires will read T2's committed state, so
+        the dedup still holds. (Fails a fix that simply drops the dedup.)"""
+        national = self._national_chapter()
+        # Mock justified: the queue's own state (J waits under this id at commit time).
+        with patch(
+            "verenigingen.services.volunteer.native_expense_helpers._job_is_queued", return_value=True
+        ):
+            with self._captured_enqueues() as jobs:
+                self._seat_volunteer_on_chapter(self.treasurer.name, chapter_name=national.name)
+        self.assertEqual(jobs, [])

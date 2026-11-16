@@ -137,11 +137,11 @@ class BaseControllerTest {
 				expect(callsAdded).toBeLessThanOrEqual(5);
 			};
 
-			tests.shouldExecuteQuickly = () => {
-				const start = Date.now();
-				this.testEvent('refresh');
-				const duration = Date.now() - start;
-				expect(duration).toBeLessThan(100);
+			// Asserts the refresh handler is synchronous (returns no unawaited promise).
+			// It cannot see a slow synchronous handler; no wall-clock budget (#2440).
+			tests.shouldRefreshSynchronously = () => {
+				const result = this.testEvent('refresh');
+				expect(result && typeof result.then).not.toBe('function');
 			};
 		}
 
@@ -239,11 +239,11 @@ function createControllerTestSuite(config, customTests = {}) {
 				expect(callsAdded).toBeLessThanOrEqual(threshold);
 			});
 
-			it('should execute quickly', () => {
-				const start = Date.now();
-				controllerTest.testEvent('refresh');
-				const duration = Date.now() - start;
-				expect(duration).toBeLessThan(100);
+			// Asserts the refresh handler is synchronous (returns no unawaited promise).
+			// It cannot see a slow synchronous handler; no wall-clock budget (#2440).
+			it('refresh handler is synchronous (returns no unawaited promise)', () => {
+				const result = controllerTest.testEvent('refresh');
+				expect(result && typeof result.then).not.toBe('function');
 			});
 
 			it('should handle network errors gracefully', () => {

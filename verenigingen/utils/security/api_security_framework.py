@@ -348,9 +348,17 @@ class APISecurityFramework:
                 )
 
             if invalid_mappings:
-                frappe.logger("verenigingen.api_security").error(
-                    f"Invalid security level mappings found: {invalid_mappings}"
-                )
+                # Recorded in Error Log (#2445): frappe.logger() output is not captured anywhere
+                # readable. Best-effort, so a failing log_error can never fail initialisation.
+                try:
+                    frappe.log_error(
+                        title="Security framework: invalid security level mappings",
+                        message=f"Entries that are not a SecurityLevel: {invalid_mappings}",
+                    )
+                except Exception:
+                    frappe.logger("verenigingen.api_security").error(
+                        f"Invalid security level mappings found: {invalid_mappings}"
+                    )
 
             # Log successful validation
             valid_profiles = [
@@ -361,11 +369,17 @@ class APISecurityFramework:
                     f"Security framework initialized with {len(valid_profiles)} valid role profile mappings"
                 )
 
-        except Exception as e:
-            # Don't fail initialization, but log the error
-            frappe.logger("verenigingen.api_security").error(
-                f"Error validating role profile configuration: {str(e)}"
-            )
+        except Exception:
+            # Don't fail initialization, but record the error (#2445), not only in frappe.logger()
+            try:
+                frappe.log_error(
+                    title="Security framework: role profile configuration validation failed",
+                    message=frappe.get_traceback(),
+                )
+            except Exception:
+                frappe.logger("verenigingen.api_security").error(
+                    "Error validating role profile configuration (and Error Log write failed)"
+                )
 
     def _get_user_role_profiles(self, user: str = None) -> List[str]:
         """
@@ -533,6 +547,14 @@ class APISecurityFramework:
             # Not configured → control is dormant (documented, not a false promise)
             return True
 
+        if isinstance(allowlist, str):
+            # A bare string is one entry, not a sequence of characters (#2604).
+            allowlist = [allowlist]
+        elif not isinstance(allowlist, (list, tuple, set)):
+            # An active but unreadable allowlist must deny, not 500 (#2604).
+            self._record_invalid_allowlist(allowlist, "value is not a list")
+            raise VPermissionError(_("Access denied from this network location."))
+
         import ipaddress
 
         from verenigingen.utils.security.client_ip import get_client_ip
@@ -549,21 +571,47 @@ class APISecurityFramework:
 
         for entry in allowlist:
             try:
-                if "/" in str(entry):
+                if not isinstance(entry, str):
+                    raise ValueError("allowlist entry is not a string")
+                if "/" in entry:
                     if client_addr in ipaddress.ip_network(entry, strict=False):
                         return True
                 elif client_addr == ipaddress.ip_address(entry):
                     return True
             except ValueError:
-                frappe.logger("verenigingen.api_security").warning(
-                    f"Invalid critical_api_ip_allowlist entry: {entry!r}"
-                )
+                self._record_invalid_allowlist(entry, "entry is not a valid IP or CIDR")
                 continue
 
         frappe.logger("verenigingen.api_security").warning(
             f"IP_RESTRICTION_DENIED: client IP {client_ip} not in allowlist"
         )
         raise VPermissionError(_("Access denied from this network location."))
+
+    _reported_invalid_allowlist: set = set()
+
+    def _record_invalid_allowlist(self, value: Any, problem: str) -> None:
+        """Leave a readable Error Log row for a bad critical_api_ip_allowlist (#2604).
+
+        frappe.logger() output is not readable anywhere, and a bad entry can lock every
+        client out of CRITICAL endpoints. Once per process per distinct value, so a bad
+        config does not write a row per request. Never raises: the caller still denies.
+        """
+        # Keyed by site too: the set is per process and a worker serves several sites.
+        key = (frappe.local.site, repr(value))
+        if key in self._reported_invalid_allowlist:
+            return
+        try:
+            frappe.log_error(
+                title="Invalid critical_api_ip_allowlist configuration",
+                message=f"{problem}: {value!r}. Invalid entries are skipped; if none remain, "
+                "every client is denied on CRITICAL endpoints.",
+            )
+            # Only after the write succeeded, so a failed write is retried next request.
+            self._reported_invalid_allowlist.add(key)
+        except Exception:
+            frappe.logger("verenigingen.api_security").error(
+                f"Invalid critical_api_ip_allowlist ({problem}): {value!r}"
+            )
 
     def validate_rate_limits(
         self, profile: SecurityProfile, operation_key: str, force_check: bool = False

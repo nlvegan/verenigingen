@@ -22,7 +22,6 @@ Usage:
 """
 
 import frappe
-from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
@@ -46,10 +45,6 @@ CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
 # and from PONTO_RETURN_TOKEN_PURPOSE (the token it unlocks; if the two were the same string,
 # the token this callback hands out would itself pass as the proof for the next request).
 RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
-
-# Scopes the signed `token` payment_page requires (#1817). Its own purpose: the other Ponto
-# proofs travel in URLs too, and none of them may unlock this page's amount/creditor/redirect.
-PAYMENT_PAGE_TOKEN_PURPOSE = "ponto_payment_page"
 
 # Ponto rejects a payment-request redirectUri over 255 characters (HTTP 500, measured on the
 # sandbox 2026-11-08). The short guest route plus short parameter names keep the URL well
@@ -203,62 +198,3 @@ def _cancel_link_if_proved(payment_link_name):
     # successful token-proved cancel; every other path is still rolled back.
     frappe.local.flags.commit = True
     return True
-
-
-@frappe.whitelist(allow_guest=True, methods=["GET"])
-@public_api
-def payment_page():
-    """
-    Serve a customer-facing payment page for a Ponto Payment Link.
-
-    This is an alternative to sharing the direct Ponto redirect link.
-    Shows payment details and redirects customer to Ponto authorization.
-
-    Query Parameters:
-        link: Ponto Payment Link name
-        token: signed proof (generate_guest_return_token with PAYMENT_PAGE_TOKEN_PURPOSE) for
-            that link. Ponto Payment Link.autoname is a sequential PONTO-LINK-{####}, so the
-            name alone is enumerable (#1817). A missing, wrong or other-purpose token, an
-            unknown link and a deleted link are all refused with the same "not found" error,
-            checked before any database read, so no answer tells a guest which names exist
-            or what state they are in. Only a token holder sees the link's status.
-
-    Returns:
-        HTML page with payment details and authorization button
-    """
-    payment_link_name = frappe.request.args.get("link")
-    token = frappe.request.args.get("token")
-
-    if not payment_link_name or not verify_guest_return_token(
-        PAYMENT_PAGE_TOKEN_PURPOSE, payment_link_name, token
-    ):
-        frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)
-
-    if not frappe.db.exists("Ponto Payment Link", payment_link_name):
-        frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)
-
-    doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
-
-    # Check if payment link is still valid
-    if doc.status not in ["Draft", "Pending Authorization"]:
-        if doc.status == "Executed":
-            return {"status": "already_paid", "message": _("This payment has already been completed.")}
-        elif doc.status == "Cancelled":
-            return {"status": "cancelled", "message": _("This payment request has been cancelled.")}
-        elif doc.status == "Expired":
-            return {"status": "expired", "message": _("This payment request has expired.")}
-        else:
-            return {"status": doc.status.lower(), "message": _("This payment request is not available.")}
-
-    # Return payment details
-    return {
-        "status": "pending",
-        "payment_link": doc.name,
-        "amount": doc.amount,
-        "currency": doc.currency,
-        "description": doc.description,
-        "creditor_name": doc.creditor_name,
-        "payment_type": doc.payment_type,
-        "frequency": doc.frequency if doc.payment_type == "Periodic" else None,
-        "redirect_link": doc.redirect_link,
-    }

@@ -783,8 +783,13 @@ class Chapter(Document):
             # Tripped the query-count gate (260 -> 277 on develop). Both in-handler
             # calls were removed; this is now the only call site, and it must run
             # before either handler below.
-            self.member_manager.prelock_members_for_save(old_doc)
-            self.member_manager.handle_member_changes(old_doc)
+            try:
+                self.member_manager.prelock_members_for_save(old_doc)
+                self.member_manager.handle_member_changes(old_doc)
+            finally:
+                # Per-save, like board_seated_member_ids (#1843): a reason a writer set for ITS row
+                # must not label a later row flipped on this same object (#2499).
+                self.flags.pop("history_activation_reason", None)
             self.member_manager.handle_member_additions(old_doc)
 
             self.board_manager.handle_board_member_changes(old_doc)
@@ -808,6 +813,10 @@ class Chapter(Document):
             # Detect settings changes
             self._detect_and_emit_settings_changes(old_doc)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # on_update: the event emission failed on a transaction the server already
+            # discarded; logging it and returning would let the save report success (#2602).
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Failed to emit chapter change events for {self.name}: {str(e)}",
@@ -1373,6 +1382,8 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     try:
         result = bulk_assign_chapter_board_role_profiles(chapter_name)
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: a 1213/1205 is not a {"success": False} answer; the transaction is gone/half-applied
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Bulk Chapter Board Role Profile Assignment Error")
         return {"success": False, "error": str(e)}

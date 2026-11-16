@@ -20,7 +20,6 @@ Usage:
         reference_doctype="Donation",
         reference_name="DON-00001",
         payer_info={"email": "donor@example.com", "name": "John Doe"},
-        redirect_urls={"success": "/thank-you", "cancel": "/donate"}
     )
 """
 
@@ -197,7 +196,6 @@ class PaymentHook:
         reference_doctype: str,
         reference_name: str,
         payer_info: dict,
-        redirect_urls: dict | None = None,
         recurring: bool = False,
         interval: str | None = None,
         description: str | None = None,
@@ -211,7 +209,6 @@ class PaymentHook:
             reference_doctype: DocType being paid for (Donation, Membership, etc.)
             reference_name: Document name
             payer_info: Payer details {"email": "...", "name": "...", "iban": "..."}
-            redirect_urls: URLs for redirects {"success": "...", "cancel": "..."}
             recurring: Whether this is a recurring payment setup
             interval: Recurring interval (e.g., "1 month", "3 months", "1 year")
             description: Optional payment description override forwarded to the gateway
@@ -301,8 +298,6 @@ class PaymentHook:
                     "account_holder": payer_info.get("account_holder") or payer_info.get("name"),
                     "recurring": recurring,
                     "interval": interval,
-                    "redirect_url": redirect_urls.get("success") if redirect_urls else None,
-                    "cancel_url": redirect_urls.get("cancel") if redirect_urls else None,
                     "description_override": description,
                 }
             )

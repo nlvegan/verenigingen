@@ -51,7 +51,7 @@ class TestComprehensiveRoleProfileValidation(EnhancedTestCase):
                     
                     # Test: Base class exists and is properly structured
                     try:
-                        from verenigingen.utils.base_role_profile_manager import BaseRoleProfileManager, EntityConfig
+                        from verenigingen.services.member.account.base_role_profile_manager import BaseRoleProfileManager, EntityConfig
                         base_methods = [method for method in dir(BaseRoleProfileManager) if not method.startswith('_')]
                         
                         required_base_methods = [

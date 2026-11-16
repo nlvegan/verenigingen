@@ -34,6 +34,8 @@ Exception pattern provides:
 See: docs/patterns/ERROR_HANDLING_PATTERNS.md
 """
 
+import contextlib
+
 import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, today
@@ -129,6 +131,7 @@ class MembershipCreationService(StatelessService):
         custom_rate_reason=None,
         is_csv_import=False,
         approval_fields=None,
+        system_follow_on=False,
     ):
         """
         Create membership record when application is approved.
@@ -143,6 +146,10 @@ class MembershipCreationService(StatelessService):
             custom_rate_reason: Reason for custom dues rate
             is_csv_import: Flag indicating CSV import with historic date
             approval_fields: Dict of approval fields to set
+            system_follow_on: Run the dues schedule and invoice steps (4 and 5) with permission checks
+                bypassed, as the acting user.
+                Only for a caller that has already authorised the approver (#1930: a chapter board
+                approver); every other caller keeps its own permissions for those steps.
 
         Returns:
             Membership: Created or reused membership document
@@ -176,12 +183,14 @@ class MembershipCreationService(StatelessService):
             )
 
             # Step 4: Ensure dues schedule exists
-            self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
+            with self._follow_on_privileges(system_follow_on):
+                self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
 
             # Step 5: Generate invoice (if needed)
             invoice = None
             if create_invoice:
-                invoice = self._create_membership_invoice(member_doc, membership, membership_type)
+                with self._follow_on_privileges(system_follow_on):
+                    invoice = self._create_membership_invoice(member_doc, membership, membership_type)
 
             # Step 6: Consolidate all member field updates
             dues_schedule = self._consolidate_member_updates(
@@ -576,6 +585,15 @@ class MembershipCreationService(StatelessService):
             f"MembershipCreationService: Reactivated dues schedule {schedule_name} for rejoining "
             f"member {member_doc.name} from {membership.start_date}"
         )
+
+    @staticmethod
+    def _follow_on_privileges(system_follow_on):
+        """Permission bypass for one follow-on step when the caller asked for it, else no change."""
+        if not system_follow_on:
+            return contextlib.nullcontext()
+        from verenigingen.utils.secure_operations import authorised_follow_on_steps
+
+        return authorised_follow_on_steps()
 
     def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
         """

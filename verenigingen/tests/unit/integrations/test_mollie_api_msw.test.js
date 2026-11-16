@@ -487,8 +487,7 @@ describe('Mollie API Integration with MSW', () => {
 			});
 		});
 
-		it('should maintain performance under load', async () => {
-			const startTime = Date.now();
+		it('should resolve a burst of mixed requests with the right shapes', async () => {
 			const requestCount = 20;
 			const requests = [];
 
@@ -504,10 +503,19 @@ describe('Mollie API Integration with MSW', () => {
 			}
 
 			const results = await Promise.all(requests);
-			const endTime = Date.now();
 
+			// Every request in the burst must resolve with a real response; no
+			// wall-clock budget (#2440).
 			expect(results).toHaveLength(requestCount);
-			expect(endTime - startTime).toBeLessThan(1000); // Should complete within 1 second
+			results.forEach((result, i) => {
+				if (i % 3 === 0) {
+					expect(result.availableAmount).toBeDefined(); // getBalance
+				} else if (i % 3 === 2) {
+					expect(result.id).toBe(`tr_test_paid_${i}`); // getPayment
+				} else {
+					expect(result).toBeTruthy(); // listSettlements
+				}
+			});
 		});
 	});
 });

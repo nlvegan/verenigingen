@@ -24,7 +24,7 @@ from frappe.utils import now_datetime, today
 from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
-from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor, single_run_per_import_doc
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
@@ -1049,6 +1049,7 @@ def _process_account_creation(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@single_run_per_import_doc("VIP Import")
 def process_import_background(import_doc_name: str, test_mode: bool = False):
     """
     Background job to process VIP import.

@@ -22,10 +22,12 @@ from verenigingen.verenigingen_payments.services.donation_journal_entry_creator 
     get_donation_journal_entry_creator,
 )
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
-    find_journal_entry_by_reference,
+    mollie_amount_or_none,
+    resolve_journal_entry_by_reference,
 )
 
 # Import payment data extraction utilities
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # Import custom exceptions
@@ -182,7 +184,7 @@ class UnifiedWebhookWrapperService:
                 # as a Payment Entry is invisible to every layer here, and the sweep
                 # books BT + JE on top of it (#370). Two blind checks covering each
                 # other's blind spots is not a guard.
-                already_booked = find_booked_reversal(refund_reference)
+                already_booked = find_booked_reversal(refund_reference, flt(refund_amount))
                 if already_booked:
                     self.logger.info(
                         f"⏭️ Refund {refund_id} already booked as "
@@ -484,7 +486,8 @@ class UnifiedWebhookWrapperService:
                     result["duration_seconds"] = time.time() - start_time
                     return result
 
-                classification = router.classify_payment(payment)
+                # alert_staff: the webhook is the delivery path (#1497 (2)); Mollie redelivers it
+                classification = router.classify_payment(payment, alert_staff=True)
 
                 self.logger.info(
                     f"📊 Payment classification: type={classification['payment_type']}, "
@@ -495,6 +498,19 @@ class UnifiedWebhookWrapperService:
                 from ..domain.payment_classification import PaymentType
 
                 payment_type = classification["payment_type"]
+
+                # AMBIGUOUS: a Mollie id shared by several Members/Donors. Do NOT fall
+                # through to the donation path below; report failure so Mollie
+                # re-delivers once staff have fixed the duplicate (#1497).
+                if payment_type == PaymentType.AMBIGUOUS:
+                    duration = time.time() - start_time
+                    record_operation_performance("unified_webhook_processing", duration, False)
+                    return {
+                        "status": "error",
+                        "message": "More than one member/donor carries this payment's Mollie id; not booked",
+                        "payment_id": payment_id,
+                        "duration_seconds": duration,
+                    }
 
                 # ORDER payments: Create Bank Transactions for reconciliation
                 if payment_type == PaymentType.ORDER:
@@ -515,7 +531,7 @@ class UnifiedWebhookWrapperService:
                 # DUES payments: Create Payment Entries for membership dues
                 elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
-                    result = router.route_payment(payment_id, payment)
+                    result = router.route_payment(payment_id, payment, alert_staff=True)
                     result = self._book_dues_reversals(payment_id, payment, result)
 
                     # Add timing information
@@ -1297,7 +1313,9 @@ class UnifiedWebhookWrapperService:
                 # "Unknown column 'reference_no'" and aborted the whole partial-processing
                 # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
-                    journal_entry_name = find_journal_entry_by_reference(payment_id)
+                    journal_entry_name = resolve_journal_entry_by_reference(
+                        payment_id, mollie_amount_or_none(payment_data)
+                    )
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                     results.append("Donation payment history updated")
                 else:
@@ -1703,6 +1721,9 @@ class UnifiedWebhookWrapperService:
                 "party_type": party_type,
                 "party": party,
                 "bank_party_name": bank_party_name,
+                # The reference is build_reversal_key(): this webhook's own idempotency key, so
+                # the database must refuse a concurrent duplicate delivery (#1349, #1267).
+                SYSTEM_ISSUED_FIELDNAME: 1,
             },
             bank_account=config["bank_account"],
             company=config["company"],
@@ -1986,7 +2007,7 @@ class UnifiedWebhookWrapperService:
             # book different doctypes under one key, so a Payment-Entry-only check
             # could not see a Journal Entry the sweep had already written.
             reference_pattern = build_reversal_key(payment_id, reversal_type, reversal_id)
-            existing = find_booked_reversal(reference_pattern)
+            existing = find_booked_reversal(reference_pattern, flt(amount))
             existing_reversal = existing[1] if existing else None
 
             if existing_reversal:

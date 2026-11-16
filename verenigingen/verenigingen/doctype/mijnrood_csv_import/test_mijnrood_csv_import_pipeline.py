@@ -34,12 +34,19 @@ import csv  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
 import random  # noqa: E402
+import threading  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
 from unittest.mock import patch  # noqa: E402
 
 import frappe  # noqa: E402
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
 from verenigingen.tests.utils.force_delete import force_delete  # noqa: E402
+from verenigingen.utils.csv_import_processor import (  # noqa: E402
+    import_run_lock_name,
+    is_import_running,
+    queue_csv_import_processing,
+)
 from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import (  # noqa: E402
     get_import_template,
     process_import_background,
@@ -760,3 +767,158 @@ class TestMijnroodTemplateComplement(_BaseMijnroodPipelineTest):
         self.assertIn("NL91ABNA0417164300", sample)
         # Tussenvoegsel (Dutch name infix) is present in the template headers.
         self.assertIn("Tussenvoegsel", headers)
+
+
+@contextmanager
+def _run_in_flight_elsewhere(doctype, import_doc_name):
+    """Hold the import's run lock on a SECOND connection, as a live worker would (#2648).
+
+    A same-connection GET_LOCK is re-entrant, so contention can only be shown
+    from another connection. The lock is the real thing a running job holds; only
+    the "other worker" is stood in for.
+    """
+    site = frappe.local.site
+    lock_name = import_run_lock_name(doctype, import_doc_name)
+    held, release = threading.Event(), threading.Event()
+
+    def other_worker():
+        frappe.init(site=site, force=True)
+        frappe.connect()
+        try:
+            frappe.db.sql("SELECT GET_LOCK(%s, 0)", (lock_name,))
+            held.set()
+            release.wait(30)
+        finally:
+            frappe.destroy()
+
+    thread = threading.Thread(target=other_worker)
+    thread.start()
+    held.wait(10)
+    try:
+        yield
+    finally:
+        release.set()
+        thread.join(30)
+
+
+_IMPORT_ENTRY_POINTS = (
+    ("Mijnrood CSV Import", "verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import"),
+    ("Member Import", "verenigingen.verenigingen.doctype.member_import.member_import"),
+    (
+        "Procurios Membership Import",
+        "verenigingen.verenigingen.doctype.procurios_membership_import.procurios_membership_import",
+    ),
+    (
+        "Procurios Mandate Import",
+        "verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import",
+    ),
+    ("VIP Import", "verenigingen.verenigingen.doctype.vip_import.vip_import"),
+)
+
+
+class TestConcurrentImportRuns(_BaseMijnroodPipelineTest):
+    """#2648: a second run of an import doc that is already being processed is refused."""
+
+    def setUp(self):
+        super().setUp()
+        self._save_settings()
+
+    def tearDown(self):
+        self._restore_settings()
+        super().tearDown()
+
+    def _doc_with_two_rows(self):
+        rows = [
+            {"Voornaam": "Conc", "Achternaam": "One", "E-mailadres": _unique_email()},
+            {"Voornaam": "Conc", "Achternaam": "Two", "E-mailadres": _unique_email()},
+        ]
+        return self._make_import_doc(rows, create_volunteer_records=0, create_user_accounts=0), rows
+
+    def test_second_run_is_refused_and_leaves_the_first_runs_state_alone(self):
+        doc, rows = self._doc_with_two_rows()
+        doc.db_set("import_status", "In Progress")
+
+        with _run_in_flight_elsewhere("Mijnrood CSV Import", doc.name):
+            with self.assertRaises(frappe.ValidationError) as caught:
+                process_import_background(doc.name, test_mode=False)
+
+        self.assertIn("already being imported", str(caught.exception))
+        doc.reload()
+        self.assertEqual(
+            doc.import_status, "In Progress", "the refused run must not touch the live run's status"
+        )
+        self.assertFalse(
+            frappe.db.exists("Member", {"email": rows[0]["E-mailadres"]}), "the refused run processed rows"
+        )
+
+    def test_run_proceeds_once_the_other_run_has_finished_and_releases_its_own_lock(self):
+        doc, rows = self._doc_with_two_rows()
+
+        with _run_in_flight_elsewhere("Mijnrood CSV Import", doc.name):
+            with self.assertRaises(frappe.ValidationError):
+                process_import_background(doc.name, test_mode=False)
+
+        process_import_background(doc.name, test_mode=False)
+        self._track_members_from_rows(rows)
+
+        self.assertTrue(frappe.db.exists("Member", {"email": rows[0]["E-mailadres"]}))
+        self.assertFalse(
+            is_import_running("Mijnrood CSV Import", doc.name), "a finished run left its lock behind"
+        )
+
+    def test_a_stale_in_progress_status_from_a_crashed_run_does_not_block_a_rerun(self):
+        """A crashed worker leaves import_status "In Progress"; only a LIVE run may refuse a new one.
+
+        Control for a status-based guard, which would refuse here forever.
+        """
+        doc, rows = self._doc_with_two_rows()
+        doc.db_set("import_status", "In Progress")  # state a dead worker leaves, set directly
+
+        process_import_background(doc.name, test_mode=False)
+        self._track_members_from_rows(rows)
+
+        self.assertTrue(frappe.db.exists("Member", {"email": rows[0]["E-mailadres"]}))
+        self.assertEqual(frappe.db.get_value("Mijnrood CSV Import", doc.name, "import_status"), "Completed")
+
+    def test_a_run_that_raises_does_not_leave_the_lock_held(self):
+        doc, _rows = self._doc_with_two_rows()
+
+        with (
+            patch.object(type(doc), "_read_csv_file", side_effect=RuntimeError("boom"), create=True),
+            patch.object(frappe, "log_error"),
+        ):
+            process_import_background(doc.name, test_mode=False)
+
+        self.assertFalse(is_import_running("Mijnrood CSV Import", doc.name))
+
+    def test_queue_endpoint_refuses_while_a_run_is_in_flight_and_enqueues_otherwise(self):
+        doc, _rows = self._doc_with_two_rows()
+        method = _IMPORT_ENTRY_POINTS[0][1] + ".process_import_background"
+
+        with patch("frappe.enqueue") as enqueue:
+            with _run_in_flight_elsewhere("Mijnrood CSV Import", doc.name):
+                with self.assertRaises(frappe.ValidationError):
+                    queue_csv_import_processing(doc.name, "Mijnrood CSV Import", method)
+            self.assertEqual(enqueue.call_count, 0, "a second run was enqueued behind the live one")
+
+            result = queue_csv_import_processing(doc.name, "Mijnrood CSV Import", method)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(enqueue.call_count, 1)
+
+    def test_every_importer_entry_point_is_guarded(self):
+        import importlib
+
+        for doctype, module_path in _IMPORT_ENTRY_POINTS:
+            with self.subTest(doctype=doctype):
+                entry = importlib.import_module(module_path).process_import_background
+                with _run_in_flight_elsewhere(doctype, "NO-SUCH-IMPORT-2648"):
+                    with self.assertRaises(frappe.ValidationError) as caught:
+                        entry("NO-SUCH-IMPORT-2648")
+                self.assertIn("already being imported", str(caught.exception))
+
+    def _track_members_from_rows(self, rows):
+        for row in rows:
+            name = frappe.db.get_value("Member", {"email": row["E-mailadres"]}, "name")
+            if name and name not in self._created_members:
+                self._created_members.append(name)

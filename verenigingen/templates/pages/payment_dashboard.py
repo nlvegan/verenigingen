@@ -2,6 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import (
+    add_billing_periods,
+    get_monthly_equivalent_amount,
+)
 from verenigingen.services.payment.sepa_mandate_consent import (
     get_mandate_consent_text,
     hash_consent_text,
@@ -19,6 +23,8 @@ def get_current_dues_schedule(member):
             "name",
             "contribution_mode",
             "billing_frequency",
+            "custom_frequency_number",
+            "custom_frequency_unit",
             "next_invoice_date",
             "last_invoice_date",
             "dues_rate",
@@ -29,19 +35,41 @@ def get_current_dues_schedule(member):
 
     if schedule:
         dues_rate = flt(schedule.dues_rate, 2) or 0
-        # Calculate monthly amount from billing frequency
-        if schedule.billing_frequency == "Monthly":
-            schedule["monthly_amount"] = dues_rate
-        elif schedule.billing_frequency == "Quarterly":
-            schedule["monthly_amount"] = flt(dues_rate / 3, 2)
-        elif schedule.billing_frequency == "Semi-Annual":
-            schedule["monthly_amount"] = flt(dues_rate / 6, 2)
-        elif schedule.billing_frequency == "Annual":
-            schedule["monthly_amount"] = flt(dues_rate / 12, 2)
-        else:
-            schedule["monthly_amount"] = dues_rate
+        # None when the period is unknown (Custom without an interval): the page then
+        # shows no monthly figure instead of presenting the full rate as monthly (#1282).
+        monthly_amount = get_monthly_equivalent_amount(
+            dues_rate,
+            schedule.billing_frequency,
+            schedule.custom_frequency_number,
+            schedule.custom_frequency_unit,
+        )
+        schedule["monthly_amount"] = None if monthly_amount is None else flt(monthly_amount, 2)
 
     return schedule
+
+
+def get_upcoming_dates(schedule, count=4):
+    """The next `count` invoice dates of a schedule, stepping by its real period (#1282).
+
+    Computed here, not in the template, so Weekly/Daily/Custom do not step by a month.
+    Empty when the period is unknown (Custom without an interval).
+    """
+    if not schedule or not schedule.get("next_invoice_date"):
+        return []
+    last_invoice_date = schedule.get("last_invoice_date")
+    dates = []
+    for i in range(count):
+        payment_date = add_billing_periods(
+            schedule.next_invoice_date,
+            i,
+            schedule.billing_frequency,
+            schedule.custom_frequency_number,
+            schedule.custom_frequency_unit,
+        )
+        if payment_date is None or (last_invoice_date and payment_date > getdate(last_invoice_date)):
+            break
+        dates.append(payment_date)
+    return dates
 
 
 def get_financial_overview(member):
@@ -77,7 +105,7 @@ def get_financial_overview(member):
     current_schedule = get_current_dues_schedule(member)
     annual_target = 0
     if current_schedule:
-        monthly_amount = current_schedule.get("monthly_amount", 0)
+        monthly_amount = current_schedule.get("monthly_amount") or 0
         annual_target = monthly_amount * 12
 
     # Calculate yearly progress
@@ -329,6 +357,7 @@ def _add_bank_details_context(context):
 
     # Add merged financial dashboard data
     context.current_schedule = get_current_dues_schedule(context.member)
+    context.upcoming_dates = get_upcoming_dates(context.current_schedule)
     context.financial_overview = get_financial_overview(context.member)
     context.recent_activity = get_recent_activity(context.member)
     context.notification_settings = get_notification_settings(context.member)

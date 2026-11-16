@@ -980,6 +980,34 @@ def _set_cached_result(idempotency_key: str, result: Dict, ttl: int = None) -> N
         _operation_cache[idempotency_key] = (result, time.time(), ttl)
 
 
+def _clear_cached_result(idempotency_key: str) -> None:
+    """Remove the idempotency marker from both backends."""
+    with _cache_mutex:
+        _operation_cache.pop(idempotency_key, None)
+    try:
+        frappe.cache().delete(f"sepa_idempotency:{idempotency_key}")
+    except Exception as e:
+        frappe.log_error(
+            title="SEPA idempotency marker could not be cleared after rollback",
+            message=f"{idempotency_key[:16]}...: {e}",
+        )
+
+
+def _clear_cached_result_on_rollback(idempotency_key: str) -> None:
+    """
+    Undo the marker if the surrounding transaction is rolled back (#2642).
+
+    The marker lives in the cache, outside the DB transaction. It is written
+    immediately (not after commit) so a concurrent or repeated caller is still
+    refused while the operation is uncommitted; but if the transaction is then
+    rolled back (e.g. a 1213 deadlock victim) the operation did not happen, so
+    the marker must go or the retry would be skipped. Frappe drops these
+    callbacks on commit, so a committed operation stays marked. Note: a
+    ``rollback(save_point=...)`` does not fire rollback callbacks.
+    """
+    frappe.db.after_rollback.add(lambda: _clear_cached_result(idempotency_key))
+
+
 @standard_api(operation_type=OperationType.FINANCIAL)
 def generate_idempotency_key(bank_transaction: str, batch: str, operation: str) -> str:
     """
@@ -1069,6 +1097,7 @@ def execute_idempotent_operation(idempotency_key: str, operation_func, ttl: int 
         try:
             result = operation_func()
             _set_cached_result(idempotency_key, result, ttl)
+            _clear_cached_result_on_rollback(idempotency_key)
             return result
         except Exception as e:
             # Don't cache failures - allow retry

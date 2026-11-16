@@ -10,7 +10,7 @@ import unittest
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.utils.base_role_profile_manager import (
+from verenigingen.services.member.account.base_role_profile_manager import (
     validate_doctype_fields,
     validate_entity_configuration,
     validate_role_profile_dependencies,

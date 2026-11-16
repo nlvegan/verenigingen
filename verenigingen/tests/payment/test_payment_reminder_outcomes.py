@@ -20,6 +20,7 @@ from verenigingen.api.payment_processing import (
 )
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns, configure_notification_key
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates, _load_fixture_rows
 
@@ -46,11 +47,10 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._ensure_outgoing_account()
+        own_notification_keys(self, *KEYS)  # first: its snapshot is the site's own state (#2053)
         ensure_notification_registry_rows()
         self._ensure_shipped_templates()
         self._configure_email_master(master=1, respect_prefs=1)
-        for key in KEYS:
-            configure_notification_key(key, 1, 0)
 
         self.member = self._new_reminder_member("Outcome")
         self.info = {

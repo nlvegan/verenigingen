@@ -252,12 +252,6 @@ class PublicDonationService(StatelessService):
         is_recurring = form_data.get("is_recurring") or form_data.get("donation_type") == "Recurring"
         interval = form_data.get("subscription_interval") or form_data.get("recurring_interval")
 
-        # Build redirect URLs
-        redirect_urls = {
-            "success": form_data.get("success_url") or "/donation-success",
-            "cancel": form_data.get("cancel_url") or "/donate",
-        }
-
         # Call PaymentHook
         result = PaymentHook.initiate_payment(
             method=hook_method,
@@ -265,7 +259,6 @@ class PublicDonationService(StatelessService):
             reference_doctype="Donation",
             reference_name=donation.name,
             payer_info=payer_info,
-            redirect_urls=redirect_urls,
             recurring=is_recurring,
             interval=interval,
         )

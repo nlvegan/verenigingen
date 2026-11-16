@@ -14,6 +14,9 @@ only Mollie/e-Boekhouden/Ponto references are constrained.
 `test_repeated_mt940_style_references_on_one_account_are_allowed` pins the opposite case --
 this is the exact scenario the wider scope broke, reproduced here at the full ORM/database
 level rather than only at the unit-predicate level.
+
+Since #1349 "system-issued" is what the WRITER says (`custom_reference_is_system_issued`),
+not the shape of the string; see `bank_transaction_reference_key.py`.
 """
 
 import frappe
@@ -26,6 +29,7 @@ from verenigingen.tests.services.test_bank_transaction_creator_coverage import (
 )
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import (
     FIELDNAME,
+    SYSTEM_ISSUED_FIELDNAME,
     build_reference_key,
 )
 
@@ -40,7 +44,7 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         frappe.db.rollback()
         super().tearDown()
 
-    def _make_transaction(self, bank_account, reference_number, amount=10.0):
+    def _make_transaction(self, bank_account, reference_number, amount=10.0, system_issued=False):
         doc = frappe.get_doc(
             {
                 "doctype": "Bank Transaction",
@@ -55,17 +59,18 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
                 "status": "Unreconciled",
                 "unallocated_amount": amount,
                 "allocated_amount": 0.0,
+                # What a Mollie / e-Boekhouden writer sets (#1349); an importer of a payer
+                # reference never does.
+                SYSTEM_ISSUED_FIELDNAME: 1 if system_issued else 0,
             }
         )
         doc.insert(ignore_permissions=True)
         return doc
 
     def _system_ref(self, label="sys"):
-        # "EB-" (case-insensitive) is the e-Boekhouden shape -- see
-        # bank_transaction_reference_key.py's module docstring for why this and the Mollie
-        # prefixes are the only ones trusted by shape alone. `label` only distinguishes two
-        # calls from each other; it is never a prefix this module recognises on its own.
-        return f"EB-{self._ref(label)}"
+        # The shape is irrelevant to the key since #1349 -- the writer's flag decides -- so
+        # use one that is NOT a recognised prefix, to make sure nothing falls back to it.
+        return f"SYSREF-{self._ref(label)}"
 
     def test_the_field_and_its_unique_index_are_installed(self):
         self.assertTrue(
@@ -79,13 +84,43 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
 
     def test_a_second_transaction_on_one_account_with_the_same_system_reference_is_refused(self):
         ref = self._system_ref()
-        first = self._make_transaction(self.bank_account, ref)
+        first = self._make_transaction(self.bank_account, ref, system_issued=True)
         self.assertIsNotNone(
             first.get(FIELDNAME), "the validate hook did not derive a key for a system-issued reference"
         )
 
         with self.assertRaises((frappe.UniqueValidationError, frappe.DuplicateEntryError)):
-            self._make_transaction(self.bank_account, ref)
+            self._make_transaction(self.bank_account, ref, system_issued=True)
+
+    def test_a_system_prefixed_reference_without_the_writer_flag_is_not_constrained(self):
+        # #1349 at the ORM/database level: every prefix the old rule trusted, typed as a
+        # payer reference (no flag). Both rows must be created.
+        for prefix in ("EB-", "tr_", "stl_", "baltr_"):
+            with self.subTest(prefix=prefix):
+                ref = f"{prefix}{self._ref('payer')}"
+                first = self._make_transaction(self.bank_account, ref, amount=42.0)
+                second = self._make_transaction(self.bank_account, ref, amount=99.0)
+                self.assertNotEqual(first.name, second.name)
+                self.assertIsNone(first.get(FIELDNAME))
+                self.assertIsNone(second.get(FIELDNAME))
+
+    def test_a_flagged_row_stays_constrained_against_an_unflagged_row_with_the_same_reference(self):
+        # An unflagged twin has no key, so it cannot collide with the flagged row's key: the
+        # guard is "two SYSTEM-issued rows", not "any row sharing a system reference".
+        ref = f"tr_{self._ref('mixed')}"
+        flagged = self._make_transaction(self.bank_account, ref, system_issued=True)
+        unflagged = self._make_transaction(self.bank_account, ref)
+
+        self.assertIsNotNone(flagged.get(FIELDNAME))
+        self.assertIsNone(unflagged.get(FIELDNAME))
+
+    def test_saving_a_flagged_row_again_keeps_its_key(self):
+        # validate recomputes the key on every save; the flag is what keeps it.
+        txn = self._make_transaction(self.bank_account, self._system_ref("resave"), system_issued=True)
+        key = txn.get(FIELDNAME)
+        txn.reload()
+        txn.save()
+        self.assertEqual(frappe.db.get_value("Bank Transaction", txn.name, FIELDNAME), key)
 
     def test_the_same_system_reference_on_two_different_accounts_is_allowed(self):
         # The whole reason the index is scoped per account (#383, #1267): different banks
@@ -94,8 +129,8 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         other_bank_account = self._ensure_bank_account(other_gl_account, name_suffix=" ConstraintOther")
 
         ref = self._system_ref()
-        first = self._make_transaction(self.bank_account, ref)
-        second = self._make_transaction(other_bank_account, ref)
+        first = self._make_transaction(self.bank_account, ref, system_issued=True)
+        second = self._make_transaction(other_bank_account, ref, system_issued=True)
 
         self.assertNotEqual(first.get(FIELDNAME), second.get(FIELDNAME))
 
@@ -128,12 +163,13 @@ class TestBankTransactionReferenceConstraint(_BankTxnFixtureMixin, EnhancedTestC
         # validate + before_submit. With the handler on before_save the persisted key stays
         # the hash of the pre-edit reference, guarding a tuple the row no longer has and
         # reserving a slot nothing occupies.
-        txn = self._make_transaction(self.bank_account, self._system_ref("presubmit"))
+        txn = self._make_transaction(self.bank_account, self._system_ref("presubmit"), system_issued=True)
         moved_to = self._system_ref("postsubmit")
         txn.reference_number = moved_to
         txn.submit()
 
         self.assertEqual(
             frappe.db.get_value("Bank Transaction", txn.name, FIELDNAME),
-            build_reference_key(self.bank_account, moved_to),
+            build_reference_key(self.bank_account, moved_to, system_issued=1),
         )
+        self.assertIsNotNone(frappe.db.get_value("Bank Transaction", txn.name, FIELDNAME))

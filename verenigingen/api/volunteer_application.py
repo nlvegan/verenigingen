@@ -12,6 +12,7 @@ from frappe.utils import getdate, now_datetime, today
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation_utilities import AgeValidator
 
 
@@ -364,6 +365,11 @@ def _create_membership_application(data, volunteer_name):
         )
         return {"success": False, "member_name": None, "error": error_message}
 
+    # #506: submit_application re-raises a 1205/1213 (#504). Swallowing it here let the
+    # caller commit and answer "application received" over a transaction the server may
+    # already have discarded. The outer handler rolls back and reports a failure instead.
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error creating membership for volunteer {volunteer_name}: {str(e)}")
         return {"success": False, "member_name": None, "error": str(e)}
