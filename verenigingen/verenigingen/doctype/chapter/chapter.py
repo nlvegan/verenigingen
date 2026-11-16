@@ -813,6 +813,10 @@ class Chapter(Document):
             # Detect settings changes
             self._detect_and_emit_settings_changes(old_doc)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # on_update: the event emission failed on a transaction the server already
+            # discarded; logging it and returning would let the save report success (#2602).
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Failed to emit chapter change events for {self.name}: {str(e)}",

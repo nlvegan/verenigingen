@@ -3,6 +3,8 @@ from typing import Dict, List, Set
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 from .base_validator import BaseValidator, ValidationResult
 
 
@@ -159,6 +161,10 @@ class BoardMemberValidator(BaseValidator):
                     "Chapter Role", filters={"is_unique": 1, "is_active": 1}, pluck="name"
                 )
                 self._unique_roles_cache = set(unique_roles)
+            except NON_RESUMABLE_DB_ERRORS:
+                # 1213/1205 leave no usable transaction; falling back would let the save
+                # report success on state the server discarded (#2602).
+                raise
             except Exception as e:
                 frappe.log_error(f"Error fetching unique roles: {str(e)}")
                 # Empty set for THIS call only: caching it would disable the
@@ -172,6 +178,10 @@ class BoardMemberValidator(BaseValidator):
         try:
             settings = frappe.get_single("Verenigingen Settings")
             return getattr(settings, setting_name, default_value)
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205 leave no usable transaction; falling back would let the save
+            # report success on state the server discarded (#2602).
+            raise
         except Exception:
             return default_value
 
