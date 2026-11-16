@@ -912,6 +912,26 @@ def get_user_role_profiles(user_name: str) -> list[str]:
     return [single] if single else []
 
 
+def get_users_holding_profiles(profiles: list[str]) -> list[str]:
+    """Names of users holding ANY of ``profiles``, in any position (#2433).
+
+    ``User.role_profile_name`` mirrors only a user's FIRST profile, so filtering on it
+    skips everyone whose qualifying profile is stacked behind another. Under
+    multi-profile support the ``role_profiles`` child table is the source of truth;
+    the deprecated column is kept as a union for rows written before it was a mirror.
+    """
+    holders = set(frappe.get_all("User", filters={"role_profile_name": ["in", profiles]}, pluck="name"))
+    if _has_multi_profile_support():
+        holders.update(
+            frappe.get_all(
+                "User Role Profile",
+                filters={"role_profile": ["in", profiles], "parenttype": "User"},
+                pluck="parent",
+            )
+        )
+    return sorted(holders)
+
+
 def sync_user_role_profile(
     user: str,
     dry_run: bool = False,
@@ -1356,6 +1376,9 @@ def nightly_role_profile_sync() -> dict:
     return results
 
 
+_DEFAULT_SYNC_PROFILES = [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER]
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
@@ -1372,12 +1395,7 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
     try:
         # Default to users with verenigingen role profiles
         if not filters:
-            filters = {
-                "role_profile_name": [
-                    "in",
-                    [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER],
-                ]
-            }
+            filters = {"name": ["in", get_users_holding_profiles(_DEFAULT_SYNC_PROFILES)]}
 
         results = sync_role_profiles_for_users(
             frappe.get_all("User", filters=filters, pluck="name"), dry_run=dry_run
@@ -1562,25 +1580,17 @@ def validate_role_profile_data_integrity():
                         )
 
         # Check 5: Users with incorrect profiles (sample check)
-        users_to_check = frappe.db.get_all(
-            "User",
-            filters={
-                "role_profile_name": [
-                    "in",
-                    [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER],
-                ]
-            },
-            fields=["name", "role_profile_name"],
-            limit=100,  # Limit to avoid timeout
-        )
+        users_to_check = get_users_holding_profiles(_DEFAULT_SYNC_PROFILES)[:100]  # Limit to avoid timeout
 
-        for user in users_to_check:
-            calculated_profile = calculate_user_role_profile(user.name)
-            if calculated_profile and calculated_profile != user.role_profile_name:
+        for user_name in users_to_check:
+            held = get_user_role_profiles(user_name)
+            calculated_profile = calculate_user_role_profile(user_name)
+            # The headline profile only has to be HELD: stacked profiles are legitimate (#2433).
+            if calculated_profile and calculated_profile not in held:
                 issues["profile_mismatches"].append(
                     {
-                        "user": user.name,
-                        "current_profile": user.role_profile_name,
+                        "user": user_name,
+                        "current_profile": held[0] if held else None,
                         "calculated_profile": calculated_profile,
                         "issue": "Current profile does not match calculated profile",
                     }
