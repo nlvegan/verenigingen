@@ -88,6 +88,32 @@ class TestInvoiceFlagsRestored(FlagRestoreCase):
         self.assert_restored(["in_invoice_generation"], lambda: Orchestrator(schedule).generate())
         self.assertEqual(seen, [True, True], "the flag must still be raised while generating")
 
+    def test_orchestrator_restores_when_generation_raises(self):
+        class Boom(BaseException):
+            """Not an Exception, so generate()'s own except cannot absorb it."""
+
+        class Orchestrator(InvoiceGenerationOrchestrator):
+            def _acquire_lock(self):
+                return False, None, "lock"
+
+            def _release_lock(self, *args):
+                pass
+
+            def _execute_generation(self):
+                raise Boom()
+
+        schedule = SimpleNamespace(
+            name="SCHED-2577", test_mode=False, can_generate_invoice=lambda: (True, "")
+        )
+
+        def call():
+            try:
+                Orchestrator(schedule).generate()
+            except Boom:
+                pass
+
+        self.assert_restored(["in_invoice_generation"], call)
+
     def test_bulk_service_restores_bulk_invoice_generation(self):
         seen = []
 
