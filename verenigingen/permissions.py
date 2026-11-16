@@ -2043,7 +2043,8 @@ def _withdraw_via_profile_sync(user_email, user_member):
     )
 
     # allow_disabled: this only ever downgrades, and a disabled account still holds its profile.
-    result = sync_user_role_profile(user_email, allow_disabled=True, reraise_non_resumable=True)
+    # A deadlock/lock-wait is re-raised by the sync itself for every caller (#1888).
+    result = sync_user_role_profile(user_email, allow_disabled=True)
     if not result.get("success"):
         raise BoardAccessWithdrawalError(
             frappe._(
