@@ -52,7 +52,8 @@ def apply_safe_default(
     ``frappe.db.set_single_value`` on a row-less Single creates rows only for the field it was given,
     so the seed patches (#2478, #2509) do not keep the state from recurring. With live credentials
     the value is left at 0 (maintainer ruling on #2509: a live site is not silently switched to test
-    mode). A real row, 0 included, is never overridden. Returns True when the value was applied.
+    mode). A real row, 0 included, is never overridden. ``frappe.db.get_single_value`` reads
+    ``tabSingles`` directly and bypasses this guard (no current reader of these flags uses it). Returns True when the value was applied.
     """
     if not is_check_unset(doc.doctype, fieldname):
         return False
@@ -68,6 +69,15 @@ def _password_set(doctype: str, fieldname: str) -> bool:
 
 def mollie_has_live_credentials() -> bool:
     return _password_set("Mollie Settings", "live_secret_key")
+
+
+def ing_has_live_credentials() -> bool:
+    """ING Checkout has ONE credential set (the sandbox is a flag on the same keys), so an enabled
+    integration with an API token configured counts as operating, i.e. possibly live."""
+    return bool(
+        frappe.db.get_single_value("ING Checkout Settings", "enabled")
+        and _password_set("ING Checkout Settings", "api_token")
+    )
 
 
 def ponto_has_live_credentials() -> bool:

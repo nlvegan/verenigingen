@@ -23,7 +23,7 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
     MollieConfigurationService,
 )
 
-PONTO, MOLLIE = "Ponto Settings", "Mollie Settings"
+PONTO, MOLLIE, ING = "Ponto Settings", "Mollie Settings", "ING Checkout Settings"
 LIVE_PASSWORD = {PONTO: "production_client_secret", MOLLIE: "live_secret_key"}
 
 
@@ -69,6 +69,7 @@ class TestSingleCheckSafeRead(FrappeTestCase):
             frappe.clear_document_cache(doctype, doctype)
         PontoConfigurationService.clear_cache()
         MollieConfigurationService.clear_cache()
+        frappe.clear_document_cache(ING, ING)
 
     def _partial_rows(self, doctype, field="profile_id", value="x"):
         """The defect's real mechanism: set_single_value on a row-less Single."""
@@ -150,6 +151,59 @@ class TestSingleCheckSafeRead(FrappeTestCase):
         self._partial_rows(PONTO)
         self._live_credentials(PONTO)
         self.assertEqual(frappe.get_single(PONTO).sandbox_mode, 0)
+
+    def test_ponto_unset_sandbox_mode_with_production_client_id_only_stays_production(self):
+        self._partial_rows(PONTO)
+        self._set_row_2565(PONTO, "production_client_id", "live-id")
+        self.assertEqual(frappe.get_single(PONTO).sandbox_mode, 0)
+
+    # --- ING Checkout Settings.sandbox_mode: unset means SANDBOX ---
+
+    def _ing_snapshot(self):
+        rows = frappe.db.sql("select field, value from tabSingles where doctype=%s", ING)
+        auth = frappe.db.sql(
+            "select doctype, name, fieldname, password, encrypted from __Auth where doctype=%s", ING
+        )
+        self.addCleanup(self._restore_ing, rows, auth)
+        frappe.db.sql("delete from tabSingles where doctype=%s", ING)
+        frappe.db.sql("delete from __Auth where doctype=%s", ING)
+        frappe.clear_document_cache(ING, ING)
+
+    def _restore_ing(self, rows, auth):
+        frappe.db.sql("delete from tabSingles where doctype=%s", ING)
+        frappe.db.sql("delete from __Auth where doctype=%s", ING)
+        for field, value in rows:
+            frappe.db.sql("insert into tabSingles (doctype, field, value) values (%s,%s,%s)", (ING, field, value))
+        for row in auth:
+            frappe.db.sql(
+                "insert into __Auth (doctype, name, fieldname, password, encrypted) values (%s,%s,%s,%s,%s)", row
+            )
+        frappe.clear_document_cache(ING, ING)
+
+    def test_ing_unset_sandbox_mode_reads_sandbox_and_blank_too(self):
+        self._ing_snapshot()
+        self._partial_rows(ING, "service_id", "SL-1-2")
+        settings = frappe.get_single(ING)
+        self.assertEqual(settings.sandbox_mode, 1)
+        for value in ("", None):
+            self._set_row_2565(ING, "sandbox_mode", "x")
+            frappe.db.sql("update tabSingles set value=%s where doctype=%s and field='sandbox_mode'", (value, ING))
+            frappe.clear_document_cache(ING, ING)
+            self.assertEqual(frappe.get_single(ING).sandbox_mode, 1, repr(value))
+
+    def test_ing_explicit_zero_is_honoured(self):
+        self._ing_snapshot()
+        self._partial_rows(ING, "service_id", "SL-1-2")
+        self._set_row_2565(ING, "sandbox_mode", "0")
+        self.assertEqual(frappe.get_single(ING).sandbox_mode, 0)
+
+    def test_ing_unset_sandbox_mode_on_an_operating_integration_stays_production(self):
+        self._ing_snapshot()
+        self._partial_rows(ING, "service_id", "SL-1-2")
+        self._set_row_2565(ING, "enabled", "1")
+        set_encrypted_password(ING, ING, "tok", "api_token")
+        frappe.clear_document_cache(ING, ING)
+        self.assertEqual(frappe.get_single(ING).sandbox_mode, 0)
 
     # --- Ponto Settings.require_webhook_signature: unset means REQUIRED ---
 

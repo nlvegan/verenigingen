@@ -234,14 +234,15 @@ def is_signature_required(settings) -> bool:
     Property Setter could make it 0 there, and that is an explicit operator choice.
     """
     try:
-        unset = is_check_unset("Ponto Settings", "require_webhook_signature")
+        # Belt and braces: Ponto Settings.load_from_db already reads an unset row as 1, but a
+        # Document that bypassed it (or a stand-in) would still carry the raw 0.
+        if is_check_unset("Ponto Settings", "require_webhook_signature"):
+            return True
     except Exception:
         frappe.log_error(
             title="Ponto webhook: signature setting unreadable, requiring the signature",
             message=frappe.get_traceback(),
         )
-        return True
-    if unset:
         return True
     return bool(getattr(settings, "require_webhook_signature", True))
 
