@@ -254,6 +254,12 @@ class TestLegacyGuardPaths(unittest.TestCase):
     def test_an_open_for_loop_binding_the_name_protects(self):
         self.assertNotIn("ws", null_risks("{% for ws in rows %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"))
 
+    def test_a_for_loop_binding_a_same_prefix_name_does_not_protect(self):
+        for target in ("wsx", "ws_old"):
+            with self.subTest(target=target):
+                tpl = "{% for " + target + " in rows %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"
+                self.assertIn("ws", null_risks(tpl))
+
     def test_an_open_for_loop_over_another_variable_does_not_protect(self):
         self.assertIn("ws", null_risks("{% for x in rows %}\n<p></p>\n{{ ws.a.b.c }}\n{% endfor %}\n"))
 
