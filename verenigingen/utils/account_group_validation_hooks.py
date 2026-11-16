@@ -236,8 +236,10 @@ def validate_expense_claim_employee_change(doc):
     stored claim is the one that says whose it is, so it is compared here, whatever write path
     reached validate (save, set_value, bulk update) and whether or not ``custom_chapter`` is set.
     Staff (``Roles.ADMIN_ROLES``, #1101) may reassign; an Expense Approver only a claim they may
-    already see as stored. The refusal is Frappe's own no-write-permission error, so it reads like
-    editing any claim one cannot write.
+    already see as stored, which includes an approver who IS the stored claim's employee (own
+    claim): they may re-point it to any employee. That is deliberate policy, pinned by a test.
+    The refusal repeats what Frappe's own failed write check emits (the controller-check message
+    plus the no-permission error), so over HTTP it reads like editing any claim one cannot write.
     """
     if doc.is_new() or doc.flags.ignore_permissions:
         return
@@ -253,6 +255,7 @@ def validate_expense_claim_employee_change(doc):
         return
     if Roles.EXPENSE_APPROVER in user_roles and has_expense_claim_permission(saved, user):
         return
+    frappe.msgprint(_("Not allowed via controller permission check"))
     doc.raise_no_permission_to("write")
 
 

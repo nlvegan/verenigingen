@@ -102,11 +102,13 @@ class TestExpenseClaimEmployeeTakeover(MemberClaimBase):
                     self.peer,
                     lambda: frappe.client.set_value("Expense Claim", self.chapterless.name, values),
                 )
+            logged = [m.get("message") if isinstance(m, dict) else m for m in frappe.local.message_log[before:]]
             del frappe.local.message_log[before:]
-            return type(raised.exception), str(raised.exception)
+            return type(raised.exception), str(raised.exception), frappe.flags.error_message, logged
 
         takeover = refusal({"employee": self.peer_emp.name})
         plain_edit = refusal({"remark": "not mine"})
+        self.assertTrue(plain_edit[3], 'control: a plain forbidden edit does log a message')
         self.assertEqual(takeover, plain_edit)
 
     def test_control_the_claimant_still_edits_ordinary_fields_of_their_own_draft(self):
@@ -147,3 +149,19 @@ class TestExpenseClaimEmployeeTakeover(MemberClaimBase):
                 lambda: frappe.client.set_value("Expense Claim", self.chapterless.name, "employee", other_emp.name),
             ),
         )
+
+    def test_control_an_approver_who_is_the_stored_claims_employee_can_reassign_it(self):
+        """Pinned policy (#2600 review): an Expense Approver who may see the stored claim, including
+        one who IS its employee ("own claim"), may re-point it to another employee. Frappe's own
+        check on the modified doc still has to pass, so the approver here is the chapter's seat
+        holder and the claim is attributed to that chapter."""
+        owner_emp = frappe.get_doc("Employee", frappe.db.get_value("Employee", {"user_id": self.fin_user.name}))
+        claim = self.act_as(
+            self.fin_user,
+            lambda: frappe.get_doc(self.claim_data(employee=owner_emp, custom_chapter=self.chapter.name)).insert(),
+        )
+        self.act_as(
+            self.fin_user,
+            lambda: frappe.client.set_value("Expense Claim", claim.name, "employee", self.peer_emp.name),
+        )
+        self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "employee"), self.peer_emp.name)
