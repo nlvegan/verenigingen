@@ -307,12 +307,18 @@ class VolunteerExpenseSubmissionService(StatelessService):
         if not self.volunteer_doc.member:
             return _("Chapter membership required for {0}").format(chapter_name)
 
-        direct_membership = frappe.db.exists(
-            "Chapter Member", {"parent": chapter_name, "member": self.volunteer_doc.member}
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name, "member": self.volunteer_doc.member},
+            fields=["enabled", "status"],
         )
-
-        if not direct_membership:
+        if not rows:
             return _("Chapter membership required for {0}").format(chapter_name)
+
+        # Same rule as the Expense Claim validate hook (#2528): only an enabled, Active row files.
+        # Name the reason here rather than let the hook's generic refusal be the first the user sees.
+        if not any(r.enabled and r.status == "Active" for r in rows):
+            return _("Your membership of {0} is not active").format(chapter_name)
         return None
 
     def _validate_team_access(self, team_name: str) -> Optional[str]:
