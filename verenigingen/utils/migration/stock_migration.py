@@ -140,9 +140,9 @@ class StockTransactionMigrator:
 
         except Exception as e:
             # Use safe error logging to prevent cascading
-            from verenigingen.utils.error_log_fix import log_error_safely
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Stock migration error:\n{str(e)}\n\n{frappe.get_traceback()}",
                 title="Stock Migration Failed",
             )
@@ -278,11 +278,11 @@ class StockTransactionMigrator:
                 self.log_error(f"Failed to create stock entry for account {account_code}")
                 return False
 
-        except Exception as e:
+        except Exception as e:  # swallow-ok: caller-checks (counted as failed)
             # Use safe error logging
-            from verenigingen.utils.error_log_fix import log_error_safely
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Error processing stock transaction for {account_code}:\n{str(e)}",
                 title="Stock Transaction: {account_code}",
             )
@@ -377,23 +377,23 @@ class StockTransactionMigrator:
 
             return stock_entry
 
-        except Exception as e:
+        except Exception as e:  # swallow-ok: caller-checks (None is reported)
             # Extract clean error message
             error_msg = str(e)
             if "cannot be a fraction" in error_msg:
                 # This is expected for monetary values
-                from verenigingen.utils.error_log_fix import log_error_safely
+                from verenigingen.utils.safe_error_logging import safe_log_error
 
-                log_error_safely(
+                safe_log_error(
                     message=f"Stock entry requires whole number quantity, but got {qty_change}. "
                     "This is because E-Boekhouden stores monetary values, not physical quantities.\n"
-                    "Account: {account_code} - {account_name}",
+                    f"Account: {account_code} - {account_name}",
                     title="Stock Entry: Fractional Quantity",
                 )
             else:
-                from verenigingen.utils.error_log_fix import log_error_safely
+                from verenigingen.utils.safe_error_logging import safe_log_error
 
-                log_error_safely(
+                safe_log_error(
                     message=f"Error creating stock entry:\n{error_msg}", title="Stock Entry Creation Failed"
                 )
             return None
@@ -464,19 +464,19 @@ class StockTransactionMigrator:
             if any_warehouse:
                 return any_warehouse[0][0]
 
-            # Use error_log_fix for clean logging
-            from verenigingen.utils.error_log_fix import log_error_safely
+            # Use safe_error_logging for clean logging
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Duplicate warehouse error: {str(e)}\n{frappe.get_traceback()}",
                 title="Migration Warehouse: Duplicate",
             )
             return None
 
-        except Exception as e:
-            from verenigingen.utils.error_log_fix import log_error_safely
+        except Exception as e:  # swallow-ok: caller-checks (None is reported)
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Error creating warehouse: {str(e)}\n{frappe.get_traceback()}",
                 title="Migration Warehouse: Creation Failed",
             )
