@@ -1590,7 +1590,7 @@ def validate_role_profile_data_integrity():
                 issues["profile_mismatches"].append(
                     {
                         "user": user_name,
-                        "current_profile": held[0] if held else None,
+                        "current_profile": frappe.db.get_value("User", user_name, "role_profile_name"),
                         "calculated_profile": calculated_profile,
                         "issue": "Current profile does not match calculated profile",
                     }
