@@ -72,8 +72,9 @@ def mollie_has_live_credentials() -> bool:
 
 
 def ing_has_live_credentials() -> bool:
-    """ING Checkout has ONE credential set (the sandbox is a flag on the same keys), so an enabled
-    integration with an API token configured counts as operating, i.e. possibly live."""
+    """ING Checkout has ONE credential set, and the credentials (not ``sandbox_mode``) decide sandbox
+    vs production: the flag is informational today. The guard only keeps the saved value safe by
+    default, and leaves an enabled integration with an API token as it is."""
     return bool(
         frappe.db.get_single_value("ING Checkout Settings", "enabled")
         and _password_set("ING Checkout Settings", "api_token")

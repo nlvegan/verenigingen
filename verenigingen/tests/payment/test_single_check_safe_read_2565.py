@@ -205,6 +205,20 @@ class TestSingleCheckSafeRead(FrappeTestCase):
         frappe.clear_document_cache(ING, ING)
         self.assertEqual(frappe.get_single(ING).sandbox_mode, 0)
 
+    def test_ing_token_present_but_not_enabled_still_reads_sandbox(self):
+        self._ing_snapshot()
+        self._partial_rows(ING, "service_id", "SL-1-2")
+        self._set_row_2565(ING, "enabled", "0")
+        set_encrypted_password(ING, ING, "tok", "api_token")
+        frappe.clear_document_cache(ING, ING)
+        self.assertEqual(frappe.get_single(ING).sandbox_mode, 1)
+
+    def test_ing_enabled_without_a_token_still_reads_sandbox(self):
+        self._ing_snapshot()
+        self._partial_rows(ING, "service_id", "SL-1-2")
+        self._set_row_2565(ING, "enabled", "1")
+        self.assertEqual(frappe.get_single(ING).sandbox_mode, 1)
+
     # --- Ponto Settings.require_webhook_signature: unset means REQUIRED ---
 
     def test_ponto_unset_signature_flag_requires_the_signature(self):
