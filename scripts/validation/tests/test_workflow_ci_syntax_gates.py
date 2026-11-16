@@ -119,9 +119,17 @@ class CiSyntaxGatesExitCodeTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("flake8"), "flake8 not installed")
     def test_a_flake8_finding_fails_the_flake8_step(self):
-        # E9 (syntax). F821 cannot be used here: the repo's `.flake8` ignores it, so the
-        # F82 in the select set never reports an undefined name (filed separately).
+        # E9 (syntax).
         (self.tmp / "verenigingen" / "bad.py").write_text("def f(:\n")
+        self.assertNotEqual(self._exit_code("Run Flake8 linting"), 0)
+
+    @unittest.skipUnless(shutil.which("flake8"), "flake8 not installed")
+    def test_an_undefined_name_fails_the_flake8_step_despite_the_repo_config(self):
+        # #2441: the repo's `.flake8` ignores F821 and a longer ignore prefix beats the
+        # shorter `--select=F82`, so the step must clear the ignore list itself. The real
+        # config is copied in: without it this test cannot see the masking.
+        shutil.copy(_WORKFLOW.parents[2] / ".flake8", self.tmp / ".flake8")
+        (self.tmp / "verenigingen" / "bad.py").write_text("def f():\n    return undefined_name\n")
         self.assertNotEqual(self._exit_code("Run Flake8 linting"), 0)
 
 
