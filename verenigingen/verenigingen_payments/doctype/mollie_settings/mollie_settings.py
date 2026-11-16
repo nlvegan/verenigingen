@@ -74,6 +74,7 @@ from frappe.model.document import Document
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.single_check_defaults import apply_safe_default, mollie_has_live_credentials
 
 
 class MollieSettings(Document):
@@ -117,6 +118,11 @@ class MollieSettings(Document):
         "USD",
         "ZAR",
     ]
+
+    def load_from_db(self):
+        super().load_from_db()
+        # #2565: an unset row reads 0 (LIVE); the safe reading is test mode unless live keys exist
+        apply_safe_default(self, "test_mode", has_live_credentials=mollie_has_live_credentials)
 
     def clear_configuration_cache(self):
         """Drop MollieConfigurationService's cached settings.

@@ -20,6 +20,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.payment import test_ing_ponto_webhook_response_minimal as sibling
+from verenigingen.utils.single_check_defaults import is_check_unset
 
 DT = "Ponto Settings"
 FIELD = "require_webhook_signature"
@@ -58,8 +59,8 @@ class TestPontoWebhookSignatureDefault(sibling._GuestWebhookCase):
 
     def test_a_missing_row_among_saved_rows_requires_the_signature(self):
         self._seed_row(FIELD, None)
-        # control: the premise is real, the Document does read the missing row as 0
-        self.assertEqual(frappe.get_single(DT).get(FIELD), 0)
+        # control: the premise is real, the row is missing (since #2565 the Document reads the safe 1)
+        self.assertEqual(frappe.db.sql("select 1 from tabSingles where doctype=%s and field=%s", (DT, FIELD)), ())
         self.assertEqual(self._post_unsigned(), REFUSED)
 
     def test_an_explicit_zero_still_lets_unsigned_events_through(self):
@@ -78,7 +79,7 @@ class TestPontoWebhookSignatureDefault(sibling._GuestWebhookCase):
                     "update tabSingles set value = %s where doctype=%s and field=%s", (value, DT, FIELD)
                 )
                 frappe.clear_document_cache(DT, DT)
-                self.assertEqual(frappe.get_single(DT).get(FIELD), 0, "control: the Document reads it as 0")
+                self.assertTrue(is_check_unset(DT, FIELD), "control: the stored row is blank or NULL")
                 self.assertEqual(self._post_unsigned(), REFUSED)
 
     def test_an_explicit_one_requires_the_signature(self):
@@ -104,7 +105,7 @@ class TestPontoWebhookSignatureDefault(sibling._GuestWebhookCase):
         real_sql = frappe.db.sql
 
         def fail_only_the_signature_query(query, *args, **kwargs):
-            if "FROM tabSingles" in query and "COALESCE" in query:
+            if "FROM tabSingles" in query:
                 raise RuntimeError("db gone")
             return real_sql(query, *args, **kwargs)
 

@@ -20,6 +20,7 @@ from frappe.model.document import Document
 from frappe.utils import get_url, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.single_check_defaults import apply_safe_default, ponto_has_live_credentials
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
     IMPORT_REFUSED,
     PontoConfigurationService,
@@ -33,6 +34,12 @@ from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import 
 
 class PontoSettings(Document):
     """Controller for Ponto Settings singleton DocType."""
+
+    def load_from_db(self):
+        super().load_from_db()
+        # #2565: an unset row reads 0, i.e. PRODUCTION / unsigned webhooks accepted; read the safe value
+        apply_safe_default(self, "sandbox_mode", has_live_credentials=ponto_has_live_credentials)
+        apply_safe_default(self, "require_webhook_signature")
 
     def validate(self):
         """Validate settings before save."""

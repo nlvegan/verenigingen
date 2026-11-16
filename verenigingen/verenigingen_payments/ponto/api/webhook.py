@@ -41,6 +41,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.single_check_defaults import is_check_unset
 from verenigingen.utils.webhook.logging import create_webhook_log
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -233,18 +234,14 @@ def is_signature_required(settings) -> bool:
     Property Setter could make it 0 there, and that is an explicit operator choice.
     """
     try:
-        has_rows, has_field_value = frappe.db.sql(
-            "SELECT COUNT(*), COALESCE(SUM(field = %s AND value IS NOT NULL AND value != ''), 0) "
-            "FROM tabSingles WHERE doctype = %s",
-            ("require_webhook_signature", "Ponto Settings"),
-        )[0]
+        unset = is_check_unset("Ponto Settings", "require_webhook_signature")
     except Exception:
         frappe.log_error(
             title="Ponto webhook: signature setting unreadable, requiring the signature",
             message=frappe.get_traceback(),
         )
         return True
-    if has_rows and not has_field_value:
+    if unset:
         return True
     return bool(getattr(settings, "require_webhook_signature", True))
 
