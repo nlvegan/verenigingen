@@ -48,26 +48,26 @@ def run_migration_test():
         to_date = datetime.now().date()
         from_date = to_date - timedelta(days=30)
 
-        # migration_doc = frappe.get_doc(
-        #     {
-        #         "doctype": "E-Boekhouden Migration",
-        #         "migration_name": "API Test {now_datetime()}",
-        #         "company": settings.default_company,
-        #         "migration_status": "Draft",
-        #         "date_from": from_date,
-        #         "date_to": to_date,
-        #         "migrate_accounts": 1,
-        #         "migrate_customers": 1,
-        #         "migrate_suppliers": 1,
-        #         "migrate_transactions": 1,
-        #         "use_enhanced_migration": 1,
-        #         "dry_run": 1,
-        #         "skip_existing": 1,
-        #         "batch_size": 10,
-        #         "use_date_chunking": 1,
-        #         "enable_audit_trail": 1,
-        #     }
-        # ).insert()
+        migration_doc = frappe.get_doc(
+            {
+                "doctype": "E-Boekhouden Migration",
+                "migration_name": f"API Test {now_datetime()}",
+                "company": settings.default_company,
+                "migration_status": "Draft",
+                "date_from": from_date,
+                "date_to": to_date,
+                "migrate_accounts": 1,
+                "migrate_customers": 1,
+                "migrate_suppliers": 1,
+                "migrate_transactions": 1,
+                "use_enhanced_migration": 1,
+                "dry_run": 1,
+                "skip_existing": 1,
+                "batch_size": 10,
+                "use_date_chunking": 1,
+                "enable_audit_trail": 1,
+            }
+        ).insert()
 
         add_test_result("Create Migration", "passed", f"Created {migration_doc.name}")
 
@@ -95,8 +95,7 @@ def run_migration_test():
         try:
             from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import validate_migration_data
 
-            # validation_result = validate_migration_data(migration_doc.name)
-            validate_migration_data(migration_doc.name)
+            validation_result = validate_migration_data(migration_doc.name)
             add_test_result(
                 "Pre-Validation", "passed", f"Can proceed: {validation_result.get('can_proceed', False)}"
             )
@@ -114,8 +113,7 @@ def run_migration_test():
                 "grand_total": 100.0,
                 "eboekhouden_mutation_nr": "TEST123",
             }
-            # dup_result = detector.check_duplicate("Sales Invoice", test_record)
-            detector.check_duplicate("Sales Invoice", test_record)
+            dup_result = detector.check_duplicate("Sales Invoice", test_record)
             add_test_result(
                 "Duplicate Detection",
                 "passed",
@@ -149,8 +147,7 @@ def run_migration_test():
             from verenigingen.utils.migration.migration_date_chunking import DateRangeChunker
 
             chunker = DateRangeChunker(api_limit=500)
-            # chunks = chunker.calculate_optimal_chunks(from_date, to_date, estimated_records_per_day=10)
-            chunker.calculate_optimal_chunks(from_date, to_date, estimated_records_per_day=10)
+            chunks = chunker.calculate_optimal_chunks(from_date, to_date, estimated_records_per_day=10)
             add_test_result("Date Chunking", "passed", f"Created {len(chunks)} chunks")
         except Exception as e:
             add_test_result("Date Chunking", "failed", str(e))
