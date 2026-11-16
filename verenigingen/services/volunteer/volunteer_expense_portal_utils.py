@@ -140,7 +140,7 @@ def get_volunteer_organizations(volunteer_name: str) -> dict:
         # Get chapters where this member is active
         chapter_members = frappe.get_all(
             "Chapter Member",
-            filters={"member": volunteer_doc.member, "enabled": 1},
+            filters={"member": volunteer_doc.member, "enabled": 1, "status": "Active"},
             fields=["parent"],
         )
 
