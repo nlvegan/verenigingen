@@ -265,7 +265,7 @@ def create_test_payment_mappings():
 
         return {
             "success": True,
-            "message": "Created {len(mappings_created)} payment mappings",
+            "message": f"Created {len(mappings_created)} payment mappings",
             "mappings": mappings_created,
         }
 
