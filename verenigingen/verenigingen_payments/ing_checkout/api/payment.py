@@ -161,7 +161,8 @@ def create_ideal_order(
 
         # Build return URL
         # Pay.nl appends the order id to the return URL; the return page accepts `id` and `orderId`
-        # Only OUR default page gets a return token (#2038). A caller-supplied return_url or a
+        # Only OUR default page gets a return token (#2038). An internal caller's return_url (the
+        # whitelisted endpoint passes none, #2568) or a
         # stored default_return_url override points at a page we do not render, so handing it
         # a proof would only leak it to that page; the override wins unchanged (as Mollie's does).
         if not return_url:
