@@ -21,8 +21,6 @@ does not swallow them by itself. The permission functions, though, also have a t
 from unittest.mock import patch
 
 import frappe
-import MySQLdb
-import pymysql
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils import project_permissions as pp
@@ -39,7 +37,6 @@ def _sql_error():
 
     mysqlclient is frappe's default and CI's driver; its errors are NOT pymysql errors."""
     return frappe.db.ProgrammingError(1064, "You have an error in your SQL syntax")
-
 
 
 def _broken_sql(real_sql):
@@ -108,15 +105,19 @@ class TestReconciliationDbErrorHandlers(EnhancedTestCase):
     def test_deadlock_and_timeout_escape_with_their_own_class(self):
         for exc in (frappe.QueryDeadlockError("1213"), frappe.QueryTimeoutError("1205")):
             for name, args, _ in self._calls():
-                with self.subTest(name, exc=type(exc).__name__), patch.object(
-                    frappe.db, "sql", side_effect=exc
-                ), _LoggedErrors() as logged:
+                with (
+                    self.subTest(name, exc=type(exc).__name__),
+                    patch.object(frappe.db, "sql", side_effect=exc),
+                    _LoggedErrors() as logged,
+                ):
                     with self.assertRaises(type(exc)):
                         getattr(self.mgr, name)(*args)
                     self.assertEqual(logged.messages, [])
-            with self.subTest("get_member_unpaid_invoices", exc=type(exc).__name__), patch.object(
-                frappe.db, "sql_list", side_effect=exc
-            ), _LoggedErrors() as logged:
+            with (
+                self.subTest("get_member_unpaid_invoices", exc=type(exc).__name__),
+                patch.object(frappe.db, "sql_list", side_effect=exc),
+                _LoggedErrors() as logged,
+            ):
                 with self.assertRaises(type(exc)):
                     self.mgr.get_member_unpaid_invoices("MEM-X", 12.5)
                 self.assertEqual(logged.messages, [])
