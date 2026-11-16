@@ -221,15 +221,8 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
         if payment_ids:
             # Batch check Bank Transactions
             placeholders = ", ".join(["%s"] * len(payment_ids))
-            bt_results = frappe.db.sql(
-                f"""
-                SELECT reference_number, name FROM `tabBank Transaction`
-                WHERE reference_number IN ({placeholders}) AND docstatus != 2
-                """,
-                tuple(payment_ids),
-                as_dict=True,
-            )
-            existing_bts = {bt["reference_number"]: bt["name"] for bt in bt_results}
+            # Mollie bank account only (#2620)
+            existing_bts = bt_creator.find_mollie_bank_transactions(payment_ids)
 
             # Batch check Payment Entries
             pe_results = frappe.db.sql(

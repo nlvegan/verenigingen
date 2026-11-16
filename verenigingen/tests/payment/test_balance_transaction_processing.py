@@ -26,6 +26,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.verenigingen_payments.api import balance_transaction_processing as api
 from verenigingen.verenigingen_payments.core.models.balance import Balance, BalanceTransaction
 from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
@@ -74,6 +75,11 @@ def _make_balance(balance_id="bal_TEST", currency="EUR"):
 class TestBalanceTransactionProcessingAPI(EnhancedTestCase):
     """Integration tests for the balance transaction processing API endpoints."""
 
+    def setUp(self):
+        super().setUp()
+        # Mollie-reference lookups are scoped to the Mollie bank account (#2620).
+        self._mollie = pin_mollie_bank_account(self)
+
     # ------------------------------------------------------------------ helpers
 
     def _make_bank_transaction(self, reference_number, transaction_id=None, deposit=10.0,
@@ -81,6 +87,8 @@ class TestBalanceTransactionProcessingAPI(EnhancedTestCase):
                                date_=None, submit=False):
         """Create a REAL Bank Transaction row and track it for cleanup."""
         bt = frappe.new_doc("Bank Transaction")
+        bt.bank_account = self._mollie["bank_account"]
+        bt.company = self._mollie["company"]
         bt.date = date_ or today()
         bt.deposit = deposit
         bt.withdrawal = withdrawal
