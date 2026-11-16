@@ -55,7 +55,7 @@ class MijnRoodEventApplicationService(StatefulService):
         try:
             get_related_records_orchestrator().flush_pending_alerts()
         except Exception:
-            frappe.log_error(title="MijnRood chapter-move alert flush failed", message=frappe.get_traceback())
+            frappe.log_error(title="MijnRood staff alert flush failed", message=frappe.get_traceback())
 
     def apply_event(self, event_name: str) -> dict:
         """Apply a single approved sync event.

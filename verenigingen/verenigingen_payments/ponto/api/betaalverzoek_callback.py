@@ -22,7 +22,6 @@ Usage:
 """
 
 import frappe
-from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
@@ -199,53 +198,3 @@ def _cancel_link_if_proved(payment_link_name):
     # successful token-proved cancel; every other path is still rolled back.
     frappe.local.flags.commit = True
     return True
-
-
-@frappe.whitelist(allow_guest=True, methods=["GET"])
-@public_api
-def payment_page():
-    """
-    Serve a customer-facing payment page for a Ponto Payment Link.
-
-    This is an alternative to sharing the direct Ponto redirect link.
-    Shows payment details and redirects customer to Ponto authorization.
-
-    Query Parameters:
-        link: Ponto Payment Link name
-
-    Returns:
-        HTML page with payment details and authorization button
-    """
-    payment_link_name = frappe.request.args.get("link")
-
-    if not payment_link_name:
-        frappe.throw(_("Payment link not specified"), frappe.exceptions.DoesNotExistError)
-
-    if not frappe.db.exists("Ponto Payment Link", payment_link_name):
-        frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)
-
-    doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
-
-    # Check if payment link is still valid
-    if doc.status not in ["Draft", "Pending Authorization"]:
-        if doc.status == "Executed":
-            return {"status": "already_paid", "message": _("This payment has already been completed.")}
-        elif doc.status == "Cancelled":
-            return {"status": "cancelled", "message": _("This payment request has been cancelled.")}
-        elif doc.status == "Expired":
-            return {"status": "expired", "message": _("This payment request has expired.")}
-        else:
-            return {"status": doc.status.lower(), "message": _("This payment request is not available.")}
-
-    # Return payment details
-    return {
-        "status": "pending",
-        "payment_link": doc.name,
-        "amount": doc.amount,
-        "currency": doc.currency,
-        "description": doc.description,
-        "creditor_name": doc.creditor_name,
-        "payment_type": doc.payment_type,
-        "frequency": doc.frequency if doc.payment_type == "Periodic" else None,
-        "redirect_link": doc.redirect_link,
-    }

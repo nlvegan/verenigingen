@@ -41,11 +41,12 @@ class TestMembershipRevenueProjectionReport(VereningingenTestCase):
     def test_semi_annual_frequency_contributes_a_sixth(self):
         self.assertEqual(report.calculate_monthly_revenue(120.0, "Semi-Annual", None), 20.0)
 
-    def test_unknown_frequency_defaults_to_full_rate(self):
-        # The else-branch returns the full rate (NOT 0): distinguishes a real
-        # default from a silently-dropped contribution.
-        self.assertEqual(report.calculate_monthly_revenue(120.0, "Weekly", None), 120.0)
-        self.assertEqual(report.calculate_monthly_revenue(120.0, None, None), 120.0)
+    def test_weekly_and_unknown_frequencies_are_not_the_full_rate(self):
+        # #1282: the old else-branch returned the full rate for Weekly/Daily/unknown, which
+        # reported a weekly 120 as 120 a month. Weekly is 52 periods/year -> 520/month;
+        # an unknown frequency is refused (None), not guessed.
+        self.assertAlmostEqual(report.calculate_monthly_revenue(120.0, "Weekly", None), 120.0 * 52 / 12)
+        self.assertIsNone(report.calculate_monthly_revenue(120.0, None, None))
 
     # --------------------------------------------------------------- static shape
 

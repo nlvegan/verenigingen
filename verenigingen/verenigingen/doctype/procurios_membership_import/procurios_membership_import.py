@@ -33,6 +33,7 @@ from verenigingen.utils.csv.procurios_membership_validator import (
     ProcuriosMembershipRow,
     ProcuriosMembershipValidator,
 )
+from verenigingen.utils.csv_import_processor import single_run_per_import_doc
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import (
@@ -465,6 +466,7 @@ def validate_import_file(import_doc_name: str) -> dict:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@single_run_per_import_doc("Procurios Membership Import")
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback

@@ -11,7 +11,7 @@ from frappe.utils import add_days, cint, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions, secure_document_operation
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
 
@@ -147,14 +147,45 @@ def create_membership_invoice_with_amount(member, membership, amount, period_sta
 
     if not submit_result.success:
         frappe.log_error(
-            message=f"Failed to submit membership invoice {invoice.name}: {'; '.join(submit_result.errors)}",
             title="Membership Invoice Security",
+            message=f"Failed to submit membership invoice {invoice.name}: {'; '.join(submit_result.errors)}",
         )
+        if submit_result.partial_write:
+            _cancel_unposted_membership_invoice(invoice.name, member.name)
         frappe.throw(_("Failed to submit membership invoice. Please contact support."))
 
     invoice.reload()
 
     return invoice
+
+
+def _cancel_unposted_membership_invoice(invoice_name, member_name):
+    """Cancel a membership invoice whose submit failed AFTER writing docstatus=1 (#938).
+
+    ``Document.save()`` writes docstatus before ``on_submit`` posts the ledger, and
+    ``secure_document_operation`` does not roll back, so a failed submit can leave a submitted invoice
+    with GL rows that nobody intended to post. Left alone, the approval's retry (#1900) finds it as a
+    live submitted invoice and mails its payment link. Cancelled, not deleted: cancelling reverses
+    whatever was posted and keeps the record of the failed attempt; the retry ignores a cancelled
+    invoice and creates a fresh one. Escalated like the submit, because the approver need not hold
+    Sales Invoice permissions. A failure here is reported, never raised over the original error.
+    """
+    cancel_result = secure_document_operation(
+        operation="cancel",
+        doc=frappe.get_doc("Sales Invoice", invoice_name),
+        justification=f"Cancel membership invoice {invoice_name} for member {member_name} - its submit failed after docstatus was written",
+        required_permissions=["Sales Invoice:cancel"],
+    )
+    docstatus = frappe.db.get_value("Sales Invoice", invoice_name, "docstatus")
+    if not cancel_result.success or docstatus != 2:
+        errors = "; ".join(cancel_result.errors or [])
+        frappe.log_error(
+            title="Membership Invoice Still Submitted",
+            message=f"Membership invoice {invoice_name} for member {member_name} failed to submit and its "
+            f"compensating cancel FAILED ({errors}); it is now at docstatus={docstatus}. "
+            "At docstatus 2 its ledger entries may still be live: the retry refuses until they are "
+            "reversed. At docstatus 1 the retry reuses and mails it. Check its GL entries by hand.",
+        )
 
 
 def _first_coverage_period(member, membership_type, period_start):
@@ -380,7 +411,7 @@ def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
         savepoint = f"cust_insert_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(savepoint)
         try:
-            customer_doc.insert()
+            customer_doc.insert(ignore_permissions=follow_on_ignore_permissions())
             frappe.db.release_savepoint(savepoint)
             return customer_doc
         except frappe.exceptions.DuplicateEntryError:
@@ -549,8 +580,8 @@ def create_contact_for_customer(customer, member):
         # Link to customer
         contact.append("links", {"link_doctype": "Customer", "link_name": customer.name})
 
-        # Insert with proper permissions (no bypass)
-        contact.insert()
+        # Insert with the caller's permissions, except inside an authorised approval follow-on (#1930)
+        contact.insert(ignore_permissions=follow_on_ignore_permissions())
 
         frappe.logger().info(
             f"Created Contact {contact.name} for Customer {customer.name} (Member: {member.name})"

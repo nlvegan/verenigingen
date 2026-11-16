@@ -172,17 +172,25 @@ DUPLICATE_ENTRIES = """ABNANL2A
 # within-import duplicate of the other -- both must be created. This is what
 # mt940_import.py's contextlib.suppress(UniqueValidationError) used to swallow when the
 # (now amended) reference key applied to every non-blank reference.
-SHARED_EREF_DISTINCT_PAYMENTS = """ABNANL2A
+_SHARED_EREF_TEMPLATE = """ABNANL2A
 :20:STATEMENT008
 :25:NL02ABNA0123456789
 :28C:00008/001
 :60F:C231208EUR1233,50
 :61:2312081208C42,00NTRFNONREF//BANKREFD
-:86:/CNTP/NL44RABO0123456789/RABONL2U/Eerste Betaler/Amsterdam/NL//REMI/USTD//Contributie/EREF/SHARED-REF-42/
+:86:/CNTP/NL44RABO0123456789/RABONL2U/Eerste Betaler/Amsterdam/NL//REMI/USTD//Contributie/EREF/{eref}/
 :61:2312081208C99,00NTRFNONREF//BANKREFE
-:86:/CNTP/NL20INGB0001234567/INGBNL2A/Tweede Betaler/Rotterdam/NL//REMI/USTD//Contributie/EREF/SHARED-REF-42/
+:86:/CNTP/NL20INGB0001234567/INGBNL2A/Tweede Betaler/Rotterdam/NL//REMI/USTD//Contributie/EREF/{eref}/
 :62F:C231208EUR1374,50
 -"""
+
+
+def shared_eref_distinct_payments(eref):
+    """Two distinct payments (42.00 and 99.00) from different payers sharing one EREF."""
+    return _SHARED_EREF_TEMPLATE.format(eref=eref)
+
+
+SHARED_EREF_DISTINCT_PAYMENTS = shared_eref_distinct_payments("SHARED-REF-42")
 
 
 # Completely malformed content (not MT940 at all) for error-path testing.

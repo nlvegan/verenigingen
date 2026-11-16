@@ -1,6 +1,8 @@
 import frappe
 from dateutil.relativedelta import relativedelta
 
+from verenigingen.services.billing.billing_period_calculator import get_monthly_equivalent_amount
+
 
 def execute(filters=None):
     """Generate membership revenue projection for the next 12 months"""
@@ -69,6 +71,8 @@ def get_data(filters):
             mds.name,
             mds.dues_rate,
             mds.billing_frequency,
+            mds.custom_frequency_number,
+            mds.custom_frequency_unit,
             mds.currency,
             mds.status,
             mds.membership_type,
@@ -97,10 +101,14 @@ def get_data(filters):
 
             # Calculate monthly revenue based on billing frequency
             monthly_contribution = calculate_monthly_revenue(
-                schedule.dues_rate, schedule.billing_frequency, projection_date
+                schedule.dues_rate,
+                schedule.billing_frequency,
+                projection_date,
+                schedule.custom_frequency_number,
+                schedule.custom_frequency_unit,
             )
 
-            if monthly_contribution > 0:
+            if monthly_contribution and monthly_contribution > 0:
                 monthly_revenue += monthly_contribution
                 active_count += 1
 
@@ -118,22 +126,17 @@ def get_data(filters):
     return data
 
 
-def calculate_monthly_revenue(dues_rate, billing_frequency, projection_date):
-    """Calculate monthly revenue contribution based on billing frequency"""
-    if billing_frequency == "Monthly":
-        return dues_rate
-    elif billing_frequency == "Quarterly":
-        # Quarterly payments contribute 1/3 of the amount per month
-        return dues_rate / 3
-    elif billing_frequency == "Annual":
-        # Annual payments contribute 1/12 of the amount per month
-        return dues_rate / 12
-    elif billing_frequency == "Semi-Annual":
-        # Semi-annual payments contribute 1/6 of the amount per month
-        return dues_rate / 6
-    else:
-        # Default to monthly for unknown frequencies
-        return dues_rate
+def calculate_monthly_revenue(
+    dues_rate, billing_frequency, projection_date, custom_frequency_number=None, custom_frequency_unit=None
+):
+    """Monthly revenue contribution of one schedule's full-period rate.
+
+    None when the period is unknown (Custom without an interval): the caller leaves
+    that schedule out of the month instead of guessing a cadence (#1282).
+    """
+    return get_monthly_equivalent_amount(
+        dues_rate, billing_frequency, custom_frequency_number, custom_frequency_unit
+    )
 
 
 def get_chart_config(data):

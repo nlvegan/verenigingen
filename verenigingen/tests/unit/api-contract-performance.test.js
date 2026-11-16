@@ -226,6 +226,7 @@ describe('API Contract Performance Tests', () => {
 
 			// Perform many validations to test sustained performance
 			const iterations = 100;
+			const compileSpy = jest.spyOn(Ajv.prototype, 'compile');
 			const startTime = performance.now();
 
 			for (let i = 0; i < iterations; i++) {
@@ -236,8 +237,9 @@ describe('API Contract Performance Tests', () => {
 			const totalTime = performance.now() - startTime;
 			const avgTimePerValidation = totalTime / iterations;
 
-			// Should maintain reasonable performance (less than 5ms per validation with caching)
-			expect(avgTimePerValidation).toBeLessThan(5.0);
+			// Sustained load must stay on the cache: one compile for 100 validations
+			// (count, not a wall-clock budget: #2440, as #2420). Timings are logged only.
+			expect(compileSpy).toHaveBeenCalledTimes(1);
 
 			const metrics = tester.getPerformanceMetrics();
 			expect(metrics.overall.cacheHitRate).toBe('99.00%'); // 99/100 cache hits

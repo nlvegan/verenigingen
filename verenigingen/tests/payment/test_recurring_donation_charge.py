@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import flt
 from mollie.api.error import RequestError
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -829,6 +830,34 @@ class _UnreachableClient:
         return None
 
 
+
+_SWEEP = "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep"
+
+
+class _SweepPage:
+    """One Mollie payments page, as the sweep walks it (iter + has_next)."""
+
+    def __init__(self, payments):
+        self._payments = list(payments)
+
+    def __iter__(self):
+        return iter(self._payments)
+
+    def has_next(self):
+        return False
+
+
+class _SweepMollieClient:
+    """Stand-in for the sweep's MollieClient: subscription id -> payments."""
+
+    def __init__(self, payments_by_subscription):
+        self._by_subscription = payments_by_subscription
+
+    def get_subscription(self, customer_id, subscription_id):
+        page = _SweepPage(self._by_subscription.get(subscription_id, []))
+        return SimpleNamespace(payments=SimpleNamespace(list=lambda limit=None: page))
+
+
 class TestRecurringChargeWebhookWiring(EnhancedTestCase):
     """The charge must book AND keep the refund discovery it falls through to."""
 
@@ -1233,6 +1262,471 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             frappe.db.get_value("Donation", charge_name, "journal_entry"),
             "the retry did not complete the Journal Entry",
         )
+
+    # --- #945: the recovery sweep keys on the booking, not on the Donation row ---------
+    # Probe shortcut, stated: the booking failure is injected by patching
+    # _create_donation_financial_entries to its real partial-success return (Bank
+    # Transaction, no Journal Entry), as the tests above do; the rest is real.
+
+    def _deliver_failing_booking(self, payment):
+        partial = {"bank_transaction_name": "BT-partial", "journal_entry_name": None, "partial_success": True}
+        with patch.object(
+            UnifiedWebhookWrapperService, "_create_donation_financial_entries", return_value=partial
+        ):
+            return self._deliver(payment)
+
+    def _run_recurring_sweep(self, payment):
+        from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep import (
+            sweep_recurring_donation_charges,
+        )
+
+        client = _FakeClient(payment)
+        sweep_client = _SweepMollieClient({self.subscription_id: [payment]})
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_mollie_client",
+            return_value=client,
+        ), patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_api_key",
+            return_value="test_dummy_key_for_tests",
+        ), patch("mollie.api.client.Client", return_value=client), patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient.sdk_client",
+            new_callable=lambda: property(lambda self: client),
+        ), patch(f"{_SWEEP}.MollieClient", return_value=sweep_client):
+            with self.set_user("Administrator"):
+                return sweep_recurring_donation_charges()
+
+    def _live_journal_entries(self, payment_id):
+        return frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment_id, "docstatus": ["!=", 2]}, pluck="name"
+        )
+
+    def test_945_a_charge_whose_booking_failed_is_booked_by_the_sweep(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_fail_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+
+        self._deliver_failing_booking(payment)
+        charge_name = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+        self.assertTrue(charge_name, "precondition: the failed delivery must leave the Donation row")
+        self.assertEqual(self._live_journal_entries(payment_id), [], "precondition: nothing booked")
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 1, summary)
+        self.assertEqual(summary["charges_already_booked"], 0, summary)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+        self.assertTrue(frappe.db.get_value("Donation", charge_name, "journal_entry"))
+        self.assertEqual(frappe.db.count("Donation", {"payment_id": payment_id}), 1)
+
+    def test_945_a_booked_charge_is_skipped_and_never_booked_twice(self):
+        """Control for the opposite harm: a booked charge must not be re-run."""
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_ok_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self.assertEqual(self._deliver(payment)["status"], "success")
+        booked = self._live_journal_entries(payment_id)
+        self.assertEqual(len(booked), 1, "precondition: the charge is booked")
+
+        summary = self._run_recurring_sweep(payment)
+
+        # A booked charge sent back through booking would come back as
+        # "booked" (the pipeline is idempotent and answers success).
+        self.assertEqual(summary["charges_already_booked"], 1, summary)
+        self.assertEqual(summary["charges_booked"], 0, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), booked)
+
+    def test_945_a_recovered_charge_is_not_booked_again_by_the_next_sweep(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_twice_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self._deliver_failing_booking(payment)
+
+        self.assertEqual(self._run_recurring_sweep(payment)["charges_booked"], 1)
+        second = self._run_recurring_sweep(payment)
+
+        self.assertEqual(second["charges_booked"], 0, second)
+        self.assertEqual(second["charges_already_booked"], 1, second)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+
+    def test_945_a_staff_cancelled_booking_is_not_rebooked_by_the_sweep(self):
+        """Control for the discard test below: a booking staff cancelled stays cancelled.
+
+        No ruling covers a cancelled donation Journal Entry; the #2406 ruling is
+        about forward Payment Entries. What tells this apart from a discarded
+        submit is Donation.journal_entry, which still points at the cancelled
+        entry here (asserted, so the control cannot drift into the other case).
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_cancelled_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self.assertEqual(self._deliver(payment)["status"], "success")
+        je_name = self._live_journal_entries(payment_id)[0]
+        frappe.get_doc("Journal Entry", je_name).cancel()
+        self.assertEqual(self._live_journal_entries(payment_id), [], "precondition: staff cancelled it")
+        self.assertEqual(
+            frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"),
+            je_name,
+            "precondition: a staff cancel leaves the Donation pointing at the cancelled entry",
+        )
+        self.expectErrorLog("Recurring Donation Sweep Skipped Cancelled Bookings")
+        title = "Recurring Donation Sweep Skipped Cancelled Bookings"
+        before = frappe.db.count("Error Log", {"method": title})
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 0, summary)
+        self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [], "the sweep re-booked a cancelled entry")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+        row = frappe.get_all(
+            "Error Log", filters={"method": title}, fields=["error"], order_by="creation desc", limit=1
+        )[0]
+        self.assertIn(payment_id, row.error)
+
+    def test_945_a_booking_discarded_at_submit_is_booked_by_the_sweep(self):
+        """The real discard route: a submit that fails to post leaves a CANCELLED entry.
+
+        DonationJournalEntryCreator cancels the entry it could not post, so the
+        key is free again and nothing was ever booked; unlike a staff cancel,
+        Donation.journal_entry stays empty. Reproduced through the real creator
+        by giving the donation income account balance_must_be=Debit.
+        """
+        from verenigingen.tests.fixtures.ledger_failure_accounts import make_balance_restricted_account
+
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_discard_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        good_account = frappe.db.get_single_value("Verenigingen Settings", "unrestricted_donation_account")
+        self.expectErrorLog(
+            "Secure Operation Failed: submit on Journal Entry",
+            "Mollie Journal Entry Not Posted",
+            "financial_entry_error",
+        )
+        frappe.db.set_single_value(
+            "Verenigingen Settings",
+            "unrestricted_donation_account",
+            make_balance_restricted_account(COMPANY, "Income", "Debit"),
+        )
+        try:
+            self._deliver(payment)
+        finally:
+            frappe.db.set_single_value("Verenigingen Settings", "unrestricted_donation_account", good_account)
+
+        cancelled = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment_id, "docstatus": 2}, pluck="name"
+        )
+        self.assertEqual(len(cancelled), 1, "precondition: the creator discarded the unposted entry")
+        self.assertEqual(self._live_journal_entries(payment_id), [])
+        self.assertFalse(frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"))
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booked"], 1, summary)
+        self.assertEqual(summary["charges_booking_cancelled"], 0, summary)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+
+    # --- #2535: a draft Journal Entry must not claim the payment id forever ----------------
+    # Probe shortcut, stated: the draft is produced by making ERPNext's own
+    # JournalEntry.before_submit raise, i.e. a submit refused BEFORE anything is
+    # written (the only shape that leaves docstatus 0; every GL-time refusal leaves
+    # docstatus 1 and is discard_unposted_journal_entry's). Everything above and
+    # below that hook is the real creator, webhook and sweep. Whether production
+    # strands drafts this way (rather than a worker killed between insert and
+    # submit) is NOT established; both end in the same row.
+
+    _STRAND_ERRORS = (
+        "Secure Operation Failed: submit on Journal Entry",
+        "Mollie Journal Entry Not Posted",
+        "Mollie Journal Entry Still Claims Its Key",
+        "financial_entry_error",
+    )
+
+    def _strand_a_draft(self, payment):
+        """Deliver the charge with the submit refused before it writes: leaves a DRAFT."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        self.expectErrorLog(*self._STRAND_ERRORS)
+        with patch.object(
+            JournalEntry, "before_submit", side_effect=frappe.ValidationError("period refused")
+        ):
+            self._deliver(payment)
+        drafts = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": payment["id"], "docstatus": 0}, pluck="name"
+        )
+        self.assertEqual(len(drafts), 1, "precondition: the refused submit must leave exactly one draft")
+        self.assertFalse(
+            frappe.db.get_value("Donation", {"payment_id": payment["id"]}, "journal_entry"),
+            "precondition: nothing was linked to the Donation",
+        )
+        return drafts[0]
+
+    def test_2535_a_redelivered_webhook_finishes_a_stranded_draft(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_hook_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+
+        result = self._deliver(payment)
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 1)
+        self.assertEqual(self._live_journal_entries(payment_id), [draft], "a second entry was created")
+        self.assertEqual(
+            frappe.db.get_value("Donation", {"payment_id": payment_id}, "journal_entry"),
+            draft,
+            "the finished entry was not linked to the Donation",
+        )
+        self.assertTrue(
+            frappe.db.exists("GL Entry", {"voucher_type": "Journal Entry", "voucher_no": draft, "is_cancelled": 0}),
+            "the finished entry never reached the ledger",
+        )
+
+    def test_2535_the_sweep_finishes_a_stranded_draft(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_sweep_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [draft])
+        self.assertTrue(
+            frappe.db.exists("GL Entry", {"voucher_type": "Journal Entry", "voucher_no": draft, "is_cancelled": 0}),
+        )
+
+    def test_2535_a_draft_that_still_cannot_submit_is_reported_and_not_duplicated(self):
+        """Control for the opposite harm: refusing again must not mint a second entry, and must say so."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_still_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        title = "Journal Entry Draft Resubmit Error"
+        self.expectErrorLog(title, "Secure Operation Failed: submit on Journal Entry")
+        before = frappe.db.count("Error Log", {"method": title})
+
+        with patch.object(JournalEntry, "before_submit", side_effect=frappe.ValidationError("still refused")):
+            self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 0)
+        self.assertEqual(
+            frappe.get_all("Journal Entry", filters={"cheque_no": payment_id, "docstatus": ["!=", 2]}, pluck="name"),
+            [draft],
+        )
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+        row = frappe.get_all(
+            "Error Log", filters={"method": title}, fields=["error"], order_by="creation desc", limit=1
+        )[0]
+        self.assertIn(draft, row.error)
+
+    def test_2535_a_finished_draft_cancelled_by_staff_is_not_rebooked(self):
+        """Writer check: the resubmit path must set Donation.journal_entry (#945's marker).
+
+        Without it a staff cancel of the finished entry reads as a discarded
+        submit (marker empty) and the sweep re-books what staff just undid.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_cancel_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        self._deliver(payment)
+        frappe.get_doc("Journal Entry", draft).cancel()
+        self.expectErrorLog("Recurring Donation Sweep Skipped Cancelled Bookings")
+
+        summary = self._run_recurring_sweep(payment)
+
+        self.assertEqual(summary["charges_booking_cancelled"], 1, summary)
+        self.assertEqual(self._live_journal_entries(payment_id), [])
+
+    def _before_submit_refusing(self, key_fragment):
+        """ERPNext's real before_submit, refusing only entries whose key contains key_fragment."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        original = JournalEntry.before_submit
+
+        def _before_submit(je):
+            if key_fragment in (je.cheque_no or ""):
+                raise frappe.ValidationError("period refused")
+            return original(je)
+
+        return patch.object(JournalEntry, "before_submit", _before_submit)
+
+    def test_2535_a_stranded_refund_draft_is_finished_by_the_redelivery(self):
+        """Refund reversal discovery used its own draft-counting lookup (find_booked_reversal)."""
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_rf_{self.tag}"
+        refund_id = f"re_draft_{self.tag}"
+        payment = self._charge(
+            payment_id,
+            origin.name,
+            refunds=[
+                {
+                    "id": refund_id,
+                    "status": "refunded",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "createdAt": "2026-08-05T09:00:00+00:00",
+                }
+            ],
+        )
+        key = f"{payment_id}_refund_{refund_id}"
+        self.expectErrorLog(*self._STRAND_ERRORS, "refund")
+        with self._before_submit_refusing("_refund_"):
+            self._deliver(payment)
+        drafts = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 0}, pluck="name")
+        self.assertEqual(len(drafts), 1, "precondition: the refund Journal Entry must be left as a draft")
+
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 1)
+        self.assertEqual(
+            frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"),
+            drafts,
+        )
+
+    def test_2535_a_hand_edited_stranded_refund_draft_is_not_submitted(self):
+        """The refund route runs find_booked_reversal BEFORE any creator; it must guard the amount too.
+
+        Probe shortcut, stated: the draft is stranded by refusing before_submit
+        (as above), then edited by hand through the real JE save.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_rfe_{self.tag}"
+        refund_id = f"re_draft_e_{self.tag}"
+        payment = self._charge(
+            payment_id,
+            origin.name,
+            refunds=[
+                {
+                    "id": refund_id,
+                    "status": "refunded",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "createdAt": "2026-08-05T09:00:00+00:00",
+                }
+            ],
+        )
+        key = f"{payment_id}_refund_{refund_id}"
+        self.expectErrorLog(*self._STRAND_ERRORS, "refund")
+        with self._before_submit_refusing("_refund_"):
+            self._deliver(payment)
+        drafts = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 0}, pluck="name")
+        self.assertEqual(len(drafts), 1, "precondition: the refund Journal Entry must be left as a draft")
+        je = frappe.get_doc("Journal Entry", drafts[0])
+        for row in je.accounts:
+            if row.debit_in_account_currency:
+                row.debit_in_account_currency += 7
+            if row.credit_in_account_currency:
+                row.credit_in_account_currency += 7
+        je.save()
+        self.assertEqual(flt(frappe.db.get_value("Journal Entry", drafts[0], "total_debit")), 32.0)
+        title = "Journal Entry Draft Amount Mismatch"
+        self.expectErrorLog(title)
+        before = frappe.db.count("Error Log", {"method": title})
+
+        self._deliver(payment)
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", drafts[0], "docstatus"), 0, "submitted 32 for a 25 refund")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1, "one row per draft per 24h")
+
+    def test_2535_a_submit_that_fails_after_the_docstatus_write_frees_the_key(self):
+        """The discard branch: the resubmit writes docstatus 1, on_submit throws, the entry is cancelled."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
+
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_discard_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        self.expectErrorLog(
+            "Mollie Journal Entry Not Posted",
+            "Secure Operation Failed: submit on Journal Entry",
+            "financial_entry_error",
+        )
+
+        with patch.object(JournalEntry, "on_submit", side_effect=frappe.ValidationError("ledger refused")):
+            self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 2)
+
+        self._deliver(payment)
+
+        live = self._live_journal_entries(payment_id)
+        self.assertEqual(len(live), 1, "the creator must book exactly one live entry afterwards")
+        self.assertNotEqual(live[0], draft)
+        self.assertEqual(frappe.db.get_value("Journal Entry", live[0], "docstatus"), 1)
+
+    def test_2535_a_hand_edited_draft_that_no_longer_matches_the_payment_is_not_submitted(self):
+        origin = self._setup_origin()
+        payment_id = f"tr_draft_edited_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        draft = self._strand_a_draft(payment)
+        je = frappe.get_doc("Journal Entry", draft)
+        for row in je.accounts:
+            if row.debit_in_account_currency:
+                row.debit_in_account_currency += 7
+            if row.credit_in_account_currency:
+                row.credit_in_account_currency += 7
+        je.save()
+        title = "Journal Entry Draft Amount Mismatch"
+        self.expectErrorLog(title)
+        before = frappe.db.count("Error Log", {"method": title})
+
+        self._deliver(payment)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", draft, "docstatus"), 0, "submitted a mismatch")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
+
+    def test_945_a_charge_younger_than_the_webhook_retry_window_is_left_to_its_webhook(self):
+        """The sweep must not race a webhook that may still be retrying (double-booking window)."""
+        from datetime import datetime, timedelta, timezone
+
+        from verenigingen.verenigingen_payments.mollie.services import recurring_donation_charge_sweep
+
+        window = recurring_donation_charge_sweep._WEBHOOK_RETRY_WINDOW
+        origin = self._setup_origin()
+        payment_id = f"tr_sweep_young_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        self._deliver_failing_booking(payment)
+
+        def _paid_at(age):
+            stamp = (datetime.now(timezone.utc) - age).isoformat()
+            payment["paidAt"] = stamp
+            payment.paid_at = stamp
+
+        _paid_at(window - timedelta(hours=1))
+        young = self._run_recurring_sweep(payment)
+        self.assertEqual(young["charges_too_recent"], 1, young)
+        self.assertEqual(young["charges_booked"], 0, young)
+        self.assertEqual(self._live_journal_entries(payment_id), [], "a young charge was swept")
+
+        _paid_at(window + timedelta(hours=1))
+        old = self._run_recurring_sweep(payment)
+        self.assertEqual(old["charges_too_recent"], 0, old)
+        self.assertEqual(old["charges_booked"], 1, old)
+        self.assertEqual(len(self._live_journal_entries(payment_id)), 1)
+
+    def test_945_a_sweep_problem_is_reported_in_the_error_log(self):
+        """A failed subscription listing must leave a durable Error Log row, not only a file log."""
+        from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep import (
+            sweep_recurring_donation_charges,
+        )
+
+        self._setup_origin()
+        self.expectErrorLog("Recurring Donation Charge Sweep")
+
+        def _unreachable(customer_id, subscription_id):
+            raise RuntimeError(f"Mollie unreachable for {subscription_id}")
+
+        title = "Recurring Donation Charge Sweep Problems"
+        before = frappe.db.count("Error Log", {"method": title})
+        with patch(f"{_SWEEP}.MollieClient", return_value=SimpleNamespace(get_subscription=_unreachable)):
+            summary = sweep_recurring_donation_charges()
+
+        self.assertTrue(summary["errors"], summary)
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1)
 
 
 class TestDonorPortalRecurringList(EnhancedTestCase):

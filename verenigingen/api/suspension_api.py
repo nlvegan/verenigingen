@@ -39,6 +39,17 @@ def _admin_sees_missing_member(member_name):
     )
 
 
+def _partial_ok(data, not_done, message_template, actions_str):
+    """A success that did not do everything (#2597).
+
+    The member WAS suspended/unsuspended, so `success` stays True and existing callers keep
+    working; `data.partial` + `data.errors` name what was not done (e.g. a team row still
+    active) so the desk can show a warning instead of a plain "success".
+    """
+    data = {**data, "partial": True, "errors": not_done}
+    return OperationResult.ok(data, message=message_template.format("; ".join(not_done), actions_str))
+
+
 def _does_not_exist(member_name):
     return OperationResult.fail(
         _("Member {0} does not exist").format(member_name), error_code="DOES_NOT_EXIST"
@@ -116,7 +127,7 @@ def suspend_member(
 
         # Convert string booleans to actual booleans
         from verenigingen.utils.boolean_utils import cbool
-        from verenigingen.utils.termination_integration import suspend_member_safe
+        from verenigingen.utils.termination_integration import partial_failure_errors, suspend_member_safe
 
         suspend_user = cbool(suspend_user)
         suspend_teams = cbool(suspend_teams)
@@ -135,6 +146,14 @@ def suspend_member(
                 "member_name": member_name,
             }
             actions_str = ", ".join(results.get("actions_taken", []))
+            not_done = partial_failure_errors(results)
+            if not_done:
+                return _partial_ok(
+                    data,
+                    not_done,
+                    _("Member suspended, but NOT everything was done: {0}. Actions taken: {1}"),
+                    actions_str,
+                )
             return OperationResult.ok(
                 data, message=_("Member suspended successfully. Actions taken: {0}").format(actions_str)
             )
@@ -154,8 +173,8 @@ def suspend_member(
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(
-            f"Non-resumable DB error in suspend_member for {{member_name}}\n{{traceback.format_exc()}}",
-            "Suspension API Exception",
+            title="Suspension API Exception",
+            message=f"Non-resumable DB error in suspend_member for {member_name}\n{traceback.format_exc()}",
         )
         raise
 
@@ -212,7 +231,10 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
                 _("You don't have permission to unsuspend this member"), error_code="PERMISSION_DENIED"
             )
 
-        from verenigingen.utils.termination_integration import unsuspend_member_safe
+        from verenigingen.utils.termination_integration import (
+            partial_failure_errors,
+            unsuspend_member_safe,
+        )
 
         results = unsuspend_member_safe(member_name=member_name, unsuspension_reason=unsuspension_reason)
 
@@ -222,6 +244,14 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
                 "member_name": member_name,
             }
             actions_str = ", ".join(results.get("actions_taken", []))
+            not_done = partial_failure_errors(results)
+            if not_done:
+                return _partial_ok(
+                    data,
+                    not_done,
+                    _("Member unsuspended, but NOT everything was done: {0}. Actions taken: {1}"),
+                    actions_str,
+                )
             return OperationResult.ok(
                 data, message=_("Member unsuspended successfully. Actions taken: {0}").format(actions_str)
             )
@@ -250,8 +280,8 @@ def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[D
     except NON_RESUMABLE_DB_ERRORS:
         frappe.db.rollback()
         frappe.log_error(
-            f"Non-resumable DB error in unsuspend_member for {{member_name}}\n{{traceback.format_exc()}}",
-            "Suspension API Exception",
+            title="Suspension API Exception",
+            message=f"Non-resumable DB error in unsuspend_member for {member_name}\n{traceback.format_exc()}",
         )
         raise
 
@@ -396,7 +426,9 @@ def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
         team_details = []
         if user_email:
             # First get volunteer record for this user
-            volunteer = frappe.db.get_value("Volunteer", {"email": user_email}, "name")
+            # The member's own Volunteer is linked by Volunteer.member; Volunteer.email is a
+            # contact address, not an identity (#2206).
+            volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
             if volunteer:
                 teams = frappe.get_all(
                     "Team Member", filters={"volunteer": volunteer, "is_active": 1}, fields=["parent", "role"]
@@ -476,7 +508,7 @@ def bulk_suspend_members(
             return OperationResult.fail(_("suspension_reason is required"), error_code="INVALID_INPUT")
 
         from verenigingen.utils.boolean_utils import cbool
-        from verenigingen.utils.termination_integration import suspend_member_safe
+        from verenigingen.utils.termination_integration import partial_failure_errors, suspend_member_safe
 
         def process_member_suspension(member_name):
             """Suspend a single member, returning a per-member result dict."""
@@ -502,11 +534,17 @@ def bulk_suspend_members(
                 )
 
                 if suspend_result.get("success"):
-                    return {
+                    detail = {
                         "member": member_name,
                         "success": True,
                         "actions": suspend_result.get("actions_taken", []),
                     }
+                    # #2597: suspended, but a team row / the user account was not done.
+                    not_done = partial_failure_errors(suspend_result)
+                    if not_done:
+                        detail["partial"] = True
+                        detail["errors"] = not_done
+                    return detail
                 return {
                     "member": member_name,
                     "success": False,
@@ -536,21 +574,21 @@ def bulk_suspend_members(
             "total": len(details),
             "details": details,
         }
+        partial_count = sum(1 for d in details if d.get("partial"))
+        if partial_count:
+            results["partial"] = partial_count
 
         # Show summary message
         if results["successful"] > 0:
-            frappe.msgprint(
-                _("Bulk suspension completed: {0} successful, {1} failed").format(
-                    results["successful"], results["failed"]
-                ),
-                indicator="blue",
+            summary = _("Bulk suspension completed: {0} successful, {1} failed").format(
+                results["successful"], results["failed"]
             )
-            return OperationResult.ok(
-                results,
-                message=_("Bulk suspension completed: {0} successful, {1} failed").format(
-                    results["successful"], results["failed"]
-                ),
-            )
+            if partial_count:
+                summary += " " + _("{0} suspended member(s) were NOT fully processed (see details)").format(
+                    partial_count
+                )
+            frappe.msgprint(summary, indicator="orange" if partial_count else "blue")
+            return OperationResult.ok(results, message=summary)
         else:
             frappe.msgprint(_("Bulk suspension failed: No members were suspended"), indicator="red")
             return OperationResult.fail(

@@ -20,8 +20,8 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
     discard_unposted_journal_entry,
-    find_journal_entry_by_reference,
     reconcile_bank_transaction_with_journal_entry,
+    resolve_journal_entry_by_reference,
 )
 
 
@@ -80,9 +80,14 @@ class DonationJournalEntryCreator:
         payment_id = payment_data.get("id")
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = find_journal_entry_by_reference(payment_id)
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
+
+        existing_je = resolve_journal_entry_by_reference(
+            payment_id, get_payment_data_extractor().extract_amount(payment_data, allow_zero=False) or None
+        )
         if existing_je:
             frappe.logger().info(f"Journal Entry already exists for {payment_id}: {existing_je}")
+            self._link_posted_entry_to_donation(donation_doc.name, existing_je)
             # Still attempt reconciliation in case it wasn't done previously
             if bank_transaction_name:
                 from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
@@ -164,9 +169,12 @@ class DonationJournalEntryCreator:
 
         # Idempotency check
         if reference_number:
-            existing_je = find_journal_entry_by_reference(reference_number)
+            existing_je = resolve_journal_entry_by_reference(
+                reference_number, flt(transaction_data.get("amount", 0)) or None
+            )
             if existing_je:
                 frappe.logger().info(f"Journal Entry already exists: {existing_je}")
+                self._link_posted_entry_to_donation(donation_doc.name, existing_je)
                 return existing_je
 
         # Resolve company
@@ -209,6 +217,18 @@ class DonationJournalEntryCreator:
             self._update_donation_journal_entry(donation_doc.name, je_name)
 
         return je_name
+
+    def _link_posted_entry_to_donation(self, donation_name: str, journal_entry_name: str) -> None:
+        """Set the Donation marker for an entry that was finished by a later resubmit (#2535).
+
+        Donation.journal_entry is what tells a staff cancel (set) from a discarded
+        submit (empty); a draft finished here posts without it ever having been
+        written, so a later staff cancel would read as a discard and be re-booked.
+        """
+        if frappe.db.get_value("Journal Entry", journal_entry_name, "docstatus") != 1:
+            return
+        if not frappe.db.get_value("Donation", donation_name, "journal_entry"):
+            self._update_donation_journal_entry(donation_name, journal_entry_name)
 
     def _update_donation_journal_entry(self, donation_name: str, journal_entry_name: str) -> None:
         """
@@ -390,7 +410,7 @@ class DonationJournalEntryCreator:
                 # See #385: a failed submit does NOT leave a draft. db_update()
                 # already wrote docstatus=1 before on_submit (GL posting) threw,
                 # so the entry can be sitting there one-sided and still claiming
-                # this reference for find_journal_entry_by_reference(). Undo it
+                # this reference for resolve_journal_entry_by_reference(). Undo it
                 # the same way the refund/reversal siblings in this package do.
                 return discard_unposted_journal_entry(
                     je.name,

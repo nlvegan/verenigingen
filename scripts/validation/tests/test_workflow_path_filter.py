@@ -137,6 +137,8 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     # #1528/#1539: added by
     # verenigingen/tests/unit/test_performance_profiler_current_chapter_display.py
     "scripts/performance/performance_profiler.py",
+    # #1357: verenigingen/tests/unit/test_member_performance_analyzer_session_var_1357.py
+    "scripts/member_performance_analyzer.py",
     # #1550: the six entries below were already imported under verenigingen/tests/
     # before this scan could see the `sys.path.insert` + bare-import and
     # `importlib.util.spec_from_file_location` shapes -- they were invisible to the
@@ -151,6 +153,7 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/validation/test_quality_enforcer.py",  # tests/integration/test_permission_bypass_elimination_validation.py
     # #2385: tests/api/test_bool_flags_over_http_2385.py
     "scripts/api_maintenance/fix_workspace.py",
+    "scripts/api_maintenance/sepa_integration_setup.py",  # tests/payment/test_sepa_reconciliation.py (#681)
     "scripts/cleanup/cleanup_invalid_member_schedules.py",
 }
 

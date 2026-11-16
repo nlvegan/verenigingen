@@ -25,11 +25,21 @@ def validate_expense_claim_chapter_access(doc):
     if not chapter:
         return
 
+    # A team member's claim carries its team's chapter (#1714): that is attribution, not the member
+    # picking a chapter to file against. Anyone else naming it still goes through the gate below.
+    if _is_team_attribution(doc, chapter):
+        return
+
     # Get accessible chapters for current user
     accessible_chapters = get_user_accessible_chapters(user)
 
     # None means admin access - allow all chapters
     if accessible_chapters is None:
+        return
+
+    # Filing needs no seat (#2528): an active member of the chapter may file and edit their own
+    # undecided claim. Deciding one still needs a seat, so this never applies to a decided claim.
+    if _is_active_member_filing(doc, user, chapter):
         return
 
     # Empty list means no chapter access
@@ -47,12 +57,75 @@ def validate_expense_claim_chapter_access(doc):
     if chapter not in accessible_chapters:
         frappe.msgprint(
             msg=_(
-                "You do not have permission to create expense claims for chapter <b>{0}</b>.<br><br>You can only create expense claims for chapters where you are an active board member."
+                "You do not have permission to create expense claims for chapter <b>{0}</b>.<br><br>You can only create expense claims for chapters where you are an active member."
             ).format(chapter),
             title=_("Insufficient Chapter Permissions"),
             indicator="red",
             raise_exception=True,
         )
+
+
+def _is_active_member_filing(doc, user, chapter):
+    """True when ``user`` is an active member of ``chapter`` and the claim is not being decided.
+
+    Membership is an enabled Chapter Member row with status Active, found through Member.user
+    only (#1936, #2205), as a board seat is. A claim that is not an undecided Draft (new, or
+    unchanged since it was saved as one) is judged by seat only: approving, rejecting, reopening
+    or submitting a decided claim must not become possible for a plain member.
+    """
+    from verenigingen.utils.member_utils import get_member_name_for_board_access
+
+    undecided = doc.docstatus == 0 and doc.approval_status == "Draft"  # ast-skip: HRMS field
+    if not undecided or not (doc.is_new() or not doc.has_value_changed("approval_status")):
+        return False
+    if not _claim_is_the_users_own(doc, user):
+        return False
+    member = get_member_name_for_board_access(user)
+    return bool(
+        member
+        and frappe.db.exists(
+            "Chapter Member", {"parent": chapter, "member": member, "enabled": 1, "status": "Active"}
+        )
+    )
+
+
+def _claim_is_the_users_own(doc, user):
+    """The claim is ``user``'s: its employee is theirs, as saved and as submitted, and the fields
+    that say whose claim it is and where it is booked are not being changed.
+
+    Membership lets a member file for themselves, not take over a peer's claim: Frappe judges
+    write permission on the MODIFIED doc, so re-pointing ``employee`` at yourself passes it.
+    """
+    if frappe.db.get_value("Employee", doc.employee, "user_id") != user:  # ast-skip: HRMS field
+        return False
+    if doc.is_new():
+        return True
+    if any(doc.has_value_changed(f) for f in ("employee", "custom_chapter", "custom_team")):
+        return False
+    saved = doc.get_doc_before_save()
+    return bool(saved and frappe.db.get_value("Employee", saved.employee, "user_id") == user)
+
+
+def _is_team_attribution(doc, chapter):
+    """The chapter is the team's, or one the claim already held (a team may move later), and
+    the claimant is an active member of that team."""
+    from verenigingen.services.volunteer.expense_approval_limits import claimant_is_active_team_member
+
+    if not claimant_is_active_team_member(doc):
+        return False
+    if chapter == frappe.db.get_value("Team", doc.get("custom_team"), "chapter"):
+        return True
+    unchanged = not (doc.has_value_changed("custom_chapter") or doc.has_value_changed("custom_team"))
+    return unchanged and not doc.is_new()
+
+
+def derive_team_claim_chapter(doc):
+    """Attribute a team member's claim to the team's chapter, whichever path created it."""
+    from verenigingen.services.volunteer.expense_approval_limits import claimant_is_active_team_member
+
+    if doc.get("custom_chapter") or not claimant_is_active_team_member(doc):
+        return
+    doc.custom_chapter = frappe.db.get_value("Team", doc.get("custom_team"), "chapter") or None
 
 
 def validate_journal_entry(doc, method):
@@ -163,6 +236,8 @@ def validate_expense_claim(doc, method):
         from verenigingen.services.volunteer.expense_approval_limits import route_claim_above_limit
 
         route_claim_above_limit(doc)
+
+    derive_team_claim_chapter(doc)
 
     # Auto-populate department from custom_chapter for ERPNext native filtering
     if doc.custom_chapter and not doc.department:  # ast-skip: Custom Field

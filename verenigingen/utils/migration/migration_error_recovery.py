@@ -391,47 +391,6 @@ class MigrationErrorRecovery:
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def retry_failed_migration_records(migration_name: str):
-    """Retry all failed records from a migration"""
-    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-
-    # Load recovery data
-    recovery = MigrationErrorRecovery(migration_doc)
-
-    # Load failed records from file if available
-    recovery_files = frappe.get_all(
-        "File",
-        filters={
-            "file_name": ["like", f"%recovery_{migration_name}%"],
-            "attached_to_doctype": "E-Boekhouden Migration",
-        },
-        order_by="creation desc",
-        limit=1,
-    )
-
-    if recovery_files:
-        file_doc = frappe.get_doc("File", recovery_files[0].name)
-        with open(file_doc.get_full_path(), "r") as f:
-            recovery_data = json.load(f)
-            recovery.failed_records = recovery_data.get("failed_records", [])
-            recovery.retry_queue = recovery_data.get("failed_records", [])
-
-    # Define process function based on migration type
-    from .eboekhouden_soap_migration import process_single_mutation
-
-    def process_record(record):
-        return process_single_mutation(
-            record, migration_doc.company, migration_doc.cost_center, migration_doc
-        )
-
-    # Process retry queue
-    results = recovery.process_retry_queue(process_record)
-
-    return results
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_recovery_report(migration_name: str):
     """Get recovery report for a migration"""
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

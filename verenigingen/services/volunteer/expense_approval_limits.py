@@ -46,11 +46,28 @@ FINANCIAL = "Financial"
 
 def get_claim_chapter(doc) -> Optional[str]:
     """The chapter a claim is booked against: its own, else its team's. None = national."""
-    if doc.get("custom_chapter"):
-        return doc.custom_chapter
-    if doc.get("custom_team"):
-        return frappe.db.get_value("Team", doc.custom_team, "chapter") or None
+    chapter = doc.get("custom_chapter")
+    if chapter:
+        return chapter
+    team = doc.get("custom_team")
+    if team:
+        return frappe.db.get_value("Team", team, "chapter") or None
     return None
+
+
+def claimant_is_active_team_member(doc) -> bool:
+    """True when the claim's employee is an ACTIVE member of its ``custom_team``.
+
+    The server-side fact behind a team claim's chapter attribution (#1714): resolved from the
+    claim's employee, so it holds for the portal, Desk and REST alike.
+    """
+    team, employee = doc.get("custom_team"), doc.get("employee")
+    if not (team and employee):
+        return False
+    volunteer = frappe.db.get_value("Volunteer", {"employee_id": employee}, "name")
+    if not volunteer:
+        return False
+    return bool(frappe.db.exists("Team Member", {"parent": team, "volunteer": volunteer, "is_active": 1}))
 
 
 def get_chapter_limits(chapter: str) -> tuple:

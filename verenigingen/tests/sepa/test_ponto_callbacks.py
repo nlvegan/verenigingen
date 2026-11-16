@@ -3,7 +3,7 @@ Integration tests for the Ponto redirect callback endpoints.
 
 Covers:
 - payment_callback (Ponto Payment Request redirect)
-- payment_link_callback + payment_page (Ponto Payment Link / betaalverzoek)
+- payment_link_callback (Ponto Payment Link / betaalverzoek)
 
 These construct a realistic request (frappe.request.args with the redirect
 params) and assert the doc status transitions and the redirect target written
@@ -24,7 +24,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.ponto_test_data_factory import TestIBAN
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import RETURN_PROOF_PURPOSE
+from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+    RETURN_PROOF_PURPOSE,
+)
 
 
 @contextmanager
@@ -156,7 +158,7 @@ class TestPontoPaymentCallback(FrappeTestCase):
 
 
 class TestPontoPaymentLinkCallback(FrappeTestCase):
-    """Tests for payment_link_callback + payment_page (betaalverzoek)."""
+    """Tests for payment_link_callback (betaalverzoek)."""
 
     def setUp(self):
         super().setUp()
@@ -288,51 +290,6 @@ class TestPontoPaymentLinkCallback(FrappeTestCase):
         self.assertNotEqual(context.payment_status, "error")
         self.assertEqual(context.document_info["docname"], doc.name)
         self.assertEqual(context.document_info["amount"], doc.amount)
-
-    # -------------------------------------------------------------------------
-    # payment_page
-    # -------------------------------------------------------------------------
-
-    def test_payment_page_returns_details_for_pending(self):
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
-
-        doc = self._make_payment_link(status="Pending Authorization")
-        with fake_request(link=doc.name):
-            result = payment_page()
-        self.assertEqual(result["status"], "pending")
-        self.assertEqual(result["payment_link"], doc.name)
-        self.assertEqual(result["amount"], 25.00)
-        self.assertEqual(result["redirect_link"], "https://myponto.com/sign/req-1")
-
-    def test_payment_page_already_paid(self):
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
-
-        doc = self._make_payment_link(status="Executed")
-        with fake_request(link=doc.name):
-            result = payment_page()
-        self.assertEqual(result["status"], "already_paid")
-
-    def test_payment_page_cancelled(self):
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
-
-        doc = self._make_payment_link(status="Cancelled")
-        with fake_request(link=doc.name):
-            result = payment_page()
-        self.assertEqual(result["status"], "cancelled")
-
-    def test_payment_page_missing_link_throws(self):
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
-
-        with fake_request():
-            with self.assertRaises(frappe.exceptions.DoesNotExistError):
-                payment_page()
-
-    def test_payment_page_unknown_link_throws(self):
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import payment_page
-
-        with fake_request(link="NOPE"):
-            with self.assertRaises(frappe.exceptions.DoesNotExistError):
-                payment_page()
 
 
 if __name__ == "__main__":

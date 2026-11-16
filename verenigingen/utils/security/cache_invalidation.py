@@ -8,6 +8,21 @@ compromising performance.
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
+
+def _record_invalidation_failure(title, message):
+    """Best-effort Error Log row for a failed invalidation (#2409).
+
+    log_error does cache and DB work of its own and can raise (e.g. a Redis TimeoutError in its
+    defaults lookup). These hooks must never fail the surrounding save, so fall back to the
+    file logger rather than letting the recording step crash it.
+    """
+    try:
+        frappe.log_error(title=title, message=message)
+    except Exception:
+        frappe.logger("verenigingen.cache_invalidation").error(f"{title}: {message}")
+
 
 def invalidate_user_role_cache_on_user_update(doc, method):
     """
@@ -50,10 +65,16 @@ def invalidate_user_role_cache_on_user_update(doc, method):
         frappe.logger("verenigingen.cache_invalidation").info(
             f"User role cache invalidated for {doc.name} on User save"
         )
-    except Exception as e:
-        # Don't fail the user save if cache invalidation fails
-        frappe.logger("verenigingen.cache_invalidation").error(
-            f"Failed to invalidate user role cache for {doc.name}: {str(e)}"
+    except NON_RESUMABLE_DB_ERRORS:
+        # Defensive, not reachable today (Redis-only work); kept so a DB deadlock is never swallowed.
+        raise
+    except Exception:
+        # Don't fail the user save if cache invalidation fails, but RECORD it (#2409):
+        # a failed invalidation leaves a revoked role effective until the cache TTL, and
+        # frappe.logger() output is not captured anywhere readable.
+        _record_invalidation_failure(
+            title="Security cache: user role cache invalidation failed",
+            message=f"user={doc.name}\n{frappe.get_traceback()}",
         )
 
 
@@ -72,10 +93,13 @@ def invalidate_all_user_caches_on_role_profile_update(doc, method):
             frappe.logger("verenigingen.cache_invalidation").info(
                 f"All user role caches invalidated due to Role Profile '{doc.name}' change"
             )
-        except Exception as e:
-            # Don't fail the role profile save if cache invalidation fails
-            frappe.logger("verenigingen.cache_invalidation").error(
-                f"Failed to invalidate all user role caches for Role Profile {doc.name}: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # Don't fail the role profile save if cache invalidation fails, but record it (#2409).
+            _record_invalidation_failure(
+                title="Security cache: all-users role cache invalidation failed",
+                message=f"role_profile={doc.name}\n{frappe.get_traceback()}",
             )
 
 
@@ -95,10 +119,13 @@ def invalidate_user_cache_on_user_role_update(doc, method):
                 frappe.logger("verenigingen.cache_invalidation").info(
                     f"User role cache invalidated for {doc.parent} due to individual role change"
                 )
-        except Exception as e:
-            # Don't fail the role assignment if cache invalidation fails
-            frappe.logger("verenigingen.cache_invalidation").error(
-                f"Failed to invalidate user role cache for role assignment: {str(e)}"
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            # Don't fail the role assignment if cache invalidation fails, but record it (#2409).
+            _record_invalidation_failure(
+                title="Security cache: role assignment cache invalidation failed",
+                message=f"user={doc.parent}\n{frappe.get_traceback()}",
             )
 
 
@@ -125,7 +152,11 @@ def clear_security_caches_on_migrate():
                 f"Cleared {len(op_keys)} critical operation cache entries during migration"
             )
 
-    except Exception as e:
-        frappe.logger("verenigingen.cache_invalidation").error(
-            f"Failed to clear security caches during migration: {str(e)}"
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:
+        # Recorded via log_error (#2409): frappe.logger() output is not captured.
+        _record_invalidation_failure(
+            title="Security cache: clearing security caches on migrate failed",
+            message=frappe.get_traceback(),
         )

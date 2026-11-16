@@ -22,6 +22,7 @@ from verenigingen.services.communication.compatibility import (
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 import unittest
 
 
@@ -53,6 +54,8 @@ class TestEmailCompatibility(EnhancedTestCase):
         )
 
         # A skipped send is also success=True; own the key so this proves a real send (#2010).
+        # A fresh CI site has no outgoing Email Account and EmailService refuses without one.
+        ensure_outgoing_email_account(self)
         own_notification_keys(self, "member_application_approved")
 
         result = send_member_notification(

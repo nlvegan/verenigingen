@@ -142,8 +142,16 @@ class TestIPRestrictionsCoverage(VereningingenTestCase):
         self.profile = self.framework.get_security_profile(SecurityLevel.CRITICAL)
         self._orig_request = getattr(frappe.local, "request", None)
         self._orig_allowlist = frappe.conf.get("critical_api_ip_allowlist")
+        self._clear_dedup_keys()
+
+    def _clear_dedup_keys(self):
+        # The once-per-process dedup set would make a re-run in one process false-red (#2604).
+        reported = type(self.framework)._reported_invalid_allowlist
+        for key in [k for k in reported if "2604" in k[1] or k[1] in ("None", "987654", "5")]:
+            reported.discard(key)
 
     def tearDown(self):
+        self._clear_dedup_keys()
         frappe.local.request = self._orig_request  # Mock justified: Infrastructure
         # Restore conf override.
         if self._orig_allowlist is None:
@@ -200,6 +208,71 @@ class TestIPRestrictionsCoverage(VereningingenTestCase):
         frappe.local.request = request  # Mock justified: Infrastructure - simulated request
         with self.assertRaises(VPermissionError):
             self.framework.validate_ip_restrictions(self.profile)
+
+    # --- #2604: malformed allowlist config --------------------------------
+    def _error_log_count(self, needle):
+        return frappe.db.count(
+            "Error Log",
+            {"method": "Invalid critical_api_ip_allowlist configuration", "error": ["like", f"%{needle}%"]},
+        )
+
+    def test_bare_string_allowlist_is_one_entry_not_characters_2604(self):
+        # Iterated per character, "203.0.113.50" yields "2", "0", "3", "." ... all invalid.
+        frappe.conf["critical_api_ip_allowlist"] = "203.0.113.50"
+        self._bind_request("203.0.113.50")
+        self.assertTrue(self.framework.validate_ip_restrictions(self.profile))
+
+    def test_bare_string_allowlist_still_denies_other_ip_2604(self):
+        frappe.conf["critical_api_ip_allowlist"] = "203.0.113.50"
+        self._bind_request("198.51.100.9")
+        with self.assertRaises(VPermissionError):
+            self.framework.validate_ip_restrictions(self.profile)
+
+    def test_non_iterable_allowlist_denies_with_permission_error_2604(self):
+        frappe.conf["critical_api_ip_allowlist"] = 12345
+        self._bind_request("203.0.113.50")
+        with self.assertRaises(VPermissionError):
+            self.framework.validate_ip_restrictions(self.profile)
+
+    def test_invalid_entry_is_skipped_and_valid_one_still_allows_2604(self):
+        frappe.conf["critical_api_ip_allowlist"] = ["not-an-ip-2604a", "203.0.113.50"]
+        self._bind_request("203.0.113.50")
+        self.assertTrue(self.framework.validate_ip_restrictions(self.profile))
+
+    def test_invalid_entry_leaves_one_error_log_row_across_requests_2604(self):
+        entry = "not-an-ip-2604b"
+        frappe.conf["critical_api_ip_allowlist"] = [entry]
+        self._bind_request("203.0.113.50")
+        before = self._error_log_count(entry)
+        for _i in range(3):
+            with self.assertRaises(VPermissionError):  # only entry invalid -> fail closed
+                self.framework.validate_ip_restrictions(self.profile)
+        self.assertEqual(self._error_log_count(entry) - before, 1)
+
+    def test_non_string_entries_are_skipped_not_a_500_2604(self):
+        # None/5 reach ipaddress.ip_address() unguarded without the isinstance check:
+        # ip_address(None) raises ValueError but "/" in None raises TypeError.
+        frappe.conf["critical_api_ip_allowlist"] = [None, 5, "198.51.100.1"]
+        self._bind_request("198.51.100.1")
+        self.assertTrue(self.framework.validate_ip_restrictions(self.profile))
+
+    def test_only_non_string_entry_denies_and_logs_once_2604(self):
+        frappe.conf["critical_api_ip_allowlist"] = [None]
+        self._bind_request("198.51.100.1")
+        needle = "entry is not a valid IP or CIDR: None"
+        before = self._error_log_count(needle)
+        for _i in range(2):
+            with self.assertRaises(VPermissionError):
+                self.framework.validate_ip_restrictions(self.profile)
+        self.assertEqual(self._error_log_count(needle) - before, 1)
+
+    def test_non_list_value_leaves_error_log_row_2604(self):
+        frappe.conf["critical_api_ip_allowlist"] = 987654
+        self._bind_request("203.0.113.50")
+        before = self._error_log_count("987654")
+        with self.assertRaises(VPermissionError):
+            self.framework.validate_ip_restrictions(self.profile)
+        self.assertEqual(self._error_log_count("987654") - before, 1)
 
 
 # ======================================================================
