@@ -65,3 +65,45 @@ class TestFractionalQuantityLog(EnhancedTestCase):
         self.assertEqual(len(calls), 1, calls)
         self.assertEqual(calls[0]["title"], "Stock Entry Creation Failed")
         self.assertIn("Something else broke", calls[0]["message"])
+
+
+class TestMigrationRunReporting(EnhancedTestCase):
+    """Sibling defects in the same file: failed run reported as success, and
+    missing-f summary strings."""
+
+    API = "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI"
+
+    def test_standalone_reports_failure_when_the_run_fails(self):
+        from verenigingen.utils.migration.stock_migration import migrate_stock_transactions_standalone
+
+        settings = frappe._dict(api_token="x")
+        with (
+            patch(f"{MOD}.frappe.get_single", return_value=settings),
+            patch(self.API, side_effect=RuntimeError("api down")),
+            patch("frappe.log_error"),
+        ):
+            result = migrate_stock_transactions_standalone(
+                f"no-such-migration-{frappe.generate_hash()[:8]}", "2026-01-01", "2026-01-31"
+            )
+        self.assertFalse(result["success"], result)
+        self.assertIn("api down", result["error"])
+
+    def test_returned_summary_interpolates_counts(self):
+        migrator = StockTransactionMigrator(frappe._dict(dry_run=False))
+        migrator.stock_transactions_created = 3
+        migrator.stock_transactions_failed = 2
+        migrator.stock_transactions_skipped = 1
+        api = patch(self.API)
+        accounts = [{"account_number": "1300", "account_name": "Voorraad"}]
+        with api as api_cls, patch.object(migrator, "get_stock_accounts", return_value=accounts):
+            api_cls.return_value.get_mutations.return_value = {"success": True, "data": '{"items": []}'}
+            summary = migrator.migrate_stock_transactions(frappe._dict(), "2026-01-01", "2026-01-31")
+        self.assertEqual(summary, "Created 3 stock entries | Failed: 2 | Skipped: 1")
+
+    def test_dry_run_summary_interpolates_count(self):
+        migrator = StockTransactionMigrator(frappe._dict(dry_run=True))
+        accounts = [{"account_number": "1300", "account_name": "Voorraad"}]
+        with patch(self.API) as api_cls, patch.object(migrator, "get_stock_accounts", return_value=accounts):
+            api_cls.return_value.get_mutations.return_value = {"success": True, "data": '{"items": []}'}
+            summary = migrator.migrate_stock_transactions(frappe._dict(), "2026-01-01", "2026-01-31")
+        self.assertEqual(summary, "Dry Run: Found 0 stock transactions to migrate")

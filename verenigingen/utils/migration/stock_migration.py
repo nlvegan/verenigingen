@@ -67,7 +67,7 @@ class StockTransactionMigrator:
 
             print(f"Starting stock transaction migration from {date_from} to {date_to}")
             print(
-                "Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
+                f"Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
             )
 
             # Process month by month to avoid large data sets
@@ -101,7 +101,7 @@ class StockTransactionMigrator:
 
                     if stock_transactions:
                         print(
-                            "Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
+                            f"Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
                         )
 
                         # Process stock transactions
@@ -128,13 +128,13 @@ class StockTransactionMigrator:
             summary_parts = []
             dry_run_mode = getattr(self.migration_doc, "dry_run", True)  # Default to dry run
             if dry_run_mode:
-                summary_parts.append("Dry Run: Found {total_processed} stock transactions to migrate")
+                summary_parts.append(f"Dry Run: Found {total_processed} stock transactions to migrate")
             else:
-                summary_parts.append("Created {self.stock_transactions_created} stock entries")
+                summary_parts.append(f"Created {self.stock_transactions_created} stock entries")
                 if self.stock_transactions_failed > 0:
-                    summary_parts.append("Failed: {self.stock_transactions_failed}")
+                    summary_parts.append(f"Failed: {self.stock_transactions_failed}")
                 if self.stock_transactions_skipped > 0:
-                    summary_parts.append("Skipped: {self.stock_transactions_skipped}")
+                    summary_parts.append(f"Skipped: {self.stock_transactions_skipped}")
 
             return " | ".join(summary_parts)
 
@@ -146,7 +146,9 @@ class StockTransactionMigrator:
                 message=f"Stock migration error:\n{str(e)}\n\n{frappe.get_traceback()}",
                 title="Stock Migration Failed",
             )
-            return f"Error migrating stock transactions: {str(e)[:100]}..."
+            # Re-raise: returning an "Error ..." string made the standalone wrapper report
+            # success True for a failed run.
+            raise
 
     def get_stock_accounts(self):
         """Get all stock accounts with their account numbers"""
@@ -284,7 +286,7 @@ class StockTransactionMigrator:
 
             safe_log_error(
                 message=f"Error processing stock transaction for {account_code}:\n{str(e)}",
-                title="Stock Transaction: {account_code}",
+                title=f"Stock Transaction: {account_code}",
             )
             return False
 
