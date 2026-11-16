@@ -345,6 +345,49 @@ class TestScheduleRetry(RetryBase):
         self.assertEqual(rec.status, "Scheduled")
 
 
+class TestScheduleRetryNotification(RetryBase):
+    """#2685 item 1: the real notification path of a NON-escalating schedule_retry.
+    Only enqueue and the outgoing-mail boundary (EmailService) are stubbed."""
+
+    def _schedule(self, invoice):
+        email_service = MagicMock()
+        with patch("frappe.enqueue", return_value=None), patch(
+            "verenigingen.services.communication.compatibility.get_email_service",
+            return_value=email_service,
+        ):
+            result = self.manager.schedule_retry(invoice.name, "AM04", "x")
+        return result, email_service
+
+    def test_customer_without_member_still_schedules_the_retry(self):
+        member = self._make_member_with_customer("SchedNoMember")
+        invoice = self._make_unpaid_invoice(member)
+        frappe.db.set_value("Member", member.name, "customer", None)
+        frappe.db.set_value("Customer", member.customer, "member", None)
+
+        result, email_service = self._schedule(invoice)
+
+        self.assertTrue(result["scheduled"])
+        rec = frappe.get_doc("SEPA Payment Retry", {"invoice": invoice.name})
+        self.assertIsNone(rec.member)
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertEqual(rec.retry_count, 1)
+        # No member means no mandate to debit, so promising the payer a retry is wrong.
+        email_service.send_templated_email.assert_not_called()
+
+    def test_member_with_email_is_still_notified(self):
+        """Control: the guard must not silence the normal path."""
+        member = self._make_member_with_customer("SchedWithMember")
+        self.assertTrue(member.email, "fixture member must have an email")
+        invoice = self._make_unpaid_invoice(member)
+
+        result, email_service = self._schedule(invoice)
+
+        self.assertTrue(result["scheduled"])
+        email_service.send_templated_email.assert_called_once()
+        kwargs = email_service.send_templated_email.call_args.kwargs
+        self.assertEqual(kwargs["reference_name"], member.name)
+
+
 # =============================================================================
 # escalate_payment_failure
 # =============================================================================
@@ -429,11 +472,9 @@ class TestEscalation(RetryBase):
     def test_escalation_for_customer_without_member_still_notifies(self):
         """send_escalation_notification must cope with a nullable retry_record.member.
 
-        NOT an end-to-end claim: in production a Customer without a Member does not
-        reach escalation, because schedule_retry raises earlier on every
-        non-escalating retry at sepa_notifications.py send_payment_retry_notification
-        (#2685 item 1). This test lifts retry_count with db_set to reach the escalation
-        branch directly, so it proves only that branch."""
+        This lifts retry_count with db_set to reach the escalation branch directly,
+        so it proves only that branch; the scheduling path is covered by
+        TestScheduleRetryNotification (#2685 item 1)."""
         member = self._make_member_with_customer("EscNoMember")
         invoice = self._make_unpaid_invoice(member)
         frappe.db.set_value("Member", member.name, "customer", None)
