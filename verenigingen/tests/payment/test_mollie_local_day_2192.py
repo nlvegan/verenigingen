@@ -207,7 +207,7 @@ class TestDebugServiceWindowLocalDay(_BulkImporterSweepBase):
         matcher = MagicMock()
         matcher.find_member_for_payment.return_value = {"name": "M-1"}
         creator = MagicMock()
-        creator.check_already_processed.side_effect = self._PastTheDateFilter()
+        creator.check_mollie_payment_processed.side_effect = self._PastTheDateFilter()
         result = {"total_filtered_by_date": 0, "total_filtered_by_duplicate": 0, "total_filtered_by_member": 0}
         try:
             with system_timezone(zone):
@@ -293,7 +293,7 @@ class TestCutoffIsTheSiteDayNotTheProcessDay(_BulkImporterSweepBase):
             creator = MagicMock()
             # A payment past the date filter reaches this and the run aborts (the failure is
             # swallowed by the service); the call count says which payments got that far.
-            creator.check_already_processed.side_effect = RuntimeError("past the date filter")
+            creator.check_mollie_payment_processed.side_effect = RuntimeError("past the date filter")
             service = MollieDebugService.__new__(MollieDebugService)
             service.logger = MagicMock()
             service.mollie_client = MagicMock()
@@ -310,7 +310,7 @@ class TestCutoffIsTheSiteDayNotTheProcessDay(_BulkImporterSweepBase):
         # tr_before is dropped, then tr_on is kept and reaches the creator: both were seen.
         self.assertEqual(out["total_payments_found"], 2, out)
         self.assertEqual(out["total_filtered_by_date"], 1, out)
-        self.assertEqual(creator.check_already_processed.call_count, 1)
+        self.assertEqual(creator.check_mollie_payment_processed.call_count, 1)
 
 
 class TestBalanceMonitorDailyBuckets(_BulkImporterSweepBase):

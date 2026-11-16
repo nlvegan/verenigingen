@@ -1911,7 +1911,7 @@ class MollieDebugService(StatelessService):
 
             for payment in payments:
                 # Check if already processed using centralized service
-                idempotency_check = bank_tx_creator.check_already_processed(
+                idempotency_check = bank_tx_creator.check_mollie_payment_processed(
                     payment.id, check_payment_entry=True  # Check both Payment Entry and Bank Transaction
                 )
 
@@ -2469,7 +2469,9 @@ class MollieDebugService(StatelessService):
                 return False
 
         # Idempotency check
-        idempotency_check = bank_tx_creator.check_already_processed(payment.id, check_payment_entry=True)
+        idempotency_check = bank_tx_creator.check_mollie_payment_processed(
+            payment.id, check_payment_entry=True
+        )
         is_processed = idempotency_check["already_processed"]
 
         # Invoice matching for unprocessed paid payments

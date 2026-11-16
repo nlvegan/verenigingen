@@ -80,8 +80,9 @@ class _FakeDuesProcessor:
 
 
 class _FakeBTCreator:
-    def __init__(self, bt_name="BT-FAKE-1", config=None):
+    def __init__(self, bt_name="BT-FAKE-1", config=None, existing_bt=None):
         self.bt_name = bt_name
+        self.existing_bt = existing_bt
         self._config = config or {"bank_account": "Mollie", "company": "Test Co"}
         self.linked = []
         self.create_calls = []
@@ -89,6 +90,12 @@ class _FakeBTCreator:
 
     def get_mollie_bank_account_config(self):
         return self._config
+
+    def find_mollie_bank_transaction(self, reference_number, fields=None, config=None):
+        """The live Bank Transaction on the Mollie account (#2620): ``existing_bt`` or none."""
+        if not self.existing_bt:
+            return None
+        return SimpleNamespace(name=self.existing_bt, docstatus=1, party=None, date=None)
 
     def create_from_mollie_payment(self, **kwargs):
         self.create_calls.append(kwargs)
@@ -366,13 +373,8 @@ class TestProcessOrphanedPayment(unittest.TestCase):
     def test_existing_bt_is_idempotent(self):
         import frappe
 
-        orch = _make_orchestrator()
-        original = frappe.db.get_value
-        frappe.db.get_value = lambda *a, **k: "BT-EXISTING"
-        try:
-            out = orch.process_orphaned_payment("tr_1", payment=_payment())
-        finally:
-            frappe.db.get_value = original
+        orch = _make_orchestrator(bt=_FakeBTCreator(existing_bt="BT-EXISTING"))
+        out = orch.process_orphaned_payment("tr_1", payment=_payment())
         self.assertEqual(out.status, "already_processed")
         self.assertEqual(out.bank_transaction, "BT-EXISTING")
 
@@ -426,13 +428,8 @@ class TestProcessBtOnlyPayment(unittest.TestCase):
     def test_existing_bt_is_idempotent(self):
         import frappe
 
-        orch = _make_orchestrator()
-        original = frappe.db.get_value
-        frappe.db.get_value = lambda *a, **k: "BT-EXISTING"
-        try:
-            out = orch.process_bt_only_payment("tr_1", payment=_payment())
-        finally:
-            frappe.db.get_value = original
+        orch = _make_orchestrator(bt=_FakeBTCreator(existing_bt="BT-EXISTING"))
+        out = orch.process_bt_only_payment("tr_1", payment=_payment())
         self.assertEqual(out.status, "already_processed")
 
     def test_unpaid_skipped(self):
@@ -454,14 +451,8 @@ class TestProcessBtOnlyPayment(unittest.TestCase):
         bt = _FakeBTCreator(bt_name="BT-BTONLY")
         orch = _make_orchestrator(dues=dues, bt=bt)
 
-        calls = {"n": 0}
-
         def fake_get_value(*a, **k):
-            calls["n"] += 1
-            # call 1: existing BT check -> None
-            if calls["n"] == 1:
-                return None
-            # subsequent: Member.customer lookup -> CUST-1
+            # the Member.customer lookup (the existing-BT check goes through the creator)
             return "CUST-1"
 
         original = frappe.db.get_value

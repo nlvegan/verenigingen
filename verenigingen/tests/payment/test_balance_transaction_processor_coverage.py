@@ -36,6 +36,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.verenigingen_payments.core.models.balance import BalanceTransaction
 from verenigingen.verenigingen_payments.services.balance_transaction_processor import (
     BalanceTransactionProcessor,
@@ -168,10 +169,14 @@ class TestProcessSingleTransactionIdempotency(EnhancedTestCase):
         super().setUp()
         self.processor = BalanceTransactionProcessor()
         self.processor.balances_client = _FakeBalancesClient()
+        # Idempotency lookups are scoped to the Mollie bank account (#2620).
+        self._mollie = pin_mollie_bank_account(self)
 
     def _make_bank_transaction(self, reference_number=None, transaction_id=None,
                                deposit=10.0, description="Existing BT"):
         bt = frappe.new_doc("Bank Transaction")
+        bt.bank_account = self._mollie["bank_account"]
+        bt.company = self._mollie["company"]
         bt.date = frappe.utils.today()
         bt.deposit = deposit
         bt.withdrawal = 0.0
@@ -380,9 +385,12 @@ class TestProcessBalanceTransactionsAggregation(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.processor = BalanceTransactionProcessor()
+        self._mollie = pin_mollie_bank_account(self)
 
     def _make_bank_transaction(self, reference_number):
         bt = frappe.new_doc("Bank Transaction")
+        bt.bank_account = self._mollie["bank_account"]
+        bt.company = self._mollie["company"]
         bt.date = frappe.utils.today()
         bt.deposit = 5.0
         bt.withdrawal = 0.0
@@ -401,10 +409,12 @@ class TestProcessBalanceTransactionsAggregation(EnhancedTestCase):
         new_err = _make_balance_transaction(tx_id="baltr_AGG_NEW", context={})
 
         self.processor.balances_client = _FakeBalancesClient(transactions=[already, new_err])
+        # The new transaction fails at creation. (A config error would now fail BOTH
+        # transactions: the idempotency check needs the Mollie account to scope to, #2620.)
         with patch(
             "verenigingen.verenigingen_payments.services.bank_transaction_creator."
-            "BankTransactionCreator.get_mollie_bank_account_config",
-            return_value={"error": "Configuration validation failed: not set"},
+            "BankTransactionCreator.create",
+            return_value=None,
         ):
             result = self.processor.process_balance_transactions(balance_id="bal_X", limit=10)
 
