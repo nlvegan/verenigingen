@@ -373,6 +373,14 @@ class TestScheduleRetryNotification(RetryBase):
         self.assertEqual(rec.retry_count, 1)
         # No member means no mandate to debit, so promising the payer a retry is wrong.
         email_service.send_templated_email.assert_not_called()
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any("No member linked to" in c and member.customer in c for c in comments), comments
+        )
 
     def test_member_with_email_is_still_notified(self):
         """Control: the guard must not silence the normal path."""

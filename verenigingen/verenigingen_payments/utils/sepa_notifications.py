@@ -209,11 +209,18 @@ class SEPAMandateNotificationManager:
 
     def send_payment_retry_notification(self, retry_record):
         """Send notification about payment retry attempts"""
-        # `member` is nullable on the record (a Customer without a linked Member). That
-        # payer has no mandate, so no retry will ever be collected for them and a
-        # "retry scheduled" mail would promise one; skip rather than raise out of
-        # schedule_retry after the record was saved (#2685).
+        # `member` is nullable on the record (a Customer without a linked Member). This
+        # retry machinery cannot collect without a Member (execute_payment_retry needs
+        # one), so a "retry scheduled" mail would promise a collection that will not
+        # happen. Leave a trace for staff on the record and skip, rather than raise out
+        # of schedule_retry after the record was saved (#2685).
         if not retry_record.member:
+            customer = frappe.db.get_value("Sales Invoice", retry_record.invoice, "customer")
+            retry_record.add_comment(
+                "Comment",
+                f"No member linked to {customer or retry_record.invoice}; payer not notified; "
+                "this retry cannot be collected until a member is linked.",
+            )
             return
 
         invoice = frappe.get_doc("Sales Invoice", retry_record.invoice)
