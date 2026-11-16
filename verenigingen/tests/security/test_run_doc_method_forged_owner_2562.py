@@ -73,11 +73,14 @@ try:
     frappe.db.commit(); frappe.destroy()
     import frappe.app
     c=Client(frappe.app.application,use_cookies=False)
-    def call(who, dt, name, m, owner, v2=False, detail=False):
+    def call(who, dt, name, m, owner, v2=False, detail=False, extra=None):
         frappe.init(site=SITE); frappe.connect()
         mod=frappe.db.get_value(dt,name,"modified") if frappe.db.exists(dt,name) else None
         frappe.destroy()
         doc={"doctype":dt,"name":name,"owner":owner,"modified":str(mod) if mod else "2026-01-01 00:00:00"}
+        for k,v in (extra or {}).items():
+            if v is None: doc.pop(k,None)
+            else: doc[k]=v
         if v2:
             r=c.post("/api/v2/method/run_doc_method",json={"method":m,"document":doc},headers=who["hdr"])
         else:
@@ -98,6 +101,11 @@ try:
         for m in methods:
             out[f"{dt}.{m}"]={"forged_v1":call(attacker,dt,name,m,attacker["email"]),
                 "forged_v2":call(attacker,dt,name,m,attacker["email"],v2=True),
+                "islocal_1_v1":call(attacker,dt,name,m,attacker["email"],extra={"__islocal":1}),
+                "islocal_str_v1":call(attacker,dt,name,m,attacker["email"],extra={"__islocal":"1"}),
+                "islocal_1_v2":call(attacker,dt,name,m,attacker["email"],v2=True,extra={"__islocal":1}),
+                "noname_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None}),
+                "noname_islocal_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None,"__islocal":1}),
                 "honest_foreign_v1":call(attacker,dt,name,m,"Administrator"),
                 "unknown_forged_v1":call(attacker,dt,name+"-nope",m,attacker["email"]),
                 "staff_v1":call(staff,dt,name,m,"Administrator")}
@@ -137,6 +145,14 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
             row = self.out[f"Donation Campaign.{method}"]
             with self.subTest(method=method):
                 self.assertEqual((row["forged_v1"], row["forged_v2"]), (403, 403))
+
+    def test_a_client_supplied_islocal_or_missing_name_does_not_skip_the_guard(self):
+        """The posted dict controls __islocal, so the guard must not honour it (review of 1c27dd655)."""
+        for key in ("Donation Campaign.get_recent_donations", "Member.get_current_membership_fee"):
+            row = self.out[key]
+            for variant in ("islocal_1_v1", "islocal_str_v1", "islocal_1_v2", "noname_v1", "noname_islocal_v1"):
+                with self.subTest(method=key, variant=variant):
+                    self.assertEqual(row[variant], 403)
 
     def test_forged_owner_is_refused_on_a_foreign_member_method_on_both_routes(self):
         row = self.out["Member.get_current_membership_fee"]
@@ -182,3 +198,13 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         stored = frappe.get_doc({"doctype": "Donation Campaign", "name": campaign.name, "owner": user})
         self.assertTrue(frappe.has_permission("Donation Campaign", "read", doc=stored, user=user))
         self.assertTrue(frappe.has_permission("Donation Campaign", "read", doc=campaign.name, user=user))
+
+    def test_a_member_can_still_create_their_own_amendment_request(self):
+        """Control: `create` of a not-yet-stored doc (owner set by insert) is the legitimate case the
+        guard must let through; Contribution Amendment Request grants create to Verenigingen Member
+        with if_owner."""
+        email = f"creator-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Member"]).name
+        new = frappe.new_doc("Contribution Amendment Request")
+        new.owner = user
+        self.assertTrue(frappe.has_permission("Contribution Amendment Request", "create", doc=new, user=user))

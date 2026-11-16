@@ -491,7 +491,7 @@ def has_member_permission(doc, user=None, ptype=None):
         user = frappe.session.user
 
     # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it
-    if not has_unforged_owner(doc, user):
+    if not has_unforged_owner(doc, user, ptype):
         return False
 
     # Log for debugging
@@ -913,19 +913,21 @@ def has_unforged_owner(doc, user=None, ptype=None):
 
     ``frappe.handler.run_doc_method`` (and the v2 twin) with ``docs=`` builds the document from the
     CLIENT's dict and runs the permission check on it, so a role's ``if_owner`` row was satisfied by
-    posting ``owner=<me>``. Frappe's own check cannot tell, so deny here: a non-new document whose
+    posting ``owner=<me>``. Frappe's own check cannot tell, so deny here: a document whose
     claimed owner is the caller but whose stored row says otherwise (or has no stored row) is refused.
     An unknown name is refused too, so it matches the forbidden one on every channel (a bare 404
     would tell the caller which ids exist). Only the owner claim is examined, and only when it names
     the caller, so staff and the real owner pay one lookup and are otherwise untouched.
     """
-    if isinstance(doc, str):
+    if not hasattr(doc, "get"):  # a bare name or other non-document input: nothing was posted
         return True
     user = user or frappe.session.user
     claimed = (doc.get("owner") or "").lower()
-    if claimed != user.lower() or doc.get("__islocal") or not doc.get("name"):
+    # `create` is the one verb a not-yet-stored document legitimately asks for (Document.insert sets
+    # the owner itself). `__islocal` and `name` are NOT trusted: the client's posted dict controls both.
+    if claimed != user.lower() or ptype == "create":
         return True
-    stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner")
+    stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
     return (stored or "").lower() == claimed
 
 
