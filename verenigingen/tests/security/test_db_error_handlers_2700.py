@@ -21,11 +21,12 @@ does not swallow them by itself. The permission functions, though, also have a t
 from unittest.mock import patch
 
 import frappe
+import MySQLdb
 import pymysql
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils import project_permissions as pp
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
     PaymentReconciliationManager,
 )
@@ -34,8 +35,20 @@ USER = "nobody-2700@example.com"
 
 
 def _sql_error():
-    """An ordinary, resumable SQL failure (1064), as the driver raises it."""
-    return pymysql.err.ProgrammingError(1064, "You have an error in your SQL syntax")
+    """An ordinary, resumable SQL failure (1064) of the class frappe's ACTIVE driver raises.
+
+    mysqlclient is frappe's default and CI's driver; its errors are NOT pymysql errors."""
+    return frappe.db.ProgrammingError(1064, "You have an error in your SQL syntax")
+
+
+
+def _broken_sql(real_sql):
+    """Wrap the REAL frappe.db.sql so the server itself rejects the statement (1064)."""
+
+    def broken(query, *args, **kwargs):
+        return real_sql(query.replace("SELECT", "SELEC", 1), *args, **kwargs)
+
+    return broken
 
 
 class _LoggedErrors:
@@ -51,6 +64,18 @@ class _LoggedErrors:
 
     def __exit__(self, *exc):
         self._patch.stop()
+
+
+class TestDatabaseErrorTuple(EnhancedTestCase):
+    def test_matches_what_the_active_driver_raises_for_a_real_statement(self):
+        with self.assertRaises(DATABASE_ERROR) as ctx:
+            frappe.db.sql("SELEC 1")
+        # the real error is the active driver's class, which is what frappe.db exposes
+        self.assertIsInstance(ctx.exception, frappe.db.ProgrammingError)
+
+    def test_does_not_match_the_non_resumable_errors(self):
+        for exc in NON_RESUMABLE_DB_ERRORS:
+            self.assertFalse(issubclass(exc, DATABASE_ERROR))
 
 
 class TestReconciliationDbErrorHandlers(EnhancedTestCase):
@@ -95,6 +120,12 @@ class TestReconciliationDbErrorHandlers(EnhancedTestCase):
                 with self.assertRaises(type(exc)):
                     self.mgr.get_member_unpaid_invoices("MEM-X", 12.5)
                 self.assertEqual(logged.messages, [])
+
+    def test_real_server_side_sql_error_degrades_to_the_fallback(self):
+        """End to end: the server rejects the statement; no injected exception class."""
+        with patch.object(frappe.db, "sql", _broken_sql(frappe.db.sql)), _LoggedErrors() as logged:
+            self.assertIsNone(self.mgr.fuzzy_match_member_name("SOME NAME", 12.5))
+        self.assertTrue(any("Database error" in m for m in logged.messages), logged.messages)
 
     def test_a_non_database_error_is_not_swallowed(self):
         """Control: the handler is a DB-error handler, not a catch-all."""
@@ -160,6 +191,16 @@ class TestProjectPermissionDbErrorHandlers(EnhancedTestCase):
                 else:
                     self.assertEqual(self._run(fn, attr, _sql_error()), closed)
                     self.assertTrue(any("Database error" in m for m in logged.messages), logged.messages)
+
+    def test_real_server_side_sql_error_fails_closed_through_the_database_branch(self):
+        """End to end against the real server error, at an ``sql`` site of each shape."""
+        with patch.object(frappe.db, "sql", _broken_sql(frappe.db.sql)), _LoggedErrors():
+            with self.assertRaises(pp.PermissionSystemError) as ctx:
+                pp.user_has_any_team_projects(USER)
+            self.assertIn("Database error", str(ctx.exception))
+            with self.assertRaises(pp.PermissionSystemError) as ctx:
+                pp._query_volunteer_for_user(USER)
+            self.assertIn("Database error", str(ctx.exception))
 
     def test_volunteer_lookup_sql_error_raises_the_database_branch(self):
         with patch.object(frappe.db, "sql", side_effect=_sql_error()), _LoggedErrors() as logged:
