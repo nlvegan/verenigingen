@@ -257,24 +257,27 @@ class TestPageMollieSubscriptionRecreation(EnhancedTestCase):
         self.assertTrue(row["mandate_valid"])
 
     def test_csv_cancelled_subscription_is_error(self):
-        fake = make_fake(
-            debug_subscription_return={
-                "subscription_data": {
-                    "amount": "25.00 EUR",
-                    "next_payment_date": "2020-01-01",
-                    "status": "cancelled",
-                    "interval": "1 month",
-                    "description": "Dues",
-                    "mandate_id": "mdt_x",
-                }
-            },
-        )
-        csv_content = "customer_id,subscription_id\ncst_x,sub_x\n"
-        with self.as_role(self.ADMIN_ROLE):
-            with patch(PATCH_TARGET, fake):
-                result = msr.parse_and_validate_csv(csv_content, skip_date_validation=True)
-        row = result["results"][0]
-        self.assertEqual(row["status"], "error")
+        # Mollie returns "canceled"; production also tolerates the British spelling.
+        for spelling in ("canceled", "cancelled"):
+            with self.subTest(status=spelling):
+                fake = make_fake(
+                    debug_subscription_return={
+                        "subscription_data": {
+                            "amount": "25.00 EUR",
+                            "next_payment_date": "2020-01-01",
+                            "status": spelling,
+                            "interval": "1 month",
+                            "description": "Dues",
+                            "mandate_id": "mdt_x",
+                        }
+                    },
+                )
+                csv_content = "customer_id,subscription_id\ncst_x,sub_x\n"
+                with self.as_role(self.ADMIN_ROLE):
+                    with patch(PATCH_TARGET, fake):
+                        result = msr.parse_and_validate_csv(csv_content, skip_date_validation=True)
+                row = result["results"][0]
+                self.assertEqual(row["status"], "error")
 
     def test_csv_subscription_lookup_error_is_error(self):
         fake = make_fake(debug_subscription_return={"error": "not found"})
