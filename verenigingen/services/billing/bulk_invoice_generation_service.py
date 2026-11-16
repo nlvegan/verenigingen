@@ -32,6 +32,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.billing.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
@@ -468,7 +469,8 @@ class BulkInvoiceGenerationService(StatefulService):
         Returns:
             BulkGenerationResult with generation statistics and details
         """
-        try:
+        # #2577: hand back the caller's value (or absence), not an unconditional delete
+        with restored_flags("bulk_invoice_generation"):
             # Validate accounting configuration
             self._validate_accounting_configuration()
 
@@ -505,11 +507,6 @@ class BulkInvoiceGenerationService(StatefulService):
                 return self._process_parallel(schedules, cutoff_date, test_mode, result)
             else:
                 return self._process_sequential(schedules, cutoff_date, test_mode, result)
-
-        finally:
-            # Clear bulk processing flag
-            if getattr(frappe.flags, "bulk_invoice_generation", None):
-                delattr(frappe.flags, "bulk_invoice_generation")
 
     def _validate_accounting_configuration(self):
         """Validate that accounting is properly configured before generating invoices."""
