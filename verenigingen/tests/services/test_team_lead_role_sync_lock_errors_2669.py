@@ -21,7 +21,6 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils import user_role_grant
 from verenigingen.utils.team_role_profile_hooks import _sync_team_lead_role
 
-ACR_AUTO_SYNC = "verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change"
 USER_SAVE = "frappe.core.doctype.user.user.User.save"
 ROLE_SYNC_TITLE = "Team Lead Role Sync"
 LOCK_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
@@ -128,11 +127,9 @@ class TestTeamLeadRoleSyncLockErrors2669(VereningingenTestCase):
     def test_removing_the_team_lead_role_propagates_a_lock_error(self):
         """The elif branch: the user no longer leads any Team but still holds the role.
 
-        PROBE SHORTCUT: with the real flow, ``auto_sync_on_role_change`` (run just before the
-        sync) re-derives the user's roles and already strips Team Lead, so the branch sees no
-        role to delete (measured: has_role is None at that point). ``auto_sync_on_role_change``
-        is therefore stubbed to a no-op to stand in for a user whose profile sync leaves the
-        role alone; the claim here is only about _sync_team_lead_role's own handler.
+        The lead's User is disabled before the second save: ``sync_user_role_profile`` returns
+        early for a disabled user, so the role survives the profile sync and this branch runs.
+        Real flow, no stub on the sync.
         """
         team, user, row = self._leader_team()
         team.append("team_members", row)
@@ -142,9 +139,9 @@ class TestTeamLeadRoleSyncLockErrors2669(VereningingenTestCase):
         team = frappe.get_doc("Team", team.name)
         team.team_members[0].is_active = 0
         team.team_members[0].status = "Inactive"
-        with patch(ACR_AUTO_SYNC), patch.object(
-            frappe, "delete_doc", side_effect=frappe.QueryDeadlockError("injected")
-        ):
+        frappe.db.set_value("User", user, "enabled", 0)
+        self.assertTrue(self._has_team_lead_role(user))
+        with patch.object(frappe, "delete_doc", side_effect=frappe.QueryDeadlockError("injected")):
             self._save_expecting(team, frappe.QueryDeadlockError)
 
     # ------------------------------------------------------------------- controls
