@@ -4,7 +4,7 @@ import io
 
 import frappe
 from frappe import _
-from frappe.utils import add_months, flt, format_date, getdate, now_datetime, today
+from frappe.utils import add_days, add_months, flt, format_date, getdate, now_datetime, today
 
 from verenigingen.services.billing.billing_period_calculator import get_periods_per_year
 from verenigingen.templates.pages.payment_dashboard import get_current_dues_schedule
@@ -181,7 +181,15 @@ def get_payment_timeline(member):
 
 
 def get_coverage_info(member, current_schedule):
-    """Calculate coverage based on paid invoices in the current calendar year"""
+    """Share of the trailing 12 months covered by paid invoices' running periods (#2767).
+
+    Billing runs on rolling periods, and `custom_coverage_start_date` /
+    `custom_coverage_end_date` on the Sales Invoice record which period an invoice
+    discharges. Coverage is therefore read from those dates, never from the invoice
+    posting date or a calendar year: a running Annual period that began last December
+    still covers today. An invoice without coverage dates discharges no known period
+    and does not count.
+    """
 
     if not current_schedule or not member:
         return {"percentage": 0, "covered_months": 0, "total_months": 12}
@@ -190,45 +198,58 @@ def get_coverage_info(member, current_schedule):
     if not customer:
         return {"percentage": 0, "covered_months": 0, "total_months": 12}
 
-    # Site-tz year: bounds a query over site-clock posting dates. Identical shape to
-    # payment_dashboard.py:95 and api/payment_dashboard.py:59 (#637).
-    now = now_datetime()
-    year_start = f"{now.year}-01-01"
-    year_end = f"{now.year}-12-31"
+    # Period unknown (Custom without an interval): show nothing, not a guess (#2611).
+    if (
+        get_periods_per_year(
+            current_schedule.get("billing_frequency"),
+            current_schedule.get("custom_frequency_number"),
+            current_schedule.get("custom_frequency_unit"),
+        )
+        is None
+    ):
+        return {"percentage": None, "covered_months": None, "total_months": 12}
 
-    # Count invoices in current year that are fully paid (outstanding_amount == 0)
-    paid_count = frappe.db.count(
+    as_of = getdate(today())
+    window_start = add_days(add_months(as_of, -12), 1)
+    periods = frappe.get_all(
         "Sales Invoice",
         filters={
             "customer": customer,
             "docstatus": 1,
             "outstanding_amount": 0,
-            "posting_date": ["between", [year_start, year_end]],
+            "custom_coverage_start_date": ["<=", as_of],
+            "custom_coverage_end_date": [">=", window_start],
         },
+        fields=["custom_coverage_start_date", "custom_coverage_end_date"],
+    )
+    window_days = (as_of - window_start).days + 1
+    covered_days = count_covered_days(
+        [(p.custom_coverage_start_date, p.custom_coverage_end_date) for p in periods], window_start, as_of
     )
 
-    return coverage_from_paid_count(current_schedule, paid_count)
+    covered_months = min(round(covered_days * 12 / window_days), 12)
+    return {
+        "percentage": round(covered_days * 100 / window_days),
+        "covered_months": covered_months,
+        "total_months": 12,
+    }
 
 
-def coverage_from_paid_count(current_schedule, paid_count):
-    """Coverage for `paid_count` paid invoices of the schedule's own period (#2611).
-
-    A paid invoice buys one full running period, so months per invoice come from the
-    schedule's real period. None values when the period is unknown (Custom without an
-    interval): show nothing, not a guess.
-    """
-    periods_per_year = get_periods_per_year(
-        current_schedule.get("billing_frequency"),
-        current_schedule.get("custom_frequency_number"),
-        current_schedule.get("custom_frequency_unit"),
+def count_covered_days(periods, window_start, window_end):
+    """Days in [window_start, window_end] inside at least one (start, end) period, inclusive."""
+    clipped = sorted(
+        (max(getdate(start), window_start), min(getdate(end), window_end)) for start, end in periods
     )
-    if periods_per_year is None:
-        return {"percentage": None, "covered_months": None, "total_months": 12}
-
-    covered_months = min(round(int(paid_count) * 12 / periods_per_year), 12)
-    percentage = round((covered_months / 12) * 100)
-
-    return {"percentage": percentage, "covered_months": covered_months, "total_months": 12}
+    covered_days = 0
+    counted_until = None
+    for start, end in clipped:
+        if counted_until is not None:
+            start = max(start, add_days(counted_until, 1))
+        if start > end:
+            continue
+        covered_days += (end - start).days + 1
+        counted_until = end
+    return covered_days
 
 
 def get_calendar_data():
