@@ -59,7 +59,7 @@ class _SepaFixture(ReconBase):
             "Payment Entry", filters={"custom_bank_transaction": bt.name}, fields=["name", "docstatus"]
         )
 
-    def _assert_booked_once(self, bt, pe_name):
+    def _assert_sepa_booked_once_2447(self, bt, pe_name):
         self.assertTrue(pe_name, "the retry did not book the payment")
         self.assertEqual([r.name for r in self._rows(bt) if r.docstatus == 1], [pe_name])
         self.assertEqual([r.name for r in self._rows(bt)], [pe_name], "a second row exists for the item")
@@ -70,16 +70,16 @@ class _SepaFixture(ReconBase):
 
 
 class TestManualReconciliationFailedSubmit(_SepaFixture):
-    def _item(self, it):
+    def _manual_item_2447(self, it):
         return {"member": it["member"].name, "invoice": it["invoice"].name, "amount": 25.0}
 
     def _writer_fails_then_retries(self, how):
         it, _, bt = self._fixture("M2447" + how[:2])
         with fail_submit(how), self.assertRaises(frappe.ValidationError):
-            recon.create_manual_payment_entry(bt, self._item(it))
+            recon.create_manual_payment_entry(bt, self._manual_item_2447(it))
         self.assertEqual(self._rows(bt), [], "the failed submit left a Payment Entry behind")
-        result = recon.create_manual_payment_entry(bt, self._item(it))
-        self._assert_booked_once(bt, result["payment_entry"])
+        result = recon.create_manual_payment_entry(bt, self._manual_item_2447(it))
+        self._assert_sepa_booked_once_2447(bt, result["payment_entry"])
 
     def test_failed_submit_before_posting_leaves_no_draft(self):
         self._writer_fails_then_retries("before_posting")
@@ -92,14 +92,14 @@ class TestManualReconciliationFailedSubmit(_SepaFixture):
         COMMITS, so whatever the writer left is permanent."""
         it, _, bt = self._fixture("M2447End")
         self.expectErrorLog("Error in manual SEPA reconciliation")
-        items = json.dumps([{"reconcile": True, **self._item(it)}])
+        items = json.dumps([{"reconcile": True, **self._manual_item_2447(it)}])
         with fail_submit("on_submit"):
             result = recon.manual_sepa_reconciliation(bt.name, items)
         self.assertFalse(result["success"], result)
         self.assertEqual(self._rows(bt), [], "the failed submit left a Payment Entry behind")
         retry = recon.manual_sepa_reconciliation(bt.name, items)
         self.assertTrue(retry["success"], retry)
-        self._assert_booked_once(bt, retry["reconciled_items"][0]["payment_entry"])
+        self._assert_sepa_booked_once_2447(bt, retry["reconciled_items"][0]["payment_entry"])
 
 
 class TestDuplicatePreventionFailedSubmit(_SepaFixture):
@@ -139,7 +139,7 @@ class TestDuplicatePreventionFailedSubmit(_SepaFixture):
             ],
         }
 
-    def _fails_then_retries(self, how):
+    def _dup_fails_then_retries_2447(self, how):
         it, batch, bt = self._fixture("D2447" + how[:2])
         data = self._payment_data(it, batch, bt)
         invoice = it["invoice"].name
@@ -149,13 +149,13 @@ class TestDuplicatePreventionFailedSubmit(_SepaFixture):
         # The guard sums Payment Entry Reference rows of ANY docstatus: a leftover draft would
         # count as an allocation and the retry would be refused as "already fully paid".
         result = dup.create_payment_entry_with_duplicate_check(invoice, 25.0, data)
-        self._assert_booked_once(bt, result["payment_entry"])
+        self._assert_sepa_booked_once_2447(bt, result["payment_entry"])
 
     def test_failed_submit_before_posting_leaves_no_draft_and_retry_books(self):
-        self._fails_then_retries("before_posting")
+        self._dup_fails_then_retries_2447("before_posting")
 
     def test_failed_submit_after_docstatus_written_leaves_no_row_and_retry_books(self):
-        self._fails_then_retries("on_submit")
+        self._dup_fails_then_retries_2447("on_submit")
 
 
 class TestDebugServiceFailedSubmit(_SepaFixture):
@@ -228,7 +228,7 @@ class TestPontoCreatePaymentEntryFailedSubmit(_PontoPaymentRequestFixtures, Enha
             "Payment Entry", filters={"reference_no": req.name, **extra}, fields=["name", "docstatus"]
         )
 
-    def _fails_then_retries(self, how):
+    def _ponto_fails_then_retries_2447(self, how):
         req = self._create_ponto_request(
             self._create_supplier("Atomic" + how[:2]), status="Signed", track_priority=6
         )
@@ -241,10 +241,10 @@ class TestPontoCreatePaymentEntryFailedSubmit(_PontoPaymentRequestFixtures, Enha
         self.assertEqual(frappe.db.get_value("Payment Entry", req.payment_entry, "docstatus"), 1)
 
     def test_failed_submit_before_posting_leaves_no_draft(self):
-        self._fails_then_retries("before_posting")
+        self._ponto_fails_then_retries_2447("before_posting")
 
     def test_failed_submit_after_docstatus_written_leaves_no_row(self):
-        self._fails_then_retries("on_submit")
+        self._ponto_fails_then_retries_2447("on_submit")
 
 
 class TestPaymentPlanCreatePaymentEntryFailedSubmit(EnhancedTestCase):
@@ -271,7 +271,7 @@ class TestPaymentPlanCreatePaymentEntryFailedSubmit(EnhancedTestCase):
         self.track_doc("Payment Plan", plan.name)
         return plan
 
-    def _fails_then_retries(self, how):
+    def _plan_fails_then_retries_2447(self, how):
         member = member_with_customer(self, "PlanAtomic" + how[:2])
         plan = self._make_plan_2447(member.name)
         reference = f"PLAN2447-{how}"
@@ -289,7 +289,29 @@ class TestPaymentPlanCreatePaymentEntryFailedSubmit(EnhancedTestCase):
         self.factory.track_document("Payment Entry", rows[0].name, priority=6)
 
     def test_failed_submit_before_posting_leaves_no_draft(self):
-        self._fails_then_retries("before_posting")
+        self._plan_fails_then_retries_2447("before_posting")
 
     def test_failed_submit_after_docstatus_written_leaves_no_row(self):
-        self._fails_then_retries("on_submit")
+        self._plan_fails_then_retries_2447("on_submit")
+
+
+class TestInsertAndSubmitReloadOption(EnhancedTestCase):
+    """``reload_before_submit`` keeps the #609 reload, inside the savepoint, between insert and submit."""
+
+    def _order(self, **kwargs):
+        from verenigingen.utils.transaction_errors import insert_and_submit_atomically
+
+        calls = []
+        doc = SimpleNamespace(
+            insert=lambda: calls.append("insert"),
+            reload=lambda: calls.append("reload"),
+            submit=lambda: calls.append("submit"),
+        )
+        insert_and_submit_atomically(doc, **kwargs)
+        return calls
+
+    def test_reload_runs_once_between_insert_and_submit(self):
+        self.assertEqual(self._order(reload_before_submit=True), ["insert", "reload", "submit"])
+
+    def test_no_reload_by_default(self):
+        self.assertEqual(self._order(), ["insert", "submit"])
