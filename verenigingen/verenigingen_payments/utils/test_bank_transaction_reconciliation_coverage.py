@@ -744,6 +744,123 @@ class TestProcessMollieSettlement(MollieBase):
 # =============================================================================
 # create_reconciliation — the "mollie_settlement" match branch (586-616)
 # =============================================================================
+class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
+    """#2521 (class of #856/#209/#939): a draft or cancelled invoice is not payable.
+
+    Measured on develop before this fix, with the payment amount equal to the invoice's
+    own grand_total: no Payment Entry is booked either way (ERPNext refuses), but the
+    outcome was a generic ``validation_error`` plus a traceback Error Log row, and with
+    a differing amount the wrong reason (``amount_mismatch`` against the draft's total).
+    The settlement must name the real reason, ``invoice_not_submitted``, and stay
+    retryable. ``invoice_not_found`` / ``amount_mismatch`` write no Error Log row, so
+    neither does this expected outcome.
+
+    The invoices come from the real factory (``submit=False`` for the draft, a real
+    ``cancel()`` for the cancelled one). Only ``SettlementsClient`` is stubbed. The
+    per-invoice branch is reached by making the batch fetch come back empty (the same
+    thing its error path returns), so the ``exists`` lookup is the one that runs.
+    """
+
+    def _invoice(self, state, first_name, grand_total=25.0):
+        it = self._make_member_with_invoice(
+            first_name=first_name, grand_total=grand_total, submit=(state != "draft")
+        )
+        invoice = it["invoice"]
+        if state == "cancelled":
+            invoice.cancel()
+        invoice.reload()
+        expected_docstatus = {"draft": 0, "submitted": 1, "cancelled": 2}[state]
+        self.assertEqual(invoice.docstatus, expected_docstatus)
+        return invoice
+
+    def _settle(self, invoice, batched, payment_value=None):
+        """Run the real process_mollie_settlement; return (result, settlement_id, payment_id)."""
+        settlement_id = f"stl_UNSUB_{frappe.generate_hash(length=8)}"
+        value = payment_value or f"{flt(invoice.grand_total):.2f}"
+        payment = self._mollie_payment(value=value, invoice_id=invoice.name)
+        bt = self._make_bank_transaction(
+            deposit=flt(value), date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        data = {"id": settlement_id, "amount": {"value": value, "currency": "EUR"}}
+        real_fetch = self.mgr._batch_fetch_invoice_data
+        fetch = real_fetch if batched else (lambda refs: {})
+        with mock.patch.object(self.mgr, "_batch_fetch_invoice_data", side_effect=fetch):
+            with self._stub_client(payments=[payment]):
+                result = self.mgr.process_mollie_settlement(bt, settlement_id, data)
+        # Prove which branch ran, so the two parametrisations are not the same test.
+        self.assertEqual(invoice.name in self.mgr._current_invoice_batch, batched)
+        return result, settlement_id, payment["id"]
+
+    def _error_log_rows_for(self, payment_id):
+        return frappe.get_all("Error Log", filters={"error": ["like", f"%{payment_id}%"]}, pluck="name")
+
+    def _assert_named_and_failed_safe(self, result, invoice, settlement_id, payment_id):
+        self.assertEqual([d["status"] for d in result["details"]], ["invoice_not_submitted"])
+        detail = result["details"][0]
+        self.assertEqual(detail["invoice"], invoice.name)
+        self.assertEqual(detail["docstatus"], invoice.docstatus)
+        self.assertEqual(result["processed_count"], 0)
+        self.assertFalse(result["fully_reconciled"])
+        self.assertEqual(result["unaccounted_count"], 1)
+        # No Payment Entry, no payout leg, no fee entry, at any docstatus.
+        for doctype in ("Payment Entry", "Journal Entry"):
+            booked = frappe.get_all(
+                doctype, filters={"custom_mollie_settlement_id": settlement_id}, pluck="name"
+            )
+            self.assertEqual(booked, [], f"{doctype} booked at any docstatus")
+        self.assertFalse(
+            frappe.db.exists("Payment Entry Reference", {"reference_name": invoice.name}),
+            "no Payment Entry may reference an unsubmitted invoice",
+        )
+        self.assertFalse(self.mgr._is_mollie_payment_processed(payment_id))
+        self.assertEqual(self._error_log_rows_for(payment_id), [], "an expected outcome logs no traceback")
+
+    def test_draft_invoice_is_named_not_submitted_batched(self):
+        invoice = self._invoice("draft", "Unsub Draft B")
+        result, sid, pid = self._settle(invoice, batched=True)
+        self._assert_named_and_failed_safe(result, invoice, sid, pid)
+
+    def test_draft_invoice_is_named_not_submitted_per_invoice(self):
+        invoice = self._invoice("draft", "Unsub Draft P")
+        result, sid, pid = self._settle(invoice, batched=False)
+        self._assert_named_and_failed_safe(result, invoice, sid, pid)
+
+    def test_cancelled_invoice_is_named_not_submitted_batched(self):
+        invoice = self._invoice("cancelled", "Unsub Cancel B")
+        result, sid, pid = self._settle(invoice, batched=True)
+        self._assert_named_and_failed_safe(result, invoice, sid, pid)
+
+    def test_cancelled_invoice_is_named_not_submitted_per_invoice(self):
+        invoice = self._invoice("cancelled", "Unsub Cancel P")
+        result, sid, pid = self._settle(invoice, batched=False)
+        self._assert_named_and_failed_safe(result, invoice, sid, pid)
+
+    def test_draft_with_a_differing_amount_is_not_reported_as_amount_mismatch(self):
+        """The wrong-reason case: the amount is checked against the draft's total, so
+        it must not be reached for an unsubmitted invoice at all."""
+        for batched in (True, False):
+            with self.subTest(batched=batched):
+                invoice = self._invoice("draft", f"Unsub Diff {batched}", grand_total=25.0)
+                differing = f"{flt(invoice.grand_total) + 100:.2f}"
+                result, sid, pid = self._settle(invoice, batched, payment_value=differing)
+                self._assert_named_and_failed_safe(result, invoice, sid, pid)
+
+    def test_a_submitted_invoice_still_books_exactly_one_payment_entry(self):
+        """Control, with a real submitted row for the wrong behaviour to find."""
+        for batched in (True, False):
+            with self.subTest(batched=batched):
+                invoice = self._invoice("submitted", f"Unsub Ok {batched}")
+                result, sid, pid = self._settle(invoice, batched)
+                self.assertEqual([d["status"] for d in result["details"]], ["success"])
+                self.assertEqual(result["processed_count"], 1)
+                refs = frappe.get_all(
+                    "Payment Entry Reference",
+                    filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
+                    pluck="parent",
+                )
+                self.assertEqual(len(refs), 1)
+
+
 class TestCreateReconciliationMollieBranch(MollieBase):
     def test_mollie_settlement_branch_reconciles(self):
         it = self._make_member_with_invoice(first_name="MollieRecon", grand_total=30.0)
