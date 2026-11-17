@@ -276,6 +276,42 @@ class TestExpenseApproverServicePositivePaths(EnhancedTestCase):
         approver, _treasurer = self._approver_for_row_state_2704("removed")
         self.assertIsNone(approver)
 
+    # -- #2704: a non-Active chapter row falls through to the next tier, not to None or the chapter --
+
+    def _pin_national_with_treasurer_2704(self):
+        national = self._ensure_chapter("Nat2704")
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
+        national_vol, national_user = self._make_board_volunteer_with_user("nat2704")
+        self._add_board_member(national.name, national_vol.name)
+        return national_user.email
+
+    def _end_to_end_approver_2704(self, state):
+        national_email = self._pin_national_with_treasurer_2704()
+        self.assertNotEqual(national_email, None)
+        approver, chapter_email = self._approver_for_row_state_2704(state)
+        # the chapter tier alone answers per the row state; the entry point must fall through
+        svc = self._service()
+        return svc.get_expense_approver(), chapter_email, national_email, approver
+
+    def test_get_expense_approver_active_chapter_row_routes_to_chapter_treasurer(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("active")
+        self.assertEqual(resolved, chapter_email)
+        self.assertNotEqual(chapter_email, national_email)
+
+    def test_get_expense_approver_pending_chapter_row_falls_through_to_national_seat(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("pending")
+        self.assertEqual(resolved, national_email)
+        self.assertNotEqual(resolved, chapter_email)
+
+    def test_get_expense_approver_suspended_chapter_row_falls_through_to_national_seat(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("suspended")
+        self.assertEqual(resolved, national_email)
+        self.assertNotEqual(resolved, chapter_email)
+
     def test_chapter_member_approver_none_when_member_link_missing(self):
         """Volunteer without a member link short-circuits to None."""
         frappe.db.set_value("Volunteer", self.volunteer.name, "member", None, update_modified=False)
