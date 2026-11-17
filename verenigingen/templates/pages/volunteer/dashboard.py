@@ -186,7 +186,7 @@ def get_volunteer_organizations(volunteer_name):
             SELECT c.name, cm.chapter_join_date
             FROM `tabChapter Member` cm
             JOIN `tabChapter` c ON cm.parent = c.name
-            WHERE cm.member = %s AND cm.enabled = 1
+            WHERE cm.member = %s AND cm.enabled = 1 AND cm.status = 'Active'
             ORDER BY cm.chapter_join_date DESC
         """,
             [volunteer_doc.member],
