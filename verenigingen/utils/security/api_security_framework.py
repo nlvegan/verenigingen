@@ -1206,10 +1206,14 @@ def api_security_framework(
 
                 framework.log_audit_event(profile, func, True, execution_time, **audit_context)
 
-                # Add security headers to response
-                if hasattr(frappe.local, "response"):
+                # Add security headers to response. They go on `response_headers`, the werkzeug
+                # Headers object Frappe applies to the wire (app.py `response.headers.update`);
+                # every key of `frappe.local.response` is serialised into the JSON BODY instead
+                # (#2732: the headers, including the CSRF token, used to land there).
+                response_headers = getattr(frappe.local, "response_headers", None)
+                if response_headers is not None:
                     headers = framework.create_security_response_headers(profile, operation_key)
-                    frappe.local.response.setdefault("headers", {}).update(headers)
+                    response_headers.update(headers)
 
                 # Convert OperationResult to dict for JSON serialization
                 # Use scrub_sensitive=True to prevent traceback/exception metadata
