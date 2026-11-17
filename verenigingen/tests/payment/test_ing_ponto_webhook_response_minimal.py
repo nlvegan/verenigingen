@@ -51,7 +51,7 @@ class _GuestWebhookCase(EnhancedTestCase):
         body = raw if raw is not None else json.dumps(payload).encode()
         environ = EnvironBuilder(
             method="POST",
-            path="/",
+            path=f"/api/method/{dotted}",  # the framework emits its headers for API dispatch only (#2732)
             data=body,
             content_type="application/json",
             headers=headers or {},

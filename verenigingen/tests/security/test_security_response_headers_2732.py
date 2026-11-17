@@ -77,12 +77,16 @@ try:
     guest = Client(frappe.app.application, use_cookies=False)
     out["guest_first"] = shape(guest.get(GUEST, headers=H))
     out["plain_after_guest"] = shape(guest.get(PLAIN, headers=H))
+    out["guest_v2"] = shape(guest.get(GUEST.replace("/api/method/", "/api/v2/method/"), headers=H))
+    # a www page whose controller calls a decorated function in-process (dutch_name_utils)
+    out["page_guest"] = shape(guest.get("/apply_for_membership", headers=H))
 
     member = Client(frappe.app.application, use_cookies=True)
     login = member.post("/api/method/login", data={"usr": EMAIL, "pwd": PWD}, headers=H)
     out["login_status"] = login.status_code
     out["high"] = shape(member.get("/api/method/verenigingen.probe_2732_api.high_probe", headers=H))
     out["plain_after_high"] = shape(member.get(PLAIN, headers=H))
+    out["page_admin"] = shape(member.get("/monitoring_dashboard", headers=H))
     print("RESULT" + json.dumps(out))
 finally:
     frappe.init(site=SITE)
@@ -174,3 +178,23 @@ class TestSecurityResponseHeaders2732(EnhancedTestCase):
             for name in ("x-ratelimit-limit", "x-ratelimit-window", "x-csrf-token"):
                 self.assertNotIn(name, wire, f"{name} leaked into {key}")
             self.assertNotEqual(wire.get("x-frame-options"), "DENY", f"X-Frame-Options leaked into {key}")
+
+    def test_html_pages_that_call_decorated_functions_in_process_carry_none_of_the_headers(self):
+        # /apply_for_membership calls the decorated dutch_name_utils.is_dutch_installation from its
+        # controller; /monitoring_dashboard (System Administrator) does the same with a HIGH endpoint.
+        for key in ("page_guest", "page_admin"):
+            page = self.out[key]
+            self.assertEqual(page["status"], 200, page["status"])
+            wire = _lowercase_keys_2732(page["headers"])
+            for name in ("x-ratelimit-limit", "x-ratelimit-window", "x-csrf-token", "referrer-policy"):
+                self.assertNotIn(name, wire, f"{name} leaked onto the HTML page {key}")
+            self.assertNotEqual(wire.get("x-frame-options"), "DENY", f"X-Frame-Options leaked onto {key}")
+            self.assertNotEqual(wire.get("x-content-type-options"), "nosniff", f"nosniff leaked onto {key}")
+
+    def test_api_v2_dispatch_also_sends_the_headers(self):
+        # `/api/v2/method/...` is API dispatch too; a restriction to the literal `/api/method`
+        # prefix would drop the headers here.
+        self.assertEqual(self.out["guest_v2"]["status"], 200, self.out["guest_v2"])
+        wire = _lowercase_keys_2732(self.out["guest_v2"]["headers"])
+        self.assertEqual(wire.get("x-frame-options"), "DENY")
+        self.assertIn("x-ratelimit-limit", wire)

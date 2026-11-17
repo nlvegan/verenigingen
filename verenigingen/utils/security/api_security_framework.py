@@ -1043,6 +1043,13 @@ def _apply_operation_result_http_status(result) -> None:
         frappe.local.response["http_status_code"] = status
 
 
+def _is_api_request() -> bool:
+    """True only while Frappe is dispatching an `/api/` request; fail safe (False) with no request."""
+    request = getattr(frappe.local, "request", None)
+    path = getattr(request, "path", None)
+    return isinstance(path, str) and path.startswith("/api/")
+
+
 def api_security_framework(
     security_level: SecurityLevel = None,
     operation_type: OperationType = None,
@@ -1210,8 +1217,12 @@ def api_security_framework(
                 # Headers object Frappe applies to the wire (app.py `response.headers.update`);
                 # every key of `frappe.local.response` is serialised into the JSON BODY instead
                 # (#2732: the headers, including the CSRF token, used to land there).
+                # Only for API dispatch (`/api/...`, the same test frappe/app.py uses): a decorated
+                # function called in-process from a www page controller must not stamp the HTML page
+                # (X-Frame-Options, and the CSRF token for HIGH, on `/monitoring_dashboard`).
+                # Success responses only; error responses are not covered.
                 response_headers = getattr(frappe.local, "response_headers", None)
-                if response_headers is not None:
+                if response_headers is not None and _is_api_request():
                     headers = framework.create_security_response_headers(profile, operation_key)
                     response_headers.update(headers)
 
