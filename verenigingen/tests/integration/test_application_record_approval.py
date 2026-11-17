@@ -40,6 +40,10 @@ from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_a
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 SUBMISSION = "Membership Application Submission"
+STATUS_MAIL_JOB = (
+    "verenigingen.services.member.lifecycle.member_status_notification_service."
+    "send_status_change_notification_job"
+)
 EMISSION = (
     "verenigingen.services.member.lifecycle.member_event_emission_service.MemberEventEmissionService"
 )
@@ -603,10 +607,26 @@ class TestApproveApplication(ApprovalCase):
             return bool(frappe.flags.get("bulk_member_operations") or frappe.flags.get("in_bulk_import"))
 
         # Mock justified: Environment flag - frappe.flags.in_test is the only part of the rule replaced
+        # The mail is queued for after the commit (#2735) and CI has no workers: capture the job, run it by hand.
+        queued = []
+        real_enqueue = frappe.enqueue
+
+        def capture_status_mail_job(*args, **kwargs):
+            if kwargs.get("method") == STATUS_MAIL_JOB:
+                return queued.append(kwargs)
+            return real_enqueue(*args, **kwargs)
+
         with patch(f"{EMISSION}.should_skip_event_emission", skip_unless_bulk):
             with patch.object(MemberStatusNotificationService, "send_status_change_notification", spy):
-                self._approve_as(name)
+                with patch("frappe.enqueue", capture_status_mail_job):
+                    self._approve_as(name)
+                for job in queued:
+                    frappe.call(job["method"], **{k: job[k] for k in ("member_name", "old_status", "new_status")})
 
+        queued_for_applicant = [
+            job["new_status"] for job in queued if frappe.db.get_value("Member", job["member_name"], "email") == self.email
+        ]
+        self.assertNotIn("Pending", queued_for_applicant, "no Pending mail is even queued")
         mine = [status for email, status in seen if email == self.email]
         self.assertIn("Active", mine, "control: the notification path ran, so a Pending one could have")
         self.assertNotIn("Pending", mine)
