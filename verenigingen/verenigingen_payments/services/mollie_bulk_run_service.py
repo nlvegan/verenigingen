@@ -130,7 +130,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
         get_member_payment_matcher,
     )
 
-    client = MollieClient().sdk_client
+    client = MollieClient()
     matcher = get_member_payment_matcher()
 
     date_from_str = str(date_from)
@@ -142,7 +142,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
     consecutive_older = 0
 
     while True:
-        page = client.payments.list(**params)
+        page = client.list_resource_page("payments", **params)
         batch = list(page)
         if not batch:
             break
