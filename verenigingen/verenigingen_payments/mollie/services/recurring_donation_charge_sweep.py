@@ -124,15 +124,18 @@ def _iter_subscription_payments(client: MollieClient, origin: Any):
     past position _PAYMENTS_PAGE_LIMIT while unbooked. See the module-level
     comment on _MAX_PAGES_PER_SUBSCRIPTION.
     """
-    page = client.get_subscription(origin.mollie_customer_id, origin.mollie_subscription_id).payments.list(
-        limit=_PAYMENTS_PAGE_LIMIT
+    # Both reads go through MollieClient so they inherit its retry with backoff
+    # (#929); a raw SDK call here retried nothing and, on a 429, moved straight
+    # on to the next subscription. Reads only: retrying cannot charge anyone.
+    page = client.list_subscription_payments(
+        origin.mollie_customer_id, origin.mollie_subscription_id, limit=_PAYMENTS_PAGE_LIMIT
     )
     pages_read = 1
     while True:
         yield from page
         if not page.has_next() or pages_read >= _MAX_PAGES_PER_SUBSCRIPTION:
             break
-        page = page.get_next()
+        page = client.get_next_payments_page(page)
         pages_read += 1
 
 
