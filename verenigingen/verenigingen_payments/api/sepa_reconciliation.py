@@ -90,7 +90,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -1442,14 +1442,14 @@ def create_manual_payment_entry(bank_transaction, batch_item):
         }
     )
 
-    payment_entry.insert()
+    # One unit (#2447): a failed submit must not leave a draft or a docstatus-1 row without GL
+    # behind -- this endpoint swallows the exception and the request then commits.
     # reload() guards against #609 (whole-second creation/modified timestamp ->
     # TimestampMismatchError / CannotChangeConstantError on submit(), frappe#38219
     # precedent). Belt-and-braces alongside the doc_events["*"] on_change
     # normaliser -- see verenigingen/api/chapter_join.py's matching call for the
     # full rationale.
-    payment_entry.reload()
-    payment_entry.submit()
+    insert_and_submit_atomically(payment_entry, reload_before_submit=True)
 
     return {
         "invoice": batch_item["invoice"],
