@@ -392,10 +392,10 @@ class SecurityMonitor:
         details: Dict[str, Any],
     ):
         """Create new security incident, or fold a MEDIUM repeat into the open one (#2621)"""
-        if threat_level == ThreatLevel.MEDIUM and self._merge_into_open_medium(
-            incident_type, user, source_ip, details
-        ):
-            return
+        if threat_level == ThreatLevel.MEDIUM:
+            merge_key = self._medium_merge_key(incident_type, user, source_ip, endpoint)
+            if self._merge_into_open_medium(merge_key, details):
+                return
 
         incident_id = f"SEC_{int(time.time())}_{self._incident_seq}"
         self._incident_seq += 1
@@ -416,7 +416,7 @@ class SecurityMonitor:
         self.incidents.append(incident)
         self.active_threats[incident_id] = incident
         if threat_level == ThreatLevel.MEDIUM:
-            self._open_medium_index[(incident_type, user, source_ip)] = incident_id
+            self._open_medium_index[merge_key] = incident_id
         self._enforce_incident_bounds()
 
         # Log critical incidents immediately - map to valid event type
@@ -444,19 +444,33 @@ class SecurityMonitor:
         if threat_level == ThreatLevel.LOW:
             frappe.enqueue(self._auto_resolve_incident, incident_id=incident_id)
 
-    def _merge_into_open_medium(self, incident_type, user, source_ip, details) -> bool:
-        """Count a repeat on the open MEDIUM incident of the same source (#2621).
+    @staticmethod
+    def _medium_merge_key(incident_type, user, source_ip, endpoint) -> tuple:
+        """(type, user, ip), plus the endpoint for `endpoint_probing` only.
+
+        Probing is about one endpoint, so two probed endpoints must stay two
+        incidents. `input_fuzzing` counts a user's errors across ALL endpoints
+        (its `endpoint` is just the triggering event's), and `rate_limit_abuse`
+        carries a constant, so neither keys on it.
+        """
+        if incident_type == "endpoint_probing":
+            return (incident_type, user, source_ip, endpoint)
+        return (incident_type, user, source_ip)
+
+    def _merge_into_open_medium(self, key, details) -> bool:
+        """Count a repeat on the open MEDIUM incident for `key` (#2621).
 
         Only MEDIUM is ever merged: HIGH/CRITICAL each reach `audit_logger`, and
-        the key's level is implied by registering only MEDIUM here, so a MEDIUM
-        event can never be absorbed by (or hide) a higher incident. Severity is
-        never changed. A resolved, evicted or out-of-window incident is not a
-        merge target: the event opens a fresh one.
+        only MEDIUM incidents are indexed, so a MEDIUM event can never be
+        absorbed by (or hide) a higher incident. Severity is never changed.
+        `description` and `endpoint` stay as the first sighting; `details`,
+        `occurrence_count` and `last_seen` refresh. A resolved or evicted
+        incident is gone from `active_threats` and an out-of-window one is
+        skipped, so such an event opens a fresh incident.
         """
-        key = (incident_type, user, source_ip)
         open_incident = self.active_threats.get(self._open_medium_index.get(key))
         cutoff = get_datetime() - timedelta(hours=self.ACTIVE_INCIDENT_WINDOW_HOURS)
-        if open_incident is None or open_incident.resolved or open_incident.timestamp < cutoff:
+        if open_incident is None or open_incident.timestamp < cutoff:
             return False
         open_incident.occurrence_count += 1
         open_incident.last_seen = get_datetime()

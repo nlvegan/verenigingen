@@ -48,6 +48,12 @@ class TestSecurityMonitorDedupe2621(VereningingenTestCase):
             self.assertEqual(len(_active(self.monitor, kind)), 1, kind)
         self.assertEqual(_active(self.monitor, "input_fuzzing")[0].occurrence_count, 6)
 
+    def test_two_probed_endpoints_from_one_source_stay_two_incidents(self):
+        _fire(self.monitor, MonitoringMetric.VALIDATION_ERRORS, 12, endpoint="/api/a")
+        _fire(self.monitor, MonitoringMetric.VALIDATION_ERRORS, 12, endpoint="/api/b")
+        probes = {i.endpoint: i.occurrence_count for i in _active(self.monitor, "endpoint_probing")}
+        self.assertEqual(probes, {"/api/a": 3, "/api/b": 3})
+
     def test_two_sources_yield_two_incidents(self):
         _fire(self.monitor, RATE, self.threshold + 2, user="a@example.com", ip="10.0.0.1")
         _fire(self.monitor, RATE, self.threshold + 2, user="b@example.com", ip="10.0.0.2")
@@ -79,7 +85,9 @@ class TestSecurityMonitorDedupe2621(VereningingenTestCase):
         audited = [e for e in self.monitor.audit_logger.events if e["details"].get("incident_type") == "automated_attack"]
         self.assertEqual(len(audited), 3)
 
-    def test_resolved_incident_does_not_swallow_a_new_event(self):
+    def test_incident_removed_from_active_threats_does_not_swallow_a_new_event(self):
+        # resolve_incident deletes the entry from active_threats; that removal is what
+        # stops the merge (there is no separate `resolved` check).
         _fire(self.monitor, RATE, self.threshold + 2)
         first = _active(self.monitor, "rate_limit_abuse")[0]
         self.monitor.resolve_incident(first.incident_id, "handled")
