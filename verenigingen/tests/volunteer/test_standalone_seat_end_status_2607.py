@@ -9,7 +9,7 @@ Helper names carry the issue number: the duplicate-helper baseline keys on the b
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -160,3 +160,40 @@ class TestStandaloneSeatEndStatus2607(VereningingenTestCase):
 
         self.assertEqual(self._history_2607(volunteer, chapter).status, "Active")
         self.assertEqual(self._status_2607(volunteer), "Active")
+
+    def test_the_history_entry_ends_on_the_rows_to_date_not_on_today(self):
+        chapter, volunteer, role = self._chapter_2607(), self._volunteer_2607(), self._role_2607()
+        row_name = self._seat_2607(chapter, volunteer, role)
+        ended_on = add_days(today(), 3)
+
+        row = frappe.get_doc("Chapter Board Member", row_name)
+        row.is_active = 0
+        row.to_date = ended_on
+        row.save()
+
+        entry = self._history_2607(volunteer, chapter)
+        self.assertEqual(entry.status, "Completed")
+        self.assertEqual(getdate(entry.end_date), getdate(ended_on))
+
+    def test_the_default_status_refresh_still_refuses_a_broken_history_link(self):
+        """Probe shortcut: the Chapter and its row are removed with raw ``frappe.db.delete`` and
+        the entry is closed with ``db.set_value``, to leave a Volunteer whose history names a
+        missing Chapter and whose derived status must change. ``ignore_links`` is opt-in."""
+        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+        chapter, volunteer, role = self._chapter_2607(), self._volunteer_2607(), self._role_2607()
+        row = self._seat_2607(chapter, volunteer, role)
+        frappe.db.delete("Chapter Board Member", {"name": row})
+        frappe.db.delete("Chapter", {"name": chapter.name})
+        frappe.db.set_value(
+            "Volunteer Assignment",
+            {"parent": volunteer.name, "reference_name": chapter.name},
+            "status",
+            "Completed",
+        )
+
+        with self.assertRaises(frappe.LinkValidationError):
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer.name)
+
+        AssignmentHistoryManager.refresh_volunteer_status(volunteer.name, ignore_links=True)
+        self.assertEqual(self._status_2607(volunteer), "Inactive", "control: the opt-in does derive")

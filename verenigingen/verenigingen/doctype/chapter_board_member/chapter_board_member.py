@@ -147,6 +147,8 @@ class ChapterBoardMember(Document):
         if not frappe.db.exists("Chapter", self.parent):
             self._complete_orphan_assignment_history(row, end_date)
             return
+        # The result is ignored on purpose: on failure the manager logs and returns, so a REST
+        # PUT/DELETE reports success while the volunteer stays Active. Same as the Chapter route.
         AssignmentHistoryManager.complete_assignment_history(
             volunteer_id=row.volunteer,
             assignment_type="Board Position",
