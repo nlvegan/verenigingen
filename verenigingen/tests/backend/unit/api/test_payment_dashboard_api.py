@@ -15,8 +15,9 @@ the internal OperationResult object.
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, getdate, today
+from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import calculate_next_invoice_date
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.payment_dashboard import (
@@ -270,14 +271,24 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         self.create_test_membership(member_name=self.member.name)
         next_date = add_days(today(), 5)
         sched = self._active_schedule()
+        # Monthly so the projection holds several dates inside the 12-month horizon
+        # (the fixture's default frequency yields a single one).
+        sched.billing_frequency = "Monthly"
         sched.next_invoice_date = next_date
         sched.last_invoice_date = getdate(add_days(today(), -1))
         sched.save()
 
         result = get_payment_schedule(self.member.name)
         self.assertTrue(result["success"], msg=result)
-        dates = [getdate(entry["date"]) for entry in result["data"]]
-        self.assertEqual(dates[:1], [getdate(next_date)])
+        # expected list derived from the schedule's own frequency via the invoice chain
+        horizon = add_months(getdate(next_date), 12)
+        expected = [getdate(next_date)]
+        while True:
+            following = calculate_next_invoice_date(sched.billing_frequency, expected[-1])
+            if following >= horizon:
+                break
+            expected.append(following)
+        self.assertEqual([getdate(entry["date"]) for entry in result["data"]], expected)
 
     def test_get_next_payment_returns_first_schedule_entry(self):
         # Regression guard: get_next_payment calls get_payment_schedule (also a

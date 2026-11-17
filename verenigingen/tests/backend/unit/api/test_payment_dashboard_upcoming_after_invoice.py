@@ -43,7 +43,7 @@ class TestUpcomingDatesAfterInvoice(EnhancedTestCase):
             posting = add_days(posting, -1)
         return posting
 
-    def _invoice(self, frequency):
+    def _leave_schedule_invoiced(self, frequency):
         """Leave the schedule exactly as the real invoice flow does after one invoice."""
         posting = self._posting_date()
         self.schedule.billing_frequency = frequency
@@ -66,7 +66,7 @@ class TestUpcomingDatesAfterInvoice(EnhancedTestCase):
 
     def test_portal_lists_upcoming_dates_after_an_invoice(self):
         for frequency in ("Monthly", "Quarterly", "Annual"):
-            posting = self._invoice(frequency)
+            posting = self._leave_schedule_invoiced(frequency)
             shown = payment_dashboard.get_current_dues_schedule(self.member.name)
             dates = payment_dashboard.get_upcoming_dates(shown)
             first = bpc.calculate_next_invoice_date(frequency, posting)
@@ -76,7 +76,7 @@ class TestUpcomingDatesAfterInvoice(EnhancedTestCase):
 
     def test_api_schedule_lists_future_dates_after_an_invoice(self):
         for frequency in ("Monthly", "Quarterly", "Annual"):
-            posting = self._invoice(frequency)
+            posting = self._leave_schedule_invoiced(frequency)
             first = bpc.calculate_next_invoice_date(frequency, posting)
             horizon = add_months(first, 12)
             expected = [first]
