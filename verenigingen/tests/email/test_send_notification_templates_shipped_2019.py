@@ -2,10 +2,11 @@
 
 Four map entries named Email Templates no fixture ships (``Member Suspension Notification``,
 ``Member Termination Notification``, ``SEPA Mandate Created``, ``Board Member Added``). Two had
-no caller; the other two were reached on every Suspended / Quit transition through
-``handle_lifecycle_notifications``, where the send failed with TEMPLATE_NOT_FOUND and the failure
-went to a bare ``frappe.logger().warning`` (dropped). The same transition is already mailed by
-``MemberStatusNotificationService`` through the shipped ``member_lifecycle_notification``.
+no caller; the other two were reached on every Suspended / Quit transition through the lifecycle
+job (since deleted), where the send failed with TEMPLATE_NOT_FOUND and the failure went to a bare
+``frappe.logger().warning`` (dropped). The same transition is already mailed by
+``MemberStatusNotificationService`` through the shipped ``member_lifecycle_notification``, so
+shipping the two templates would have double-mailed: the end-to-end test below pins ONE mail.
 """
 
 import ast
@@ -23,6 +24,7 @@ from verenigingen.services.member.lifecycle.member_status_notification_service i
     MemberStatusNotificationService,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
@@ -91,29 +93,6 @@ class TestSuspendedAndQuitAreMailedThroughAShippedTemplate(EnhancedTestCase):
         self.addCleanup(patcher.stop)
         return calls
 
-    def test_lifecycle_handler_attempts_no_unshipped_template(self):
-        calls = self._spy_templates()
-        shipped = _shipped_template_names()
-        guard_verdicts = []
-        original_guard = member_subscribers._member_state_still_holds
-
-        def recording_guard(*args, **kwargs):
-            guard_verdicts.append(original_guard(*args, **kwargs))
-            return guard_verdicts[-1]
-
-        with patch.object(member_subscribers, "_member_state_still_holds", recording_guard):
-            for new_status in ("Suspended", "Quit"):
-                # Probe shortcut: db_set stands in for the status save, because the handler drops
-                # a job whose status is no longer the member's (#2144).
-                self.member.db_set("status", new_status, update_modified=False)
-                self.member.reload()
-                member_subscribers.handle_lifecycle_notifications(
-                    "member_lifecycle_changed",
-                    {"member": self.member.name, "old_status": "Active", "new_status": new_status},
-                )
-        self.assertEqual(guard_verdicts, [True, True], "control: the handler got past the stale-job guard")
-        self.assertEqual([name for name, _ in calls if name not in shipped], [])
-
     def test_status_service_mails_suspended_and_quit_with_a_shipped_template(self):
         own_notification_keys(self, "member_suspended", "member_terminated")
         calls = self._spy_templates()
@@ -129,6 +108,67 @@ class TestSuspendedAndQuitAreMailedThroughAShippedTemplate(EnhancedTestCase):
             self.assertIn(name, shipped)
             self.assertTrue(result.success, result.errors)
             self.assertFalse((result.data or {}).get("skipped"), result.data)
+
+
+class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
+    """Real Member saves to Suspended and Quit, with production's flags and the after-commit
+    subscriber jobs run by hand: exactly one mail per transition, built from the shipped template.
+
+    A second mail (the removed lifecycle-job send, once its templates are shipped) fails this.
+    """
+
+    FLAGS = ("in_import", "in_bulk_import", "bulk_member_operations", "in_test")
+
+    def setUp(self):
+        super().setUp()
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "member_suspended", "member_terminated")
+        saved = {k: getattr(frappe.flags, k, None) for k in self.FLAGS}
+        self.addCleanup(lambda: [setattr(frappe.flags, k, v) for k, v in saved.items()])
+        for k in self.FLAGS:  # the harness sets these; production has none of them
+            setattr(frappe.flags, k, False)
+        self.member = self.create_test_member(
+            first_name="Once2019",
+            last_name="Member",
+            email=f"once2019.{frappe.generate_hash(length=6)}@test.invalid",
+            status="Active",
+        )
+
+    def _transition(self, new_status):
+        """Real save; returns (sendmail kwargs per mail, subscriber jobs that ran)."""
+        jobs, real_enqueue = [], frappe.enqueue
+
+        def recording_enqueue(*args, **kwargs):
+            if str(kwargs.get("method", "")).startswith("verenigingen.events.subscribers."):
+                jobs.append(kwargs)
+
+        frappe.enqueue = recording_enqueue  # the worker boundary: jobs are run by hand below
+        mails = []
+        try:
+            # Mock justified: External Service - SMTP delivery, recorded not sent
+            with patch("frappe.sendmail", side_effect=lambda *a, **kw: mails.append(kw)):
+                member = frappe.get_doc("Member", self.member.name)
+                member.status = new_status
+                member.save()
+                keys = ("event_name", "event_data", "is_bulk_import")
+                for job in jobs:
+                    frappe.call(job["method"], **{k: v for k, v in job.items() if k in keys})
+        finally:
+            frappe.enqueue = real_enqueue
+        return mails, jobs
+
+    def _assert_one_lifecycle_mail(self, new_status, subject):
+        mails, jobs = self._transition(new_status)
+        self.assertTrue(jobs, "control: the save queued the subscriber jobs")
+        self.assertEqual(len(mails), 1, [m.get("subject") for m in mails])
+        self.assertEqual(mails[0].get("subject"), subject)
+        self.assertIn("Current Status", str(mails[0].get("message")), "rendered member_lifecycle_notification")
+
+    def test_suspension_sends_exactly_one_mail(self):
+        self._assert_one_lifecycle_mail("Suspended", "Membership Suspended")
+
+    def test_termination_sends_exactly_one_mail(self):
+        self._assert_one_lifecycle_mail("Quit", "Membership Terminated")
 
 
 class TestFailedStatusNotificationIsVisible(EnhancedTestCase):

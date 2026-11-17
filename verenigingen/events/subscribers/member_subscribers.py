@@ -122,53 +122,6 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         )
 
 
-def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
-    """
-    Handle notifications for member lifecycle changes.
-
-    Sends appropriate communications for status transitions like Active -> Suspended.
-
-    Args:
-        event_name: Name of the event being handled
-        event_data: Event data dictionary
-        is_bulk_import: Flag passed from main process indicating bulk import mode
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
-
-        # Skip during bulk imports
-        if should_skip_for_bulk(is_bulk_import):
-            return
-        member_name = event_data.get("member")
-        old_status = event_data.get("old_status")
-        new_status = event_data.get("new_status")
-
-        if not member_name:
-            return
-
-        member = get_doc_if_exists("Member", member_name, "lifecycle notification")
-        if not member:
-            return
-
-        if not _member_state_still_holds(member, event_name, event_data):
-            return
-
-        # Suspended / Quit mail is NOT sent here: MemberStatusNotificationService already mails
-        # every status change (member_suspended / member_terminated keys) through the shipped
-        # member_lifecycle_notification. The Email Templates this branch asked for were never
-        # shipped, so its send always failed (#2019).
-
-        frappe.logger("events").info(
-            f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
-        )
-
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to send lifecycle notification: {str(e)}", "Member Lifecycle Notification Error"
-        )
-
-
 def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle cache invalidation for member lifecycle changes.

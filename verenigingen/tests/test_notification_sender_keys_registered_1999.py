@@ -22,10 +22,6 @@ FAILS on any ``notification_key=<non-constant>`` that is not a parameter pass-th
 assigned from a map the walker reads, ``x["notification_key"]`` or ``x.get("notification_key", d)``.
 Today it finds none, so there is no allow-list. A map or positional passing that never reaches a
 ``notification_key=`` keyword is outside the scan.
-
-Two keys used to sit only in the deprecated ``EmailService.send_notification`` map with no caller
-(``UNREACHABLE``); #2019 deleted both map entries, so the set is empty and the guard stays for any
-future entry of that kind.
 """
 
 import ast
@@ -44,10 +40,6 @@ from verenigingen.tests.utils.test_config import disable_test_email_mocking, res
 
 DOCTYPE = "Verenigingen Email Configuration"
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# deprecated send_notification map entries whose notification_type no caller passes. Empty since
-# #2019 deleted the two (sepa_mandate_created, board_member_added): their templates were never shipped.
-UNREACHABLE = {}
 
 
 def _source_files():
@@ -196,7 +188,7 @@ def sender_keys():
 
 class TestSenderKeysAreRegistered(FrappeTestCase):
     def test_every_key_a_sender_passes_is_registered(self):
-        unregistered = _unregistered(sender_keys(), NOTIFICATION_KEYS, UNREACHABLE)
+        unregistered = _unregistered(sender_keys(), NOTIFICATION_KEYS)
         self.assertEqual(
             unregistered,
             {},
@@ -273,22 +265,6 @@ class TestSenderKeysAreRegistered(FrappeTestCase):
         self.assertIn("sepa_member_pre_notification", found, ".get('notification_key', default)")
         self.assertNotIn("Friendly Reminder", found, "map KEYS are not notification keys")
         self.assertGreater(len(found), 60)
-
-    def test_the_unreachable_keys_really_are_unreachable(self):
-        # They are only values of EmailService.send_notification's key_mapping; they stay
-        # unregistered only while no caller passes those notification types.
-        self.assertTrue(set(UNREACHABLE) <= set(sender_keys()), "control: the census still sees them")
-        offenders = []
-        for path in _source_files():
-            try:
-                tree = ast.parse(open(path, encoding="utf-8").read())
-            except (SyntaxError, UnicodeDecodeError):
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.keyword) and node.arg == "notification_type":
-                    if isinstance(node.value, ast.Constant) and node.value.value in UNREACHABLE:
-                        offenders.append(f"{os.path.relpath(path, APP_ROOT)}:{node.value.lineno}")
-        self.assertEqual(offenders, [], "a caller now reaches an unregistered key: register it")
 
 
 class TestUnregisteredKeyWarningIsTruthful(FrappeTestCase):

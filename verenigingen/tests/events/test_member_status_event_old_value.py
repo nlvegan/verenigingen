@@ -156,14 +156,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
             self._run(jobs)
         service.send_notification.assert_not_called()
 
-    def test_control_suspension_still_mails_through_the_event_path(self):
-        """Control: the lifecycle job still mails for Suspended (real row for the guard)."""
-        jobs = self._capture(status="Suspended")
-        service = MagicMock(name="EmailService")
-        with patch(MAIL_FACTORY, return_value=service):
-            self._run(jobs)
-        service.send_notification.assert_called_once()
-
     def test_the_user_account_subscriber_is_gone(self):
         self.assertFalse(hasattr(member_subscribers, "handle_user_account_updates"))
         registered = member_events._get_member_event_subscribers("member_lifecycle_changed")

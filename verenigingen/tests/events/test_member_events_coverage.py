@@ -292,36 +292,6 @@ class TestMemberEventsCoverage(EnhancedTestCase):
                     },
                 )
 
-    def test_lifecycle_notification_suspension_runs_clean(self):
-        member, _user = self._member_with_user()
-        member.db_set(
-            "email", f"susp.{frappe.generate_hash(length=6)}@example.invalid", update_modified=False
-        )
-        member.reload()
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_lifecycle_notifications(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Suspended"},
-                )
-
-    def test_lifecycle_notification_no_member_is_noop(self):
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_lifecycle_notifications(
-                    "member_lifecycle_changed", {"old_status": "Active", "new_status": "Suspended"}
-                )
-
-    def test_lifecycle_notification_skipped_on_bulk(self):
-        member, _user = self._member_with_user()
-        with self._no_import_flags():
-            with self.assertNoErrorLog():
-                ms.handle_lifecycle_notifications(
-                    "member_lifecycle_changed",
-                    {"member": member.name, "old_status": "Active", "new_status": "Suspended"},
-                    is_bulk_import=True,
-                )
-
     # =====================================================================
     # handle_chapter_assignment_updates
     # =====================================================================
