@@ -136,7 +136,7 @@ def _log_collision(name, key):
     holder = frappe.db.get_value(DOCTYPE, {FIELDNAME: key}, "name")
     message = (
         f"{name} duplicates {holder or 'another Bank Transaction'}'s system-issued reference; "
-        f"left unkeyed (flag set, key NULL), so every later save of it raises a unique-key error. "
+        f"left unkeyed (flag set, key NULL). "
         f"Delete or re-import one of the two."
     )
     if frappe.db.exists("Error Log", {"method": COLLISION_LOG_TITLE, "error": message}):
