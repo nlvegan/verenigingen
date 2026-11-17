@@ -346,7 +346,6 @@ verenigingen/verenigingen/doctype/member/mixins/financial_mixin.py::FinancialMix
 verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::get_contact_request_analytics::1
 verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule.py::MembershipDuesSchedule.validate_member_eligibility_for_invoice::1
 verenigingen/verenigingen/doctype/membership_goal/membership_goal.py::MembershipGoal.calculate_chapter_expansion::1
-verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py::send_disciplinary_notification::1
 verenigingen/verenigingen/doctype/mt940_import/mt940_import.py::MT940Import.get_transaction_date_range::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_chapters::1
 verenigingen/verenigingen/doctype/region/region.py::Region.get_region_statistics::1

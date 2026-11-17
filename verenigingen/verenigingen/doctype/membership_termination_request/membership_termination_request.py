@@ -674,7 +674,7 @@ def initiate_disciplinary_termination(
 
         # Notify the member if required by policy
         # TODO: Add notify_member_of_disciplinary_action field to Verenigingen Settings doctype
-        # Future enhancement: send_disciplinary_notification(member, termination_request.name)
+        # Future enhancement: mail the member (needs shipped template wording; #2019)
 
         return {
             "success": True,
@@ -697,40 +697,3 @@ def initiate_disciplinary_termination(
             title="Disciplinary Termination Error",
         )
         return {"success": False, "error": str(e)}
-
-
-def send_disciplinary_notification(member, termination_request):
-    """Send notification to member about disciplinary action"""
-    try:
-        member_doc = frappe.get_doc("Member", member)
-
-        # MIGRATED: Use unified EmailService for disciplinary notifications
-        from verenigingen.services.communication.email_service import get_email_service
-
-        email_service = get_email_service()
-
-        # Prepare context for template
-        context = {
-            "member": member_doc,
-            "member_name": member_doc.full_name,
-            "reference": termination_request,
-            "termination_request": termination_request,
-        }
-
-        # Send email if member has email
-        if member_doc.email:
-            result = email_service.send_notification(
-                notification_type="member_suspension",  # Use existing notification type
-                recipients=[member_doc.email],
-                data=context,
-                reference_doctype="Membership Termination Request",
-                reference_name=termination_request,
-            )
-
-            return result.success
-
-        return False
-
-    except Exception as e:
-        frappe.log_error(f"Error sending disciplinary notification to {member}: {str(e)}")
-        return False
