@@ -499,6 +499,34 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         self.assertEqual(self._give_up_logs(start, member.name, target_name), [])
         self.assertEqual(len(calls), 1, "a hit enqueues nothing further")
 
+    def test_the_retry_job_does_not_re_add_a_cancelled_invoice(self):
+        """The retry no longer lives in the batch dict, so the removal queued by an
+        invoice cancel cannot supersede it. Miss -> the invoice is cancelled -> the
+        job body runs: the cancelled invoice must not get a history row back."""
+        member = self._member_with_customer()
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
+        )
+        target_name = f"{invoice.name}-2527C"
+        FinancialHistoryBatchProcessor._last_processed.clear()
+
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, target_name, "add_update")
+        self.assertEqual(len(calls), 1)
+
+        frappe.rename_doc("Sales Invoice", invoice.name, target_name, force=True)
+        cancelled = frappe.get_doc("Sales Invoice", target_name)
+        cancelled.flags.ignore_links = True
+        cancelled.cancel()
+        self.assertEqual(frappe.db.get_value("Sales Invoice", target_name, "docstatus"), 2)
+
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        self._run_enqueued_retry(calls)
+
+        member.reload()
+        self.assertNotIn(target_name, [r.invoice for r in member.payment_history])
+
     def test_retry_chain_is_capped_and_the_give_up_is_logged(self):
         """Drive the REAL retry job body for an invoice that never appears. Each miss
         enqueues the next attempt until the cap, then writes exactly one Error Log row

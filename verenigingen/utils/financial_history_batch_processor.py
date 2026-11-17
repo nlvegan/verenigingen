@@ -34,12 +34,9 @@ class FinancialHistoryBatchProcessor:
     contention while maintaining per-member atomicity.
 
     CAVEAT on "per-member atomicity": each member's work is wrapped in a savepoint,
-    and since #411 the history manager no longer commits inside it. One inner
-    commit remains on a path this one reaches: Member._get_invoice_with_retry
-    (payment_mixin.py:546) commits between attempts when an invoice is not yet
-    visible, deliberately, to get a fresh read view -- #421. When that retry fires the
-    savepoint is gone and the scoped rollback below is a no-op for anything
-    already applied.
+    and since #411 the history manager no longer commits inside it. Since #421
+    Member._get_invoice_with_retry no longer commits either: a not-yet-visible
+    invoice enqueues a retry job instead (#2527), so the savepoint survives.
 
     So the guarantee to rely on is still the narrower one, which holds
     unconditionally: a failure never escalates into a transaction-wide rollback of
@@ -198,12 +195,9 @@ class FinancialHistoryBatchProcessor:
         # run plus whatever the caller had in flight -- and the dispatch loop swallows
         # the exception, so the run still reports success.
         #
-        # Still not FULL per-member atomicity, despite the docstring above. The
-        # history manager's own commit is gone (#411), but Member._get_invoice_with_retry
-        # (payment_mixin.py:546, #421) commits between attempts when an invoice is not
-        # yet visible; on that path the savepoint is destroyed and the scoped rollback
-        # below cannot undo what was already applied. The guarantee is the narrower
-        # one: a failure here NEVER escalates beyond the member that caused it.
+        # Neither the history manager (#411) nor Member._get_invoice_with_retry
+        # (#421; a miss enqueues a retry job, #2527) commits inside this scope. The
+        # guarantee: a failure here NEVER escalates beyond the member that caused it.
         #
         # Explicit savepoint rather than the savepoint() context manager, which catches
         # Exception and would swallow the re-raise the caller's error accounting needs.
@@ -327,9 +321,8 @@ class FinancialHistoryBatchProcessor:
     def _release_savepoint(save_point):
         """Release a savepoint, tolerating one that no longer exists.
 
-        Inner code can still end the transaction -- Member._get_invoice_with_retry
-        (payment_mixin.py:546, #421) commits between attempts to get a fresh read view --
-        and MariaDB discards every savepoint when it does, so RELEASE then raises
+        Inner code could still end the transaction (the invoice retry used to commit
+        between attempts, #421) and MariaDB discards every savepoint when it does, so RELEASE then raises
         1305. The member's work is already durable at that point, so there is
         nothing to release.
 

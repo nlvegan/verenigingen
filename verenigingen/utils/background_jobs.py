@@ -735,6 +735,12 @@ def retry_missing_invoice_payment_history(member, invoice, attempts=0):
         queue_payment_update,
     )
 
+    # The retry is detached from the batch dict, so a later queue_payment_removal
+    # (invoice cancelled) can no longer supersede it. Re-adding a cancelled
+    # invoice's row would undo that removal, so skip it quietly.
+    if frappe.db.get_value("Sales Invoice", invoice, "docstatus") == 2:
+        return
+
     queue_payment_update(member, invoice, attempts=attempts)
     FinancialHistoryBatchProcessor.force_process_all()
 
