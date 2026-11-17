@@ -179,12 +179,40 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
     order (Member first, then this method). A 1213 rolls back the whole
     transaction -- worse than the commit this issue exists to remove.
 
-    The shipped fix takes no lock and ends nothing: a miss re-queues the same
-    update for the batch processor's own later, genuinely-fresh-transaction
-    drain (financial_history_batch_processor.py's 30s inline trigger or its
-    "*/5 * * * *" safety-net cron), instead of trying to see the invoice here
-    at all.
+    The shipped fix takes no lock and ends nothing: a miss enqueues a small
+    retry job (after this transaction commits) that re-runs the update in a
+    genuinely fresh transaction, instead of trying to see the invoice here at
+    all. (#2527: it first re-queued into the batch processor's per-process
+    dict, which no fresh transaction ever drained.)
+
+    CI has no RQ worker, so these tests assert what is ENQUEUED and drive the
+    retry job function directly.
     """
+
+    RETRY_JOB = "verenigingen.utils.background_jobs.retry_missing_invoice_payment_history"
+
+    def _recording_enqueue(self):
+        """Patch ``frappe.enqueue`` with a recorder; returns (patcher, calls list).
+
+        Mock justified: the RQ boundary. CI runs no worker; what matters is the
+        method, kwargs and ``enqueue_after_commit`` the code asks for.
+        """
+        calls = []
+
+        def _record(method, **kwargs):
+            calls.append((method, kwargs))
+
+        return patch("frappe.enqueue", side_effect=_record), calls
+
+    def _run_enqueued_retry(self, calls, index=-1):
+        """Run the retry job body exactly as a worker would, from the recorded kwargs."""
+        from verenigingen.utils.background_jobs import retry_missing_invoice_payment_history
+
+        method, kwargs = calls[index]
+        self.assertEqual(method, self.RETRY_JOB)
+        retry_missing_invoice_payment_history(
+            member=kwargs["member"], invoice=kwargs["invoice"], attempts=kwargs["attempts"]
+        )
 
     def _member_with_customer(self):
         member = self.create_test_member(
@@ -216,10 +244,6 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         return member
 
     def tearDown(self):
-        # The reentrancy guard flag is request/thread-local (frappe.flags),
-        # but leaving it set True would make the NEXT test's first miss
-        # silently skip re-queuing too.
-        frappe.flags._payment_mixin_invoice_retry_requeuing = False
         FinancialHistoryBatchProcessor.reset_queues()
         # PROCESS-global drain clock; tests here pin it to hold or allow inline drains.
         FinancialHistoryBatchProcessor._last_processed.clear()
@@ -228,7 +252,7 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
     # ------------------------------------------------------------------
     # A genuinely nonexistent invoice: no commit, no lock, re-queued once.
     # ------------------------------------------------------------------
-    def test_missing_invoice_does_not_commit_and_requeues(self):
+    def test_missing_invoice_does_not_commit_and_enqueues_a_retry(self):
         """A savepoint is the one thing a commit cannot leave behind -- MariaDB
         drops all of them the instant a transaction ends. So RELEASE
         succeeding after the miss is proof no commit happened; there is no
@@ -248,7 +272,9 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         save_point = f"retry421_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(save_point)
 
-        result = member._get_invoice_with_retry("ACC-SINV-421-NEVER-EXISTS")
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            result = member._get_invoice_with_retry("ACC-SINV-421-NEVER-EXISTS")
 
         self.assertIsNone(result, "a nonexistent invoice must resolve to None")
 
@@ -260,12 +286,27 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
                 "something inside _get_invoice_with_retry ended the transaction"
             )
 
-        status = FinancialHistoryBatchProcessor.get_queue_status()
-        self.assertGreaterEqual(
-            status["payment_queue_size"],
-            1,
-            "the miss must re-queue the update for a later, fresh-transaction drain "
-            "rather than dropping it silently",
+        self.assertEqual(
+            calls,
+            [
+                (
+                    self.RETRY_JOB,
+                    {
+                        "queue": "short",
+                        "enqueue_after_commit": True,
+                        "timeout": 300,
+                        "member": member.name,
+                        "invoice": "ACC-SINV-421-NEVER-EXISTS",
+                        "attempts": 1,
+                    },
+                )
+            ],
+            "the miss must enqueue ONE retry job, after commit, rather than dropping it silently",
+        )
+        self.assertEqual(
+            FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"],
+            0,
+            "the per-process dict is not a retry mechanism (#2527)",
         )
 
     # ------------------------------------------------------------------
@@ -328,7 +369,9 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         with self.assertRaises(frappe.DoesNotExistError):
             frappe.get_doc("Sales Invoice", invoice_name)
 
-        result = member._get_invoice_with_retry(invoice_name)
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            result = member._get_invoice_with_retry(invoice_name)
 
         self.assertIsNone(
             result,
@@ -350,39 +393,13 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         except Exception as e:
             self.fail(f"the caller's savepoint did not survive the miss ({e})")
 
-        status = FinancialHistoryBatchProcessor.get_queue_status()
-        self.assertGreaterEqual(
-            status["payment_queue_size"],
-            1,
-            "the miss must re-queue the update so a later, fresh-transaction drain "
-            "(which WILL see the now-committed invoice) can finish the job",
-        )
+        self.assertEqual(len(calls), 1, "the miss must enqueue a fresh-transaction retry job")
+        self.assertTrue(calls[0][1]["enqueue_after_commit"])
+        self.assertEqual(calls[0][1]["invoice"], invoice_name)
 
     # ------------------------------------------------------------------
-    # Recursion safety: re-queuing from inside an already-requeued drain must
-    # not recurse. This is what made the rejected for_update=True approach's
-    # sibling risk real: queue_payment_update() can itself trigger an
-    # immediate drain (FinancialHistoryBatchProcessor._maybe_process_batches()),
-    # and if that drain reaches THIS method again for the same still-missing
-    # invoice, requeuing a second time would recurse without end.
-    # ------------------------------------------------------------------
-    def test_reentrant_call_does_not_requeue_again(self):
-        member = self._member_with_customer()
-
-        frappe.flags._payment_mixin_invoice_retry_requeuing = True
-        try:
-            with patch(
-                "verenigingen.utils.financial_history_batch_processor.queue_payment_update"
-            ) as mock_queue:
-                result = member._get_invoice_with_retry("ACC-SINV-421-NEVER-EXISTS-REENTRANT")
-        finally:
-            frappe.flags._payment_mixin_invoice_retry_requeuing = False
-
-        self.assertIsNone(result)
-        mock_queue.assert_not_called()
-
-    # ------------------------------------------------------------------
-    # #829: a give-up on a persistently-missing invoice must be VISIBLE.
+    # #829 / #2527: a miss is retried in a fresh transaction, or its give-up
+    # is VISIBLE. It never just vanishes.
     # ------------------------------------------------------------------
     GIVE_UP_TITLE = "Payment History Race Condition"
 
@@ -394,36 +411,123 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         )
         return [r for r in rows if member_name in r.error and invoice_name in r.error]
 
-    def test_cross_drain_requeues_are_capped_and_the_give_up_is_logged(self):
-        """Drive the REAL processor, one drain at a time, with the requeue held
-        in the queue (a recent ``_last_processed`` stops the inline re-drain, as
-        in a long-lived process). Before #829 the miss re-queued itself on every
-        drain, forever and silently. Now it stops after a bound and writes one
-        Error Log row naming the member and the invoice."""
+    def test_inline_nested_drain_miss_enqueues_a_retry_not_a_same_snapshot_redrain(self):
+        """#2527 shape 1, through the real queue_payment_operation path. The inline
+        drain misses once and enqueues ONE retry. Before the fix it re-queued into
+        the dict, the nested drain re-missed in the same snapshot, the reentrancy
+        guard dropped it (2 calls, empty queue) and nothing was retried."""
+        member = self._member_with_customer()
+        invoice_name = "ACC-SINV-2527-NEVER-EXISTS-INLINE"
+        start = frappe.utils.now()
+        FinancialHistoryBatchProcessor._last_processed.clear()
+
+        patcher, calls = self._recording_enqueue()
+        with patcher, patch.object(
+            type(member), "_get_invoice_with_retry", autospec=True, wraps=type(member)._get_invoice_with_retry
+        ) as spy:
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+
+        self.assertEqual(spy.call_count, 1, "the miss must not be re-drained in the same snapshot")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], self.RETRY_JOB)
+        self.assertTrue(calls[0][1]["enqueue_after_commit"])
+        self.assertEqual((calls[0][1]["member"], calls[0][1]["invoice"]), (member.name, invoice_name))
+        self.assertEqual(calls[0][1]["attempts"], 1)
+        self.assertEqual(FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 0)
+        self.assertEqual(
+            self._give_up_logs(start, member.name, invoice_name), [], "a first miss is retried, not given up"
+        )
+
+    def test_job_end_shape_does_not_leave_a_held_miss_behind(self):
+        """#2527 shape 2 (the #829 review's probe), through the real drain job: an
+        entry queued while a drain had just run is held, then drain_member_payment_history
+        drains. Before the fix the miss was re-queued into a dict that died with the
+        work horse (``queue_left 1, giveups 0``)."""
+        from verenigingen.utils.background_jobs import drain_member_payment_history
+
+        member = self._member_with_customer()
+        invoice_name = "ACC-SINV-2527-NEVER-EXISTS-JOBEND"
+        start = frappe.utils.now()
+        self.create_test_sales_invoice(
+            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
+        )
+
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+        self.assertEqual(FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 1, "held")
+
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            drain_member_payment_history(member.name, member.customer)
+
+        self.assertEqual(
+            FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"],
+            0,
+            "no entry may be left in the per-process queue at job end",
+        )
+        self.assertEqual([c[1]["invoice"] for c in calls], [invoice_name])
+        self.assertEqual(self._give_up_logs(start, member.name, invoice_name), [])
+
+    def test_the_retry_job_writes_the_history_row_once_the_invoice_is_visible(self):
+        """Real end to end, no worker: drain 1 genuinely misses (the invoice is
+        queued under a name that does not exist yet) and enqueues; the invoice then
+        appears under that name; running the enqueued job's body writes the row and
+        logs no give-up."""
+        member = self._member_with_customer()
+        start = frappe.utils.now()
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
+        )
+        target_name = f"{invoice.name}-2527R"
+        FinancialHistoryBatchProcessor._last_processed.clear()
+
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, target_name, "add_update")
+        self.assertEqual(len(calls), 1, "the genuine miss enqueues the retry")
+        member.reload()
+        self.assertNotIn(target_name, [r.invoice for r in member.payment_history])
+
+        frappe.rename_doc("Sales Invoice", invoice.name, target_name, force=True)
+        # A drain just ran in this process: the job must still drain by itself
+        # rather than leave its own update held in the dict.
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+        self._run_enqueued_retry(calls)
+
+        member.reload()
+        self.assertIn(target_name, [r.invoice for r in member.payment_history])
+        self.assertEqual(self._give_up_logs(start, member.name, target_name), [])
+        self.assertEqual(len(calls), 1, "a hit enqueues nothing further")
+
+    def test_retry_chain_is_capped_and_the_give_up_is_logged(self):
+        """Drive the REAL retry job body for an invoice that never appears. Each miss
+        enqueues the next attempt until the cap, then writes exactly one Error Log row
+        naming the member and the invoice. Before #829 it retried forever and silently."""
         member = self._member_with_customer()
         invoice_name = "ACC-SINV-829-NEVER-EXISTS"
         self.expectErrorLog(self.GIVE_UP_TITLE)
         start = frappe.utils.now()
+        FinancialHistoryBatchProcessor._last_processed.clear()
 
-        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
-        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
-
-        drains = 0
-        with self.assertErrorLog(self.GIVE_UP_TITLE):
-            while FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"] and drains < 20:
+        patcher, calls = self._recording_enqueue()
+        jobs_run = 0
+        with patcher, self.assertErrorLog(self.GIVE_UP_TITLE):
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+            while len(calls) > jobs_run and jobs_run < 20:
                 self.assertEqual(
                     self._give_up_logs(start, member.name, invoice_name),
                     [],
-                    f"gave up (logged) before the cap was reached, after drain {drains}",
+                    f"gave up (logged) before the cap was reached, after job {jobs_run}",
                 )
-                FinancialHistoryBatchProcessor.force_process_all()
-                drains += 1
+                FinancialHistoryBatchProcessor._last_processed.clear()
+                self._run_enqueued_retry(calls, jobs_run)
+                jobs_run += 1
 
-        self.assertLess(drains, 20, "the missing invoice was re-queued on every drain, forever")
+        self.assertEqual([c[1]["attempts"] for c in calls], list(range(1, MAX_MISSING_INVOICE_ATTEMPTS)))
         self.assertEqual(
-            drains,
-            MAX_MISSING_INVOICE_ATTEMPTS,
-            "must give up on exactly the cap-th miss: not earlier, not one drain later",
+            jobs_run,
+            MAX_MISSING_INVOICE_ATTEMPTS - 1,
+            "must give up on exactly the cap-th miss: not earlier, not one job later",
         )
         self.assertEqual(
             len(self._give_up_logs(start, member.name, invoice_name)),
@@ -431,55 +535,24 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
             "exactly one Error Log row naming the member and invoice when the cap is hit",
         )
 
-    def test_inline_redrain_give_up_is_logged(self):
-        """The common path: the miss re-queues, the re-queue triggers an inline
-        nested drain in the same (stale) transaction, and the reentrancy guard
-        drops the update. That give-up used to leave no trace at all."""
+    def test_an_unenqueueable_retry_is_logged_not_dropped(self):
+        """If the retry job cannot be enqueued (Redis down), the miss is logged."""
         member = self._member_with_customer()
-        invoice_name = "ACC-SINV-829-NEVER-EXISTS-INLINE"
+        invoice_name = "ACC-SINV-2527-ENQUEUE-FAILS"
         self.expectErrorLog(self.GIVE_UP_TITLE)
         start = frappe.utils.now()
 
-        FinancialHistoryBatchProcessor._last_processed.clear()
-        with self.assertErrorLog(self.GIVE_UP_TITLE):
-            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice_name, "add_update")
+        with patch("frappe.enqueue", side_effect=ConnectionError("redis down")):
+            with self.assertErrorLog(self.GIVE_UP_TITLE):
+                self.assertIsNone(member._get_invoice_with_retry(invoice_name))
 
-        self.assertEqual(FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 0)
-        self.assertEqual(
-            len(self._give_up_logs(start, member.name, invoice_name)),
-            1,
-            "the update was dropped without an Error Log row naming the member and invoice",
-        )
+        logs = self._give_up_logs(start, member.name, invoice_name)
+        self.assertEqual(len(logs), 1)
+        self.assertIn("could not be enqueued", logs[0].error)
 
-    def test_a_real_miss_that_resolves_on_the_next_drain_is_written_and_not_logged(self):
-        """Control with a REAL miss, no mocks: the update is queued under a name
-        that does not exist yet (the invoice is renamed to it between drains), so
-        drain 1 genuinely misses and re-queues, and drain 2 finds it. The entry
-        lands in payment history and no give-up row exists."""
-        member = self._member_with_customer()
-        start = frappe.utils.now()
-        invoice = self.create_test_sales_invoice(
-            customer=member.customer, is_membership_invoice=1, posting_date=frappe.utils.today()
-        )
-        target_name = f"{invoice.name}-829R"
-
-        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
-        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, target_name, "add_update")
-        FinancialHistoryBatchProcessor.force_process_all()
-        self.assertEqual(
-            FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"], 1, "miss re-queued"
-        )
-
-        frappe.rename_doc("Sales Invoice", invoice.name, target_name, force=True)
-        FinancialHistoryBatchProcessor.force_process_all()
-
-        member.reload()
-        self.assertIn(target_name, [r.invoice for r in member.payment_history])
-        self.assertEqual(self._give_up_logs(start, member.name, target_name), [])
-
-    def test_a_transient_miss_that_resolves_is_not_logged(self):
-        """Control: an invoice that appears before the cap is written to the
-        history and produces no give-up row."""
+    def test_a_transient_miss_that_resolves_is_not_logged_or_retried(self):
+        """Control: an invoice that is visible is written to the history; nothing is
+        enqueued and no give-up row exists."""
         member = self._member_with_customer()
         start = frappe.utils.now()
         invoice = self.create_test_sales_invoice(
@@ -487,11 +560,14 @@ class TestGetInvoiceWithRetryDoesNotEndTheTransaction(EnhancedTestCase):
         )
 
         FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
-        FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice.name, "add_update")
-        FinancialHistoryBatchProcessor.force_process_all()
+        patcher, calls = self._recording_enqueue()
+        with patcher:
+            FinancialHistoryBatchProcessor.queue_payment_operation(member.name, invoice.name, "add_update")
+            FinancialHistoryBatchProcessor.force_process_all()
 
         member.reload()
         self.assertIn(invoice.name, [r.invoice for r in member.payment_history])
+        self.assertEqual(calls, [])
         self.assertEqual(self._give_up_logs(start, member.name, invoice.name), [])
 
     # ------------------------------------------------------------------
