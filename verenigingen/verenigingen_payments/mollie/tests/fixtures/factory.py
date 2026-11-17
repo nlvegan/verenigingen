@@ -167,7 +167,7 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
             scenario = {
                 "payment_id": self.generate_mollie_payment_id(),
                 "amount": self.generate_realistic_amount(),
-                "status": random.choice(["paid", "pending", "failed", "cancelled"]),
+                "status": random.choice(["paid", "pending", "failed", "canceled"]),
                 "method": random.choice(["creditcard", "banktransfer", "ideal", "paypal"]),
                 "description": f"Test payment scenario {i+1}",
                 "webhook_payload": None,
@@ -207,7 +207,7 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
             {
                 "name": "expired_subscription",
                 "description": "Payment for expired subscription",
-                "subscription_status": "cancelled",
+                "subscription_status": "canceled",
                 "expected_behavior": "payment_rejected",
             },
             {

@@ -195,6 +195,15 @@ class MolliePaymentOrchestrator:
             self._bank_config_cache = self.bt_creator.get_mollie_bank_account_config()
         return self._bank_config_cache
 
+    def _live_mollie_bank_transaction(self, payment_id: str):
+        """Live Bank Transaction for this payment on the Mollie bank account, or None (#2620).
+
+        Uses the cached config so a misconfigured account is validated (and logged) once.
+        """
+        return self.bt_creator.find_mollie_bank_transaction(
+            payment_id, fields=["name", "docstatus", "party", "date"], config=self._get_bank_account_config()
+        )
+
     def clear_bank_config_cache(self) -> None:
         """Reset the cached Mollie bank-account configuration (#867).
 
@@ -228,12 +237,10 @@ class MolliePaymentOrchestrator:
         status = ProcessingStatus(payment_id=payment_id)
 
         # Check for Bank Transaction
-        bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": payment_id},
-            ["name", "party", "date"],
-            as_dict=True,
-        )
+        # Scoped to the Mollie bank account, live rows only: reference_number is unique
+        # per bank account (#1267), so another account's row or a cancelled one is not
+        # this payment's booking (#2620).
+        bt = self._live_mollie_bank_transaction(payment_id)
 
         if bt:
             status.has_bank_transaction = True
@@ -881,11 +888,9 @@ class MolliePaymentOrchestrator:
 
         try:
             # Check if BT already exists (idempotency)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction",
-                {"reference_number": payment_id},
-                "name",
-            )
+            # Mollie account, live rows only (#2620; see get_processing_status)
+            existing = self._live_mollie_bank_transaction(payment_id)
+            existing_bt = existing.name if existing else None
             if existing_bt:
                 result.status = "already_processed"
                 result.bank_transaction = existing_bt
@@ -900,6 +905,15 @@ class MolliePaymentOrchestrator:
             if not is_payment_successful(payment):
                 result.status = "skipped"
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
+                return result
+
+            # Resolve the BT configuration BEFORE the customer step: with an unresolvable
+            # Mollie account the lookup above sees no row, and creating a Customer for a
+            # payment that may already be booked would be a side effect with no BT (#2620).
+            config = self._get_bank_account_config()
+            if config.get("error"):
+                result.status = "error"
+                result.error = f"Bank account config error: {config['error']}"
                 return result
 
             # Get Mollie customer ID and try to find/create Customer
@@ -917,13 +931,6 @@ class MolliePaymentOrchestrator:
             else:
                 # Anonymous payment - no customer ID available
                 result.actions_taken.append("Anonymous payment (no Mollie customer ID)")
-
-            # Get BT configuration
-            config = self._get_bank_account_config()
-            if config.get("error"):
-                result.status = "error"
-                result.error = f"Bank account config error: {config['error']}"
-                return result
 
             # Build description based on available info
             description_parts = ["Orphaned payment (no member match)"]
@@ -1375,11 +1382,9 @@ class MolliePaymentOrchestrator:
 
         try:
             # Check if BT already exists (idempotency)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction",
-                {"reference_number": payment_id},
-                "name",
-            )
+            # Mollie account, live rows only (#2620; see get_processing_status)
+            existing = self._live_mollie_bank_transaction(payment_id)
+            existing_bt = existing.name if existing else None
             if existing_bt:
                 result.status = "already_processed"
                 result.bank_transaction = existing_bt

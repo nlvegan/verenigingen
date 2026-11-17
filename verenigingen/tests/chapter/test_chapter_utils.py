@@ -443,6 +443,30 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         positions = get_user_board_positions(self.fin_user.name, chapter_name=self.chapter_basic.name)
         self.assertEqual(positions, [])
 
+    def test_board_positions_ignore_member_email_without_user_link(self):
+        """#2206 ruling: a User whose email equals a Member's email but who is not linked by
+        Member.user holds none of that Member's board seats (is_chapter_board_member is
+        built on this). Control: the properly linked fin_user keeps theirs."""
+        from verenigingen.services.chapter.chapter_utils import (
+            get_user_board_positions,
+            is_chapter_board_member,
+        )
+
+        email_user = self.create_test_user(
+            email=f"cu-emailonly-{self.token}@test.com", roles=["Verenigingen Member"]
+        )
+        email_member = self.create_test_member(
+            first_name="Email", last_name="Only", email=email_user.name
+        )
+        email_volunteer = self.create_test_volunteer(email_member.name)
+        self.assertFalse(frappe.db.get_value("Member", email_member.name, "user"))
+        self._add_board_position(self.chapter_fin.name, email_volunteer.name, self.basic_role.name)
+
+        self.assertEqual(get_user_board_positions(email_user.name), [])
+        self.assertFalse(is_chapter_board_member(self.chapter_fin.name, email_user.name))
+        self.assertTrue(get_user_board_positions(self.fin_user.name))
+        self.assertTrue(is_chapter_board_member(self.chapter_fin.name, self.fin_user.name))
+
     def test_get_user_board_positions_no_member(self):
         from verenigingen.services.chapter.chapter_utils import get_user_board_positions
 

@@ -43,7 +43,8 @@ class PaymentAlertService:
 
     @property
     def alert_recipients(self) -> list:
-        """Get alert recipients from hook configuration (cached)."""
+        """The optional ``accounts_managers_email`` hook override (cached). No app defines it, so
+        normally empty; recipients then come from the key-first staff resolver (#2555)."""
         if self._recipients_cache is None:
             self._recipients_cache = frappe.get_hooks("accounts_managers_email") or []
         return self._recipients_cache
@@ -220,17 +221,6 @@ class PaymentAlertService:
         from verenigingen.services.communication.email_service import get_email_service
 
         try:
-            recipients = self.alert_recipients
-            if not recipients:
-                frappe.log_error(
-                    title="No Alert Recipients Configured",
-                    message=(
-                        f"Cannot send {alert_type} alert for {context_id}: "
-                        "accounts_managers_email hook not configured."
-                    ),
-                )
-                return False
-
             # Map alert_type to notification_key
             notification_key_map = {
                 "overpayment": "payment_alert_overpayment",
@@ -238,6 +228,17 @@ class PaymentAlertService:
                 "reconciliation": "payment_alert_reconciliation",
             }
             notification_key = notification_key_map.get(alert_type, "payment_alert_failure")
+
+            recipients = self.alert_recipients or self._resolve_staff_recipients(notification_key)
+            if not recipients:
+                frappe.log_error(
+                    title="No Alert Recipients Configured",
+                    message=(
+                        f"Cannot send {alert_type} alert for {context_id}: no recipient is configured "
+                        f"for {notification_key} and no enabled Verenigingen Financial Manager exists."
+                    ),
+                )
+                return False
 
             email_service = get_email_service()
             result = email_service.send_simple_email(
@@ -254,6 +255,13 @@ class PaymentAlertService:
         except Exception as e:
             frappe.logger().warning(f"Failed to send {alert_type} alert email: {e}")
             return False
+
+    def _resolve_staff_recipients(self, notification_key: str) -> list:
+        """Key-first staff resolver (#2555): the key's row, then enabled Financial Managers."""
+        from verenigingen.utils.constants import Roles
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_financial_admin_emails
+
+        return get_financial_admin_emails(notification_key, default_roles=[Roles.FINANCIAL_MANAGER])
 
     def _format_overpayment_email(
         self,

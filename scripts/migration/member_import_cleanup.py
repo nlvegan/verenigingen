@@ -310,10 +310,13 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_invoices"]["deleted"] += 1
                 except Exception as e:
                     results["orphaned_invoices"]["errors"].append(f"{invoice.name}: {str(e)}")
+                    if _lost_the_transaction(e):
+                        results["aborted"] = True
+                        break
 
             # Delete orphaned schedules
             # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-            for schedule in orphaned_schedules:
+            for schedule in [] if results.get("aborted") else orphaned_schedules:
                 try:
                     frappe.delete_doc(
                         "Membership Dues Schedule", schedule.name, ignore_permissions=True, force=True
@@ -321,6 +324,14 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_schedules"]["deleted"] += 1
                 except Exception as e:
                     results["orphaned_schedules"]["errors"].append(f"{schedule.name}: {str(e)}")
+                    if _lost_the_transaction(e):
+                        results["aborted"] = True
+                        break
+
+            if results.get("aborted"):
+                # Not resumable (#2595): the server rolled back every deletion counted above.
+                _report_aborted_cleanup(results, ("orphaned_schedules", "orphaned_invoices"))
+                return results
 
             frappe.db.commit()
             results["summary"] = (
@@ -329,6 +340,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
 
         except Exception as e:
             frappe.db.rollback()
+            _zero_cleanup_counters(results, ("orphaned_schedules", "orphaned_invoices"))
             results["summary"] = f"ROLLED BACK: {str(e)}"
             frappe.log_error(f"Force cleanup failed: {str(e)}", "Orphaned Cleanup Error")
 
@@ -455,12 +467,35 @@ def _lost_the_transaction(error):
 
 def _report_aborted_run(results):
     """Nothing from an aborted run persisted, so the counters must say so (#2482)."""
+    frappe.db.rollback()
     results["orphaned_removed"] = 0
     results["chapters_cleaned"] = 0
     failed = results["chapters_failed"][-1] if results["chapters_failed"] else "a chapter"
     results["summary"] = (
         f"ABORTED at {failed}: the database rolled this run back (deadlock), so no orphans "
         "were removed. Run the cleanup again."
+    )
+
+
+def _zero_cleanup_counters(results, buckets):
+    """A rolled-back run deleted nothing: zero every `deleted` bucket and flat total (#2595)."""
+    for bucket in buckets:
+        results[bucket]["deleted"] = 0
+    for key in ("gl_entries_deleted", "payment_ledger_deleted", "payment_references_deleted"):
+        if key in results:
+            results[key] = 0
+
+
+def _report_aborted_cleanup(results, buckets):
+    """Counterpart of `_report_aborted_run` for the cleanups whose counters sit in buckets."""
+    # Roll back explicitly: after a swallowed 1213 the 1305 arrives while the connection may
+    # still hold work, and "nothing persisted" must also hold if a caller commits next.
+    frappe.db.rollback()
+    _zero_cleanup_counters(results, buckets)
+    results["aborted"] = True
+    results["summary"] = (
+        "ABORTED: the database rolled this run back (deadlock), so nothing was deleted. "
+        "Run the cleanup again."
     )
 
 
@@ -562,6 +597,10 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
                         results[bucket]["deleted"] += 1
                     except Exception as e:
                         results[bucket]["errors"].append(f"{name}: {str(e)}")
+                        if _lost_the_transaction(e):
+                            # Not resumable (#2595): earlier deletions were rolled back too.
+                            _report_aborted_cleanup(results, ("addresses", "contacts"))
+                            return results
 
             # Shared parents keep their record but lose the dangling links.
             _delete_in("Dynamic Link", "link_name", dead_members, "AND link_doctype = 'Member'")
@@ -575,6 +614,7 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
 
         except Exception as e:
             frappe.db.rollback()
+            _zero_cleanup_counters(results, ("addresses", "contacts"))
             results["summary"] = f"ROLLED BACK: {str(e)}"
 
     except Exception as e:
@@ -2330,6 +2370,8 @@ def scan_and_clear_broken_links(
                     # Table might not exist or column missing
                     if "doesn't exist" not in str(e).lower() and "Unknown column" not in str(e):
                         results["errors"].append(f"{field.doctype}.{field.fieldname}: {str(e)}")
+                    if not dry_run and _lost_the_transaction(e):
+                        return _aborted_broken_link_scan(results)
 
             # 2. Check Dynamic Links (used by Contact, Address, etc.)
             try:
@@ -2393,6 +2435,8 @@ def scan_and_clear_broken_links(
 
             except Exception as e:
                 results["errors"].append(f"Dynamic Link ({target_doctype}): {str(e)}")
+                if not dry_run and _lost_the_transaction(e):
+                    return _aborted_broken_link_scan(results)
 
             if target_results["total"] > 0:
                 results["broken_links"][target_doctype] = target_results
@@ -2426,3 +2470,17 @@ def scan_and_clear_broken_links(
             errors=[str(e)],
             context={"operation": "scan_and_clear_broken_links", "dry_run": dry_run},
         )
+
+
+def _aborted_broken_link_scan(results):
+    """The server rolled the whole run back, so every reference counted as cleared is back (#2595)."""
+    frappe.db.rollback()
+    results["cleared"] = 0
+    results["aborted"] = True
+    results["summary"] = (
+        "ABORTED: the database rolled this run back (deadlock), so no broken links were "
+        "cleared. Run the scan again."
+    )
+    return OperationResult.fail(
+        _(results["summary"]), errors=results["errors"], context={"aborted": True}
+    )

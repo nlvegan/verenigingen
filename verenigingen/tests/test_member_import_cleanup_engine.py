@@ -18,10 +18,17 @@ Every test drives the real engine against real rows and rolls back, so nothing
 here depends on mocks.
 """
 
+from unittest.mock import patch
+
 import frappe
+import pymysql
 
 from scripts.migration import member_import_cleanup as cleanup
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+# A real 1205: it carries the MySQL code in args[0], which is what the cleanup classifies on.
+# frappe.QueryTimeoutError("...") has a string in args[0] and so can never match a code.
+LOCK_WAIT_TIMEOUT = pymysql.err.OperationalError(1205, "Lock wait timeout exceeded")
 
 
 class TestCleanupEngineInvariants(EnhancedTestCase):
@@ -689,7 +696,7 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         def save_hook(real_save, doc, *args, **kwargs):
             if not refused:
                 refused.append(doc.name)
-                raise frappe.QueryTimeoutError("Lock wait timeout exceeded")
+                raise LOCK_WAIT_TIMEOUT
             return real_save(doc, *args, **kwargs)
 
         results = self._run_live_with_save_hook(save_hook)
@@ -764,3 +771,390 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
         self.assertIn(chapter_name, results["chapters_failed"])
         self.assertEqual(results["orphaned_removed"], really_removed)
         self.assertIn("boom after write", " ".join(results["errors"]))
+
+
+class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
+    """#2595: three more cleanups that accumulate counters across ONE transaction.
+
+    A 1213 rolls the whole transaction back. Each function recorded the per-item error,
+    carried on and committed, then reported the earlier deletions it had counted as done.
+    Fixtures are COMMITTED (a deadlock victim's rollback would otherwise take them too) and
+    the injected failure does a real `frappe.db.rollback()` before raising, as the server does.
+    """
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.rollback()
+        self._committed = []  # (doctype, name) rows to remove again
+        self.addCleanup(self._cleanup_committed_fixture_rows)
+
+    def _cleanup_committed_fixture_rows(self):
+        frappe.db.rollback()
+        for doctype, name in self._committed:
+            frappe.db.delete(doctype, {"name": name})
+        frappe.db.commit()
+
+    def _create_committed_row(self, doc_fields):
+        doc = frappe.get_doc(doc_fields)
+        doc.name = doc.name or frappe.generate_hash(length=12)
+        doc.db_insert()
+        frappe.db.commit()
+        self._committed.append((doc.doctype, doc.name))
+        return doc.name
+
+    def _roll_back_as_a_deadlock_victim(self, error=None):
+        # One definition of "the server rolled everything back", shared with #2482's tests.
+        TestOrphanedChapterMemberCleanup._lose_the_transaction(self, error)
+
+    def _committed_orphan_invoices(self, count):
+        ghost = f"GHOST-MEMBER-{frappe.generate_hash(length=6)}"
+        return [
+            self._create_committed_row(
+                {
+                    "doctype": "Sales Invoice",
+                    "customer": f"GHOST-CUSTOMER-{frappe.generate_hash(length=6)}",
+                    "member": ghost,
+                    "is_membership_invoice": 1,
+                    "docstatus": 0,
+                    "posting_date": frappe.utils.today(),
+                }
+            )
+            for _ in range(count)
+        ]
+
+    def _orphan_schedules(self, count):
+        return [
+            self._create_committed_row(
+                {
+                    "doctype": "Membership Dues Schedule",
+                    "member": f"GHOST-MEMBER-{frappe.generate_hash(length=6)}",
+                    "is_template": 0,
+                }
+            )
+            for _ in range(count)
+        ]
+
+    def _delete_doc_hook(self, doctype, calls, fail_on, error=None):
+        """A `frappe.delete_doc` that is real except on the `fail_on`-th call for `doctype`."""
+        real = frappe.delete_doc
+
+        def delete_doc(dt, name=None, *args, **kwargs):
+            if dt == doctype:
+                calls.append(name)
+                if len(calls) == fail_on:
+                    self._roll_back_as_a_deadlock_victim(error)
+            return real(dt, name, *args, **kwargs)
+
+        return delete_doc
+
+    # -- force_cleanup_orphaned_schedules_and_invoices --------------------------------
+
+    def test_force_cleanup_clean_run_counts_and_persists(self):
+        names = self._committed_orphan_invoices(2)
+        calls = []
+
+        # Mock justified: spies on the real call, to prove the control fixtures were reached.
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Sales Invoice", calls, 0)):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertTrue(set(names) <= set(calls), "fixtures must reach the delete loop")
+        self.assertFalse(results.get("aborted"))
+        self.assertEqual(results["orphaned_invoices"]["deleted"], len(calls))
+        self.assertFalse([n for n in names if frappe.db.exists("Sales Invoice", n)])
+
+    def test_force_cleanup_deadlock_on_an_invoice_aborts_and_reports_nothing_deleted(self):
+        self._committed_orphan_invoices(3)
+        calls = []
+
+        # Mock justified: injects the deadlock; the first invoice is deleted for real.
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Sales Invoice", calls, 2)):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        # Control: one invoice really was deleted, then the rollback undid it.
+        self.assertTrue(frappe.db.exists("Sales Invoice", calls[0]))
+        self.assertEqual(len(calls), 2, "a lost transaction must stop the run")
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["orphaned_invoices"]["deleted"], 0)
+        self.assertEqual(results["orphaned_schedules"]["deleted"], 0)
+        for key in ("gl_entries_deleted", "payment_ledger_deleted", "payment_references_deleted"):
+            self.assertEqual(results[key], 0, key)
+        self.assertIn("ABORTED", results["summary"])
+        self.assertNotIn("Successfully", results["summary"])
+
+    def test_force_cleanup_deadlock_on_a_schedule_aborts_and_reports_nothing_deleted(self):
+        self._orphan_schedules(3)
+        calls = []
+
+        with patch.object(
+            frappe, "delete_doc", self._delete_doc_hook("Membership Dues Schedule", calls, 2)
+        ):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertTrue(frappe.db.exists("Membership Dues Schedule", calls[0]))
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["orphaned_schedules"]["deleted"], 0)
+        self.assertEqual(results["orphaned_invoices"]["deleted"], 0)
+        self.assertEqual(results["gl_entries_deleted"], 0)
+        self.assertIn("ABORTED", results["summary"])
+
+    def test_force_cleanup_swallowed_deadlock_surfacing_as_1305_aborts(self):
+        self._committed_orphan_invoices(3)
+        calls = []
+        # Same reasoning as #2482: this function commits only once, at the very end, so a
+        # 1305 raised before that can only mean the transaction is gone.
+        import pymysql
+
+        gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
+
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Sales Invoice", calls, 2, gone)):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["orphaned_invoices"]["deleted"], 0)
+        self.assertEqual(len(calls), 2)
+
+    def test_force_cleanup_abort_rolls_back_work_still_pending_after_a_1305(self):
+        # A swallowed 1213 followed by a 1305 leaves the connection holding uncommitted work
+        # (no rollback was issued). "Nothing persisted" must hold if a caller commits next.
+        self._committed_orphan_invoices(3)
+        gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
+        real = frappe.delete_doc
+        seen = []
+
+        def delete_doc(dt, name=None, *args, **kwargs):
+            if dt == "Sales Invoice":
+                seen.append(name)
+                if len(seen) == 2:
+                    frappe.db.set_value("Sales Invoice", name, "remarks", "DIRTY-2595")
+                    raise gone
+            return real(dt, name, *args, **kwargs)
+
+        with patch.object(frappe, "delete_doc", delete_doc):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertTrue(results["aborted"])
+        self.assertNotEqual(frappe.db.get_value("Sales Invoice", seen[1], "remarks"), "DIRTY-2595")
+
+    def test_force_cleanup_ordinary_item_error_still_carries_on(self):
+        # Control: an ordinary per-item error keeps today's behaviour, and 1205 is not a lost
+        # transaction (it only undoes the failed statement).
+        names = self._committed_orphan_invoices(2)
+        timeout = LOCK_WAIT_TIMEOUT
+        real = frappe.delete_doc
+        failed = []
+
+        def delete_doc(dt, name=None, *args, **kwargs):
+            if dt == "Sales Invoice" and name in names and not failed:
+                failed.append(name)
+                raise timeout
+            return real(dt, name, *args, **kwargs)
+
+        with patch.object(frappe, "delete_doc", delete_doc):
+            results = cleanup.force_cleanup_orphaned_schedules_and_invoices(dry_run=False)
+
+        self.assertFalse(results.get("aborted"))
+        self.assertEqual(len(results["orphaned_invoices"]["errors"]), 1)
+        self.assertGreaterEqual(results["orphaned_invoices"]["deleted"], 1)
+        self.assertIn("Successfully", results["summary"])
+        self.assertTrue(frappe.db.exists("Sales Invoice", failed[0]))
+
+    # -- cleanup_orphaned_addresses_and_contacts --------------------------------------
+
+    def _orphan_contacts(self, count):
+        """Contacts whose only link is a deleted Member, committed so a rollback can undo them."""
+        names = []
+        for idx in range(count):
+            name = f"TEST-2595-contact-{frappe.generate_hash(length=8)}"
+            self._create_committed_row({"doctype": "Contact", "name": name, "first_name": f"Orphan{idx}"})
+            self._create_committed_row(
+                {
+                    "doctype": "Dynamic Link",
+                    "parent": name,
+                    "parenttype": "Contact",
+                    "parentfield": "links",
+                    "idx": 1,
+                    "link_doctype": "Member",
+                    "link_name": f"Assoc-Member-GHOST-{frappe.generate_hash(length=6)}",
+                }
+            )
+            names.append(name)
+        return names
+
+    def test_address_contact_cleanup_clean_run_counts_and_persists(self):
+        names = self._orphan_contacts(2)
+        calls = []
+
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Contact", calls, 0)):
+            results = cleanup.cleanup_orphaned_addresses_and_contacts(dry_run=False)
+
+        self.assertTrue(set(names) <= set(calls), "fixtures must reach the delete loop")
+        self.assertFalse(results.get("aborted"))
+        self.assertEqual(results["contacts"]["deleted"], len(calls))
+        self.assertFalse([n for n in names if frappe.db.exists("Contact", n)])
+
+    def test_address_contact_cleanup_deadlock_aborts_and_reports_nothing_deleted(self):
+        self._orphan_contacts(3)
+        calls = []
+
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Contact", calls, 2)):
+            results = cleanup.cleanup_orphaned_addresses_and_contacts(dry_run=False)
+
+        # Control: one contact really was deleted, then the rollback undid it.
+        self.assertTrue(frappe.db.exists("Contact", calls[0]))
+        self.assertEqual(len(calls), 2, "a lost transaction must stop the run")
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["contacts"]["deleted"], 0)
+        self.assertEqual(results["addresses"]["deleted"], 0)
+        self.assertIn("ABORTED", results["summary"])
+        self.assertNotIn("Deleted", results["summary"])
+
+    def test_address_contact_cleanup_1305_after_a_swallowed_deadlock_aborts(self):
+        import pymysql
+
+        self._orphan_contacts(3)
+        calls = []
+        gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
+
+        with patch.object(frappe, "delete_doc", self._delete_doc_hook("Contact", calls, 2, gone)):
+            results = cleanup.cleanup_orphaned_addresses_and_contacts(dry_run=False)
+
+        self.assertTrue(results["aborted"])
+        self.assertEqual(results["contacts"]["deleted"], 0)
+        self.assertEqual(len(calls), 2)
+
+    def test_address_contact_cleanup_ordinary_item_error_still_carries_on(self):
+        names = self._orphan_contacts(2)
+        real = frappe.delete_doc
+        failed = []
+
+        def delete_doc(dt, name=None, *args, **kwargs):
+            if dt == "Contact" and name in names and not failed:
+                failed.append(name)
+                raise LOCK_WAIT_TIMEOUT  # 1205: not a lost txn
+            return real(dt, name, *args, **kwargs)
+
+        with patch.object(frappe, "delete_doc", delete_doc):
+            results = cleanup.cleanup_orphaned_addresses_and_contacts(dry_run=False)
+
+        self.assertFalse(results.get("aborted"))
+        self.assertEqual(len(results["contacts"]["errors"]), 1)
+        self.assertGreaterEqual(results["contacts"]["deleted"], 1)
+        self.assertTrue(frappe.db.exists("Contact", failed[0]))
+
+    # -- scan_and_clear_broken_links ---------------------------------------------------
+
+    TARGET = "Chapter Role"
+
+    def _broken_link_fixtures(self):
+        """A broken Link field row AND a broken Dynamic Link, both committed."""
+        ghost = f"NO-SUCH-ROLE-2595-{frappe.generate_hash(length=6)}"
+        parent = self.factory.create_test_chapter() if hasattr(self.factory, "create_test_chapter") else None
+        row = self._create_committed_row(
+            {
+                "doctype": "Chapter Board Member",
+                "parent": parent.name if parent else "TEST-2595-parent",
+                "parenttype": "Chapter",
+                "parentfield": "board_members",
+                "idx": 1,
+                "volunteer": "NO-SUCH-VOLUNTEER-2595",
+                "chapter_role": ghost,
+            }
+        )
+        self._create_committed_row(
+            {
+                "doctype": "Dynamic Link",
+                "parent": "TEST-2595-contact",
+                "parenttype": "Contact",
+                "parentfield": "links",
+                "idx": 1,
+                "link_doctype": self.TARGET,
+                "link_name": ghost,
+            }
+        )
+        return row
+
+    def _scan_with_failing_dynamic_delete(self, error=None, lose=True):
+        """Run a live scan; the Dynamic Link DELETE (after the Link-field UPDATEs) fails."""
+        real_sql = frappe.db.sql
+        statements = []
+
+        def sql(query, *args, **kwargs):
+            text = query if isinstance(query, str) else str(query)
+            statements.append(text)
+            if text.lstrip().startswith("DELETE dl FROM `tabDynamic Link`"):
+                if lose:
+                    self._roll_back_as_a_deadlock_victim(error)
+                raise LOCK_WAIT_TIMEOUT
+            return real_sql(query, *args, **kwargs)
+
+        with patch.object(frappe.db, "sql", sql):
+            result = cleanup.scan_and_clear_broken_links(target_doctypes=[self.TARGET], dry_run=False)
+        return result, statements
+
+    @staticmethod
+    def _scan_data(result):
+        """The endpoint decorator hands back the OperationResult as a dict."""
+        return result.get("data", result) if isinstance(result, dict) else result.data
+
+    def _assert_aborted_scan(self, result):
+        """An aborted run is a FAILED result, like a failure at the final commit."""
+        self.assertIs(result["success"], False, result)
+        self.assertIn("ABORTED", result["error"]["message"])
+        self.assertIs(result["meta"]["context"]["aborted"], True)
+
+    def test_scan_clean_run_clears_and_persists(self):
+        row = self._broken_link_fixtures()
+
+        result = cleanup.scan_and_clear_broken_links(target_doctypes=[self.TARGET], dry_run=False)
+
+        data = self._scan_data(result)
+        self.assertGreaterEqual(data["cleared"], 2)  # the Link-field row and the Dynamic Link
+        self.assertIsNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
+
+    def test_scan_deadlock_aborts_and_reports_nothing_cleared(self):
+        row = self._broken_link_fixtures()
+
+        result, statements = self._scan_with_failing_dynamic_delete()
+
+        # Control: the Link-field row really was nulled, then the rollback undid it.
+        self.assertIsNotNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
+        self._assert_aborted_scan(result)
+        self.assertNotIn("Cleared", str(result))
+
+    def test_scan_deadlock_stops_the_run_and_commits_nothing(self):
+        self._broken_link_fixtures()
+        committed = []
+
+        with patch.object(frappe.db, "commit", lambda *a, **k: committed.append(1)):
+            result, statements = self._scan_with_failing_dynamic_delete()
+
+        self._assert_aborted_scan(result)
+        self.assertEqual(committed, [], "a lost transaction must not be committed")
+        # No further clearing: no UPDATE/DELETE after the failing one (the endpoint's own
+        # audit-log INSERT is not part of the cleanup).
+        after = statements[[i for i, t in enumerate(statements) if "DELETE dl FROM" in t][0] + 1 :]
+        writes = [t for t in after if t.strip().split(None, 1)[0].lower() in ("update", "delete")]
+        self.assertEqual(writes, [])
+
+    def test_scan_1305_after_a_swallowed_deadlock_aborts(self):
+        row = self._broken_link_fixtures()
+        gone = pymysql.err.OperationalError(1305, "SAVEPOINT sp does not exist")
+
+        result, _statements = self._scan_with_failing_dynamic_delete(gone)
+
+        self._assert_aborted_scan(result)
+        self.assertIsNotNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
+
+    def test_scan_lock_wait_timeout_does_not_abort(self):
+        # Control: 1205 only undoes the failed statement, so the Link-field clear still counts
+        # and still persists; the error is recorded and the run completes.
+        row = self._broken_link_fixtures()
+
+        result, _statements = self._scan_with_failing_dynamic_delete(lose=False)
+
+        data = self._scan_data(result)
+        self.assertFalse(data.get("aborted"))
+        self.assertEqual(data["cleared"], 1)
+        self.assertIsNone(frappe.db.get_value("Chapter Board Member", row, "chapter_role"))
+        self.assertTrue(any("Dynamic Link" in e for e in data["errors"]))

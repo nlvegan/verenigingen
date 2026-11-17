@@ -35,6 +35,7 @@ from verenigingen.tests.support.sepa_test_company import (
     get_eur_bank_account,
     get_eur_test_company,
 )
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import BankTransactionCreator
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
     MolliePaymentOrchestrator,
     PaymentProcessingResult,
@@ -86,6 +87,11 @@ class _FakeBTCreator:
 
     def get_mollie_bank_account_config(self):
         return self._config
+
+    # The idempotency lookup is the real scoped DB query (#2620), not a fake: it is what
+    # the tests that plant decoy rows exercise.
+    find_mollie_bank_transaction = BankTransactionCreator.find_mollie_bank_transaction
+    _find_matching_bank_transaction = BankTransactionCreator._find_matching_bank_transaction
 
     def create_from_mollie_payment(self, **kwargs):
         self.create_calls.append(kwargs)
@@ -403,7 +409,7 @@ class TestProcessOrphanedPaymentCustomerLinked(EnhancedTestCase):
         # reached for real, not simulated.
         payment_id = f"tr_sweep_{frappe.generate_hash()[:10]}"
 
-        bt = _FakeBTCreator(bt_name="BT-LINKED")
+        bt = _FakeBTCreator(bt_name="BT-LINKED", config={"bank_account": bank_account, "company": company})
         orch = _bare_orchestrator(bt=bt)
         orch._find_or_create_customer_from_mollie = lambda cid, payment, result: "CUST-RESOLVED"
 

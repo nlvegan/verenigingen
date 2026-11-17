@@ -33,6 +33,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 
 PAGE = "verenigingen.templates.pages.mollie_payment_processing"
@@ -257,6 +258,8 @@ def _make_unprivileged_user(test_case):
 
 def _make_bank_transaction(test_case, bank_account, reference_number):
     """Create+track a Bank Transaction referencing a Mollie payment id."""
+    # Mollie-reference lookups only count rows on the Mollie bank account (#2620).
+    pin_mollie_bank_account(test_case, bank_account)
     company = frappe.db.get_value("Bank Account", bank_account, "company")
     bt = frappe.get_doc(
         {

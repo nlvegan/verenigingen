@@ -251,6 +251,31 @@ class BTRBase(EnhancedTestCase):
             bt.submit()
         return bt
 
+    def _near_miss_fixture(self, first_name, grand_total):
+        """A real Member + unpaid invoice, and a bank description that is the member's name
+        with two letters changed: fuzzy name matching then scores it above its 0.6 floor
+        but, at 0.9x, below the 0.85 auto-match threshold.
+
+        Probe shortcut (same as TestFuzzyAndMemberInvoices): the invoice status and
+        outstanding are set with db.set_value to put it in the fuzzy query's pool.
+        """
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
+        frappe.db.set_value(
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": grand_total},
+            update_modified=False,
+        )
+        name = it["member"].full_name.upper()
+        description = name[:-5] + "QXQXQ"
+        bt = self._make_bank_transaction(
+            deposit=grand_total,
+            description=description,
+            reference_number="NO-BATCH-TOKEN",
+            date=today(),
+        )
+        return it, bt
+
     def _txn_dict(self, bt):
         """Build the lightweight dict the matching strategies operate on
         (mirrors the fields reconcile_bank_transactions selects)."""
@@ -683,6 +708,135 @@ class TestMatchByDescription(BTRBase):
 # =============================================================================
 # fuzzy_match_member_name + get_member_unpaid_invoices
 # =============================================================================
+class TestDescriptionNamesNonSubmittedInvoice(BTRBase):
+    """#2520 (class of #856/#209, #939): `INVOICE <name>` in a description must not
+    suggest, or book against, a draft or cancelled Sales Invoice.
+
+    Invoices are built through the real factory (`submit=False` for a draft) and the
+    real `cancel()` for a cancelled one. No field is written directly.
+    """
+
+    REFUSAL_MARKER = "names a Sales Invoice that is not submitted"
+
+    def _draft(self, first_name, grand_total):
+        return self._make_member_with_invoice(first_name=first_name, grand_total=grand_total, submit=False)
+
+    def _cancelled(self, first_name, grand_total):
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
+        it["invoice"].cancel()
+        self.assertEqual(frappe.db.get_value("Sales Invoice", it["invoice"].name, "docstatus"), 2)
+        return it
+
+    def _payment_entries_for(self, invoice_name):
+        return frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_doctype": "Sales Invoice", "reference_name": invoice_name},
+            pluck="parent",
+        )
+
+    def _refusal_comments(self, bt):
+        return frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Bank Transaction",
+                "reference_name": bt.name,
+                "comment_type": "Comment",
+                "content": ["like", f"%{self.REFUSAL_MARKER}%"],
+            },
+            pluck="content",
+        )
+
+    def test_a_draft_invoice_in_the_description_is_not_suggested(self):
+        it = self._draft("DescDraft", 26.0)
+        self.assertEqual(it["invoice"].docstatus, 0)
+        bt = self._make_bank_transaction(deposit=26.0, description=f"INVOICE {it['invoice'].name}")
+        self.assertIsNone(self.mgr.match_by_description(self._txn_dict(bt)))
+
+    def test_a_cancelled_invoice_in_the_description_is_not_suggested(self):
+        it = self._cancelled("DescCancel", 27.0)
+        bt = self._make_bank_transaction(deposit=27.0, description=f"INVOICE {it['invoice'].name}")
+        self.assertIsNone(self.mgr.match_by_description(self._txn_dict(bt)))
+
+    def test_a_submitted_invoice_in_the_description_still_matches_at_0_9(self):
+        """Control, with a real submitted row for the wrong behaviour to disturb."""
+        it = self._make_member_with_invoice(first_name="DescCtl", grand_total=28.0)
+        self.assertEqual(it["invoice"].docstatus, 1)
+        bt = self._make_bank_transaction(deposit=28.0, description=f"INVOICE {it['invoice'].name}")
+        match = self.mgr.match_by_description(self._txn_dict(bt))
+        self.assertEqual(match["reference"], it["invoice"].name)
+        self.assertEqual(match["confidence"], 0.9)
+
+    def test_match_transaction_books_nothing_against_a_cancelled_invoice(self):
+        """End to end, description-only. The refusal must leave the line retryable
+        (not the terminal 'Reconciliation Failed' a failed Payment Entry build writes)
+        and say why."""
+        it = self._cancelled("TxnCancel", 29.0)
+        bt = self._make_bank_transaction(deposit=29.0, description=f"INVOICE {it['invoice'].name}")
+        self.assertFalse(self.mgr.match_transaction(self._txn_dict(bt)))
+        bt.reload()
+        self.assertEqual(self._payment_entries_for(it["invoice"].name), [])
+        self.assertNotEqual(bt.custom_processing_status, "Reconciliation Failed")
+        self.assertEqual(flt(bt.unallocated_amount), flt(bt.deposit))
+        comments = self._refusal_comments(bt)
+        self.assertEqual(len(comments), 1)
+        self.assertIn(it["invoice"].name, comments[0])
+
+    def test_match_transaction_books_nothing_against_a_draft_invoice(self):
+        it = self._draft("TxnDraft", 31.0)
+        bt = self._make_bank_transaction(deposit=31.0, description=f"INVOICE {it['invoice'].name}")
+        self.assertFalse(self.mgr.match_transaction(self._txn_dict(bt)))
+        bt.reload()
+        self.assertEqual(self._payment_entries_for(it["invoice"].name), [])
+        self.assertNotEqual(bt.custom_processing_status, "Reconciliation Failed")
+        self.assertEqual(len(self._refusal_comments(bt)), 1)
+
+    def test_a_refusal_is_not_repeated_by_the_daily_pool(self):
+        it = self._cancelled("TxnRepeat", 32.0)
+        bt = self._make_bank_transaction(deposit=32.0, description=f"INVOICE {it['invoice'].name}")
+        for _ in range(3):
+            self.assertFalse(self.mgr.match_transaction(self._txn_dict(bt)))
+        self.assertEqual(len(self._refusal_comments(bt)), 1)
+
+    def test_a_cancelled_invoice_does_not_let_another_invoice_win_silently(self):
+        """The opposite harm the #939 review found. Dropping the 0.9 match alone lets
+        the 0.95 amount+reference strategy reconcile the SAME-AMOUNT submitted INV-B
+        (another member's, from a real SEPA batch) when the description names the
+        cancelled INV-A. Contradictory evidence is a CHOICE for staff: the line must
+        stay unreconciled, with nothing booked against either invoice."""
+        cancelled = self._cancelled("TwinCancel", 33.0)
+        other = self._make_member_with_invoice(first_name="TwinOther", grand_total=33.0)
+        self._make_batch([other])
+        bt = self._make_bank_transaction(
+            deposit=33.0,
+            description=f"INVOICE {cancelled['invoice'].name}",
+            reference_number=other["invoice"].name,
+        )
+        # Premise: without the INVOICE text, INV-B IS what the matcher would book.
+        premise = self.mgr.match_by_amount_and_reference(self._txn_dict(bt))
+        self.assertEqual(premise["reference"], other["invoice"].name)
+        self.assertGreaterEqual(premise["confidence"], self.mgr.match_threshold)
+
+        self.assertFalse(self.mgr.match_transaction(self._txn_dict(bt)))
+        self.assertEqual(self._payment_entries_for(other["invoice"].name), [])
+        self.assertEqual(self._payment_entries_for(cancelled["invoice"].name), [])
+        bt.reload()
+        self.assertNotEqual(bt.custom_processing_status, "Fully Reconciled")
+        self.assertEqual(len(self._refusal_comments(bt)), 1)
+
+    def test_control_the_same_other_invoice_reconciles_without_the_cancelled_name(self):
+        """Control for the test above: same fixture shape, description does not name
+        the cancelled invoice, so INV-B DOES reconcile. Proves the refusal above is
+        about the named cancelled invoice and not about this fixture."""
+        _cancelled = self._cancelled("TwinCtlC", 34.0)
+        other = self._make_member_with_invoice(first_name="TwinCtlO", grand_total=34.0)
+        self._make_batch([other])
+        bt = self._make_bank_transaction(
+            deposit=34.0, description="SEPA collection", reference_number=other["invoice"].name
+        )
+        self.assertTrue(self.mgr.match_transaction(self._txn_dict(bt)))
+        self.assertTrue(self._payment_entries_for(other["invoice"].name))
+
+
 class TestFuzzyAndMemberInvoices(BTRBase):
     def test_fuzzy_matches_member_name_in_description(self):
         it = self._make_member_with_invoice(first_name="Fuzzylonglastname", grand_total=77.0)
@@ -934,31 +1088,6 @@ class TestMatchTransactionAndReconcile(BTRBase):
     # --- #560: a sub-threshold best match must leave a trace -----------------------
 
     NEAR_MISS_MARKER = "Near-miss reconciliation candidate"
-
-    def _near_miss_fixture(self, first_name, grand_total):
-        """A real Member + unpaid invoice, and a bank description that is the member's name
-        with two letters changed: fuzzy name matching then scores it above its 0.6 floor
-        but, at 0.9x, below the 0.85 auto-match threshold.
-
-        Probe shortcut (same as TestFuzzyAndMemberInvoices): the invoice status and
-        outstanding are set with db.set_value to put it in the fuzzy query's pool.
-        """
-        it = self._make_member_with_invoice(first_name=first_name, grand_total=grand_total)
-        frappe.db.set_value(
-            "Sales Invoice",
-            it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": grand_total},
-            update_modified=False,
-        )
-        name = it["member"].full_name.upper()
-        description = name[:-5] + "QXQXQ"
-        bt = self._make_bank_transaction(
-            deposit=grand_total,
-            description=description,
-            reference_number="NO-BATCH-TOKEN",
-            date=today(),
-        )
-        return it, bt
 
     def _near_miss_comments(self, bt):
         return [

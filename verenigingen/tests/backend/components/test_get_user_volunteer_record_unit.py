@@ -45,11 +45,18 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
             email="unit.test@example.com"
         )
 
+        # #2461: identity is an explicit link (Member.user), never the email. Probe
+        # shortcut: db.set_value stands in for staff filling the Member.user field.
+        self.login_user = self.create_test_user(
+            f"unit.test.login.{frappe.generate_hash(length=8)}@example.com"
+        ).name
+        frappe.db.set_value("Member", self.test_member.name, "user", self.login_user, update_modified=False)
+
     def test_function_returns_all_required_fields(self):
         """Test that get_user_volunteer_record returns all required fields"""
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
-        with self.as_user(self.test_volunteer.email):
+        with self.as_user(self.login_user):
             result = get_user_volunteer_record()
 
             # Verify all required fields are present
@@ -72,7 +79,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
         # Test with actual data - the function uses an optimized utility
         # so we test the actual behavior, not mocked database calls
-        with self.as_user(self.test_member.email):
+        with self.as_user(self.login_user):
             result = get_user_volunteer_record()
 
             # Verify the function returns a result
@@ -87,7 +94,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Test with actual data - direct volunteer email lookup
-        with self.as_user(self.test_volunteer.email):
+        with self.as_user(self.login_user):
             result = get_user_volunteer_record()
 
             # Verify the function returns a result
@@ -130,7 +137,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
         """Regression test: ensure no fields are accidentally omitted in future changes"""
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
-        with self.as_user(self.test_volunteer.email):
+        with self.as_user(self.login_user):
             result = get_user_volunteer_record()
 
             # Define the minimum required fields - add to this list if more become required
@@ -177,7 +184,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
                 ),
             ]
 
-            with self.as_user(self.test_member.email):
+            with self.as_user(self.login_user):
                 get_user_volunteer_record()
 
                 # Verify that queries only fetch necessary fields

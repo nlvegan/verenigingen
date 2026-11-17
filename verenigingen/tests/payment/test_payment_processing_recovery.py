@@ -36,6 +36,7 @@ from frappe.utils import flt, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.error_log_assertions import assert_error_log
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.utils import payment_processing_recovery as rec
 
@@ -88,6 +89,8 @@ class RecoveryBase(EnhancedTestCase):
         )
         # Unique Mollie-style payment id per test instance.
         self.pid = f"tr_{frappe.generate_hash(length=20)}"
+        # The status probe looks on the Mollie bank account (#2620): the one _make_bank_transaction uses.
+        pin_mollie_bank_account(self)
         # The recovery code constructs the Mollie orchestrator (-> MollieClient)
         # even on the dry-run path. On a fresh CI shard the ambient Mollie
         # Settings can carry test_mode=1 with an empty test_secret_key but a

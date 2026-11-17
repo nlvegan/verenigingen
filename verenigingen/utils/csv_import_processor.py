@@ -28,6 +28,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, now
 
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
@@ -143,16 +144,17 @@ def bulk_member_operations(import_doc_name: str = None):
             # Process import rows
             member_set.add(member.name)
     """
-    try:
-        frappe.flags.bulk_member_operations = True
-        member_set = ensure_bulk_import_members_set()
-        frappe.logger().info(f"Bulk import started: {import_doc_name or 'unnamed'}")
-        yield member_set
-    finally:
-        frappe.flags.bulk_member_operations = False
-        if hasattr(frappe.local, "bulk_import_members"):
-            frappe.local.bulk_import_members.clear()
-        frappe.logger().info(f"Bulk import cleanup complete: {import_doc_name or 'unnamed'}")
+    # #2577: hand back the caller's value, not False, so a nested use keeps the outer flag
+    with restored_flags("bulk_member_operations"):
+        try:
+            frappe.flags.bulk_member_operations = True
+            member_set = ensure_bulk_import_members_set()
+            frappe.logger().info(f"Bulk import started: {import_doc_name or 'unnamed'}")
+            yield member_set
+        finally:
+            if hasattr(frappe.local, "bulk_import_members"):
+                frappe.local.bulk_import_members.clear()
+            frappe.logger().info(f"Bulk import cleanup complete: {import_doc_name or 'unnamed'}")
 
 
 class CSVImportBackgroundProcessor:
