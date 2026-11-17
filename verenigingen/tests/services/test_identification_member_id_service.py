@@ -280,5 +280,84 @@ class TestBulkAssignmentNothingAssigned(EnhancedTestCase):
         self.assertFalse(frappe.db.get_value("Member", member.name, "member_id"))
 
 
+class TestBulkAssignmentLostRace(EnhancedTestCase):
+    """#2427: a member another writer numbered after the listing must not be counted.
+
+    ``ensure_member_id()`` answers ``success: False`` (it does not raise) for a member
+    that already has an ID, and the loop used to count it anyway. The concurrent
+    writer is the REAL single-assignment service, run right after the bulk listing
+    query and before the loop loads the member.
+    """
+
+    def _seed_race_members(self, n):
+        names = []
+        for i in range(n):
+            member = self.create_test_member(
+                first_name="Race",
+                last_name=f"Loop{i}",
+                email=f"race.loop{i}@example.com",
+            )
+            frappe.db.set_value("Member", member.name, "member_id", None)
+            names.append(member.name)
+        return names
+
+    def _bulk_run_where_another_writer_numbers(self, raced_names):
+        service = get_member_id_service()
+        state = {"done": False}
+        real_logger = service.logger
+
+        class RacingLogger:
+            def __getattr__(self, attr):
+                return getattr(real_logger, attr)
+
+            def info(self, message, *args, **kwargs):
+                # "Found N members without member IDs" is logged right after the listing
+                # query and before the loop loads any member: the window the race needs.
+                if not state["done"] and "members without member IDs" in str(message):
+                    state["done"] = True
+                    for name in raced_names:
+                        test.assertTrue(service.assign_member_id(name).success)
+                return real_logger.info(message, *args, **kwargs)
+
+        test = self
+        service.logger = RacingLogger()
+        try:
+            result = service.assign_missing_member_ids()
+        finally:
+            service.logger = real_logger
+        self.assertTrue(state["done"], "the race window was never reached")
+        return result
+
+    def test_member_numbered_by_another_writer_is_not_counted_and_is_reported(self):
+        raced, mine = self._seed_race_members(2)
+        result = self._bulk_run_where_another_writer_numbers([raced])
+
+        # The control: the other member really was assigned by the bulk run.
+        self.assertTrue(frappe.db.get_value("Member", mine, "member_id"))
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(
+            result.data["assigned"],
+            len(
+                frappe.get_all(
+                    "Member",
+                    filters={"name": mine, "member_id": ["is", "set"]},
+                    pluck="name",
+                )
+            ),
+        )
+        not_assigned = {row["member"]: row["reason"] for row in result.data["not_assigned"]}
+        self.assertIn(raced, not_assigned)
+        self.assertTrue(not_assigned[raced])
+        self.assertNotIn(mine, not_assigned)
+
+    def test_nothing_assigned_when_every_member_was_numbered_by_another_writer(self):
+        raced = self._seed_race_members(1)
+        result = self._bulk_run_where_another_writer_numbers(raced)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.metadata["assigned"], 0)
+        self.assertEqual([row["member"] for row in result.metadata["not_assigned"]], raced)
+
+
 if __name__ == "__main__":
     unittest.main()

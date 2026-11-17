@@ -34,6 +34,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.services import mollie_payment_orchestrator as orch_mod
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
@@ -62,6 +63,9 @@ class OrchestratorBase(EnhancedTestCase):
         )
         self.pid = f"tr_{frappe.generate_hash(length=20)}"
         self._isolate_mollie_client()
+        # The processing-status probe looks on the Mollie bank account (#2620); an
+        # unresolvable account would log a configuration Error Log row per call.
+        self._mollie = pin_mollie_bank_account(self)
 
     def _isolate_mollie_client(self):
         """Make MollieClient construction independent of ambient Mollie Settings,

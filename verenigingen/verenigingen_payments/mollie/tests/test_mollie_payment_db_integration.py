@@ -21,6 +21,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.support.invoice_payments import member_with_customer
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import BulkPaymentChecker
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
@@ -99,6 +100,8 @@ def _create_bank_transaction(test_case, bank_account, reference_number, *, party
     Lives at module scope (not a test method) so the permission-bypass on insert
     is a recognised factory/setup pattern.
     """
+    # Mollie-reference lookups only count rows on the Mollie bank account (#2620).
+    pin_mollie_bank_account(test_case, bank_account)
     company = frappe.db.get_value("Bank Account", bank_account, "company")
     bt = frappe.get_doc(
         {
@@ -204,6 +207,22 @@ class TestBatchCheckAlreadyProcessed(EnhancedTestCase):
         self.assertIn(unprocessed_id, result)
 
 
+def _status_probe():
+    """An orchestrator built without its constructor (which makes a MollieClient).
+
+    get_processing_status needs only the Bank Transaction creator, whose Mollie account
+    scopes the Bank Transaction lookup (#2620).
+    """
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
+    )
+
+    orchestrator = MolliePaymentOrchestrator.__new__(MolliePaymentOrchestrator)
+    orchestrator.bt_creator = get_bank_transaction_creator()
+    orchestrator._bank_config_cache = None
+    return orchestrator
+
+
 class TestGetProcessingStatus(EnhancedTestCase):
     """MolliePaymentOrchestrator.get_processing_status — document-state probe."""
 
@@ -214,9 +233,8 @@ class TestGetProcessingStatus(EnhancedTestCase):
         token = frappe.generate_hash()[:10]
         payment_id = f"tr_status_none_{token}"
 
-        # Call as unbound method: get_processing_status uses only frappe.db /
-        # frappe.get_doc and no instance attributes, so no MollieClient needed.
-        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+        # No MollieClient needed (see _status_probe).
+        status = _status_probe().get_processing_status(payment_id)
 
         self.assertEqual(status.payment_id, payment_id)
         self.assertEqual(status.status, "unprocessed")
@@ -243,7 +261,7 @@ class TestGetProcessingStatus(EnhancedTestCase):
 
         bt_name = _create_bank_transaction(self, ba, payment_id, party_type="Customer", party=customer)
 
-        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+        status = _status_probe().get_processing_status(payment_id)
 
         self.assertTrue(status.has_bank_transaction)
         self.assertEqual(status.bank_transaction, bt_name)
@@ -293,7 +311,7 @@ class TestGetProcessingStatus(EnhancedTestCase):
         _create_bank_transaction(self, ba, payment_id, party_type="Customer", party=customer)
         invoice = self._invoice_on_the_calculated_window(member, customer, 25.0)
 
-        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+        status = _status_probe().get_processing_status(payment_id)
 
         self.assertTrue(status.has_sales_invoice)
         self.assertEqual(status.sales_invoice, invoice.name)
@@ -324,7 +342,7 @@ class TestGetProcessingStatus(EnhancedTestCase):
         first = self._invoice_on_the_calculated_window(member, customer, 25.0)
         second = self._invoice_on_the_calculated_window(member, customer, 25.0)
 
-        status = MolliePaymentOrchestrator.get_processing_status(None, payment_id)
+        status = _status_probe().get_processing_status(payment_id)
 
         self.assertFalse(
             status.has_sales_invoice,

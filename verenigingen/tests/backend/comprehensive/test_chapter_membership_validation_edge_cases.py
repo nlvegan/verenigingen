@@ -628,7 +628,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             self.assertFalse(result.get("success"), "Should fail for nonexistent chapter")
 
     def test_empty_member_field_vs_none(self):
-        """Test difference between empty string and None in member field"""
+        """A volunteer with an empty member field and only a matching email is not resolved (#2461)"""
         from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Create volunteer with empty string member field
@@ -647,9 +647,10 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             with _as_session_user("empty@example.com"):
                 volunteer_record = get_user_volunteer_record()
 
-                self.assertIsNotNone(volunteer_record, "Should find volunteer")
-                self.assertIn("member", volunteer_record, "Should include member field")
-                # The field should be there, even if empty
+                # #2461 / #2206 ruling: identity is Volunteer.user or Volunteer.member ->
+                # Member.user only. This Volunteer has neither (email alone), so it is
+                # not resolved.
+                self.assertIsNone(volunteer_record, "An email-only volunteer must not resolve")
 
         finally:
             frappe.delete_doc("Volunteer", "Edge Case Empty Member", )

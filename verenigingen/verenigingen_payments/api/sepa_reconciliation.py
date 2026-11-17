@@ -593,7 +593,8 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                 # Concurrent operation - rollback and inform caller
                 frappe.db.rollback()
                 frappe.log_error(
-                    f"Concurrent operation during batch reconciliation: {e}", "SEPA Batch Reconciliation"
+                    title="SEPA Batch Reconciliation",
+                    message=f"Concurrent operation during batch reconciliation: {e}",
                 )
                 return {
                     "type": "concurrent_operation",
@@ -616,7 +617,8 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                 # Any failure during atomic phase - rollback entire batch
                 frappe.db.rollback()
                 frappe.log_error(
-                    f"Atomic batch reconciliation failed at {item.invoice}: {e}", "SEPA Batch Reconciliation"
+                    title="SEPA Batch Reconciliation",
+                    message=f"Atomic batch reconciliation failed at {item.invoice}: {e}",
                 )
                 return {
                     "type": "atomic_failure",
@@ -654,7 +656,10 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     except Exception as e:
         # Unexpected error - ensure rollback
         frappe.db.rollback()
-        frappe.log_error(f"Transaction error during batch reconciliation: {e}", "SEPA Batch Reconciliation")
+        frappe.log_error(
+            title="SEPA Batch Reconciliation",
+            message=f"Transaction error during batch reconciliation: {e}",
+        )
         return {
             "type": "transaction_error",
             "total_items": len(batch_items),
@@ -877,13 +882,15 @@ def parse_sepa_return_xml(xml_content: str) -> List[Dict]:
     try:
         return parse_sepa_return_file(xml_content)
     except XMLSecurityError as e:
-        frappe.log_error(f"Security violation in SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(
+            title="SEPA Return Processing", message=f"Security violation in SEPA return file: {e}"
+        )
         raise
     except ValueError as e:
-        frappe.log_error(f"Invalid SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(title="SEPA Return Processing", message=f"Invalid SEPA return file: {e}")
         raise
     except Exception as e:
-        frappe.log_error(f"Error parsing SEPA return file: {e}", "SEPA Return Processing")
+        frappe.log_error(title="SEPA Return Processing", message=f"Error parsing SEPA return file: {e}")
         raise ValueError(f"Failed to parse SEPA return file: {e}") from e
 
 

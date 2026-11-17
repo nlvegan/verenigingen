@@ -39,7 +39,7 @@ Author: Verenigingen Development Team
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 from frappe import _
@@ -52,6 +52,10 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+
+if TYPE_CHECKING:
+    # Quoted in annotations only; imported at call time to avoid a module-load cycle.
+    from verenigingen.verenigingen_payments.utils.mandate_candidates import MandateChoice
 
 
 @dataclass

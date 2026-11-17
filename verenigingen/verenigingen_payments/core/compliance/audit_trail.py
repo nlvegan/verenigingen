@@ -23,6 +23,7 @@ from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
+from verenigingen.utils.service_user import restoring_session_user
 
 
 class AuditEventType(Enum):
@@ -390,11 +391,10 @@ class ImmutableAuditTrail:
                 audit_log.integrity_hash = entry["hash"]
 
                 # Save audit log - use system user context for audit operations
-                frappe.set_user("Administrator")
-                try:
+                # and hand the caller's own session back, not the audit entry's user (#2515)
+                with restoring_session_user():
+                    frappe.set_user("Administrator")
                     audit_log.insert()
-                finally:
-                    frappe.set_user(entry.get("user", "Administrator"))
 
             # Clear buffer after successful flush
             self.buffer = []

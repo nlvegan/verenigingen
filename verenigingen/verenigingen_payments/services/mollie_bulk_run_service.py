@@ -224,11 +224,16 @@ def _process_rows(run) -> None:
     save the whole run doc once per checkpoint and reload afterwards. The
     cancel flag is polled via a cheap single-column DB lookup on every iteration.
     """
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
+    )
     from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
         get_payment_orchestrator,
     )
 
     orchestrator = get_payment_orchestrator()
+    creator = get_bank_transaction_creator()
+    mollie_config = creator.get_mollie_bank_account_config()
 
     if run.status != "Processing":
         run.db_set("status", "Processing", update_modified=False)
@@ -265,11 +270,10 @@ def _process_rows(run) -> None:
         # This avoids the orchestrator's "try to retrofit PE/SI" path which
         # can report Failed when member resolution or invoice matching
         # stumbles on an already-imported orphan.
-        existing_bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": row.payment_id, "docstatus": ["!=", 2]},
-            "name",
-        )
+        # Scoped to the Mollie bank account (#2620): another account's row does not
+        # mean this payment was imported.
+        existing = creator.find_mollie_bank_transaction(row.payment_id, config=mollie_config)
+        existing_bt = existing.name if existing else None
         if existing_bt:
             row.bank_transaction = existing_bt
             row.row_status = "Skipped"

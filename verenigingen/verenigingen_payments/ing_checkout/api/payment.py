@@ -54,7 +54,6 @@ def create_ideal_payment(
     reference_name: str,
     amount: float,
     description: str,
-    return_url: str = None,
 ) -> dict:
     """
     Create an iDEAL payment for a document.
@@ -64,7 +63,6 @@ def create_ideal_payment(
         reference_name: Document name
         amount: Amount in EUR (e.g., 25.00)
         description: Payment description (shown on bank statement, max 30 chars)
-        return_url: Optional URL to redirect after payment
 
     Returns:
         dict with:
@@ -83,6 +81,10 @@ def create_ideal_payment(
         # Redirect user to result["redirect_url"]
 
     Note:
+        There is deliberately no return_url parameter (#2568): any caller clearing the HIGH
+        tier could otherwise pick where Pay.nl sends the payer back. The return URL is the
+        admin-set `default_return_url` or our own /payment_success page (as #2513 did for Mollie).
+
         This is a thin whitelisted wrapper around `create_ideal_order`, which
         holds the actual order-creation logic and is also called directly by
         trusted internal callers (e.g. other payment gateways) that don't go
@@ -104,7 +106,7 @@ def create_ideal_payment(
             "message": _("An unexpected error occurred"),
         }
 
-    return create_ideal_order(reference_doctype, reference_name, amount, description, return_url)
+    return create_ideal_order(reference_doctype, reference_name, amount, description)
 
 
 def create_ideal_order(
@@ -159,7 +161,8 @@ def create_ideal_order(
 
         # Build return URL
         # Pay.nl appends the order id to the return URL; the return page accepts `id` and `orderId`
-        # Only OUR default page gets a return token (#2038). A caller-supplied return_url or a
+        # Only OUR default page gets a return token (#2038). An internal caller's return_url (the
+        # whitelisted endpoint passes none, #2568) or a
         # stored default_return_url override points at a page we do not render, so handing it
         # a proof would only leak it to that page; the override wins unchanged (as Mollie's does).
         if not return_url:
