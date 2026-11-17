@@ -295,6 +295,73 @@ class TestExpenseSubmissionServiceDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         svc = self._svc()
         self.assertIsNone(svc._validate_national_access(cat.name))
 
+    # -- #2704: the national-board pre-check applies the #2528 rule (enabled AND Active) --
+
+    def _seat_on_national_board_2704(self, state):
+        """Point national_board_chapter at a fresh chapter and leave the filer's row in ``state``,
+        written by the real flow: request_to_join (Pending), the Member suspend writer
+        (enabled=1, Inactive), remove_member(permanent=False) (enabled=0), or add (Active)."""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+
+        chapter = self.ensure_test_chapter(f"Nat2704{state}")
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", chapter.name)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
+        if state == "pending":
+            frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(
+                self.member.name, notify=False
+            )
+        else:
+            self._add_chapter_member(chapter.name, self.member.name)
+        if state == "suspended":
+            _update_chapter_membership_status(self.member, "Suspended")
+        elif state == "removed":
+            frappe.get_doc("Chapter", chapter.name).member_manager.remove_member(
+                self.member.name, leave_reason="left", notify=False
+            )
+        row = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": self.member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        expected = {
+            "pending": (1, "Pending"),
+            "suspended": (1, "Inactive"),
+            "removed": (0, None),
+            "active": (1, "Active"),
+        }[state]
+        self.assertEqual(row.enabled, expected[0], f"fixture: {state} row {row}")
+        if expected[1]:
+            self.assertEqual(row.status, expected[1], f"fixture: {state} row {row}")
+        return chapter
+
+    def _national_error_2704(self, state):
+        self._seat_on_national_board_2704(state)
+        cat = self._make_expense_category(policy_covered=0, name_hint="Luxury")
+        return self._svc()._validate_national_access(cat.name)
+
+    def test_national_access_active_board_row_control_passes(self):
+        self.assertIsNone(self._national_error_2704("active"))
+
+    def test_national_access_refuses_pending_board_row(self):
+        err = self._national_error_2704("pending")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
+
+    def test_national_access_refuses_suspended_board_row(self):
+        """enabled=1, status=Inactive: what the Member suspend writer really leaves."""
+        err = self._national_error_2704("suspended")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
+
+    def test_national_access_refuses_removed_board_row(self):
+        err = self._national_error_2704("removed")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
+
     # -- _is_policy_covered_expense database vs keyword --
 
     def test_is_policy_covered_db_field(self):

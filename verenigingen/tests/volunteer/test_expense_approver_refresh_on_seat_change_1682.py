@@ -465,6 +465,47 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         self.assertEqual(many, few)
         self.assertLessEqual(few, 2, "the join, plus at most a cold read of the national chapter setting")
 
+    def _fed_after_row_state_2704(self, state):
+        """Is the claimant fed by the chapter once their row is in ``state`` (real writers)?"""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+        from verenigingen.services.volunteer import native_expense_helpers as helpers
+
+        member = self.create_test_member(first_name="Fed2704", last_name="Er", birth_date="1990-01-01")
+        volunteer = self.create_test_volunteer(member_name=member.name)
+        employee = self._employee_for(volunteer)
+        chapter = self.ensure_test_chapter(f"Fed2704{state}{frappe.generate_hash(length=4)}")
+        if state == "pending":
+            frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(member.name, notify=False)
+        else:
+            chapter_doc = frappe.get_doc("Chapter", chapter.name)
+            chapter_doc.append("members", {"member": member.name, "enabled": 1})
+            chapter_doc.save()
+        if state == "suspended":
+            _update_chapter_membership_status(member, "Suspended")
+        elif state == "removed":
+            frappe.get_doc("Chapter", chapter.name).member_manager.remove_member(
+                member.name, leave_reason="left", notify=False
+            )
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": member.name}, ["enabled", "status"], as_dict=True
+        )
+        self.assertEqual(row.enabled, 0 if state == "removed" else 1, f"fixture: {state} row {row}")
+        self.assertTrue(employee)
+        return volunteer.name in helpers._volunteers_fed_by_chapter(chapter.name, set())
+
+    def test_an_active_row_feeds_the_claimant_control(self):
+        self.assertTrue(self._fed_after_row_state_2704("active"))
+
+    def test_a_pending_row_does_not_feed_the_claimant(self):
+        self.assertFalse(self._fed_after_row_state_2704("pending"))
+
+    def test_a_suspended_row_does_not_feed_the_claimant(self):
+        """enabled=1, status=Inactive: an enabled-only filter would still include them."""
+        self.assertFalse(self._fed_after_row_state_2704("suspended"))
+
+    def test_a_removed_row_does_not_feed_the_claimant(self):
+        self.assertFalse(self._fed_after_row_state_2704("removed"))
+
     # ------------------------------------------------------------- #2553 residuals
     def _swap_seat_holder_in_chapter_save(self, row_name, new_volunteer_name, chapter_name=None):
         """The REAL Chapter save: reassign an existing active row to another volunteer."""

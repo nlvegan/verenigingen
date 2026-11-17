@@ -113,3 +113,47 @@ class TestVolunteerProfilePage(EnhancedTestCase):
 
         orgs = profile.get_volunteer_organizations(self.volunteer.name)
         self.assertIn(team.name, [t["name"] for t in orgs["teams"]])
+
+    # ---- #2704: only an enabled AND Active Chapter Member row is a membership ----
+
+    def test_get_volunteer_organizations_lists_only_active_chapter_rows_2704(self):
+        """Rows are left by the real writers: the Member suspend writer (enabled=1/Inactive) first,
+        since it flips every row the member has, then request_to_join (Pending),
+        remove_member(permanent=False) (enabled=0) and a plain add (Active, the control)."""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+
+        chapters = {s: self.ensure_test_chapter(f"Org2704{s}").name for s in ("active", "pending", "suspended", "removed")}
+
+        def add(state):
+            chapter_doc = frappe.get_doc("Chapter", chapters[state])
+            chapter_doc.append("members", {"member": self.member.name, "enabled": 1})
+            chapter_doc.save()
+
+        add("suspended")
+        _update_chapter_membership_status(self.member, "Suspended")
+        add("active")
+        frappe.get_doc("Chapter", chapters["pending"]).member_manager.request_to_join(
+            self.member.name, notify=False
+        )
+        add("removed")
+        frappe.get_doc("Chapter", chapters["removed"]).member_manager.remove_member(
+            self.member.name, leave_reason="left", notify=False
+        )
+        rows = {
+            state: frappe.db.get_value(
+                "Chapter Member",
+                {"parent": name, "member": self.member.name},
+                ["enabled", "status"],
+                as_dict=True,
+            )
+            for state, name in chapters.items()
+        }
+        self.assertEqual((rows["suspended"].enabled, rows["suspended"].status), (1, "Inactive"), rows)
+        self.assertEqual((rows["pending"].enabled, rows["pending"].status), (1, "Pending"), rows)
+        self.assertEqual(rows["removed"].enabled, 0, rows)
+        self.assertEqual((rows["active"].enabled, rows["active"].status), (1, "Active"), rows)
+
+        names = [c["name"] for c in profile.get_volunteer_organizations(self.volunteer.name)["chapters"]]
+        self.assertIn(chapters["active"], names)
+        for state in ("pending", "suspended", "removed"):
+            self.assertNotIn(chapters[state], names, f"a {state} row must not count as membership")
