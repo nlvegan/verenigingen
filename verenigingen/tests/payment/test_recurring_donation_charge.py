@@ -1062,6 +1062,8 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         TestFullyProcessedPathDoesNotFetch guards.
         """
         payment_id = f"tr_outage_{self.tag}"
+        frappe.local.response_headers.pop("Retry-After", None)
+        self.addCleanup(frappe.local.response_headers.pop, "Retry-After", None)
         result = self._deliver_with_client(_UnreachableClient(), payment_id)
 
         self.assertEqual(
@@ -1070,7 +1072,8 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             f"the Mollie outage must reach STEP 1's 503 branch, not the outer handler: {result}",
         )
         self.assertEqual(frappe.local.response.http_status_code, 503)
-        self.assertEqual(frappe.local.response["Retry-After"], "60")
+        self.assertEqual(frappe.local.response_headers.get("Retry-After"), "60")
+        self.assertNotIn("Retry-After", frappe.local.response)
 
     def test_a_recurring_charge_books_end_to_end(self):
         origin = self._setup_origin()
