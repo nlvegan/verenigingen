@@ -331,29 +331,6 @@ class MollieClient:
     def _read_resource_page(self, resource: str, params: Dict[str, Any]) -> Any:
         return getattr(self._get_mollie_client(), resource).list(**params)
 
-    def read_customer_payments(self, customer_id: str, limit: int = 50) -> list:
-        """
-        A customer's payments as a list, with retry (a pure read).
-
-        Unlike `list_customer_payments` this retries, so the existing callers of
-        that method are unchanged (#2755).
-
-        Raises:
-            MolliePaymentError: When the payments cannot be retrieved after retries
-        """
-        try:
-            return self._read_customer_payments(customer_id, limit)
-        except Exception as e:
-            reraise_if_job_timeout(e)
-            error_msg = f"Failed to list payments for customer {customer_id}: {e}"
-            frappe.log_error(title="Mollie Client", message=error_msg)
-            raise MolliePaymentError(error_msg, original_error=e)
-
-    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "read_customer_payments")
-    def _read_customer_payments(self, customer_id: str, limit: int) -> list:
-        customer = self._get_mollie_client().customers.get(customer_id)
-        return list(customer.payments.list(limit=limit))
-
     def update_subscription(self, customer_id: str, subscription_id: str, update_data: Dict[str, Any]) -> Any:
         """
         PATCH fields on an existing subscription (amount, description,

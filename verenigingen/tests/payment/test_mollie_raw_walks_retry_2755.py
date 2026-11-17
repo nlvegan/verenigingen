@@ -89,29 +89,14 @@ class _FakeSdk:
             "refunds.list": 0,
             "chargebacks.list": 0,
             "get_next": 0,
-            "customers.get": 0,
-            "customer.payments.list": 0,
         }
         for name in ("payments", "refunds", "chargebacks"):
             setattr(self, name, _Resource(self, name, pages_by_resource.get(name, [[]])))
-        self._customer_payments = pages_by_resource.get("customer_payments", [])
-        self.customers = SimpleNamespace(get=self._customers_get)
 
     def fail_if_scripted(self, name):
         queue = self._failures.get(name)
         if queue:
             raise queue.pop(0)
-
-    def _customers_get(self, customer_id):
-        self.calls["customers.get"] += 1
-        self.fail_if_scripted("customers.get")
-
-        def _list(limit=None):
-            self.calls["customer.payments.list"] += 1
-            self.fail_if_scripted("customer.payments.list")
-            return list(self._customer_payments)
-
-        return SimpleNamespace(payments=SimpleNamespace(list=_list))
 
 
 class _RetryWalkBase(EnhancedTestCase):
@@ -306,47 +291,6 @@ class TestBulkPaymentAdminWalk(_PaymentsWalkBase):
         self.assertNotIn("error", out)
         self.assertEqual(out["total_payments_found"], 3)
         self.assertEqual(sdk.calls["payments.list"], 2)
-        self.sleep.assert_not_called()
-
-
-class TestDuesBatchWalk(_PaymentsWalkBase):
-    """`DuesPaymentProcessor.batch_process_customer_payments`: the customer's payments read."""
-
-    def _walk(self, sdk):
-        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
-            DuesPaymentProcessor,
-        )
-
-        return self.run_over_sdk(
-            sdk, lambda: DuesPaymentProcessor().batch_process_customer_payments("cst_2755", limit=5),
-            "Mollie Batch Processing Error",
-        )
-
-    def test_a_429_on_the_customer_read_is_retried_and_the_batch_completes(self):
-        sdk = _FakeSdk(customer_payments=[], failures={"customers.get": [_mollie_429_2755()]})
-        out = self._walk(sdk)
-
-        self.assertNotIn("error", out)
-        self.assertEqual(out["total_retrieved"], 0)
-        self.assertEqual(sdk.calls["customers.get"], 2)
-        self.assertEqual(sdk.calls["customer.payments.list"], 1)
-        self.assertEqual(self.sleep.call_count, 1)
-        self.assertEqual(self.client_error_rows(), 0)
-
-    def test_a_persistent_failure_is_recorded_once_by_the_client_and_the_batch_reports_the_error(self):
-        sdk = _FakeSdk(failures={"customer.payments.list": [_mollie_429_2755() for _ in range(3)]})
-        out = self._walk(sdk)
-
-        self.assertIn("429", out["error"])
-        self.assertEqual(sdk.calls["customer.payments.list"], 3)
-        self.assertEqual(self.client_error_rows(), 1)
-
-    def test_a_healthy_read_makes_one_request_per_step_and_never_sleeps(self):
-        sdk = _FakeSdk(customer_payments=[])
-        out = self._walk(sdk)
-
-        self.assertNotIn("error", out)
-        self.assertEqual((sdk.calls["customers.get"], sdk.calls["customer.payments.list"]), (1, 1))
         self.sleep.assert_not_called()
 
 

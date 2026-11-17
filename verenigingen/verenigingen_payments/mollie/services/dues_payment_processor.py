@@ -1576,7 +1576,8 @@ class DuesPaymentProcessor:
 
         try:
             # Retrieve all payments for customer
-            payments = self.mollie_client.read_customer_payments(customer_id, limit=limit)
+            customer_obj = self.mollie_client.sdk_client.customers.get(customer_id)
+            payments = customer_obj.payments.list(limit=limit)
 
             batch_result["total_retrieved"] = len(payments)
 
