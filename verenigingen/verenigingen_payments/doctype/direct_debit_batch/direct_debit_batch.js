@@ -827,9 +827,17 @@ function mark_as_processed_dialog(frm) {
 				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.mark_invoices_as_paid',
 				args: { batch_name: frm.doc.name },
 				callback(r) {
-					if (!r.exc && r.message) {
+					if (!r.exc) {
 						frm.reload_doc();
-						frappe.msgprint(__('Successfully processed {0} payments', [r.message]));
+						// #2573: 0 means no NEW payment was created (rows already collected are
+						// skipped); say so instead of closing silently or claiming success.
+						frappe.msgprint(
+							r.message
+								? __('Successfully processed {0} payments', [r.message])
+								: __(
+										'No new payments were processed. Invoices already collected were skipped; check the invoice rows for any that failed.'
+									)
+						);
 						dialog.hide();
 					}
 				},
