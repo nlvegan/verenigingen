@@ -503,7 +503,6 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
                 "custom_frequency_unit",
                 "dues_rate",
                 "next_invoice_date",
-                "last_invoice_date",
             ],
             limit=1,
         )
@@ -542,10 +541,6 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
             # Skip if payment date is in the past
             if payment_date < getdate(today()):
                 continue
-
-            # Check if payment date is beyond last invoice date (if set)
-            if dues_schedule.last_invoice_date and payment_date > getdate(dues_schedule.last_invoice_date):
-                break
 
             # Build user-friendly description
             frequency_label = {
