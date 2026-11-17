@@ -93,6 +93,8 @@ from .managers import (
 )
 from .validators import ChapterValidator
 
+LIVE_ASSIGNMENT_STATUSES_2745 = ("Active", "Paused", "On Hold")
+
 
 class Chapter(Document):
     """
@@ -301,10 +303,55 @@ class Chapter(Document):
             _withdraw_access_without_chapter,
         )
 
+        self._complete_history_of_deleted_chapter()
         for volunteer in self.flags.board_volunteers_2147 or []:
             if not frappe.db.exists("Volunteer", volunteer):
                 continue  # deleted first: no member, no user, nothing left to withdraw from
             _withdraw_access_without_chapter(volunteer)
+
+    def _complete_history_of_deleted_chapter(self):
+        """Unlink every Volunteer Assignment entry naming (and complete the live ones of) this deleted Chapter (#2745).
+
+        Completing alone is not enough: the entry's Dynamic Link would still point at nothing,
+        and a Volunteer save refuses ANY entry with a missing target (whatever its status), so
+        the volunteer stays unsaveable. The pointer is cleared and the Chapter name moved into
+        ``notes``, so the history keeps what it recorded. The rows are written directly (the
+        Chapter is gone, so the normal completion path cannot run), then each holder's status
+        is re-derived. Keyed on the entries, not on ``board_volunteers_2147``, so a non-board
+        entry is closed too. Same shape as ``_complete_orphan_assignment_history`` (#2607).
+        """
+        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+        entries = frappe.get_all(
+            "Volunteer Assignment",
+            filters={
+                "parenttype": "Volunteer",
+                "reference_doctype": "Chapter",
+                "reference_name": self.name,
+            },
+            fields=["name", "parent", "notes", "status"],
+        )
+        for entry in entries:
+            frappe.db.set_value(
+                "Volunteer Assignment",
+                entry.name,
+                self._unlinked_entry_values(entry),
+                update_modified=False,
+            )
+        for volunteer in dict.fromkeys(entry.parent for entry in entries):
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer)
+
+    def _unlinked_entry_values(self, entry):
+        """Values that unlink ``entry`` from this deleted Chapter and, if still live, complete it (#2745)."""
+        note = _("Chapter {0} was deleted.").format(self.name)
+        values = {
+            "reference_doctype": None,
+            "reference_name": None,
+            "notes": "\n".join(filter(None, [entry.notes, note])),
+        }
+        if entry.status in LIVE_ASSIGNMENT_STATUSES_2745:
+            values.update({"status": "Completed", "end_date": today()})
+        return values
 
     def after_rename(self, old_name, new_name, merge=False):
         """Handle department renaming when chapter is renamed.
