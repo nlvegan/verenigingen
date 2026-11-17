@@ -4,6 +4,7 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.core.compliance.data_retention_policy import (
     DataCategory,
     DataRetentionPolicy,
+    run_scheduled_retention_policies,
 )
 
 
@@ -80,3 +81,65 @@ class TestDataRetentionSettings(VereningingenTestCase):
         self.assertEqual(policy.retention_periods[DataCategory.PAYMENT_DATA], 999)
         # seeded defaults set live_enabled=0 everywhere -> flag loaded as False
         self.assertFalse(policy.category_live_flags[DataCategory.PAYMENT_DATA])
+
+
+class TestStaleSettingsSaveKeepsRunStatus2739(VereningingenTestCase):
+    """#2739: a form loaded BEFORE a scheduled run must not roll the run status back.
+
+    The weekly job writes ``last_run`` / ``last_run_summary`` with
+    ``set_single_value(update_modified=False)``, so ``modified`` does not move and
+    Frappe's stale-save check cannot refuse a stale Single save, which rewrites every
+    tabSingles row from the in-memory doc. The writer is the REAL ``run_scheduled_retention_policies``
+    (disabled by default, so no policy runs): the second branch writes an ERROR summary,
+    which is forced by making ``apply_retention_policies`` raise.
+    """
+
+    DOCTYPE = "Data Retention Settings"
+
+    def _raw(self, field):
+        row = frappe.db.sql(
+            "SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (self.DOCTYPE, field)
+        )
+        return row[0][0] if row else None
+
+    def _run_the_job_after_loading_a_stale_doc(self):
+        from unittest.mock import patch
+
+        settings = frappe.get_single(self.DOCTYPE)
+        settings.enabled = 1
+        settings.save()
+        frappe.db.set_single_value(
+            self.DOCTYPE,
+            {"last_run": "2020-01-01 00:00:00", "last_run_summary": "old"},
+            update_modified=False,
+        )
+        frappe.clear_document_cache(self.DOCTYPE, self.DOCTYPE)
+        stale = frappe.get_doc(self.DOCTYPE)  # the form open in a browser tab
+        self.assertEqual(stale.last_run_summary, "old")
+        # boundary stub: the retention engine itself; the writer under test is the job's own
+        with patch.object(DataRetentionPolicy, "apply_retention_policies", side_effect=RuntimeError("boom")):
+            with patch.object(frappe.db, "commit"):
+                run_scheduled_retention_policies()
+        return stale
+
+    def test_stale_save_does_not_roll_back_the_run_summary(self):
+        stale = self._run_the_job_after_loading_a_stale_doc()
+        written = self._raw("last_run_summary")
+        self.assertEqual(written, "ERROR: boom")
+        stale.save()
+        self.assertEqual(self._raw("last_run_summary"), written)
+
+    def test_stale_save_does_not_roll_back_last_run(self):
+        stale = self._run_the_job_after_loading_a_stale_doc()
+        written = self._raw("last_run")
+        self.assertNotIn("2020-01-01", str(written))
+        stale.save()
+        self.assertEqual(self._raw("last_run"), written)
+
+    def test_control_a_stale_save_still_writes_what_staff_edit(self):
+        """Control: only the job-owned fields are re-read; a staff edit still lands."""
+        stale = self._run_the_job_after_loading_a_stale_doc()
+        stale.dry_run_only = 0
+        stale.save()
+        self.assertEqual(int(self._raw("dry_run_only")), 0)
+        self.assertEqual(self._raw("last_run_summary"), "ERROR: boom")
