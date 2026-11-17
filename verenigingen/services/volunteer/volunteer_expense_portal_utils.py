@@ -506,7 +506,7 @@ def validate_expense_data(expense_data: dict, line_number: int) -> list:
             )
 
     # Description validation
-    description = expense_data.get("description", "").strip()
+    description = (expense_data.get("description") or "").strip()
     if description and len(description) > 200:
         errors.append(
             {
