@@ -44,6 +44,9 @@ class TestBillingFrequencyLabels2688(PortalPageTestBase):
         with self.as_user(user):
             return get_response_content(page)
 
+    def _label_span(self, label):
+        return f'<span class="text-sm text-gray-500">{label}</span>'
+
     def _current_rate_line(self, html):
         start = html.index("Current rate")
         return html[start : html.index("</p>", start)]
@@ -63,5 +66,8 @@ class TestBillingFrequencyLabels2688(PortalPageTestBase):
         html = self._render_label_page_2688("my_dues_schedule", self._member_with_frequency("Annual"))
         # control: the page really rendered the schedule card
         self.assertIn("Billing Frequency", html)
-        for dead_label in ("Start Date", "End Date", "Auto-Renewal"):
+        # control: a row that is still there renders in exactly this span shape
+        self.assertIn(self._label_span("Payment Method"), html)
+        for dead_label in ("Start Date", "End Date", "Auto-Renewal", "Notification"):
+            self.assertNotIn(self._label_span(dead_label), html)
             self.assertNotIn(dead_label, html)

@@ -71,7 +71,13 @@ class TestMembershipAnalyticsBillingVocabulary2688(EnhancedTestCase):
                 "custom_frequency_unit": unit or "Days",
             },
         )
-        frappe.db.set_value("Member", member.name, "dues_rate", RATE)
+        # Pinned to 1 January so days left in the year never depends on the run date
+        # (a member_since of today gives 0 days on 31 December).
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"dues_rate": RATE, "member_since": f"{now_datetime().year}-01-01"},
+        )
         return member.name
 
     def _expected(self, member_name, per_year, year):
@@ -99,5 +105,5 @@ class TestMembershipAnalyticsBillingVocabulary2688(EnhancedTestCase):
                 expected = self._expected(member_name, per_year, year)
                 self.assertGreater(expected, 0, "member_since must leave days to estimate")
                 after = self._ungenerated(year)
-                self.assertAlmostEqual(after - baseline, expected, delta=0.05)
-                baseline = after
+                delta, baseline = after - baseline, after  # advance first: one bad case must not cascade
+                self.assertAlmostEqual(delta, expected, delta=0.05)
