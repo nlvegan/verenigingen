@@ -741,9 +741,6 @@ class TestProcessMollieSettlement(MollieBase):
             btr.SettlementsClient = original
 
 
-# =============================================================================
-# create_reconciliation — the "mollie_settlement" match branch (586-616)
-# =============================================================================
 class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
     """#2521 (class of #856/#209/#939): a draft or cancelled invoice is not payable.
 
@@ -761,7 +758,7 @@ class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
     thing its error path returns), so the ``exists`` lookup is the one that runs.
     """
 
-    def _invoice(self, state, first_name, grand_total=25.0):
+    def _make_unsubmitted_state_invoice(self, state, first_name, grand_total=25.0):
         it = self._make_member_with_invoice(
             first_name=first_name, grand_total=grand_total, submit=(state != "draft")
         )
@@ -816,22 +813,22 @@ class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
         self.assertEqual(self._error_log_rows_for(payment_id), [], "an expected outcome logs no traceback")
 
     def test_draft_invoice_is_named_not_submitted_batched(self):
-        invoice = self._invoice("draft", "Unsub Draft B")
+        invoice = self._make_unsubmitted_state_invoice("draft", "Unsub Draft B")
         result, sid, pid = self._settle(invoice, batched=True)
         self._assert_named_and_failed_safe(result, invoice, sid, pid)
 
     def test_draft_invoice_is_named_not_submitted_per_invoice(self):
-        invoice = self._invoice("draft", "Unsub Draft P")
+        invoice = self._make_unsubmitted_state_invoice("draft", "Unsub Draft P")
         result, sid, pid = self._settle(invoice, batched=False)
         self._assert_named_and_failed_safe(result, invoice, sid, pid)
 
     def test_cancelled_invoice_is_named_not_submitted_batched(self):
-        invoice = self._invoice("cancelled", "Unsub Cancel B")
+        invoice = self._make_unsubmitted_state_invoice("cancelled", "Unsub Cancel B")
         result, sid, pid = self._settle(invoice, batched=True)
         self._assert_named_and_failed_safe(result, invoice, sid, pid)
 
     def test_cancelled_invoice_is_named_not_submitted_per_invoice(self):
-        invoice = self._invoice("cancelled", "Unsub Cancel P")
+        invoice = self._make_unsubmitted_state_invoice("cancelled", "Unsub Cancel P")
         result, sid, pid = self._settle(invoice, batched=False)
         self._assert_named_and_failed_safe(result, invoice, sid, pid)
 
@@ -840,7 +837,9 @@ class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
         it must not be reached for an unsubmitted invoice at all."""
         for batched in (True, False):
             with self.subTest(batched=batched):
-                invoice = self._invoice("draft", f"Unsub Diff {batched}", grand_total=25.0)
+                invoice = self._make_unsubmitted_state_invoice(
+                    "draft", f"Unsub Diff {batched}", grand_total=25.0
+                )
                 differing = f"{flt(invoice.grand_total) + 100:.2f}"
                 result, sid, pid = self._settle(invoice, batched, payment_value=differing)
                 self._assert_named_and_failed_safe(result, invoice, sid, pid)
@@ -849,7 +848,7 @@ class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
         """Control, with a real submitted row for the wrong behaviour to find."""
         for batched in (True, False):
             with self.subTest(batched=batched):
-                invoice = self._invoice("submitted", f"Unsub Ok {batched}")
+                invoice = self._make_unsubmitted_state_invoice("submitted", f"Unsub Ok {batched}")
                 result, sid, pid = self._settle(invoice, batched)
                 self.assertEqual([d["status"] for d in result["details"]], ["success"])
                 self.assertEqual(result["processed_count"], 1)
@@ -861,6 +860,9 @@ class TestSettlementSkipsUnsubmittedInvoice(MollieBase):
                 self.assertEqual(len(refs), 1)
 
 
+# =============================================================================
+# create_reconciliation — the "mollie_settlement" match branch (586-616)
+# =============================================================================
 class TestCreateReconciliationMollieBranch(MollieBase):
     def test_mollie_settlement_branch_reconciles(self):
         it = self._make_member_with_invoice(first_name="MollieRecon", grand_total=30.0)
