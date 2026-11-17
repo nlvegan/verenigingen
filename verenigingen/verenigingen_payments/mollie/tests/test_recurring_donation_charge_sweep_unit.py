@@ -525,8 +525,11 @@ class TestSweepRetriesMollieReads(_SweepTestBase):
             {f"sub_{tag2}": [[_payment(f"tr_ok_{tag2}")]]},
             failures={"customers.get": [_too_many_requests() for _ in range(3)]},
         )
+        client_rows_before = frappe.db.count("Error Log", {"method": "Mollie Client"})
         summary = self._run_sweep_over_sdk(sdk)
 
+        # One Error Log row for the failed subscription, not one per attempt.
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Mollie Client"}) - client_rows_before, 1)
         self.assertEqual(len(summary["errors"]), 1)
         self.assertEqual(summary["errors"][0]["subscription_id"], f"sub_{tag}")
         self.assertIn("429", summary["errors"][0]["error"])

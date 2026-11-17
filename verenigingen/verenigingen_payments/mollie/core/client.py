@@ -252,7 +252,6 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
-    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "list_subscription_payments")
     def list_subscription_payments(self, customer_id: str, subscription_id: str, limit: int = 250) -> Any:
         """
         First page of a subscription's payments (newest first), with retry.
@@ -261,13 +260,15 @@ class MollieClient:
         SDK's paginated list; advance it with `get_next_payments_page`, not
         `page.get_next()`, so every page request is retried too (#929).
 
+        The retried part is `_read_subscription_payments`; the error is logged
+        and wrapped here, once, after the retries are exhausted, rather than
+        once per attempt.
+
         Raises:
             MolliePaymentError: When the page cannot be retrieved after retries
         """
         try:
-            client = self._get_mollie_client()
-            subscription = client.customers.get(customer_id).subscriptions.get(subscription_id)
-            return subscription.payments.list(limit=limit)
+            return self._read_subscription_payments(customer_id, subscription_id, limit)
         except Exception as e:
             error_msg = (
                 f"Failed to list payments of subscription {subscription_id} for customer {customer_id}: {e}"
@@ -275,7 +276,12 @@ class MollieClient:
             frappe.log_error(title="Mollie Client", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
 
-    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "get_next_payments_page")
+    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "list_subscription_payments")
+    def _read_subscription_payments(self, customer_id: str, subscription_id: str, limit: int) -> Any:
+        client = self._get_mollie_client()
+        subscription = client.customers.get(customer_id).subscriptions.get(subscription_id)
+        return subscription.payments.list(limit=limit)
+
     def get_next_payments_page(self, page: Any) -> Any:
         """
         The page after `page` from `list_subscription_payments`, with retry (a pure read).
@@ -284,11 +290,15 @@ class MollieClient:
             MolliePaymentError: When the page cannot be retrieved after retries
         """
         try:
-            return page.get_next()
+            return self._read_next_payments_page(page)
         except Exception as e:
             error_msg = f"Failed to fetch the next page of Mollie payments: {e}"
             frappe.log_error(title="Mollie Client", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "get_next_payments_page")
+    def _read_next_payments_page(self, page: Any) -> Any:
+        return page.get_next()
 
     def update_subscription(self, customer_id: str, subscription_id: str, update_data: Dict[str, Any]) -> Any:
         """
