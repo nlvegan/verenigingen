@@ -57,32 +57,25 @@ def get_volunteer_expense_statistics(volunteer_name: str) -> tuple[dict, str]:
         if not volunteer_doc.employee_id:
             return get_empty_statistics(), "No employee_id found for volunteer"
 
-        # Single optimized query for statistics
-        stats_result = frappe.db.sql(
-            """
-            SELECT
-                COUNT(*) as total_count,
-                COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
-                COALESCE(SUM(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
-                    ELSE 0
-                END), 0) as total_approved,
-                COUNT(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN 1
-                END) as approved_count
-            FROM `tabExpense Claim`
-            WHERE employee = %s AND docstatus != 2
-        """,
-            [volunteer_doc.employee_id],
-            as_dict=True,
-        )[0]
+        # get_list, not raw SQL: the permission query must scope the caller (#1819).
+        claims = frappe.get_list(
+            "Expense Claim",
+            filters={"employee": volunteer_doc.employee_id, "docstatus": ["!=", 2]},
+            fields=["total_claimed_amount", "total_sanctioned_amount", "status", "approval_status"],
+            limit_page_length=0,
+        )
 
-        total_submitted = flt(stats_result.total_submitted)
-        total_approved = flt(stats_result.total_approved)
-        approved_count = int(stats_result.approved_count or 0)
-        total_count = int(stats_result.total_count or 0)
+        total_count = len(claims)
+        total_submitted = sum(flt(c.total_claimed_amount) for c in claims)
+        approved = [
+            c for c in claims if c.status in ("Paid", "Reimbursed") or c.approval_status == "Approved"
+        ]
+        approved_count = len(approved)
+        # as the former COALESCE(total_sanctioned_amount, total_claimed_amount)
+        total_approved = sum(
+            flt(c.total_claimed_amount if c.total_sanctioned_amount is None else c.total_sanctioned_amount)
+            for c in approved
+        )
         pending_count = total_count - approved_count
 
         debug_msg = (
@@ -247,8 +240,10 @@ def get_volunteer_expenses_from_claims(volunteer_name: str, limit: Optional[int]
         if not volunteer_doc.employee_id:
             return []
 
-        # Get expense claims for this employee
-        expense_claims = frappe.get_all(
+        # Get expense claims for this employee. get_list, not get_all: the caller must only
+        # read claims the Expense Claim permission query lets them list (#1819); a volunteer
+        # whose employee_id is not the caller's own Employee gets nothing.
+        expense_claims = frappe.get_list(
             "Expense Claim",
             filters={"employee": volunteer_doc.employee_id, "docstatus": ["!=", 2]},  # Exclude cancelled
             fields=[
@@ -265,7 +260,7 @@ def get_volunteer_expenses_from_claims(volunteer_name: str, limit: Optional[int]
                 "custom_expense_category",
             ],
             order_by="posting_date desc",
-            limit=limit,
+            limit_page_length=limit or 0,  # get_list defaults to 20; get_all to unlimited
         )
 
         expenses = []

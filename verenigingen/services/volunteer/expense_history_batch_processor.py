@@ -85,6 +85,8 @@ class ExpenseHistoryBatchProcessor:
         Returns list of expense claims that need to be processed.
         """
         # Submitted claims only (docstatus 1) -- matches the live on_submit path.
+        # get_all on purpose (#1819): a system-wide batch (scheduler / ADMIN-gated endpoint)
+        # that must see every claim; scoping it to a caller would silently skip history.
         all_claims = frappe.get_all(
             "Expense Claim",
             filters={"docstatus": 1},
