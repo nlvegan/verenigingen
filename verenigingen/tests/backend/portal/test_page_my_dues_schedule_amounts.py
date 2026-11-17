@@ -188,3 +188,70 @@ class TestMyDuesScheduleAmounts(PortalPageTestBase):
         )
         self.assertEqual(info["percentage"], round(covered * 100 / window))
         self.assertEqual(info["covered_months"], round(covered * 12 / window))
+
+    def _submitted_unpaid_invoice_covering(self, member, start, end):
+        """A real submitted, UNPAID invoice with its coverage ledger set directly (probe shortcut)."""
+        invoice = self.create_test_sales_invoice(member.name)
+        if invoice.docstatus == 0:
+            invoice.submit()
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"custom_coverage_start_date": start, "custom_coverage_end_date": end},
+        )
+        return invoice
+
+    def _current_running_period(self):
+        as_of = frappe.utils.getdate(frappe.utils.today())
+        start = frappe.utils.add_days(as_of, -30)
+        return start, frappe.utils.add_days(frappe.utils.add_months(start, 12), -1)
+
+    def test_an_unpaid_invoice_with_coverage_dates_covers_nothing(self):
+        """Control (#2767 review F2): the period is current and the invoice is real, only unpaid."""
+        from verenigingen.templates.pages.my_dues_schedule import get_coverage_info
+
+        start, end = self._current_running_period()
+        member, user = self._member_with_schedule("Annual", 0, "Days")
+        invoice = self._submitted_unpaid_invoice_covering(member, start, end)
+        self.assertGreater(invoice.outstanding_amount, 0)
+        info = get_coverage_info(member.name, self._context(user).current_schedule)
+        self.assertEqual(info["percentage"], 0)
+        self.assertEqual(info["covered_months"], 0)
+
+    def test_a_credit_noted_unpaid_invoice_covers_nothing(self):
+        """Control (#2767 review F2/F1): make_sales_return with update_outstanding_for_self=0
+        takes the ORIGINAL to outstanding 0 / "Credit Note Issued" though nobody paid, and the
+        return invoice copies the coverage dates. Neither may count."""
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+
+        from verenigingen.templates.pages.my_dues_schedule import get_coverage_info
+
+        start, end = self._current_running_period()
+        member, user = self._member_with_schedule("Annual", 0, "Days")
+        invoice = self._submitted_unpaid_invoice_covering(member, start, end)
+        credit_note = make_sales_return(invoice.name)
+        credit_note.update_outstanding_for_self = 0
+        credit_note.insert()
+        credit_note.submit()
+        self.factory.track_document("Sales Invoice", credit_note.name, priority=6)
+        invoice.reload()
+        credit_note.reload()
+        self.assertEqual(invoice.outstanding_amount, 0)
+        self.assertEqual(invoice.status, "Credit Note Issued")
+        self.assertEqual(credit_note.custom_coverage_start_date, start)
+        info = get_coverage_info(member.name, self._context(user).current_schedule)
+        self.assertEqual(info["percentage"], 0)
+        self.assertEqual(info["covered_months"], 0)
+
+    def test_custom_schedule_without_interval_returns_none_coverage(self):
+        """Direct (#2767 review F3): the unknown-period branch, with a paid current-period invoice
+        that WOULD otherwise give a percentage."""
+        from verenigingen.templates.pages.my_dues_schedule import get_coverage_info
+
+        start, end = self._current_running_period()
+        member, user = self._member_with_schedule("Custom", 0, "Days")
+        self._paid_invoice_covering(member, start, end)
+        info = get_coverage_info(member.name, self._context(user).current_schedule)
+        self.assertIsNone(info["percentage"])
+        self.assertIsNone(info["covered_months"])
+        self.assertEqual(info["total_months"], 12)

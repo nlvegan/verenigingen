@@ -216,7 +216,9 @@ def get_coverage_info(member, current_schedule):
         filters={
             "customer": customer,
             "docstatus": 1,
-            "outstanding_amount": 0,
+            # Not outstanding_amount=0: a credit note that settles an UNPAID invoice also takes
+            # it to 0 ("Credit Note Issued"), and the return copies the coverage dates (#2767).
+            "status": "Paid",
             "custom_coverage_start_date": ["<=", as_of],
             "custom_coverage_end_date": [">=", window_start],
         },
