@@ -143,9 +143,53 @@ class TestChapterBoardJobIds2250(VereningingenTestCase):
         for method, ids in self._ids_by_subscriber(jobs).items():
             self.assertEqual(len(ids), len(set(ids)), f"{method}: {ids}")
 
-    def test_control_a_single_change_keeps_a_stable_id_per_subscriber(self):
-        """One change still dedupes against an identical re-emit (the point of the id)."""
-        first = self._save_recording_enqueues(lambda c: self._row(c, self.volunteers[0], self.role_a))
+    def test_one_volunteer_losing_two_roles_in_one_save_gets_one_job_per_role(self):
+        """Two `removed` events, `role` is None for both: only `old_role` tells them apart."""
+
+        def seat(c):
+            self._row(c, self.volunteers[0], self.role_a)
+            self._row(c, self.volunteers[0], self.role_b)
+
+        self._save_recording_enqueues(seat)
+
+        def deactivate(c):
+            for bm in c.board_members:
+                bm.is_active = 0
+
+        jobs = self._save_recording_enqueues(deactivate)
+        self.assertEqual(len(jobs), 6, [j["event_data"] for j in jobs])
+        self.assertEqual({j["event_data"]["action"] for j in jobs}, {"removed"})
+        for method, ids in self._ids_by_subscriber(jobs).items():
+            self.assertEqual(len(ids), len(set(ids)), f"{method}: {ids}")
+
+    def test_control_the_same_change_emitted_twice_gets_the_same_ids(self):
+        """An identical re-emit must still collide, or deduplicate=True protects nothing."""
+        from verenigingen.events.chapter_events import emit_chapter_board_changed
+
+        payload = {
+            "volunteer": self.volunteers[0].name,
+            "action": "added",
+            "role": self.role_a.name,
+            "changed_by": "Administrator",
+        }
+
+        def emit():
+            jobs = []
+            real_enqueue = frappe.enqueue
+
+            def recording_enqueue(*args, **kwargs):
+                jobs.append(kwargs)
+                # Mock justified: the boundary under test is the worker queue (CI has none).
+
+            frappe.enqueue = recording_enqueue
+            try:
+                emit_chapter_board_changed(self.chapter.name, dict(payload))
+            finally:
+                frappe.enqueue = real_enqueue
+            return jobs
+
+        first, second = emit(), emit()
         self.assertEqual(len(first), 3)
+        self.assertEqual({j["job_id"] for j in first}, {j["job_id"] for j in second})
         self.assertEqual(len({j["job_id"] for j in first}), 3, "one id per subscriber")
-        self.assertTrue(all(j["deduplicate"] is True for j in first))
+        self.assertTrue(all(j["deduplicate"] is True for j in first + second))
