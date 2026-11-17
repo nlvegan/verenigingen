@@ -14,12 +14,15 @@ def get_data():
     # one. There is no field anywhere that holds a SEPA Mandate's docname on any of
     # these three doctypes, so the items are dropped rather than "fixed" with a
     # mapping that could never match.
+    #
+    # "Payment Entry" is absent for the same reason (#1318): it was mapped via
+    # `remarks`, ERPNext's free-text narrative, which never holds a mandate name.
+    # Payment Entry has no field that holds a SEPA Mandate; its only SEPA field,
+    # `custom_sepa_batch`, links to a Direct Debit Batch, which reaches a mandate
+    # only through the mandate_id on a child row.
     return {
         "fieldname": "sepa_mandate",
-        "non_standard_fieldnames": {"Payment Entry": "remarks"},
-        "transactions": [
-            {"label": _("Payments"), "items": ["Payment Entry"]},
-        ],
+        "transactions": [],
         "reports": [
             {
                 "label": "Mandate Usage Report",

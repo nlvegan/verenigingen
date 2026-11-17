@@ -40,10 +40,13 @@ Why this needs a test at all:
     `Sales Invoice`, so all three are dropped rather than "fixed" with a mapping
     that can never be correct.
 
-    `Payment Entry` (`non_standard_fieldnames["Payment Entry"] = "remarks"`) is
-    untouched by this fix: `remarks` is a real field on Payment Entry, so the query
-    does not crash, and this test's positive control confirms the fix did not
-    collaterally remove or break it.
+    `Payment Entry` (`non_standard_fieldnames["Payment Entry"] = "remarks"`) was left
+    by #1261 because `remarks` is a real field, so the query does not crash. #1318
+    found it equally dead: `remarks` is ERPNext's free-text narrative, never a
+    mandate docname, so the count was always 0. Payment Entry carries no field that
+    holds a SEPA Mandate (its only SEPA field is `custom_sepa_batch`, a link to
+    Direct Debit Batch, which reaches a mandate only via the mandate_id on a child
+    row -- see above), so #1318 drops it too.
 """
 
 import frappe
@@ -67,10 +70,14 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         data = get_data()
         referenced = _referenced_doctypes(data)
 
-        # Positive control: a doctype this file legitimately still names must not
-        # be flagged, or the assertion below would be vacuously satisfied by an
-        # empty `referenced` set (e.g. a typo'd dict key on get_data()).
-        self.assertIn("Payment Entry", referenced)
+        # Control: the collector must see names when there are some, or the
+        # assertion below would be vacuous now that this dashboard names none.
+        self.assertEqual(
+            _referenced_doctypes(
+                {"non_standard_fieldnames": {"Gone A": "x"}, "transactions": [{"items": ["Gone B"]}]}
+            ),
+            {"Gone A", "Gone B"},
+        )
 
         missing = sorted(d for d in referenced if not frappe.db.exists("DocType", d))
         self.assertEqual(
@@ -97,9 +104,9 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         ).insert(ignore_permissions=True)
 
     def test_get_open_count_does_not_crash_for_a_real_mandate(self):
-        """#1261: the real Desk code path (frappe.desk.notifications.get_open_count)
-        must not raise for a real SEPA Mandate, and the surviving Payment Entry
-        connection must still be queried (positive control)."""
+        """#1261/#1318: the real Desk code path (frappe.desk.notifications.get_open_count)
+        must not raise for a real SEPA Mandate, and must offer no connection that
+        can never match."""
         mandate = self._insert_minimal_test_mandate()
 
         from frappe.desk.notifications import get_open_count
@@ -125,12 +132,38 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         result = get_open_count("SEPA Mandate", mandate.name)
         found_doctypes = {d["doctype"] for d in result["count"]["external_links_found"]}
 
-        # Positive control: Payment Entry's mapping is untouched by this fix and
-        # must still be present -- proves the fix did not also remove it.
-        self.assertIn("Payment Entry", found_doctypes)
+        # #1318: Payment Entry was mapped via free-text `remarks` (always 0).
+        self.assertNotIn("Payment Entry", found_doctypes)
+        self.assertEqual(found_doctypes, set())
 
         # #1261's fix: these three had no field that could ever hold this
         # mandate's docname, so they are no longer offered as connections at all.
         self.assertNotIn("Direct Debit Batch", found_doctypes)
         self.assertNotIn("SEPA Payment Retry", found_doctypes)
         self.assertNotIn("Sales Invoice", found_doctypes)
+
+    def test_dashboard_has_no_free_text_field_mapping(self):
+        """#1318: no `non_standard_fieldnames` entry may point at free text, and the
+        mandate's Reports entry (the part of the tab that works) must survive."""
+        data = get_data()
+        for doctype, fieldname in data.get("non_standard_fieldnames", {}).items():
+            field = frappe.get_meta(doctype).get_field(fieldname)
+            self.assertIsNotNone(field, f"{doctype}.{fieldname} does not exist")
+            self.assertNotIn(field.fieldtype, ("Small Text", "Text", "Long Text", "Text Editor", "Data"))
+        self.assertTrue(data["reports"], "the Mandate Usage Report entry must remain")
+
+    def test_payment_entry_still_has_no_field_that_can_hold_a_mandate(self):
+        """Tripwire for #1318's premise. If Payment Entry ever gains a Link to SEPA
+        Mandate, the item should be restored with that field mapped (and a test that
+        counts a real linked Payment Entry), not left removed."""
+        fields = frappe.get_meta("Payment Entry").fields
+        # Control: the scan sees SEPA-related fields (custom_sepa_batch is one), so
+        # an empty result below is not an artefact of the scan.
+        self.assertIn("custom_sepa_batch", [f.fieldname for f in fields])
+        holders = [
+            f.fieldname
+            for f in fields
+            if (f.fieldtype in ("Link", "Dynamic Link") and f.options == "SEPA Mandate")
+            or "mandate" in f.fieldname
+        ]
+        self.assertEqual(holders, [])
