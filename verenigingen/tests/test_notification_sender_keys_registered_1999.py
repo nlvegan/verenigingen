@@ -23,9 +23,9 @@ assigned from a map the walker reads, ``x["notification_key"]`` or ``x.get("noti
 Today it finds none, so there is no allow-list. A map or positional passing that never reaches a
 ``notification_key=`` keyword is outside the scan.
 
-Two keys sit only in the deprecated ``EmailService.send_notification`` map and no caller passes
-their notification types, so they are unreachable and deliberately not registered
-(``UNREACHABLE``); ``test_the_unreachable_keys_really_are_unreachable`` keeps that honest.
+Two keys used to sit only in the deprecated ``EmailService.send_notification`` map with no caller
+(``UNREACHABLE``); #2019 deleted both map entries, so the set is empty and the guard stays for any
+future entry of that kind.
 """
 
 import ast
@@ -45,8 +45,9 @@ from verenigingen.tests.utils.test_config import disable_test_email_mocking, res
 DOCTYPE = "Verenigingen Email Configuration"
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# deprecated send_notification map entries whose notification_type no caller passes
-UNREACHABLE = {"sepa_mandate_created": "sepa_mandate_created", "board_member_added": "board_member_added"}
+# deprecated send_notification map entries whose notification_type no caller passes. Empty since
+# #2019 deleted the two (sepa_mandate_created, board_member_added): their templates were never shipped.
+UNREACHABLE = {}
 
 
 def _source_files():

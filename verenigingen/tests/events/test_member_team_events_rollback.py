@@ -125,12 +125,18 @@ class TestMemberEventsRollback(_RollbackBase):
     def _approve_2144(self):
         self._set_2144(application_status="Approved")
 
-    def test_control_committed_suspension_mails_the_member(self):
+    def test_committed_suspension_job_no_longer_mails_through_the_unshipped_template(self):
+        # #2019: this control used to assert send_notification was called, i.e. it pinned the
+        # send of the never-shipped "Member Suspension Notification". Suspended mail is sent by
+        # MemberStatusNotificationService (member_lifecycle_notification), so the lifecycle job
+        # must not also send it. The rolled-back test below no longer discriminates for mail;
+        # the approval pair still proves the #2144 guard.
         jobs = self._capture_jobs_2144(self._suspend_2144)
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Suspended")
+        self.assertTrue(any(j["method"].endswith("handle_lifecycle_notifications") for j in jobs))
         with self._mail_boundary() as service:
             self._run_jobs_2144(jobs, only="handle_lifecycle_notifications")
-        service.send_notification.assert_called_once()
+        service.send_notification.assert_not_called()
 
     def test_rolled_back_suspension_sends_no_mail(self):
         jobs = self._rolled_back(self._suspend_2144)

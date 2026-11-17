@@ -154,11 +154,10 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
         if not _member_state_still_holds(member, event_name, event_data):
             return
 
-        # Send lifecycle-specific notifications
-        if new_status == "Suspended":
-            _send_member_status_notification(member, "suspension")
-        elif new_status == "Quit":
-            _send_member_status_notification(member, "termination")
+        # Suspended / Quit mail is NOT sent here: MemberStatusNotificationService already mails
+        # every status change (member_suspended / member_terminated keys) through the shipped
+        # member_lifecycle_notification. The Email Templates this branch asked for were never
+        # shipped, so its send always failed (#2019).
 
         frappe.logger("events").info(
             f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
@@ -258,12 +257,20 @@ def _send_member_status_notification(member, notification_type):
                 f"{notification_type.capitalize()} notification sent to {member.email}"
             )
         else:
-            frappe.logger("events").warning(
-                f"Failed to send {notification_type} notification: {'; '.join(result.errors)}"
+            # Error Log, not frappe.logger(): a bare logger is dropped (level + file-only handlers)
+            frappe.log_error(
+                title="Member Status Notification Failed",
+                message=(
+                    f"Failed to send {notification_type} notification for {member.name}: "
+                    f"{'; '.join(result.errors or [])}"
+                ),
             )
 
     except Exception as e:
-        frappe.logger("events").error(f"Failed to send {notification_type} notification: {str(e)}")
+        frappe.log_error(
+            title="Member Status Notification Failed",
+            message=f"Failed to send {notification_type} notification for {member.name}: {str(e)}",
+        )
 
 
 def _send_lifecycle_notification(member, old_status, new_status):
