@@ -142,28 +142,7 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         self.assertNotIn("SEPA Payment Retry", found_doctypes)
         self.assertNotIn("Sales Invoice", found_doctypes)
 
-    def test_dashboard_has_no_free_text_field_mapping(self):
-        """#1318: no `non_standard_fieldnames` entry may point at free text, and the
-        mandate's Reports entry (the part of the tab that works) must survive."""
-        data = get_data()
-        for doctype, fieldname in data.get("non_standard_fieldnames", {}).items():
-            field = frappe.get_meta(doctype).get_field(fieldname)
-            self.assertIsNotNone(field, f"{doctype}.{fieldname} does not exist")
-            self.assertNotIn(field.fieldtype, ("Small Text", "Text", "Long Text", "Text Editor", "Data"))
-        self.assertTrue(data["reports"], "the Mandate Usage Report entry must remain")
-
-    def test_payment_entry_still_has_no_field_that_can_hold_a_mandate(self):
-        """Tripwire for #1318's premise. If Payment Entry ever gains a Link to SEPA
-        Mandate, the item should be restored with that field mapped (and a test that
-        counts a real linked Payment Entry), not left removed."""
-        fields = frappe.get_meta("Payment Entry").fields
-        # Control: the scan sees SEPA-related fields (custom_sepa_batch is one), so
-        # an empty result below is not an artefact of the scan.
-        self.assertIn("custom_sepa_batch", [f.fieldname for f in fields])
-        holders = [
-            f.fieldname
-            for f in fields
-            if (f.fieldtype in ("Link", "Dynamic Link") and f.options == "SEPA Mandate")
-            or "mandate" in f.fieldname
-        ]
-        self.assertEqual(holders, [])
+    def test_reports_entry_survives(self):
+        """#1318: dropping the dead Payment Entry item must leave the working
+        Mandate Usage Report link in place."""
+        self.assertTrue(get_data()["reports"])

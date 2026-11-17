@@ -1,50 +1,47 @@
-"""Donation's Connections tab must not offer a Payment Entry mapping that cannot match (#1318).
+"""Donation's Connections tab counts Payment Entries through `custom_donation` (#1318).
 
-`donation_dashboard.py` mapped `non_standard_fieldnames["Payment Entry"] = "reference_name"`.
-`reference_name` is not a column of Payment Entry; it is the Dynamic Link on the
-`Payment Entry Reference` child table, filtered here with no `reference_doctype`. A
-match would need a Payment Entry Reference row whose `reference_doctype` is "Donation",
-and ERPNext's `validate_reference_documents` refuses every doctype but
-Sales Order / Sales Invoice / Journal Entry / Dunning / Payment Entry for a Customer
-(Purchase Order / Purchase Invoice / ... for a Supplier). Donations reach the ledger
-through `Donation.sales_invoice` / `journal_entry`, so the count is always 0.
-Measured read-only on veg11: 0 of 3,528 Payment Entry Reference rows point at a Donation.
+`donation_dashboard.py` used to map `non_standard_fieldnames["Payment Entry"] =
+"reference_name"`. That is not a column of Payment Entry (it is the Dynamic Link on the
+`Payment Entry Reference` child table, and ERPNext never lets a Donation sit there), so
+the count was always 0. The field that really links a Payment Entry to a Donation is the
+Custom Field `Payment Entry.custom_donation` (Link to Donation), which
+`refund_utility.get_donation_refund_info` reads.
+
+Probe shortcut, stated: nothing in the app writes `custom_donation` from Python, so the
+linked Payment Entry is built by the real PaymentEntryFactory (a submitted, ledger-posting
+Payment Entry for a donor) and `custom_donation` is then set with `db.set_value`, standing in
+for whoever fills the field in.
 """
-
-from unittest.mock import patch
 
 import frappe
 from frappe.desk.notifications import get_open_count
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import PaymentContext
+from verenigingen.verenigingen_payments.mollie.services.shared.test_payment_entry_factory_coverage import (
+    _FactoryBase,
+)
 
 
-class TestDonationDashboard(VereningingenTestCase):
-    def setUp(self):
-        super().setUp()
-        frappe.set_user("Administrator")
+class TestDonationDashboard(_FactoryBase):
+    def _payment_entry_for(self, donor, customer):
+        pe = self.factory_obj.create_payment_entry(
+            PaymentContext("donation", "Donor", donor.name),
+            {"payment_id": f"tr_{frappe.generate_hash(length=12)}", "amount": "15.50", "method": "ideal"},
+            customer=customer.name,
+        )
+        self.assertIsNotNone(pe, "the factory must return a submitted Payment Entry")
+        return pe
 
-    def test_dashboard_offers_no_payment_entry_connection(self):
-        donor = self.create_test_donor(donor_name="Dashboard Donor")
-        donation = frappe.new_doc("Donation")
-        donation.donor = donor.name
-        donation.amount = 10.0
-        donation.donation_date = frappe.utils.today()
-        donation.mode_of_payment = frappe.db.get_value("Mode of Payment", {}, "name")
-        with patch("frappe.sendmail"):
-            donation.insert()
-        self.track_doc("Donation", donation.name)
+    def test_connections_count_only_payment_entries_linked_by_custom_donation(self):
+        customer = self.factory.create_test_customer()
+        donor = self.create_test_donor(donor_name="Dashboard Donor", customer=customer.name)
+        donation = self.create_test_donation(donor=donor.name, donation_purpose_type="General")
+        linked = self._payment_entry_for(donor, customer)
+        self._payment_entry_for(donor, customer)  # same donor, NOT linked: must not count
+        frappe.db.set_value("Payment Entry", linked.name, "custom_donation", donation.name)
 
-        result = get_open_count("Donation", donation.name)
-        found = {d["doctype"] for d in result["count"]["external_links_found"]}
-        self.assertNotIn("Payment Entry", found)
-
-    def test_payment_entry_cannot_reference_a_donation(self):
-        """Tripwire for the premise: no party type may reference a Donation."""
-        for party_type in ("Customer", "Supplier", "Employee", "Shareholder"):
-            pe = frappe.new_doc("Payment Entry")
-            pe.party_type = party_type
-            valid = pe.get_valid_reference_doctypes()
-            # Control: the list is a real, non-empty answer containing Journal Entry.
-            self.assertIn("Journal Entry", valid)
-            self.assertNotIn("Donation", valid)
+        found = get_open_count("Donation", donation.name)["count"]["external_links_found"]
+        counts = [d for d in found if d["doctype"] == "Payment Entry"]
+        self.assertEqual(len(counts), 1)
+        self.assertEqual(counts[0]["fieldname"], "custom_donation")
+        self.assertEqual(counts[0]["count"], 1)

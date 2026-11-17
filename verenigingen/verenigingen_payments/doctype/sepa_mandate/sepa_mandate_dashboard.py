@@ -1,6 +1,3 @@
-from frappe import _
-
-
 def get_data():
     # "Direct Debit Batch" (and "SEPA Payment Retry", "Sales Invoice") are
     # deliberately absent from `transactions` (#1261): none of the three has a
