@@ -67,6 +67,10 @@ class SecurityIncident:
     details: Dict[str, Any]
     resolved: bool = False
     resolution_notes: Optional[str] = None
+    # MEDIUM repeats from one (type, user, ip) are merged into one open incident
+    # (#2621): `timestamp` stays the first sighting, these track the rest.
+    occurrence_count: int = 1
+    last_seen: Optional[datetime] = None
 
 
 @dataclass
@@ -121,6 +125,10 @@ class SecurityMonitor:
         # Monotonic id source: `len(self.incidents)` stops growing once the history
         # is capped, which would make ids repeat within a second (#1305).
         self._incident_seq = 0
+        # (incident_type, user, source_ip) -> incident_id of the open MEDIUM
+        # incident for that source (#2621). Entries go stale (resolved, evicted,
+        # aged out) and are validated on lookup.
+        self._open_medium_index: Dict[tuple, str] = {}
 
         # Threat detection thresholds
         self.thresholds = {
@@ -383,7 +391,12 @@ class SecurityMonitor:
         endpoint: str,
         details: Dict[str, Any],
     ):
-        """Create new security incident"""
+        """Create new security incident, or fold a MEDIUM repeat into the open one (#2621)"""
+        if threat_level == ThreatLevel.MEDIUM and self._merge_into_open_medium(
+            incident_type, user, source_ip, details
+        ):
+            return
+
         incident_id = f"SEC_{int(time.time())}_{self._incident_seq}"
         self._incident_seq += 1
 
@@ -397,10 +410,13 @@ class SecurityMonitor:
             user=user,
             endpoint=endpoint,
             details=details,
+            last_seen=get_datetime(),
         )
 
         self.incidents.append(incident)
         self.active_threats[incident_id] = incident
+        if threat_level == ThreatLevel.MEDIUM:
+            self._open_medium_index[(incident_type, user, source_ip)] = incident_id
         self._enforce_incident_bounds()
 
         # Log critical incidents immediately - map to valid event type
@@ -428,12 +444,35 @@ class SecurityMonitor:
         if threat_level == ThreatLevel.LOW:
             frappe.enqueue(self._auto_resolve_incident, incident_id=incident_id)
 
+    def _merge_into_open_medium(self, incident_type, user, source_ip, details) -> bool:
+        """Count a repeat on the open MEDIUM incident of the same source (#2621).
+
+        Only MEDIUM is ever merged: HIGH/CRITICAL each reach `audit_logger`, and
+        the key's level is implied by registering only MEDIUM here, so a MEDIUM
+        event can never be absorbed by (or hide) a higher incident. Severity is
+        never changed. A resolved, evicted or out-of-window incident is not a
+        merge target: the event opens a fresh one.
+        """
+        key = (incident_type, user, source_ip)
+        open_incident = self.active_threats.get(self._open_medium_index.get(key))
+        cutoff = get_datetime() - timedelta(hours=self.ACTIVE_INCIDENT_WINDOW_HOURS)
+        if open_incident is None or open_incident.resolved or open_incident.timestamp < cutoff:
+            return False
+        open_incident.occurrence_count += 1
+        open_incident.last_seen = get_datetime()
+        open_incident.details = details
+        return True
+
     def _enforce_incident_bounds(self):
         """Drop the oldest entries beyond the caps (#1305); dicts keep insertion order."""
         if len(self.incidents) > self.MAX_INCIDENTS:
             del self.incidents[: len(self.incidents) - self.MAX_INCIDENTS]
         while len(self.active_threats) > self.MAX_ACTIVE_THREATS:
             self._evict_one_active_threat()
+        if len(self._open_medium_index) > self.MAX_ACTIVE_THREATS:
+            self._open_medium_index = {
+                k: i for k, i in self._open_medium_index.items() if i in self.active_threats
+            }
 
     _EVICTION_TIER = {ThreatLevel.LOW: 1, ThreatLevel.MEDIUM: 2, ThreatLevel.HIGH: 3, ThreatLevel.CRITICAL: 4}
 
