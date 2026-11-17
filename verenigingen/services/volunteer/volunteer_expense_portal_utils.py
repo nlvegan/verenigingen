@@ -66,16 +66,13 @@ def get_volunteer_expense_statistics(volunteer_name: str) -> tuple[dict, str]:
         )
 
         total_count = len(claims)
-        total_submitted = sum(flt(c.total_claimed_amount) for c in claims)
+        total_submitted = flt(sum(flt(c.total_claimed_amount) for c in claims), 2)
         approved = [
             c for c in claims if c.status in ("Paid", "Reimbursed") or c.approval_status == "Approved"
         ]
         approved_count = len(approved)
-        # as the former COALESCE(total_sanctioned_amount, total_claimed_amount)
-        total_approved = sum(
-            flt(c.total_claimed_amount if c.total_sanctioned_amount is None else c.total_sanctioned_amount)
-            for c in approved
-        )
+        # total_sanctioned_amount is NOT NULL in the schema, so no COALESCE is needed
+        total_approved = flt(sum(flt(c.total_sanctioned_amount) for c in approved), 2)
         pending_count = total_count - approved_count
 
         debug_msg = (

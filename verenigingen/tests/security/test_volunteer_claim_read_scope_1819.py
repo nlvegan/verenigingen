@@ -2,17 +2,19 @@
 
 ``get_volunteer_expenses_from_claims`` and both ``get_volunteer_expense_statistics`` variants
 took the claims of ``Volunteer.employee_id`` with ``frappe.get_all`` / raw SQL, i.e. WITHOUT the
-Expense Claim permission query. The page resolves the caller's own volunteer, so the only way
-to see someone else's claims is a volunteer whose ``employee_id`` points at an Employee that is
-not the caller's own (legacy data: ``volunteer_employee_service._linked_employee`` exists to
-refuse exactly that link). Such a volunteer must not read that Employee's claims.
+Expense Claim permission query. The page resolves the caller's own volunteer, so the only way to see someone else's claims
+is a volunteer whose ``employee_id`` points at an Employee that is not the caller's own. A real
+flow produces that: a board member (shipped role, Volunteer write) can set ``employee_id`` to
+another person's Employee with an ordinary ``save()`` / REST PUT, because ``read_only`` is not
+enforced server-side (the repoint itself is filed as #2752). Such a volunteer must not read
+that Employee's claims.
 
 Users are built from the shipped ``Verenigingen Volunteer`` Role Profile (no blanket Expense
 Claim access) and the entry points are the real page ``get_context`` functions.
 
 Probe shortcut, stated: the mis-linked volunteer's ``employee_id`` is set with
-``frappe.db.set_value`` (the field is read-only in the UI and the service refuses the link, so
-no real flow produces it; it stands in for legacy data). The owner's own link is the real one.
+``frappe.db.set_value`` as a stand-in for that REST write (the repoint flow is #2752's, not
+driven here). The owner's own link is the real one.
 """
 
 import importlib
@@ -37,7 +39,7 @@ class TestVolunteerClaimReadScope(StaffExpenseBase):
         self.owner_claims = [self.claim(self.owner_emp) for _ in range(2)]
         self.victim_claims = [self.claim(self.victim_emp) for _ in range(3)]
 
-        # Legacy shape (probe shortcut, see module docstring): a volunteer pointing at the
+        # The repointed shape (probe shortcut, see module docstring): a volunteer pointing at the
         # victim's Employee while logged in as somebody else.
         self.mislinked, self.mislinked_vol, _emp = self._volunteer_user("mis")
         frappe.db.set_value("Volunteer", self.mislinked_vol.name, "employee_id", self.victim_emp.name)
