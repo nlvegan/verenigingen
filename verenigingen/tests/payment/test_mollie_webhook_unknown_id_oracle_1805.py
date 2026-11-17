@@ -300,7 +300,8 @@ class TestMollieWebhookUnknownIdOracle(EnhancedTestCase):
         """Only ``payments.get`` proves the id unknown; a failing sub-list keeps the retryable 503."""
         got = self.out["chargebacks_list_404"]
         self.assertEqual(got["status"], 503)
-        self.assertEqual(json.loads(got["body"]).get("Retry-After"), "60")
+        self.assertEqual(dict(got["headers"]).get("retry-after"), "60")
+        self.assertNotIn("Retry-After", json.loads(got["body"]))
         self.assertEqual(got["notifications"], 0)
         self.assertFalse([m for m, _ in got["error_logs"] if "Payment Not Found" in m], got["error_logs"])
 
@@ -341,9 +342,11 @@ class TestMollieWebhookUnknownIdOracle(EnhancedTestCase):
             with self.subTest(case=case):
                 got = self.out[case]
                 self.assertEqual(got["status"], 503)
-                # ``frappe.local.response["Retry-After"]`` lands as a BODY key, not an HTTP header
-                # (measured here); the unknown-id answer carries neither.
-                self.assertEqual(json.loads(got["body"]).get("Retry-After"), "60")
+                # #2487: Retry-After must be a real HTTP header; written as
+                # ``frappe.local.response["Retry-After"]`` it was a JSON body key (measured).
+                # The unknown-id answer carries neither.
+                self.assertEqual(dict(got["headers"]).get("retry-after"), "60")
+                self.assertNotIn("Retry-After", json.loads(got["body"]))
                 self.assertEqual(got["notifications"], 0)
 
 
@@ -389,7 +392,7 @@ class TestUnknownIdOnTheDuesReversalPath(EnhancedTestCase):
 
         self.expectErrorLog("Mollie", "Webhook")
         frappe.local.response.pop("http_status_code", None)
-        frappe.local.response.pop("Retry-After", None)
+        frappe.local.response_headers.pop("Retry-After", None)
         forward = {"status": "success"}
         refunded = SimpleNamespace(amount_refunded={"value": "5.00", "currency": "EUR"})
         unique_ip = f"10.{frappe.generate_hash(length=3)}"
@@ -419,13 +422,14 @@ class TestUnknownIdOnTheDuesReversalPath(EnhancedTestCase):
         self.assertIs(result, forward)
         self.assertEqual(result["status"], "success")
         self.assertIsNone(frappe.local.response.get("http_status_code"))
-        self.assertNotIn("Retry-After", frappe.local.response)
+        self.assertNotIn("Retry-After", frappe.local.response_headers)
 
     def test_control_a_5xx_on_the_second_fetch_still_asks_mollie_to_retry(self):
         result, _forward = self._run(_mollie_sdk_http_layer_1805(500))
         self.assertEqual(result["status"], "service_unavailable")
         self.assertEqual(frappe.local.response.get("http_status_code"), 503)
-        self.assertEqual(frappe.local.response.get("Retry-After"), "60")
+        self.assertEqual(frappe.local.response_headers.get("Retry-After"), "60")
+        self.assertNotIn("Retry-After", frappe.local.response)
 
 
 class TestIsPaymentNotFound(EnhancedTestCase):

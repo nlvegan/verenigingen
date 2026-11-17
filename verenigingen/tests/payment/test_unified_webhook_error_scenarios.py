@@ -36,6 +36,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         # same worker process cannot bleed into this test's assertions.
         frappe.local.response.http_status_code = 200
         frappe.local.response.pop("Retry-After", None)
+        frappe.local.response_headers.pop("Retry-After", None)
 
     def _failed_idempotency_state(self, *, refund_failed=False, chargeback_failed=False):
         """Build a check-state that reports a Mollie API validation failure.
@@ -87,7 +88,8 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
 
         # Verify HTTP 503 status is set
         self.assertEqual(frappe.local.response.http_status_code, 503)
-        self.assertIn("Retry-After", frappe.local.response)
+        self.assertEqual(frappe.local.response_headers.get("Retry-After"), "60")
+        self.assertNotIn("Retry-After", frappe.local.response)
 
         # The caller gets an ack only (#1781): the 503 + Retry-After above is the retry
         # signal; the cause stays server-side, in developer mode too.
