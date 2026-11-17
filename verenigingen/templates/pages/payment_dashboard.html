@@ -489,10 +489,10 @@
                                 <div class="flex justify-between">
                                     <span class="text-sm text-gray-600">{{ _("Dues Rate") }}</span>
                                     <span class="text-sm font-medium">
-                                        {% set frequency_label = {"Monthly": _("month"), "Quarterly": _("quarter"), "Semi-Annual": _("6 months"), "Annual": _("year")}.get(current_schedule.billing_frequency, current_schedule.billing_frequency) %}
+                                        {% set frequency_label = {"Monthly": "month", "Quarterly": "quarter", "Semi-Annual": _("6 months"), "Annual": "year"}.get(current_schedule.billing_frequency, current_schedule.billing_frequency) %}
                                         {{ frappe.format_value(current_schedule.dues_rate, {"fieldtype": "Currency"})|e }} / {{ frequency_label|e }}
                                         {% if current_schedule.billing_frequency != "Monthly" and current_schedule.monthly_amount is not none %}
-                                            <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}/{{ _("month") }})</span>
+                                            <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}/{{ "month" }})</span>
                                         {% endif %}
                                     </span>
                                 </div>
@@ -635,7 +635,7 @@
                                 {% endif %}
                                 {% if active_dues_schedule %}
                                 <p class="text-sm text-gray-600 mt-3">
-                                    {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
+                                    {% set frequency_map = {"Daily": "day", "Weekly": "week", "Monthly": "month", "Quarterly": "quarter", "Semi-Annual": "half year", "Annual": "year"} %}
                                     {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
                                     {{ _("Current rate") }}: <strong>{{ frappe.format_value(active_dues_schedule.amount, {"fieldtype": "Currency"})|e }}</strong> {{ _("per") }} {{ frequency|e }}
                                     <a href="/membership_adjustment" class="text-primary-600 hover:text-primary-700 font-medium ml-1">{{ _("Adjust") }}</a>
