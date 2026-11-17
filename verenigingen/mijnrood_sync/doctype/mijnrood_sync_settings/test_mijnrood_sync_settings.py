@@ -330,3 +330,94 @@ class TestMijnRoodSyncSettings(EnhancedTestCase):
         result = self.settings.import_documents()
         self.assertFalse(result["success"])
         self.assertIn("No folder mappings configured", result["message"])
+
+
+class TestStaleSettingsSaveKeepsPollState(EnhancedTestCase):
+    """#2340: a Settings doc loaded BEFORE a poll ran must not roll the poll state back.
+
+    The poller writes ``last_division_contacts_hash`` (and the ``last_sync_*`` status
+    fields) with ``db_set(..., update_modified=False)``, so ``modified`` does not move
+    and Frappe's timestamp check cannot refuse a stale Single save; the save rewrites
+    every tabSingles row from the in-memory doc. A rolled-back hash makes the next poll
+    re-announce division-contact changes it already announced.
+
+    The poll is the REAL ``_poll_division_contacts`` (a stub stands in only for the SSH
+    client, the boundary); the stale doc is a real earlier ``frappe.get_doc``. Setup rows
+    are put at a known value straight in tabSingles. The poll commits, so tearDown
+    deletes its events by sync_run_id and restores the Single, committed.
+    """
+
+    DOCTYPE = "MijnRood Sync Settings"
+    FIELDS = ("last_division_contacts_hash", "last_sync_status", "last_sync_message")
+    MEMBER_ID = 987654321
+    RUN_ID = "test-2340-stale-save"
+
+    def setUp(self):
+        super().setUp()
+        self._saved = {f: self._raw(f) for f in self.FIELDS + ("poll_interval_minutes",)}
+
+    def tearDown(self):
+        for event in frappe.get_all("MijnRood Sync Event", filters={"sync_run_id": self.RUN_ID}):
+            frappe.delete_doc("MijnRood Sync Event", event.name, force=True, ignore_permissions=True)
+        for field, value in self._saved.items():
+            self._put(field, value)
+        frappe.clear_document_cache(self.DOCTYPE, self.DOCTYPE)
+        frappe.db.commit()
+        for field, value in self._saved.items():
+            self.assertEqual(self._raw(field), value)
+        super().tearDown()
+
+    def _raw(self, field):
+        row = frappe.db.sql(
+            "SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (self.DOCTYPE, field)
+        )
+        return row[0][0] if row else None
+
+    def _put(self, field, value):
+        frappe.db.sql("DELETE FROM `tabSingles` WHERE doctype=%s AND field=%s", (self.DOCTYPE, field))
+        if value is not None:
+            frappe.db.sql(
+                "INSERT INTO `tabSingles` (doctype, field, value) VALUES (%s, %s, %s)",
+                (self.DOCTYPE, field, value),
+            )
+        frappe.clear_document_cache(self.DOCTYPE, self.DOCTYPE)
+
+    def _poll_after_loading_a_stale_doc(self):
+        import json
+
+        from verenigingen.mijnrood_sync.services.polling_service import MijnRoodPollingService
+
+        class _Client:
+            def fetch_division_contacts(self_inner):
+                return {self.MEMBER_ID: [7, 8]}
+
+        self._put("last_division_contacts_hash", json.dumps({str(self.MEMBER_ID): [7]}))
+        self._put("last_sync_status", "Success")
+        stale = frappe.get_doc(self.DOCTYPE)  # the form open in a browser tab
+        live = frappe.get_doc(self.DOCTYPE)  # what the poller holds
+        events = MijnRoodPollingService()._poll_division_contacts(_Client(), live, self.RUN_ID)
+        self.assertEqual(events, 1)
+        live.db_set("last_sync_status", "Failed", update_modified=False)  # as polling_service does
+        return stale
+
+    def test_stale_save_does_not_roll_back_the_division_contacts_hash(self):
+        import json
+
+        stale = self._poll_after_loading_a_stale_doc()
+        polled = self._raw("last_division_contacts_hash")
+        self.assertEqual(json.loads(polled), {str(self.MEMBER_ID): [7, 8]})
+        stale.save()
+        self.assertEqual(self._raw("last_division_contacts_hash"), polled)
+
+    def test_stale_save_does_not_roll_back_the_sync_status(self):
+        stale = self._poll_after_loading_a_stale_doc()
+        stale.save()
+        self.assertEqual(self._raw("last_sync_status"), "Failed")
+
+    def test_control_a_stale_save_still_writes_what_staff_edit(self):
+        """Control: only the poll-owned fields are re-read; a staff edit still lands."""
+        stale = self._poll_after_loading_a_stale_doc()
+        original = stale.poll_interval_minutes
+        stale.poll_interval_minutes = int(original or 15) + 1
+        stale.save()
+        self.assertEqual(int(self._raw("poll_interval_minutes")), int(original or 15) + 1)
