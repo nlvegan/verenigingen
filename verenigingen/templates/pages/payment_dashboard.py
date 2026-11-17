@@ -53,10 +53,13 @@ def get_upcoming_dates(schedule, count=4):
 
     Computed here, not in the template, so Weekly/Daily/Custom do not step by a month.
     Empty when the period is unknown (Custom without an interval).
+
+    `next_invoice_date` is already the first date AFTER the last invoice (the invoice
+    writer sets it one running period past the posting date), so `last_invoice_date`
+    must not cap the list: doing so left it empty for every invoiced member (#2613).
     """
     if not schedule or not schedule.get("next_invoice_date"):
         return []
-    last_invoice_date = schedule.get("last_invoice_date")
     dates = []
     for i in range(count):
         payment_date = add_billing_periods(
@@ -66,7 +69,7 @@ def get_upcoming_dates(schedule, count=4):
             schedule.custom_frequency_number,
             schedule.custom_frequency_unit,
         )
-        if payment_date is None or (last_invoice_date and payment_date > getdate(last_invoice_date)):
+        if payment_date is None:
             break
         dates.append(payment_date)
     return dates

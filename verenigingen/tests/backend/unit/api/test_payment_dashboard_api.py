@@ -15,7 +15,7 @@ the internal OperationResult object.
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, add_months, getdate, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -263,22 +263,21 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         for entry in schedule:
             self.assertGreaterEqual(getdate(entry["date"]), getdate(today()))
 
-    def test_get_payment_schedule_stops_at_last_invoice_date(self):
+    def test_get_payment_schedule_is_not_capped_by_last_invoice_date(self):
+        # #2613: last_invoice_date is the PREVIOUS invoice; it never bounds the projection.
+        # (This test used to assert the opposite, with last = next + 1 month, a state the
+        # invoice flow never produces.)
         self.create_test_membership(member_name=self.member.name)
         next_date = add_days(today(), 5)
         sched = self._active_schedule()
         sched.next_invoice_date = next_date
-        # last_invoice_date caps generation: no entry may exceed it.
-        last_allowed_date = add_months(next_date, 1)
-        sched.last_invoice_date = last_allowed_date
+        sched.last_invoice_date = getdate(add_days(today(), -1))
         sched.save()
 
         result = get_payment_schedule(self.member.name)
         self.assertTrue(result["success"], msg=result)
-        schedule = result["data"]
-        last_allowed = getdate(last_allowed_date)
-        for entry in schedule:
-            self.assertLessEqual(getdate(entry["date"]), last_allowed)
+        dates = [getdate(entry["date"]) for entry in result["data"]]
+        self.assertEqual(dates[:1], [getdate(next_date)])
 
     def test_get_next_payment_returns_first_schedule_entry(self):
         # Regression guard: get_next_payment calls get_payment_schedule (also a
