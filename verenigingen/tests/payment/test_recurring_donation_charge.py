@@ -1063,6 +1063,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         """
         payment_id = f"tr_outage_{self.tag}"
         frappe.local.response_headers.pop("Retry-After", None)
+        self.addCleanup(frappe.local.response_headers.pop, "Retry-After", None)
         result = self._deliver_with_client(_UnreachableClient(), payment_id)
 
         self.assertEqual(

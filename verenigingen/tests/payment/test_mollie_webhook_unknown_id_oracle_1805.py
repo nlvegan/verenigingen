@@ -393,6 +393,7 @@ class TestUnknownIdOnTheDuesReversalPath(EnhancedTestCase):
         self.expectErrorLog("Mollie", "Webhook")
         frappe.local.response.pop("http_status_code", None)
         frappe.local.response_headers.pop("Retry-After", None)
+        self.addCleanup(frappe.local.response_headers.pop, "Retry-After", None)
         forward = {"status": "success"}
         refunded = SimpleNamespace(amount_refunded={"value": "5.00", "currency": "EUR"})
         unique_ip = f"10.{frappe.generate_hash(length=3)}"

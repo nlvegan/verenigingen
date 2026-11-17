@@ -37,6 +37,7 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         frappe.local.response.http_status_code = 200
         frappe.local.response.pop("Retry-After", None)
         frappe.local.response_headers.pop("Retry-After", None)
+        self.addCleanup(frappe.local.response_headers.pop, "Retry-After", None)
 
     def _failed_idempotency_state(self, *, refund_failed=False, chargeback_failed=False):
         """Build a check-state that reports a Mollie API validation failure.
