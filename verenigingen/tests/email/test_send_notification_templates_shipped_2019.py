@@ -123,8 +123,7 @@ class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
         super().setUp()
         ensure_outgoing_email_account(self)
         own_notification_keys(self, "member_suspended", "member_terminated")
-        saved = {k: getattr(frappe.flags, k, None) for k in self.FLAGS}
-        self.addCleanup(lambda: [setattr(frappe.flags, k, v) for k, v in saved.items()])
+        self._saved_flags = {k: getattr(frappe.flags, k, None) for k in self.FLAGS}
         for k in self.FLAGS:  # the harness sets these; production has none of them
             setattr(frappe.flags, k, False)
         self.member = self.create_test_member(
@@ -133,6 +132,13 @@ class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
             email=f"once2019.{frappe.generate_hash(length=6)}@test.invalid",
             status="Active",
         )
+
+    def tearDown(self):
+        # Before super(): the harness drain must run with the harness's own flags, which an
+        # addCleanup (run after tearDown) would restore too late.
+        for k, v in self._saved_flags.items():
+            setattr(frappe.flags, k, v)
+        super().tearDown()
 
     def _transition(self, new_status):
         """Real save; returns (sendmail kwargs per mail, subscriber jobs that ran)."""

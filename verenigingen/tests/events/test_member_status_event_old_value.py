@@ -131,6 +131,7 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         self.assertEqual(len(sent), 1, sent)
         self.assertEqual((sent[0]["old_status"], sent[0]["new_status"]), ("Active", "Suspended"))
 
+    # Mail delivery on status changes is pinned by TestStatusChangeMailsExactlyOnce (#2019 module).
     def test_suspension_through_the_event_path_leaves_the_user_enabled(self):
         """The user is disabled by the suspension/termination services, not by an event."""
         jobs = self._capture(status="Suspended")
@@ -139,6 +140,7 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
             self._run(jobs)
         self.assertEqual(frappe.db.get_value("User", self.user.name, "enabled"), 1)
 
+    # Mail delivery on status changes is pinned by TestStatusChangeMailsExactlyOnce (#2019 module).
     def test_reactivation_through_the_event_path_leaves_a_disabled_user_alone(self):
         self._save(status="Suspended")
         frappe.db.set_value("User", self.user.name, "enabled", 0)  # probe shortcut: staff disabled it
