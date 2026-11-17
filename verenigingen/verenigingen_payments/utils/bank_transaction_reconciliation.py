@@ -4,7 +4,7 @@ from difflib import SequenceMatcher
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security.authorization import (
@@ -1605,7 +1605,7 @@ class PaymentReconciliationManager:
             invoices = frappe.get_all(
                 "Sales Invoice",
                 filters={"name": ["in", valid_refs]},
-                fields=["name", "grand_total", "outstanding_amount", "customer", "status"],
+                fields=["name", "grand_total", "outstanding_amount", "customer", "status", "docstatus"],
             )
 
             # Return as dictionary for quick lookup
@@ -1899,10 +1899,12 @@ class PaymentReconciliationManager:
                         ):
                             invoice_data = self._current_invoice_batch[invoice_ref]
                             invoice_amount = self._safe_decimal(invoice_data.grand_total)
+                            invoice_docstatus = invoice_data.docstatus
                         elif frappe.db.exists("Sales Invoice", invoice_ref):
-                            invoice_amount = self._safe_decimal(
-                                frappe.db.get_value("Sales Invoice", invoice_ref, "grand_total")
+                            grand_total, invoice_docstatus = frappe.db.get_value(
+                                "Sales Invoice", invoice_ref, ["grand_total", "docstatus"]
                             )
+                            invoice_amount = self._safe_decimal(grand_total)
                         else:
                             processed_payments.append(
                                 {
@@ -1911,6 +1913,28 @@ class PaymentReconciliationManager:
                                     "amount": str(payment_amount),
                                     "status": "invoice_not_found",
                                     "error": f"Invoice {invoice_ref} not found",
+                                }
+                            )
+                            continue
+
+                        # Only a submitted invoice is payable (#2521, class of #856/#209).
+                        # Checked BEFORE the amount: a draft's grand_total is not a
+                        # payable amount, so an amount verdict against it names the wrong
+                        # reason. Like invoice_not_found / amount_mismatch this is an
+                        # expected per-payment outcome, reported in the result's details
+                        # and left unaccounted (the settlement stays retryable), not an
+                        # Error Log traceback.
+                        if cint(invoice_docstatus) != 1:
+                            processed_payments.append(
+                                {
+                                    "mollie_payment_id": mollie_payment_id,
+                                    "invoice": invoice_ref,
+                                    "amount": str(payment_amount),
+                                    "status": "invoice_not_submitted",
+                                    "docstatus": cint(invoice_docstatus),
+                                    "error": f"Invoice {invoice_ref} is not submitted "
+                                    f"(docstatus {cint(invoice_docstatus)}: "
+                                    f"{'draft' if cint(invoice_docstatus) == 0 else 'cancelled'})",
                                 }
                             )
                             continue
