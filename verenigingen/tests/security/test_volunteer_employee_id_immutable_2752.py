@@ -12,6 +12,7 @@ import frappe
 
 from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 from verenigingen.services.volunteer.volunteer_employee_service import create_employee_for_volunteer
+from verenigingen.services.volunteer.volunteer_link_guard_service import guard_employee_and_member_links
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -209,8 +210,7 @@ class TestVolunteerEmployeeIdImmutable2752(EnhancedTestCase):
             doc = frappe.get_doc("Volunteer", volunteer_name)
             doc.update(fields)
             doc.load_doc_before_save()
-            doc.validate_member_repoint()
-            doc.validate_employee_id_change()
+            guard_employee_and_member_links(doc)
             return doc
         finally:
             frappe.set_user(original)
