@@ -51,6 +51,7 @@ class BulkTransactionImporter(MollieBaseClient):
         self.errors = []
         self.warnings = []
         self.imported_transactions = []
+        self._mollie_scope_cache = None
 
     def import_transactions(
         self,
@@ -303,7 +304,7 @@ class BulkTransactionImporter(MollieBaseClient):
                         }
 
                         # Enhanced duplicate detection
-                        if self._validate_duplicate_transaction(transaction_data):
+                        if self._validate_duplicate_transaction(transaction_data, bank_account, company):
                             results["duplicates_skipped"] += 1
                             continue
 
@@ -663,12 +664,18 @@ class BulkTransactionImporter(MollieBaseClient):
             frappe.log_error(f"Error creating bank transaction from payment: {str(e)}", "Bulk Payment Import")
             return None
 
-    def _check_existing_payment_transaction(self, payment: Dict) -> bool:
+    def _check_existing_payment_transaction(
+        self, payment: Dict, bank_account: Optional[str] = None, company: Optional[str] = None
+    ) -> bool:
         """
         Check if a payment has already been imported to avoid duplicates
 
         Args:
             payment: Payment data from Mollie
+            bank_account: Bank account the payment would be imported to (#2694); a row
+                on another account, or a cancelled one, is not an import. Defaults to
+                the Mollie bank account.
+            company: See ``bank_account``.
 
         Returns:
             True if payment already exists, False otherwise
@@ -678,12 +685,13 @@ class BulkTransactionImporter(MollieBaseClient):
             if not payment_id:
                 return False
 
-            # Check for existing Bank Transaction with this payment ID
-            existing = frappe.db.exists(
-                "Bank Transaction", {"custom_mollie_payment_id": payment_id, "docstatus": 1}
+            scope = self._duplicate_scope(bank_account, company)
+            return bool(
+                frappe.db.exists(
+                    "Bank Transaction",
+                    {**self._live_row_filters("custom_mollie_payment_id", payment_id, scope), "docstatus": 1},
+                )
             )
-
-            return bool(existing)
 
         except Exception as e:
             frappe.logger().warning(f"Error checking for existing payment: {str(e)}")
@@ -731,12 +739,45 @@ class BulkTransactionImporter(MollieBaseClient):
             frappe.log_error(f"Error validating custom fields: {str(e)}", "Mollie Field Validation")
             # Continue without field validation if meta loading fails
 
-    def _validate_duplicate_transaction(self, transaction_data: Dict) -> bool:
+    def _duplicate_scope(self, bank_account: Optional[str], company: Optional[str]) -> Dict:
+        """Where a Mollie import would land: the caller's account, else the Mollie bank
+        account; ``{}`` (unscoped) only when neither resolves (#2694)."""
+        if bank_account:
+            return {"bank_account": bank_account, "company": company}
+        if self._mollie_scope_cache is not None:  # config validation logs on every call
+            return self._mollie_scope_cache
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+
+        config = get_bank_transaction_creator().get_mollie_bank_account_config()
+        self._mollie_scope_cache = (
+            {}
+            if config.get("error")
+            else {"bank_account": config["bank_account"], "company": config["company"]}
+        )
+        return self._mollie_scope_cache
+
+    @staticmethod
+    def _live_row_filters(id_field: str, mollie_id: str, scope: Dict) -> Dict:
+        """Filters for a non-cancelled Bank Transaction carrying a Mollie id on ``scope``.
+
+        Same scope as #2620's ``find_mollie_bank_transaction``, but keyed on the Mollie id
+        FIELD: that helper keys on reference_number, and a row that merely shares the
+        reference is not this import (pinned by test_mollie_local_day_2192).
+        """
+        return {id_field: mollie_id, "docstatus": ["!=", 2], **{k: v for k, v in scope.items() if v}}
+
+    def _validate_duplicate_transaction(
+        self, transaction_data: Dict, bank_account: Optional[str] = None, company: Optional[str] = None
+    ) -> bool:
         """
         Enhanced duplicate detection for financial transactions
 
         Args:
             transaction_data: Transaction data to check
+            bank_account: Bank account the row would be imported to (#2694)
+            company: See ``bank_account``
 
         Returns:
             True if duplicate found, False otherwise
@@ -749,11 +790,17 @@ class BulkTransactionImporter(MollieBaseClient):
             mollie_settlement_id = transaction_data.get("custom_mollie_settlement_id")
             mollie_payment_id = transaction_data.get("custom_mollie_payment_id")
 
+            scope = self._duplicate_scope(bank_account, company)
+
             if mollie_settlement_id:
-                filters.append({"custom_mollie_settlement_id": mollie_settlement_id})
+                # Cancelled rows are not imports. Account scope is deliberately NOT added:
+                # which account a settlement id belongs to is undecided (#2620 left it too).
+                filters.append(
+                    self._live_row_filters("custom_mollie_settlement_id", mollie_settlement_id, {})
+                )
 
             if mollie_payment_id:
-                filters.append({"custom_mollie_payment_id": mollie_payment_id})
+                filters.append(self._live_row_filters("custom_mollie_payment_id", mollie_payment_id, scope))
 
             # Secondary check: amount, date, and reference combination
             amount_filter = {}
@@ -770,6 +817,7 @@ class BulkTransactionImporter(MollieBaseClient):
                         "date": ["in", self._candidate_days(transaction_data)],
                         "reference_number": transaction_data["reference_number"],
                         "docstatus": ["!=", 2],  # Not cancelled
+                        **{k: v for k, v in scope.items() if v},
                     }
                 )
 
