@@ -17,7 +17,7 @@ Author: Verenigingen Development Team
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
 def get_bulk_queue_config():
@@ -171,7 +171,7 @@ def get_queue_status():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_stuck_jobs():
     """
     Clear jobs that have been running too long (admin function).
