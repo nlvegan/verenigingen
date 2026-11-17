@@ -35,7 +35,7 @@ Idempotent: a re-run flags nothing new. Unrecorded and retried if it raises.
 import frappe
 
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
-from verenigingen.utils.unique_custom_field_patch import get_custom_field_name
+from verenigingen.utils.unique_custom_field_patch import ensure_custom_field
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import (
     FIELDNAME,
     PONTO_TRANSACTION_ID_FIELDNAME,
@@ -45,6 +45,7 @@ from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key imp
 )
 
 DOCTYPE = "Bank Transaction"
+COLLISION_LOG_TITLE = "Bank Transaction re-key collision (#1349)"
 
 
 def execute():
@@ -52,35 +53,28 @@ def execute():
         print(f"tab{DOCTYPE} does not exist - skipping {SYSTEM_ISSUED_FIELDNAME}")
         return
 
-    _ensure_field_exists()
+    _ensure_system_issued_field()
     print(f"Flagged {flag_prefix_constrained_rows()} Bank Transactions as system-issued ({SYSTEM_ISSUED_FIELDNAME})")
     print(f"Re-keyed {rekey_flagged_rows_missing_key()} flagged Bank Transactions ({FIELDNAME})")
 
 
-def _ensure_field_exists():
-    if get_custom_field_name(DOCTYPE, SYSTEM_ISSUED_FIELDNAME):
-        return
-
-    frappe.get_doc(
-        {
-            "doctype": "Custom Field",
-            "dt": DOCTYPE,
-            "fieldname": SYSTEM_ISSUED_FIELDNAME,
-            "label": "Reference Is System-Issued",
-            "fieldtype": "Check",
-            "default": "0",
-            "hidden": 1,
-            "read_only": 1,
-            "print_hide": 1,
-            "insert_after": "custom_reference_number_key",
-            "description": (
-                "Set by the WRITER of a Bank Transaction whose reference_number was issued by a "
-                "system that guarantees it unique (Mollie ids, e-Boekhouden EB-<mutation id>). "
-                "Only such rows get a custom_reference_number_key (see #1349, #1267)."
-            ),
-        }
-    ).insert(ignore_permissions=True)
-    print(f"Created Custom Field {DOCTYPE}.{SYSTEM_ISSUED_FIELDNAME}")
+def _ensure_system_issued_field():
+    ensure_custom_field(
+        DOCTYPE,
+        SYSTEM_ISSUED_FIELDNAME,
+        label="Reference Is System-Issued",
+        fieldtype="Check",
+        default="0",
+        hidden=1,
+        read_only=1,
+        print_hide=1,
+        insert_after="custom_reference_number_key",
+        description=(
+            "Set by the WRITER of a Bank Transaction whose reference_number was issued by a "
+            "system that guarantees it unique (Mollie ids, e-Boekhouden EB-<mutation id>). "
+            "Only such rows get a custom_reference_number_key (see #1349, #1267)."
+        ),
+    )
 
 
 def flag_prefix_constrained_rows() -> int:
@@ -129,9 +123,22 @@ def _set_key(name, key) -> bool:
         if not frappe.db.is_duplicate_entry(exc):
             raise
         rollback_to_savepoint(save_point)
-        frappe.log_error(
-            title="Bank Transaction re-key collision (#1349)",
-            message=f"{name} duplicates another Bank Transaction's system-issued reference; left unkeyed.",
-        )
+        _log_collision(name, key)
         return False
     return True
+
+
+def _log_collision(name, key):
+    """Report a skipped row, naming the row that holds its key so staff can resolve the real
+    duplicate. A re-run reports the same (row, holder) pair once: the Error Log is a
+    non-transactional table, so the earlier row survives the rollback above. A different
+    holder changes the message and is logged."""
+    holder = frappe.db.get_value(DOCTYPE, {FIELDNAME: key}, "name")
+    message = (
+        f"{name} duplicates {holder or 'another Bank Transaction'}'s system-issued reference; "
+        f"left unkeyed (flag set, key NULL). "
+        f"Delete or re-import one of the two."
+    )
+    if frappe.db.exists("Error Log", {"method": COLLISION_LOG_TITLE, "error": message}):
+        return
+    frappe.log_error(title=COLLISION_LOG_TITLE, message=message)

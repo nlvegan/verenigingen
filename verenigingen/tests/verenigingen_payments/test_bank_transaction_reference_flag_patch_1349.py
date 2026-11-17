@@ -166,6 +166,56 @@ class TestMarkSystemIssuedBankTransactionReferences(_BankTxnFixtureMixin, Enhanc
         self.assertTrue(self._key(keyed.name))
         self.assertIsNone(self._key(lost))
 
+    def _collision_logs(self, name):
+        """Error Log rows the re-key wrote for `name`, read back from the table."""
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": patch.COLLISION_LOG_TITLE, "error": ("like", f"%{name}%")},
+            fields=["name", "error"],
+        )
+
+    def test_the_collision_log_names_the_row_that_holds_the_key(self):
+        self.expectErrorLog("re-key collision")
+        reference = f"tr_{frappe.generate_hash(length=10)}"
+        holder = self._insert(reference, flagged=True)
+        lost = self._insert_twin_unkeyed(reference)
+
+        with self.assertErrorLog("re-key collision"):
+            patch.rekey_flagged_rows_missing_key()
+
+        logs = self._collision_logs(lost)
+        self.assertEqual(len(logs), 1)
+        self.assertIn(holder.name, logs[0].error)
+
+    def test_a_rerun_does_not_log_the_same_collision_again(self):
+        self.expectErrorLog("re-key collision")
+        reference = f"tr_{frappe.generate_hash(length=10)}"
+        self._insert(reference, flagged=True)
+        lost = self._insert_twin_unkeyed(reference)
+
+        with self.assertErrorLog("re-key collision"):
+            patch.rekey_flagged_rows_missing_key()
+        patch.rekey_flagged_rows_missing_key()
+        patch.rekey_flagged_rows_missing_key()
+
+        self.assertEqual(len(self._collision_logs(lost)), 1)
+
+    def test_a_second_colliding_row_is_still_logged_after_the_first(self):
+        # Control for the dedupe: it must key on the affected row, not just the title.
+        self.expectErrorLog("re-key collision")
+        reference = f"tr_{frappe.generate_hash(length=10)}"
+        self._insert(reference, flagged=True)
+        first = self._insert_twin_unkeyed(reference)
+        with self.assertErrorLog("re-key collision"):
+            patch.rekey_flagged_rows_missing_key()
+        second = self._insert_twin_unkeyed(reference)
+
+        with self.assertErrorLog("re-key collision"):
+            patch.rekey_flagged_rows_missing_key()
+
+        self.assertEqual(len(self._collision_logs(first)), 1)
+        self.assertEqual(len(self._collision_logs(second)), 1)
+
     def _insert_twin(self, reference):
         return frappe.get_doc(
             {

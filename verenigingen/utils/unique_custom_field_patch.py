@@ -28,6 +28,22 @@ def get_custom_field_name(dt: str, fieldname: str):
     return frappe.db.get_value("Custom Field", {"dt": dt, "fieldname": fieldname}, "name")
 
 
+def ensure_custom_field(dt: str, fieldname: str, **properties) -> bool:
+    """Create the Custom Field `dt.fieldname` with `properties` unless it exists. Idempotent.
+
+    Returns True if this call created it. The Custom Field lifecycle is doctype-agnostic, so a
+    patch passes only what is specific to its field instead of carrying its own copy.
+    """
+    if get_custom_field_name(dt, fieldname):
+        return False
+
+    frappe.get_doc({"doctype": "Custom Field", "dt": dt, "fieldname": fieldname, **properties}).insert(
+        ignore_permissions=True
+    )
+    print(f"Created Custom Field {dt}.{fieldname}")
+    return True
+
+
 def ensure_unique(dt: str, fieldname: str) -> bool:
     """Flip `unique` on an already-backfilled Custom Field. Idempotent.
 
