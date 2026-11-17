@@ -22,6 +22,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 
 # Default TTL values (in seconds)
 DEFAULT_LOCK_TTL = 300  # 5 minutes for processing locks
@@ -370,14 +371,14 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
 def _create_payment_entry(payment_data: Dict) -> Dict:
     """Internal function to create payment entry"""
     payment_entry = frappe.get_doc(payment_data)
-    payment_entry.insert()
+    # One unit (#2447): a failed submit must not leave a draft or a docstatus-1 row without GL
+    # behind -- the duplicate guard above counts DRAFT Payment Entry References.
     # reload() guards against #609 (whole-second creation/modified timestamp ->
     # TimestampMismatchError / CannotChangeConstantError on submit(), frappe#38219
     # precedent). Belt-and-braces alongside the doc_events["*"] on_change
     # normaliser -- see verenigingen/api/chapter_join.py's matching call for the
     # full rationale.
-    payment_entry.reload()
-    payment_entry.submit()
+    insert_and_submit_atomically(payment_entry, reload_before_submit=True)
 
     return {"success": True, "payment_entry": payment_entry.name, "amount": payment_entry.paid_amount}
 

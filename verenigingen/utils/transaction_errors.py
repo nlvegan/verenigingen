@@ -156,7 +156,7 @@ def rollback_to_savepoint(save_point):
         return False
 
 
-def insert_and_submit_atomically(doc):
+def insert_and_submit_atomically(doc, reload_before_submit=False):
     """Insert and submit as one unit: a failed submit must leave no draft behind.
 
     A submit precondition can only answer "may this user submit this DOCTYPE?", which
@@ -178,11 +178,18 @@ def insert_and_submit_atomically(doc):
     because it swallows what it catches, which would let a caller report success naming
     a document that no longer exists.
 
+    ``reload_before_submit`` keeps the ``insert(); reload(); submit()`` shape of callers that
+    reload to dodge #609 (whole-second ``modified`` -> TimestampMismatchError on submit); the
+    reload runs inside the same savepoint.
+
     Extracted from BankTransactionReconciliationManager._insert_and_submit, which was
     the only correct implementation in the codebase while every gateway path went
     without one.
     """
-    _atomically(doc.insert, doc.submit)
+    if reload_before_submit:
+        _atomically(doc.insert, doc.reload, doc.submit)
+    else:
+        _atomically(doc.insert, doc.submit)
 
 
 def submit_atomically(doc):
