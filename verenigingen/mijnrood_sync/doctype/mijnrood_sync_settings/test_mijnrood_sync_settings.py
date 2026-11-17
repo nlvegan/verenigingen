@@ -354,7 +354,7 @@ class TestStaleSettingsSaveKeepsPollState(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self._saved = {f: self._raw(f) for f in self.FIELDS}
+        self._saved = {f: self._raw(f) for f in self.FIELDS + ("poll_interval_minutes",)}
 
     def tearDown(self):
         for event in frappe.get_all("MijnRood Sync Event", filters={"sync_run_id": self.RUN_ID}):
@@ -419,12 +419,5 @@ class TestStaleSettingsSaveKeepsPollState(EnhancedTestCase):
         stale = self._poll_after_loading_a_stale_doc()
         original = stale.poll_interval_minutes
         stale.poll_interval_minutes = int(original or 15) + 1
-        try:
-            stale.save()
-            self.assertEqual(
-                int(self._raw("poll_interval_minutes")),
-                int(original or 15) + 1,
-            )
-        finally:
-            self._put("poll_interval_minutes", None if original is None else str(original))
-            frappe.db.commit()
+        stale.save()
+        self.assertEqual(int(self._raw("poll_interval_minutes")), int(original or 15) + 1)

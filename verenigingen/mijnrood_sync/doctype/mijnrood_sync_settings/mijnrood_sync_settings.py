@@ -3,6 +3,7 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -289,7 +290,7 @@ class MijnRoodSyncSettings(Document):
             (self.doctype, POLLER_OWNED_FIELDS),
         )
         for field, value in rows:
-            self.set(field, value)
+            self.set(field, cint(value) if field == "total_events_pending" else value)
 
     def validate(self):
         """Validate settings before save."""
