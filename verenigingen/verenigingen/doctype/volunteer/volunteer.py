@@ -116,6 +116,7 @@ class Volunteer(Document):
         self.validate_required_fields()
         self.validate_member_link()
         self.validate_unique_member_link()
+        self.validate_member_repoint()
         self.validate_employee_id_change()
         self.validate_volunteer_age()
         self.validate_dates()
@@ -167,13 +168,32 @@ class Volunteer(Document):
                 frappe.UniqueValidationError,
             )
 
+    def validate_member_repoint(self):
+        """Refuse a non-staff writer repointing or clearing an already-set `member` (#2752).
+
+        The Employee the writer may claim is derived from the PERSISTED member (see
+        `_own_member_name`), so `member` itself must not be movable in the same save.
+        Filling an EMPTY member stays open: the application relink flows
+        (`activate_volunteer_record`, run by whoever approves) adopt an orphan that way.
+        """
+        previous = self.get_doc_before_save()
+        old_member = previous.get("member") if previous else None
+        if not old_member or (self.member or None) == old_member:
+            return
+        if Roles.ADMIN_ROLES.intersection(frappe.get_roles()):
+            return
+        frappe.throw(
+            _("Only staff can change or clear the Member linked to a volunteer."),
+            frappe.PermissionError,
+        )
+
     def validate_employee_id_change(self):
         """Refuse a Volunteer writer repointing `employee_id` at someone else's Employee (#2752).
 
         `read_only` is a form hint; a server save or REST PUT ignores it. Every expense read
         and write is keyed on this field, so repointing it hands over another person's
         claims. Staff (`Roles.ADMIN_ROLES`, #1101) may set, change or clear it. Anyone else
-        may only fill an EMPTY field, with the Employee of the linked Member's own user.
+        may only fill an EMPTY field, with the Employee of the PERSISTED member's own user.
         The app's own writers (ACR pipeline, volunteer_employee_service) use
         `frappe.db.set_value`, which never runs validate, so they need no bypass.
         """
@@ -183,26 +203,32 @@ class Volunteer(Document):
             return
         if Roles.ADMIN_ROLES.intersection(frappe.get_roles()):
             return
-        if old_value or not self.employee_id or not self._employee_belongs_to_member_user():
+        if old_value or not self.employee_id or not self._employee_belongs_to_member_user(previous):
             frappe.throw(
                 _("Only staff can change or clear the Employee linked to a volunteer."),
                 frappe.PermissionError,
             )
 
-    def _employee_belongs_to_member_user(self):
+    def _employee_belongs_to_member_user(self, previous):
         # Local import: the service imports AccountCreationManager at module level
         from verenigingen.services.volunteer.volunteer_employee_service import _linked_employee
 
-        member = frappe.get_doc("Member", self.member) if self.member else None
+        # "Own" must come from something the writer cannot change in this same save: the
+        # persisted member. On insert there is no persisted row, so the incoming member
+        # counts, and the Employee must then also be the writer's own.
+        own_member_name = previous.get("member") if previous else self.member
+        member = frappe.get_doc("Member", own_member_name) if own_member_name else None
+        if not (member and member.user):
+            return False
+        if not previous and member.user != frappe.session.user:
+            return False
         try:
             linked = _linked_employee(self, member)
         except frappe.ValidationError:
             return False
         # _linked_employee also accepts an Employee with NO user; that is somebody's
         # Employee all the same, so require the member user's own.
-        return bool(linked and member and member.user) and (
-            frappe.db.get_value("Employee", linked, "user_id") == member.user
-        )
+        return bool(linked) and frappe.db.get_value("Employee", linked, "user_id") == member.user
 
     def validate_volunteer_age(self):
         """Validate volunteer age requirements"""
