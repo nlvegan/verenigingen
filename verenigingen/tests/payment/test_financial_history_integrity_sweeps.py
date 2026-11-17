@@ -150,21 +150,37 @@ class TestDonorHistoryIntegritySweep(EnhancedTestCase):
         )
 
     def test_sweep_repairs_a_history_row_that_drifted_from_its_donation(self):
-        """A row exists but no longer matches its Donation (lost update): rebuilt."""
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, amount=60)
-        frappe.db.set_value(
-            "Donation History",
-            {"parent": donor.name, "donation_reference": donation.name},
-            "donation_amount",
-            999,
-        )
+        """A row exists but no longer matches its Donation (lost update): rebuilt.
 
-        result = validate_donor_history_integrity(donor_names=[donor.name])
+        One subTest per compared column, so a comparator that looks at only some
+        of them (e.g. reference + amount) is caught. Each drift value differs
+        from what the real writer produced.
+        """
+        drifts = {
+            "donation_amount": 999,
+            "donation_date": "2001-02-03",
+            "payment_method": "Cash",
+            "donation_status": "Recurring",
+            "fund_designation": "drifted designation",
+            "donation_purpose": "drifted purpose",
+            "paid": 0,
+            "journal_entry": "drifted-journal-entry",
+        }
+        for fieldname, drifted in drifts.items():
+            with self.subTest(field=fieldname):
+                donor = self.create_test_donor()
+                donation = self.create_test_donation(donor=donor.name, amount=60)
+                (original,) = self._history_snapshot(donor.name)
+                if original[fieldname] == drifted or str(original[fieldname]) == str(drifted):
+                    self.fail(f"fixture already holds the drift value for {fieldname}")
+                frappe.db.set_value("Donation History", original.name, fieldname, drifted)
 
-        self.assertEqual(result.get("resynced"), 1, result)
-        rows = self._history_snapshot(donor.name)
-        self.assertEqual([float(r.donation_amount) for r in rows], [60.0])
+                result = validate_donor_history_integrity(donor_names=[donor.name])
+
+                self.assertEqual(result.get("resynced"), 1, result)
+                (repaired,) = self._history_snapshot(donor.name)
+                self.assertEqual(repaired.donation_reference, donation.name)
+                self.assertEqual(repaired[fieldname], original[fieldname])
 
     def test_sweep_repairs_an_orphaned_history_row(self):
         """The Donation is gone but its history row survived (lost delete): rebuilt."""

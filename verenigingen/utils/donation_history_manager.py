@@ -101,7 +101,7 @@ class DonationHistoryManager(BaseHistoryManager):
             filters={"parent": donor_name, "parenttype": "Donor", "parentfield": "donor_history"},
             fields=list(_HISTORY_FIELDS),
         )
-        return _comparable(existing) == _comparable(expected)
+        return _comparable_history_rows(existing) == _comparable_history_rows(expected)
 
     @staticmethod
     def sync_donation_history(donor_name: str) -> dict:
@@ -253,7 +253,7 @@ def _history_rows_for(donations):
     ]
 
 
-def _comparable(rows):
+def _comparable_history_rows(rows):
     """Order-insensitive, type-normalised form of history rows (a multiset)."""
     return sorted(
         (
