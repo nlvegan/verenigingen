@@ -35,7 +35,7 @@ from verenigingen.tests.support.wsgi_http_session import (
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
-SAFE_CALLS = {"prepare_background_import", "cbool", "cint", "is_dry_run", "is_confirmed", "int", "bool", "safe_int", "sbool"}
+SAFE_CALLS = {"prepare_background_import", "cbool", "cint", "is_dry_run", "is_confirmed", "int", "safe_int", "sbool"}
 
 # "module:qualname" -> parameters fixed by #2448 (a bare ``if`` on a string flag). Parameters that were
 # already annotated on develop are not listed (the census never flagged them: see the class guard).
@@ -105,8 +105,27 @@ def _converted_first(fn, param):
     return False
 
 
-def unguarded_bool_flags(source):
-    """[(function, param)] for whitelisted functions testing a bool-default param bare, unannotated."""
+def _used_unconverted(fn, param):
+    """True if ``param`` is read anywhere other than as the argument of a conversion call (#2730).
+
+    Covers the pass-through (``helper(flag)``, ``helper(flag=flag)``), a ``flag in [...]`` /
+    ``flag == True`` comparison and a ``{"flag": flag}`` echo: a callee's own ``bool`` annotation is
+    not applied to an internal call, so each of them sees the raw "false" string.
+    """
+    parents = {child: node for node in ast.walk(fn) for child in ast.iter_child_nodes(node)}
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Name) and node.id == param and isinstance(node.ctx, ast.Load)):
+            continue
+        holder = parents.get(node)
+        if isinstance(holder, ast.Call) and getattr(holder.func, "id", getattr(holder.func, "attr", "")) in SAFE_CALLS:
+            continue
+        return True
+    return False
+
+
+def unguarded_bool_flags(source, passthrough=False):
+    """[(function, param)] for whitelisted functions with a bool-default param, unannotated, that is
+    tested bare (#2448) or, with ``passthrough=True``, read at all without conversion (#2730)."""
     found = []
     # Under ``from __future__ import annotations`` the annotation is the STRING "bool", which Frappe's
     # transform_parameter_types skips (measured): it is not a guard there.
@@ -124,7 +143,9 @@ def unguarded_bool_flags(source):
             if not (isinstance(default, ast.Constant) and isinstance(default.value, bool)):
                 continue
             annotated = not stringly and arg.annotation is not None and ast.unparse(arg.annotation) == "bool"
-            if not annotated and _tested_bare(fn, arg.arg) and not _converted_first(fn, arg.arg):
+            if annotated or _converted_first(fn, arg.arg):
+                continue
+            if _tested_bare(fn, arg.arg) or (passthrough and _used_unconverted(fn, arg.arg)):
                 found.append((fn.name, arg.arg))
     return found
 
@@ -143,6 +164,32 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
         future = "from __future__ import annotations\n" + source.split("@frappe.whitelist()\ndef converted")[0]
         self.assertEqual(unguarded_bool_flags(future), [("bad", "force"), ("annotated", "force")])
 
+    def test_passthrough_detector_flags_a_synthetic_offender(self):
+        """#2730 control: a flag read without conversion is flagged; annotated, converted, safe-callee and unused are not."""
+        source = (
+            "@frappe.whitelist()\ndef bad(force=False):\n    return helper(force=force)\n\n"
+            "@frappe.whitelist()\ndef bad_positional(force=False):\n    return svc.run(1, force)\n\n"
+            "@frappe.whitelist()\ndef annotated(force: bool = False):\n    return helper(force=force)\n\n"
+            "@frappe.whitelist()\ndef converted(force=False):\n    force = cbool(force)\n    return helper(force)\n\n"
+            "@frappe.whitelist()\ndef safe_callee(force=False):\n    return helper(cbool(force))\n\n"
+            "@frappe.whitelist()\ndef bool_wrapped(force=False):\n    return helper(bool(force))\n\n"
+            "@frappe.whitelist()\ndef compared(force=False):\n    return force in [True, 1]\n\n"
+            "@frappe.whitelist()\ndef echoed(force=False):\n    return {\"force\": force}\n\n"
+            "@frappe.whitelist()\ndef unused(force=False):\n    return 1\n\n"
+            "def not_whitelisted(force=False):\n    return helper(force)\n"
+        )
+        self.assertEqual(
+            unguarded_bool_flags(source, passthrough=True),
+            [
+                ("bad", "force"),
+                ("bad_positional", "force"),
+                ("bool_wrapped", "force"),  # bool("false") is True: not a conversion
+                ("compared", "force"),
+                ("echoed", "force"),
+            ],
+        )
+        self.assertEqual(unguarded_bool_flags(source), [])  # the bare-test census alone cannot see them
+
     def test_no_whitelisted_function_tests_an_unannotated_bool_flag_bare(self):
         root = os.path.dirname(os.path.dirname(verenigingen.__file__))
         offenders = []
@@ -156,7 +203,7 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
                     path = os.path.join(dirpath, name)
                     try:
                         with open(path, encoding="utf-8") as handle:
-                            hits = unguarded_bool_flags(handle.read())
+                            hits = unguarded_bool_flags(handle.read(), passthrough=True)
                     except (SyntaxError, UnicodeDecodeError):
                         continue
                     offenders += [f"{os.path.relpath(path, root)}:{fn}({param})" for fn, param in hits]
