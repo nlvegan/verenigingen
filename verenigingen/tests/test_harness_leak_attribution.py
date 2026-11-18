@@ -3290,6 +3290,80 @@ class CleanupManagerCommitMakesDeletesDurableTest(unittest.TestCase):
         )
 
 
+class CoreFactoryCleanupCommitMakesDeletesDurableTest(unittest.TestCase):
+    """`CoreTestDataFactory.cleanup()` has the same #489 shape (#842).
+
+    Its per-test callers run `self.factory.cleanup()` and then `super().tearDown()`,
+    whose first act is a transaction-wide rollback. A tracked row that was COMMITTED
+    before the delete (production code under test commits) is put back by it.
+    `cleanup(commit=True)` is opt-in for the same reason as #489's: a mid-test caller
+    would otherwise commit every other pending row. Callers passing it MUST run
+    `super().tearDown()` first, never before.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _create_committed_territory_842(self, label):
+        """A COMMITTED Territory (an uncommitted row is destroyed by a rollback either way)."""
+        doc = _territory(label)
+        frappe.db.commit()
+        self.created.append(("Territory", doc.name))
+        return doc
+
+    def _create_tracking_core_factory_842(self, name):
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        factory = CoreTestDataFactory(cleanup_on_exit=False)
+        factory.track_doc("Territory", name)
+        return factory
+
+    def test_default_cleanup_is_undone_by_a_later_rollback(self):
+        """Control: the untouched default still exhibits #842 (so the red below is real)."""
+        victim = self._create_committed_territory_842("zzcore-842-default")
+        self._create_tracking_core_factory_842(victim.name).cleanup()
+        self.assertFalse(frappe.db.exists("Territory", victim.name), "precondition: deleted first")
+
+        frappe.db.rollback()  # stand-in for the base teardown's rollback
+
+        self.assertTrue(
+            frappe.db.exists("Territory", victim.name),
+            "default cleanup() no longer resurrects -- the control is not exercising #842",
+        )
+
+    def test_committed_cleanup_survives_a_later_rollback(self):
+        victim = self._create_committed_territory_842("zzcore-842-commit")
+        self._create_tracking_core_factory_842(victim.name).cleanup(commit=True)
+
+        frappe.db.rollback()
+
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name),
+            "cleanup(commit=True) did not survive a later rollback (#842)",
+        )
+
+    def test_committing_after_the_rollback_leaks_no_bystander(self):
+        """Ordering contract: rollback first, then cleanup(commit=True) (as #489)."""
+        victim = self._create_committed_territory_842("zzcore-842-order-victim")
+        bystander = _territory("zzcore-842-order-bystander")  # uncommitted
+        self.created.append(("Territory", bystander.name))
+        factory = self._create_tracking_core_factory_842(victim.name)
+
+        frappe.db.rollback()
+        factory.cleanup(commit=True)
+
+        self.assertFalse(frappe.db.exists("Territory", bystander.name))
+        self.assertFalse(frappe.db.exists("Territory", victim.name))
+
+
 class _BorrowedChapterFixture:
     """Committed-chapter plumbing shared by the two borrowed-fixture suites.
 
