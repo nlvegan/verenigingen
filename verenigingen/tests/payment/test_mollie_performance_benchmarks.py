@@ -22,6 +22,7 @@ Author: Test Engineering Team
 
 import time
 import statistics
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import MagicMock, patch
@@ -37,6 +38,37 @@ from verenigingen.verenigingen_payments.utils.payment_gateways import (
     PaymentGatewayFactory
 )
 import unittest
+
+
+# SQL-statement budgets for _process_subscription_payment, measured on a warmed
+# site (#2460): a paying call ran 233 statements, the first repeat 20 (it still
+# creates the Error Log / meta state for the unmatched path), later repeats 2.
+# Each budget leaves a little room for ERPNext drift but not for an extra query
+# per call to go unnoticed.
+PAYING_CALL_QUERY_BUDGET = 260
+FIRST_REPEAT_QUERY_BUDGET = 30
+REPEAT_CALL_QUERY_BUDGET = 4
+
+
+@contextmanager
+def _mollie_benchmark_sql_counter():
+    """Yield a list that collects every SQL statement run through frappe.db.sql.
+
+    Same hook as IntegrationTestCase.assertQueryCount, but it hands the list back
+    so a benchmark can print the count and assert on it afterwards.
+    """
+    queries = []
+    orig_sql = frappe.db.__class__.sql
+
+    def _sql_and_record(db, *args, **kwargs):
+        queries.append(str(args[0]) if args else "")
+        return orig_sql(db, *args, **kwargs)
+
+    frappe.db.__class__.sql = _sql_and_record
+    try:
+        yield queries
+    finally:
+        frappe.db.__class__.sql = orig_sql
 
 
 class PerformanceMetrics:
@@ -185,60 +217,65 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
         process = psutil.Process()
         return process.memory_info().rss / 1024 / 1024  # Convert to MB
         
+    def _run_counted_payment(self, gateway, member, customer, payment_id, subscription_id):
+        """Process one payment; return (result, elapsed_ms, sql_statement_count)."""
+        start_time = datetime.now()
+        with _mollie_benchmark_sql_counter() as queries:
+            result = _process_subscription_payment(
+                gateway, member.name, customer.name, payment_id, subscription_id
+            )
+        elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+        return result, elapsed_ms, len(queries)
+
     def test_single_payment_processing_time(self):
-        """Test individual payment processing time"""
+        """Gate the WORK one webhook payment does (SQL statements, gateway calls).
+
+        Elapsed time is printed, never asserted: a shared CI runner measured 3993 ms
+        for a call that takes ~100 ms here (#2460), so a millisecond budget gates the
+        runner, not the code. A statement count does not move with runner speed, but
+        it does move when the code starts doing extra work per webhook.
+        """
         member, customer = self.test_members[0]
+        warm_member, warm_customer = self.test_members[1]
         gateway = self._create_mock_gateway(50)  # 50ms simulated API delay
-        
-        # Create test invoice
-        invoice_name = self._create_test_invoice(customer, 50.00)
-        
-        processing_times = []
-        
-        # Test multiple single payments
-        for i in range(10):
-            payment_id = f"tr_single_test_{i:03d}"
-            
-            start_time = datetime.now()
-            
-            try:
-                result = _process_subscription_payment(
-                    gateway, member.name, customer.name, payment_id, "sub_single_test"
-                )
-                
-                end_time = datetime.now()
-                processing_time_ms = (end_time - start_time).total_seconds() * 1000
-                processing_times.append(processing_time_ms)
-                
-                self.metrics.record_processing_time(processing_time_ms)
-                self.metrics.record_success()
-                
-            except Exception as e:
-                end_time = datetime.now()
-                processing_time_ms = (end_time - start_time).total_seconds() * 1000
-                processing_times.append(processing_time_ms)
-                
-                self.metrics.record_processing_time(processing_time_ms)
-                self.metrics.record_error()
-                
-                print(f"Single payment test {i} failed: {e}")
-                
-        # Analyze results
-        if processing_times:
-            avg_time = statistics.mean(processing_times)
-            max_time = max(processing_times)
-            
-            print(f"Single Payment Performance:")
-            print(f"  Average processing time: {avg_time:.2f}ms")
-            print(f"  Maximum processing time: {max_time:.2f}ms")
-            print(f"  Success rate: {self.metrics.success_count}/{len(processing_times)}")
-            
-            # Realistic assertions
-            self.assertLessEqual(avg_time, 1000,  # 1 second average
-                               f"Average processing time {avg_time:.2f}ms exceeds 1000ms target")
-            self.assertLessEqual(max_time, 3000,  # 3 second maximum
-                               f"Maximum processing time {max_time:.2f}ms exceeds 3000ms target")
-                               
+
+        # Warm-up on ANOTHER member's invoice, so table_columns / meta / settings
+        # caches are filled before counting and the counted call is not the cold one.
+        self._create_test_invoice(warm_customer, 50.00)
+        self._run_counted_payment(gateway, warm_member, warm_customer, "tr_single_warm", "sub_single_test")
+
+        # Real work path: the call that finds the open invoice and pays it.
+        self._create_test_invoice(customer, 50.00)
+        gateway.client.payments.get.reset_mock()
+        result, paying_ms, paying_queries = self._run_counted_payment(
+            gateway, member, customer, "tr_single_000", "sub_single_test"
+        )
+        self.metrics.record_processing_time(paying_ms)
+        self.metrics.record_success()
+        print(f"Single Payment Performance (paying call): {paying_ms:.2f}ms, {paying_queries} queries, result={result}")
+
+        # Steady state: the invoice is now paid, so repeats take the unmatched path.
+        repeat_queries = []
+        repeat_times = []
+        for i in range(1, 10):
+            _, elapsed_ms, query_count = self._run_counted_payment(
+                gateway, member, customer, f"tr_single_{i:03d}", "sub_single_test"
+            )
+            repeat_queries.append(query_count)
+            repeat_times.append(elapsed_ms)
+            self.metrics.record_processing_time(elapsed_ms)
+            self.metrics.record_success()
+
+        print("Single Payment Performance (informational, not asserted):")
+        print(f"  Average processing time: {statistics.mean(repeat_times + [paying_ms]):.2f}ms")
+        print(f"  Maximum processing time: {max(repeat_times + [paying_ms]):.2f}ms")
+        print(f"  Queries per repeat call: {repeat_queries}")
+
+        self.assertEqual(gateway.client.payments.get.call_count, 10, "one gateway fetch per payment")
+        self.assertLessEqual(paying_queries, PAYING_CALL_QUERY_BUDGET, "SQL statements for a paying call")
+        self.assertLessEqual(repeat_queries[0], FIRST_REPEAT_QUERY_BUDGET, "SQL statements, first repeat call")
+        self.assertLessEqual(max(repeat_queries[1:]), REPEAT_CALL_QUERY_BUDGET, "SQL statements, steady-state repeat call")
+
     @unittest.skip(_THROUGHPUT_SKIP)
     def test_webhook_throughput_25_per_second(self):
         """Test realistic webhook throughput of 25 webhooks/second"""
@@ -391,8 +428,7 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
         # Assertions for concurrent processing
         self.assertGreaterEqual(len(successful_results), concurrent_webhooks * 0.8,
                               "At least 80% of concurrent webhooks should succeed")
-        self.assertLessEqual(stats.get('max_processing_time_ms', 0), 5000,
-                           "Maximum processing time should be under 5 seconds even with concurrency")
+        # Elapsed time is printed above, not asserted (wall-clock gates flake on shared CI, #2460).
                            
     def test_memory_usage_under_load(self):
         """Test memory usage under sustained load"""
@@ -449,75 +485,65 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
                                f"Total memory increase {total_memory_increase:.2f}MB exceeds 100MB")
                                
     def test_performance_degradation_over_time(self):
-        """Test for performance degradation over extended operation"""
+        """Per-operation SQL work must not grow from the first batch to the last.
+
+        This used to compare batch wall-clock time and throughput within 25%, which
+        measures runner noise (sleep-dominated 75 ms calls); elapsed time is now only
+        printed. SQL statements per operation is the deterministic stand-in for
+        "each call does more work than it used to as the run goes on".
+        """
         batches = 5
         operations_per_batch = 20
         gateway = self._create_mock_gateway(75)
-        
+
+        # Warm caches once so the first batch is not charged for cold-cache queries.
+        warm_member, warm_customer = self.test_members[0]
+        self._run_counted_payment(gateway, warm_member, warm_customer, "tr_degradation_warm", "sub_degradation_test")
+
         batch_performance = []
-        
+
         for batch in range(batches):
             batch_start = datetime.now()
             batch_times = []
-            
+            batch_queries = []
+
             for i in range(operations_per_batch):
                 member, customer = self.test_members[i % len(self.test_members)]
                 payment_id = f"tr_degradation_test_b{batch}_o{i:03d}"
-                
-                op_start = datetime.now()
-                
-                try:
-                    result = _process_subscription_payment(
-                        gateway, member.name, customer.name, payment_id, "sub_degradation_test"
-                    )
-                    
-                    op_end = datetime.now()
-                    op_time_ms = (op_end - op_start).total_seconds() * 1000
-                    batch_times.append(op_time_ms)
-                    
-                except Exception as e:
-                    op_end = datetime.now()
-                    op_time_ms = (op_end - op_start).total_seconds() * 1000
-                    batch_times.append(op_time_ms)
-                    print(f"Degradation test batch {batch}, operation {i} failed: {e}")
-                    
-            batch_end = datetime.now()
-            batch_duration = (batch_end - batch_start).total_seconds()
-            
-            if batch_times:
-                batch_avg_time = statistics.mean(batch_times)
-                batch_throughput = len(batch_times) / batch_duration
-                
-                batch_performance.append({
-                    "batch": batch,
-                    "avg_time_ms": batch_avg_time,
-                    "throughput": batch_throughput,
-                    "operations": len(batch_times)
-                })
-                
-        # Analyze performance degradation
-        if len(batch_performance) >= 2:
-            first_batch = batch_performance[0]
-            last_batch = batch_performance[-1]
-            
-            time_degradation = (last_batch["avg_time_ms"] - first_batch["avg_time_ms"]) / first_batch["avg_time_ms"] * 100
-            throughput_degradation = (first_batch["throughput"] - last_batch["throughput"]) / first_batch["throughput"] * 100
-            
-            print(f"Performance Degradation Test Results:")
-            print(f"  Batches tested: {len(batch_performance)}")
-            print(f"  First batch avg time: {first_batch['avg_time_ms']:.2f}ms")
-            print(f"  Last batch avg time: {last_batch['avg_time_ms']:.2f}ms")
-            print(f"  Time degradation: {time_degradation:.1f}%")
-            print(f"  First batch throughput: {first_batch['throughput']:.2f} ops/sec")
-            print(f"  Last batch throughput: {last_batch['throughput']:.2f} ops/sec")
-            print(f"  Throughput degradation: {throughput_degradation:.1f}%")
-            
-            # Degradation assertions (should not degrade significantly)
-            self.assertLessEqual(abs(time_degradation), 25.0,
-                               f"Processing time degradation {time_degradation:.1f}% exceeds 25%")
-            self.assertLessEqual(abs(throughput_degradation), 25.0,
-                               f"Throughput degradation {throughput_degradation:.1f}% exceeds 25%")
-                               
+                _, op_time_ms, query_count = self._run_counted_payment(
+                    gateway, member, customer, payment_id, "sub_degradation_test"
+                )
+                batch_times.append(op_time_ms)
+                batch_queries.append(query_count)
+
+            batch_duration = (datetime.now() - batch_start).total_seconds()
+            batch_performance.append({
+                "batch": batch,
+                "avg_time_ms": statistics.mean(batch_times),
+                "throughput": len(batch_times) / batch_duration,
+                "avg_queries": statistics.mean(batch_queries),
+                "operations": len(batch_times),
+            })
+
+        self.assertEqual(len(batch_performance), batches)
+        first_batch = batch_performance[0]
+        last_batch = batch_performance[-1]
+        query_growth = (last_batch["avg_queries"] - first_batch["avg_queries"]) / first_batch["avg_queries"] * 100
+
+        print("Performance Degradation Test Results (times informational, not asserted):")
+        for row in batch_performance:
+            print(
+                f"  batch {row['batch']}: {row['avg_time_ms']:.2f}ms avg, "
+                f"{row['throughput']:.2f} ops/sec, {row['avg_queries']:.2f} queries/op"
+            )
+        print(f"  Queries/op growth first -> last batch: {query_growth:.1f}%")
+
+        # Growth only: fewer queries later is not a degradation.
+        self.assertLessEqual(query_growth, 25.0,
+                           f"SQL statements per operation grew {query_growth:.1f}% across the run (limit 25%)")
+        self.assertLessEqual(last_batch["avg_queries"], REPEAT_CALL_QUERY_BUDGET,
+                           "SQL statements per steady-state operation")
+
     def _create_test_invoice(self, customer, amount: float) -> str:
         """Create test invoice for performance testing.
 
