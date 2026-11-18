@@ -305,6 +305,18 @@ frappe.ui.form.on('Direct Debit Batch Invoice', {
 				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
 				callback(r) {
+					// A failure unwraps to null: say why, rather than leaving the row blank (#1220)
+					if (verenigingen.utils.isFailureResult(r.message)) {
+						frappe.msgprint({
+							title: __('Could not load mandate details'),
+							indicator: 'red',
+							message: frappe.utils.escape_html(
+								verenigingen.utils.getErrorMessage(r.message, __('Could not load mandate details'))
+							)
+						});
+						return;
+					}
+
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {
@@ -662,6 +674,18 @@ function validate_mandates(frm) {
 				processed++;
 				frappe.show_progress(__('Validating'), processed, frm.doc.invoices.length);
 
+				// A failure unwraps to null: mark the row Invalid with the server's reason
+				// instead of leaving it untouched and unexplained (#1220)
+				if (verenigingen.utils.isFailureResult(r.message)) {
+					frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
+					frappe.model.set_value(
+						inv.doctype,
+						inv.name,
+						'result_message',
+						verenigingen.utils.getErrorMessage(r.message, __('Mandate validation failed'))
+					);
+				}
+
 				// Unwrap OperationResult format
 				const data = unwrapOperationResult(r.message);
 				if (data) {
@@ -787,6 +811,18 @@ function process_returns_dialog(frm) {
 					file_type: 'pain.002'
 				},
 				callback(r) {
+					// A failure unwraps to null: keep the dialog open and say why (#1220)
+					if (verenigingen.utils.isFailureResult(r.message)) {
+						frappe.msgprint({
+							title: __('Could not process return file'),
+							indicator: 'red',
+							message: frappe.utils.escape_html(
+								verenigingen.utils.getErrorMessage(r.message, __('Could not process return file'))
+							)
+						});
+						return;
+					}
+
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {

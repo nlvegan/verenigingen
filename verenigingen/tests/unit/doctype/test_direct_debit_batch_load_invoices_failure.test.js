@@ -20,6 +20,10 @@ global.$ = jest.fn(() => ({
 	appendTo: jest.fn(() => global.$()),
 	find: jest.fn(() => global.$()),
 	prepend: jest.fn(),
+	text: jest.fn(),
+	html: jest.fn(),
+	toggle: jest.fn(),
+	each: jest.fn(),
 	on: jest.fn(),
 	length: 1
 }));
@@ -31,6 +35,7 @@ const NO_INVOICES = 'No unpaid invoices found matching criteria';
 
 describe('Direct Debit Batch: Load Unpaid Invoices failure vs empty (#1220)', () => {
 	let batchHandlers;
+	let childHandlers;
 	let frm;
 	let dialogConfig;
 	let originalCall;
@@ -40,6 +45,7 @@ describe('Direct Debit Batch: Load Unpaid Invoices failure vs empty (#1220)', ()
 		// Real helpers, not the mock-suite approximations.
 		global.frappe.provide = global.frappe.provide || jest.fn();
 		global.verenigingen.utils = {};
+		global.locals = {};
 		jest.isolateModules(() => {
 			require('../../../public/js/utils/operation-result-helpers.js');
 		});
@@ -51,6 +57,7 @@ describe('Direct Debit Batch: Load Unpaid Invoices failure vs empty (#1220)', ()
 			'verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js'
 		);
 		batchHandlers = allHandlers['Direct Debit Batch'];
+		childHandlers = allHandlers['Direct Debit Batch Invoice'];
 	});
 
 	beforeEach(() => {
@@ -127,5 +134,129 @@ describe('Direct Debit Batch: Load Unpaid Invoices failure vs empty (#1220)', ()
 
 		expect(frm.add_child).toHaveBeenCalledWith('invoices', { invoice: 'SINV-1', amount: 10 });
 		expect(msgprintTexts()).not.toContain(NO_INVOICES);
+	});
+
+	describe('the other OperationResult callers in the same file', () => {
+		const FAILURE = {
+			message: { success: false, error: { message: 'Mandate lookup refused', code: 'SEPA_ERROR' }, meta: {} }
+		};
+
+		beforeEach(() => {
+			global.frappe.model = global.frappe.model || {};
+			global.frappe.model.set_value = jest.fn();
+			global.frappe.show_progress = jest.fn();
+			global.frappe.hide_progress = jest.fn();
+			frm.dashboard = { set_headline_alert: jest.fn() };
+			global.locals['Direct Debit Batch Invoice'] = { ROW1: { invoice: 'SINV-1', member: 'M-1' } };
+		});
+
+		function clickButton(label, handlerFrm, response, forMethod) {
+			global.frappe.call = jest.fn(({ method, callback }) => {
+				if (method === CAN_LOAD_METHOD) callback({ message: true });
+				else if (method === forMethod) callback(response);
+			});
+			testFormEvent('Direct Debit Batch', 'refresh', handlerFrm, { 'Direct Debit Batch': batchHandlers });
+			handlerFrm.add_custom_button.mock.calls.find((c) => c[0] === label)[1]();
+		}
+
+		it('invoices_add shows the server error and sets no row fields on failure', () => {
+			global.frappe.call = jest.fn(({ callback }) => callback(FAILURE));
+			childHandlers.invoices_add(frm, 'Direct Debit Batch Invoice', 'ROW1');
+
+			expect(msgprintTexts().some((t) => t.includes('Mandate lookup refused'))).toBe(true);
+			expect(global.frappe.model.set_value).not.toHaveBeenCalled();
+		});
+
+		it('invoices_add still fills the row on success', () => {
+			global.frappe.call = jest.fn(({ callback }) =>
+				callback({
+					message: {
+						success: true,
+						data: { iban: 'NL01', bic: 'B', mandate_reference: 'MR', mandate_date: '2026-01-01' }
+					}
+				})
+			);
+			childHandlers.invoices_add(frm, 'Direct Debit Batch Invoice', 'ROW1');
+
+			expect(global.frappe.model.set_value).toHaveBeenCalledWith(
+				'Direct Debit Batch Invoice',
+				'ROW1',
+				'iban',
+				'NL01'
+			);
+			expect(global.frappe.msgprint).not.toHaveBeenCalled();
+		});
+
+		it('Validate Mandates marks the row Invalid with the server reason on failure', () => {
+			frm.doc.invoices = [
+				{ doctype: 'Direct Debit Batch Invoice', name: 'ROW1', invoice: 'SINV-1', member: 'M-1' }
+			];
+			clickButton(
+				'Validate Mandates',
+				frm,
+				FAILURE,
+				'verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_invoice_mandate'
+			);
+
+			const setValue = global.frappe.model.set_value;
+			expect(setValue).toHaveBeenCalledWith('Direct Debit Batch Invoice', 'ROW1', 'status', 'Invalid');
+			expect(setValue).toHaveBeenCalledWith(
+				'Direct Debit Batch Invoice',
+				'ROW1',
+				'result_message',
+				'Mandate lookup refused'
+			);
+		});
+
+		it('Validate Mandates leaves a valid row alone (no Invalid status)', () => {
+			frm.doc.invoices = [
+				{ doctype: 'Direct Debit Batch Invoice', name: 'ROW1', invoice: 'SINV-1', member: 'M-1' }
+			];
+			clickButton(
+				'Validate Mandates',
+				frm,
+				{ message: { success: true, data: { valid: true, iban: 'NL01', bic: 'B', mandate_reference: 'MR' } } },
+				'verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_invoice_mandate'
+			);
+
+			expect(global.frappe.model.set_value).not.toHaveBeenCalledWith(
+				'Direct Debit Batch Invoice',
+				'ROW1',
+				'status',
+				'Invalid'
+			);
+			expect(global.frappe.model.set_value).toHaveBeenCalledWith(
+				'Direct Debit Batch Invoice',
+				'ROW1',
+				'iban',
+				'NL01'
+			);
+		});
+
+		const RETURN_METHOD =
+			'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file';
+
+		function submitReturnFile(response) {
+			frm.doc.docstatus = 1;
+			frm.doc.status = 'Submitted';
+			frm.doc.sepa_file_generated = 1;
+			clickButton('Process Returns', frm, response, RETURN_METHOD);
+			frm.reload_doc = jest.fn();
+			dialogConfig.primary_action({ return_file: 'x' });
+		}
+
+		it('Process Returns shows the server error and keeps the dialog open on failure', () => {
+			submitReturnFile(FAILURE);
+
+			expect(msgprintTexts().some((t) => t.includes('Mandate lookup refused'))).toBe(true);
+			expect(frm.reload_doc).not.toHaveBeenCalled();
+		});
+
+		it('Process Returns reports the counts and reloads on success', () => {
+			submitReturnFile({ message: { success: true, data: { processed: 2, total: 3 } } });
+
+			expect(msgprintTexts()).toContain('Processed {0} of {1} returns');
+			expect(frm.reload_doc).toHaveBeenCalled();
+		});
 	});
 });
