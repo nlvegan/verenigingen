@@ -79,12 +79,10 @@ from verenigingen.utils.validation_utilities import AgeValidator, DocumentExiste
 
 
 def safe_log_error(message: str, title: Optional[str] = None) -> None:
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
+    """Helper to log errors; the message is kept in full (#1138), the title is never empty."""
     # title must never be None -- see #1121 / employee_user_link.py for why
-    safe_title = title or safe_message.split("\n")[0][:140]
-    frappe.log_error(title=safe_title, message=safe_message)
+    safe_title = title or message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=message)
 
 
 class Volunteer(Document):
