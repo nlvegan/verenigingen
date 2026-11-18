@@ -81,7 +81,7 @@ class _Base(MemberOwnershipProbeMixin, EnhancedTestCase):
         self.track_doc("ING Checkout Mandate", mandate.name)
         return mandate
 
-    def _patch_service(self):
+    def _ownership_1089_patch_service(self):
         recorder = _RecordingService()
         patcher = patch(
             "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.get_mandate_service",
@@ -137,7 +137,7 @@ class TestMandateNameEndpointsOwnership(_Base):
         self.own_mandate = self._make_mandate_for(self.attacker_member.name)
 
     def test_foreign_mandate_refused_on_every_endpoint(self):
-        self._patch_service()
+        self._ownership_1089_patch_service()
         with self.set_user(self.attacker):
             for fn in (
                 mandate_api.get_mandate_status,
@@ -149,7 +149,7 @@ class TestMandateNameEndpointsOwnership(_Base):
         self.assertEqual(frappe.db.get_value("ING Checkout Mandate", self.victim_mandate.name, "status"), "Active")
 
     def test_unknown_mandate_indistinguishable_from_foreign_mandate(self):
-        self._patch_service()
+        self._ownership_1089_patch_service()
         for fn in (
             mandate_api.get_mandate_status,
             mandate_api.sync_mandate_status,
@@ -159,7 +159,7 @@ class TestMandateNameEndpointsOwnership(_Base):
                 self._assert_unknown_matches_forbidden(fn, UNKNOWN_MANDATE, self.victim_mandate.name)
 
     def test_own_mandate_allowed(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         with self.set_user(self.attacker):
             status = mandate_api.get_mandate_status(self.own_mandate.name)
             sync = mandate_api.sync_mandate_status(self.own_mandate.name)
@@ -175,7 +175,7 @@ class TestMandateNameEndpointsOwnership(_Base):
                 mandate_api.get_mandate_status(orphan.name)
 
     def test_staff_may_act_on_another_members_mandate(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         staff = self._staff_user(role="Verenigingen Staff")
         with self.set_user(staff):
             status = mandate_api.get_mandate_status(self.victim_mandate.name)
@@ -201,7 +201,7 @@ class TestMemberNameEndpointsOwnership(_Base):
         self.victim_mandate = self._make_mandate_for(self.victim.name)
 
     def test_foreign_member_refused(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         with self.set_user(self.attacker):
             with self.assertRaises(frappe.PermissionError):
                 mandate_api.get_member_mandates(self.victim.name)
@@ -210,13 +210,13 @@ class TestMemberNameEndpointsOwnership(_Base):
         self.assertEqual(recorder.calls, [])
 
     def test_unknown_member_indistinguishable_from_foreign_member(self):
-        self._patch_service()
+        self._ownership_1089_patch_service()
         for fn in (mandate_api.get_member_mandates, mandate_api.create_mandate_for_member):
             with self.subTest(fn=fn.__name__), self.set_user(self.attacker):
                 self._assert_unknown_matches_forbidden(fn, UNKNOWN_MEMBER, self.victim.name)
 
     def test_own_member_allowed(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         own = self._make_mandate_for(self.attacker_member.name)
         with self.set_user(self.attacker):
             listing = mandate_api.get_member_mandates(self.attacker_member.name)
@@ -225,7 +225,7 @@ class TestMemberNameEndpointsOwnership(_Base):
         self.assertEqual(len(recorder.calls), 1)
 
     def test_staff_may_act_for_another_member(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         staff = self._staff_user(role="Verenigingen Staff")
         with self.set_user(staff):
             listing = mandate_api.get_member_mandates(self.victim.name)
@@ -253,15 +253,15 @@ class TestExecuteDebitOwnership(_Base):
         self.victim_customer = self._give_customer(self.victim)
         self.own_mandate = self._make_mandate_for(self.attacker_member.name)
         self.victim_mandate = self._make_mandate_for(self.victim.name)
-        self.own_invoice = self._invoice(self.attacker_customer)
-        self.victim_invoice = self._invoice(self.victim_customer)
+        self.own_invoice = self._ownership_1089_invoice(self.attacker_customer)
+        self.victim_invoice = self._ownership_1089_invoice(self.victim_customer)
 
     def _give_customer(self, member):
         customer = self.sepa.create_test_customer(customer_name=f"Cust {member.name}").name
         frappe.db.set_value("Member", member.name, "customer", customer)
         return customer
 
-    def _invoice(self, customer):
+    def _ownership_1089_invoice(self, customer):
         from frappe.utils import today
 
         return self.sepa.create_test_sales_invoice(
@@ -274,21 +274,21 @@ class TestExecuteDebitOwnership(_Base):
         )
 
     def test_foreign_mandate_refused(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         with self.set_user(self.attacker), self._bypass_tier_gate():
             with self.assertRaises(frappe.PermissionError):
                 mandate_api.execute_debit_for_invoice(self.victim_mandate.name, self.victim_invoice.name)
         self.assertEqual(recorder.calls, [])
 
     def test_own_mandate_with_foreign_invoice_refused(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         with self.set_user(self.attacker), self._bypass_tier_gate():
             with self.assertRaises(frappe.PermissionError):
                 mandate_api.execute_debit_for_invoice(self.own_mandate.name, self.victim_invoice.name)
         self.assertEqual(recorder.calls, [])
 
     def test_unknown_mandate_and_unknown_pairing_indistinguishable_from_foreign(self):
-        self._patch_service()
+        self._ownership_1089_patch_service()
         with self.set_user(self.attacker), self._bypass_tier_gate():
             foreign = self._observe(
                 mandate_api.execute_debit_for_invoice, self.victim_mandate.name, self.victim_invoice.name
@@ -305,14 +305,14 @@ class TestExecuteDebitOwnership(_Base):
         self.assertEqual(mismatched["message_log"], foreign["message_log"])
 
     def test_own_mandate_and_own_invoice_allowed(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         with self.set_user(self.attacker), self._bypass_tier_gate():
             result = mandate_api.execute_debit_for_invoice(self.own_mandate.name, self.own_invoice.name)
         self.assertEqual(result, {"success": True})
         self.assertEqual(len(recorder.calls), 1)
 
     def test_staff_may_debit_another_members_invoice(self):
-        recorder = self._patch_service()
+        recorder = self._ownership_1089_patch_service()
         staff = self._staff_user()
         with self.set_user(staff):
             result = mandate_api.execute_debit_for_invoice(self.victim_mandate.name, self.victim_invoice.name)
