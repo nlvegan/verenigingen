@@ -197,7 +197,11 @@ from frappe.utils import getdate
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
-from verenigingen.tests.utils.force_delete import delete_role_and_grants
+from verenigingen.tests.utils.force_delete import (
+    delete_role_and_grants,
+    release_single_links_to_chapter,
+    vacate_board_seats_of_chapters,
+)
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
@@ -2319,6 +2323,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 # #1856: a bare delete strands `Has Role` rows on surviving users.
                 delete_role_and_grants(name)
             else:
+                if doctype == "Chapter":
+                    release_single_links_to_chapter(name)
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
@@ -2767,17 +2773,36 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         frappe.set_user("Administrator")
 
         delete_failures = 0
+        refused_chapters = []
         for doctype, name in ordered:
             try:
                 self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
+            except frappe.LinkExistsError as delete_error:
+                if doctype != "Chapter":
+                    delete_failures += 1
+                    self._record_leak(doctype, name, delete_error)
+                    continue
+                # #2745: a Chapter delete is refused while a Member still links to it. The
+                # Chapter is usually created AFTER that Member, so reverse creation order
+                # reaches it first. Retry it once everything else has had its turn.
+                refused_chapters.append((doctype, name))
             except Exception as delete_error:
                 # Don't let one failure abort the rest or break tearDown -- but record
                 # WHICH record survived, not just how many. The count alone was
                 # unusable: the row stays in the database, a later test in the shard
                 # collides with it, and that test names neither the record nor this
                 # test (#328).
+                delete_failures += 1
+                self._record_leak(doctype, name, delete_error)
+
+        for doctype, name in refused_chapters:
+            try:
+                self._remove_drained_record(doctype, name)
+            except frappe.DoesNotExistError:
+                pass
+            except Exception as delete_error:
                 delete_failures += 1
                 self._record_leak(doctype, name, delete_error)
 
@@ -3144,6 +3169,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # Same reason as the captured-insert drain: do not inherit the test's user.
         frappe.set_user("Administrator")
+
+        drained_chapters = {name for doctype, name, _prio in unique if doctype == "Chapter"}
+        drained_chapters |= {name for doctype, name in captured_keys if doctype == "Chapter"}
+        vacate_board_seats_of_chapters(sorted(drained_chapters))
 
         delete_failures = 0
         for doctype, name, _prio in unique:
