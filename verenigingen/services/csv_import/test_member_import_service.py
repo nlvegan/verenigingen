@@ -617,6 +617,7 @@ class TestMemberImportService(FrappeTestCase):
                 original_sql(f"RELEASE SAVEPOINT {name}")
             return result
 
+        # Mock justified: fault injection: the wrapper still runs the real SQL, then releases the SAVEPOINT to emulate what a 1213 leaves behind
         with patch.object(frappe.db, "sql", side_effect=sql_that_destroys_the_savepoint):
             with bulk_member_operations("TEST-IMPORT"):
                 status, returned_name = get_member_import_service().create_or_update_member(

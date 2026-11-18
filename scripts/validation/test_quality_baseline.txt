@@ -11,6 +11,15 @@
 # GROW is a change to the enforcer's own detection rules, which must land in
 # the same commit as the regeneration.
 #
+# LOG (#1493, a detection-rule change, so growth is allowed): `_patch_targets` kept only
+# the last segment of a `patch.object` base, so `patch.object(frappe.db, "sql")` was
+# invisible to every 3-segment `frappe.db.<m>` rule. Fixed; it surfaced 75 DATABASE MOCK
+# findings. 31 were resolved in place with the new per-site `# Mock justified: <reason>`
+# marker (Tier 2 DATABASE MOCK only: fault injection and call-through spies; the comment
+# must sit ON the patch line or the line directly above, with a non-empty reason). The
+# other 44 findings / 33 keys (return-value fakes and whole-fake suites) are listed below.
+# Totals: 211 -> 255 findings, 192 -> 225 keys.
+#
 # UNDERSTATES the real debt: _check_all_mocks_blocked still honours an
 # unpoliced escape hatch (`# Mock justified:` / `# External service` /
 # `# Infrastructure` within 3 lines), used 361 times across 77 files. Whatever
@@ -24,6 +33,16 @@ verenigingen/tests/backend/components/test_anbi_donation_summary_report.py::Test
 verenigingen/tests/backend/components/test_anbi_donation_summary_report.py::TestANBIDonationSummaryReport.test_get_data_database_query::DATABASE MOCK::1
 verenigingen/tests/backend/components/test_anbi_donation_summary_report.py::TestANBIDonationSummaryReport.test_reportable_threshold_logic::DATABASE MOCK::1
 verenigingen/tests/backend/components/test_anbi_donation_summary_report.py::TestANBIDonationSummaryReport.test_tax_id_processing::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportData.test_get_data_calculates_percentages::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportData.test_get_data_calculates_totals_correctly::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportData.test_get_data_handles_missing_fiscal_year::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportData.test_get_data_returns_list::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportData.test_get_data_returns_three_categories_plus_total::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportExecute.test_execute_returns_5_tuple::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportExecute.test_execute_with_real_data_structure::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportGLExpenses.test_get_gl_expenses_returns_dict::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportGLExpenses.test_get_gl_expenses_returns_zero_for_missing_accounts::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportGLExpenses.test_get_gl_expenses_uses_nested_set_model::DATABASE MOCK::2
 verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportPersonnelAllocations.test_get_personnel_allocations_handles_null_values::DATABASE MOCK::1
 verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportPersonnelAllocations.test_get_personnel_allocations_initializes_all_categories::DATABASE MOCK::1
 verenigingen/tests/backend/components/test_anbi_expense_report.py::TestANBIExpenseReportPersonnelAllocations.test_get_personnel_allocations_returns_dict::DATABASE MOCK::1
@@ -41,6 +60,13 @@ verenigingen/tests/backend/components/test_membership_analytics_permissions.py::
 verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_predictive_analytics_access::PERMISSION BYPASS::1
 verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_snapshot_permissions::PERMISSION BYPASS::1
 verenigingen/tests/backend/components/test_setup_custom_fields.py::TestExecuteAfterInstallGuard.test_early_return_when_already_complete::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/backend/components/test_setup_custom_fields.py::TestInitialSetupCompleteFlag.test_mark_then_is_complete_roundtrip::DATABASE MOCK::2
+verenigingen/tests/backend/components/test_setup_install_step_failures.py::_fresh_site_refusing::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_setup_termination.py::TestRunTerminationDiagnostics.test_diagnostics_fail_when_role_missing::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_setup_termination.py::TestRunTerminationDiagnostics.test_diagnostics_pass_when_all_entities_present::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_setup_workflow_definitions.py::TestWorkflowMasterDuplicateRace.test_action_master_race_is_not_logged_as_a_failure::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_setup_workflow_definitions.py::TestWorkflowMasterDuplicateRace.test_non_duplicate_state_failure_still_logs::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_setup_workflow_definitions.py::TestWorkflowMasterDuplicateRace.test_state_master_race_is_not_logged_as_a_failure::DATABASE MOCK::1
 verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::_ensure_user._apply_role_profile::PERMISSION BYPASS::1
 verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::TestVolunteerPortalIntegration.create_expense_categories::PERMISSION BYPASS::1
 verenigingen/tests/backend/portal/test_donation_portal_behavior.py::TestDonationPortalBehavior.test_cancel_rejects_foreign_donation::PERMISSION BYPASS::1
@@ -67,6 +93,10 @@ verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJou
 verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_6_track_hours::PERMISSION BYPASS::1
 verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_7_generate_reports::PERMISSION BYPASS::1
 verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_8_deactivate_volunteer::PERMISSION BYPASS::2
+verenigingen/tests/chapter/test_board_role_profile_sync.py::TestBulkAssignChapterBoardRoleProfiles.test_empty_board_returns_success::DATABASE MOCK::2
+verenigingen/tests/chapter/test_board_role_profile_sync.py::TestBulkAssignChapterBoardRoleProfiles.test_nonexistent_chapter_returns_failure::DATABASE MOCK::1
+verenigingen/tests/chapter/test_board_role_profile_sync.py::TestBulkAssignChapterBoardRoleProfiles.test_partial_failure_still_counts_successes::DATABASE MOCK::2
+verenigingen/tests/chapter/test_board_role_profile_sync.py::TestBulkAssignChapterBoardRoleProfiles.test_syncs_each_board_member_user::DATABASE MOCK::2
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_document_retrieval_by_type::PERMISSION BYPASS::1
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_upload_date_auto_populated::PERMISSION BYPASS::1
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_uploaded_by_auto_populated::PERMISSION BYPASS::1
@@ -78,6 +108,10 @@ verenigingen/tests/chapter/test_chapter_permissions.py::TestChapterPermissions.t
 verenigingen/tests/chapter/test_chapter_utils.py::TestChapterUtilsAccess.test_board_positions_database_error_propagates::DATABASE MOCK::1
 verenigingen/tests/chapter/test_chapter_utils.py::TestChapterUtilsAccess.test_database_error_propagates_instead_of_denying_access::DATABASE MOCK::1
 verenigingen/tests/chapter/test_team_role_integration.py::TestTeamRoleIntegration.test_team_leader_system_role_assignment::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_team_role_profile_sync.py::TestBulkApplyTeamRoleProfiles.test_empty_team_returns_success::DATABASE MOCK::2
+verenigingen/tests/chapter/test_team_role_profile_sync.py::TestBulkApplyTeamRoleProfiles.test_nonexistent_team_returns_failure::DATABASE MOCK::1
+verenigingen/tests/chapter/test_team_role_profile_sync.py::TestBulkApplyTeamRoleProfiles.test_partial_failure_still_counts_successes::DATABASE MOCK::2
+verenigingen/tests/chapter/test_team_role_profile_sync.py::TestBulkApplyTeamRoleProfiles.test_syncs_each_team_member_user::DATABASE MOCK::2
 verenigingen/tests/chapter/test_team_role_profile_sync.py::TestSyncTeamLeadRole.test_removes_role_when_no_longer_leading::PERMISSION BYPASS::1
 verenigingen/tests/doctype/test_procurios_membership_import_row_atomicity.py::_break_membership_tag_write::DATABASE MOCK::1
 verenigingen/tests/e_boekhouden/test_cleanup_utils_sweep.py::TestCleanupSmallBatch.test_deletes_seeded_sales_invoice::DATABASE MOCK::1
@@ -86,11 +120,16 @@ verenigingen/tests/e_boekhouden/test_cleanup_utils_sweep.py::TestNuclearCleanup.
 verenigingen/tests/e_boekhouden/test_configurable_account_mapper_unit.py::TestHelperFunctions.test_validate_account_setup_missing::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/e_boekhouden/test_configurable_account_mapper_unit.py::TestHelperFunctions.test_validate_account_setup_valid::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/e_boekhouden/test_cost_center_creation.py::TestErrorHandlingAndEdgeCases.test_missing_company_validation::PERMISSION BYPASS::2
+verenigingen/tests/e_boekhouden/test_cost_center_fix.py::TestEnsureRootCostCenterDuplicateRace.test_duplicate_race_returns_the_winners_root_instead_of_none::DATABASE MOCK::2
+verenigingen/tests/e_boekhouden/test_cost_center_fix.py::TestEnsureRootCostCenterDuplicateRace.test_non_duplicate_failure_still_logs_and_returns_none::DATABASE MOCK::2
+verenigingen/tests/e_boekhouden/test_rest_invoice_creation.py::TestDefaultWarehouseFixtureAcrossErpnextVersions._spied_run::DATABASE MOCK::1
 verenigingen/tests/email/test_email_system_edge_cases_unit.py::TestEmailSystemEdgeCases.test_template_rendering_failures::PERMISSION BYPASS::1
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_cancel_handler_enqueues_remove_once::DATABASE MOCK::1
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_submit_handler_enqueues_add_and_no_inline_process::DATABASE MOCK::1
 verenigingen/tests/events/test_expense_hook_defers.py::TestExpenseHookDefers.test_update_after_submit_handler_enqueues_add::DATABASE MOCK::1
 verenigingen/tests/financial/test_nuke_financial_data_safeguards.py::_destruction_proof_db::DATABASE MOCK::1
+verenigingen/tests/fixtures/test_factory_concurrency.py::TestEnsureMembershipTypeRace.test_duplicate_insert_is_absorbed::DATABASE MOCK::1
+verenigingen/tests/integration/test_query_optimization_suite.py::TestQueryOptimizationSuite.test_chapter_cache_invalidation::DATABASE MOCK::1
 verenigingen/tests/integration/test_query_optimization_suite.py::query_counter::DATABASE MOCK::2
 verenigingen/tests/member/test_member_merge.py::TestMemberMerge.test_merge_conflict_warnings::PERMISSION BYPASS::2
 verenigingen/tests/member/test_member_performance_optimization.py::TestMemberPerformanceOptimization.test_query_counter_survives_an_instance_level_sql_attribute::DATABASE MOCK::1
@@ -166,7 +205,9 @@ verenigingen/tests/services/event_application/test_member_sync_service.py::TestA
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_defaults_to_active_when_status_missing::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_honors_canceled_status_from_mollie_data::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/tests/services/test_mollie_sync_service.py::TestSyncMollieData.test_no_subscription_status_change_without_subscription_id::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/services/test_role_profile_sync_lock_errors_1888.py::TestRoleProfileSyncLockErrors1888.test_bulk_board_sync_propagates_a_lock_error_instead_of_listing_it_as_failed::DATABASE MOCK::2
 verenigingen/tests/test_delete_audit_selftest.py::DeleteAuditControl.test_5_negative_a_failed_pre_delete_read_is_unverifiable::DATABASE MOCK::2
+verenigingen/tests/test_staff_recipients_2095.py::TestStaffRecipients2095.test_security_policy_digest::DATABASE MOCK::1
 verenigingen/tests/utils/csv/test_base_csv_import.py::TestBeforeSubmitGuardIntegration.test_guard_prevents_docstatus_write::PERMISSION BYPASS::2
 verenigingen/tests/utils/csv/test_base_csv_import.py::TestMarkImportFailed.test_empty_string_writes_fallback_diagnostic_not_null::PERMISSION BYPASS::1
 verenigingen/tests/utils/csv/test_base_csv_import.py::TestMarkImportFailed.test_sets_failed_status_and_sanitized_log::PERMISSION BYPASS::2
@@ -209,3 +250,4 @@ verenigingen/verenigingen_payments/mollie/tests/test_mollie_payments_debug.py::T
 verenigingen/verenigingen_payments/mollie/tests/test_mollie_payments_debug.py::TestBalanceTransactionEndpoints.test_recent_computes_date_range_and_coerces_ints::BUSINESS LOGIC MOCK PROHIBITED::1
 verenigingen/verenigingen_payments/mollie/tests/test_payment_entry_factory.py::TestPaymentEntryFactoryOrphanCleanup.test_handle_orphan_cleanup_calls_delete_doc::DATABASE MOCK::1
 verenigingen/verenigingen_payments/mollie/tests/test_payment_entry_factory.py::TestPaymentEntryFactoryOrphanCleanup.test_handle_orphan_cleanup_logs_error::DATABASE MOCK::1
+verenigingen/verenigingen_payments/tests/test_sepa_xml_adapter.py::TestSEPAXMLAdapter.test_mandate_sign_date_fallback_to_today::DATABASE MOCK::1

@@ -325,6 +325,32 @@ def _dotted_name(node) -> str:
     return ""
 
 
+def _db_mock_justifications(content: str) -> dict:
+    """line -> reason for every `# Mock justified: <reason>` comment that may
+    exempt a Tier 2 DATABASE MOCK site (#1493).
+
+    Stricter than the Tier 3 window (#1601: a comment within 3 lines of an
+    unrelated reassignment exempted it). Here a comment counts only for the
+    line it is ON (trailing) or, when it is a comment-only line, for the line
+    IMMEDIATELY BELOW it, and only with a NON-EMPTY reason. Real COMMENT
+    tokens only, so the text inside a string never counts.
+    """
+    out = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(content).readline):
+            if tok.type != tokenize.COMMENT:
+                continue
+            m = re.match(r"#\s*Mock justified:\s*(\S.*)$", tok.string)
+            if not m:
+                continue
+            row = tok.start[0]
+            comment_only = tok.line.strip().startswith("#")
+            out[row + 1 if comment_only else row] = m.group(1).strip()
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return {}
+    return out
+
+
 def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     """Every direct `frappe.<...> = <value>` reassignment, as (line, dotted target).
 
@@ -725,10 +751,13 @@ class TestQualityEnforcer:
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
         """Database operation mocks (blocked in Tier 2 integration tests)."""
         valid = True
+        justified = _db_mock_justifications(content)
         for line_num, target in self._matching_ast_targets(
             content, self.database_mock_targets
         ):
             if any(re.search(a, target, re.IGNORECASE) for a in self.allowed_config_mocks):
+                continue
+            if line_num in justified:
                 continue
             self._record(
                 file_path,
@@ -739,6 +768,8 @@ class TestQualityEnforcer:
                 f"  -> Database operations must not be mocked in integration tests\n"
                 f"  -> Use real database operations with Enhanced Test Factory\n"
                 f"  -> Move to tests/unit/ if testing isolated service logic\n"
+                f"  -> Fault injection / call-through spy only: `# Mock justified: <reason>`\n"
+                f"     on this line or the line directly above (non-empty reason)\n"
                 f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
             )
             valid = False

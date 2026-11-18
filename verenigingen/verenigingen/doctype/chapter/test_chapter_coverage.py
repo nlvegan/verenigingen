@@ -405,6 +405,7 @@ class TestChapterCoverage(EnhancedTestCase):
                 raise deadlock()
             return real_get_value(doctype, *args, **kwargs)
 
+        # Mock justified: fault injection: injected deadlock for the Volunteer lookup only, every other lookup runs for real
         with patch.object(frappe.db, "get_value", side_effect=_raise_only_for_volunteer_lookup):
             with self.assertRaises(frappe.QueryDeadlockError):
                 chapter_module.get_board_memberships(member.name)
