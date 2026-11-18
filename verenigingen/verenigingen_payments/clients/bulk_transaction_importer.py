@@ -51,7 +51,6 @@ class BulkTransactionImporter(MollieBaseClient):
         self.errors = []
         self.warnings = []
         self.imported_transactions = []
-        self._mollie_scope_cache = None
 
     def import_transactions(
         self,
@@ -466,19 +465,7 @@ class BulkTransactionImporter(MollieBaseClient):
             Bank Transaction document or None
         """
         try:
-            # Get default company and bank account if not provided
-            if not company:
-                company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-                    "Global Defaults", "default_company"
-                )
-
-            if not bank_account:
-                # Get first active bank account for the company
-                bank_account = frappe.db.get_value(
-                    "Bank Account", {"company": company, "is_default": 1}, "name"
-                )
-                if not bank_account:
-                    bank_account = frappe.db.get_value("Bank Account", {"company": company}, "name")
+            company, bank_account = self._resolve_import_target(company, bank_account)
 
             if not bank_account:
                 frappe.logger().warning("No bank account found for settlement import")
@@ -546,19 +533,7 @@ class BulkTransactionImporter(MollieBaseClient):
             Bank Transaction document or None
         """
         try:
-            # Get default company and bank account if not provided
-            if not company:
-                company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-                    "Global Defaults", "default_company"
-                )
-
-            if not bank_account:
-                # Get first active bank account for the company
-                bank_account = frappe.db.get_value(
-                    "Bank Account", {"company": company, "is_default": 1}, "name"
-                )
-                if not bank_account:
-                    bank_account = frappe.db.get_value("Bank Account", {"company": company}, "name")
+            company, bank_account = self._resolve_import_target(company, bank_account)
 
             if not bank_account:
                 frappe.logger().warning("No bank account found for payment import")
@@ -674,7 +649,7 @@ class BulkTransactionImporter(MollieBaseClient):
             payment: Payment data from Mollie
             bank_account: Bank account the payment would be imported to (#2694); a row
                 on another account, or a cancelled one, is not an import. Defaults to
-                the Mollie bank account.
+                the writer's account (company default, else first).
             company: See ``bank_account``.
 
         Returns:
@@ -739,24 +714,29 @@ class BulkTransactionImporter(MollieBaseClient):
             frappe.log_error(f"Error validating custom fields: {str(e)}", "Mollie Field Validation")
             # Continue without field validation if meta loading fails
 
-    def _duplicate_scope(self, bank_account: Optional[str], company: Optional[str]) -> Dict:
-        """Where a Mollie import would land: the caller's account, else the Mollie bank
-        account; ``{}`` (unscoped) only when neither resolves (#2694)."""
-        if bank_account:
-            return {"bank_account": bank_account, "company": company}
-        if self._mollie_scope_cache is not None:  # config validation logs on every call
-            return self._mollie_scope_cache
-        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-            get_bank_transaction_creator,
-        )
+    @staticmethod
+    def _resolve_import_target(company: Optional[str], bank_account: Optional[str]):
+        """The (company, bank account) an import lands on.
 
-        config = get_bank_transaction_creator().get_mollie_bank_account_config()
-        self._mollie_scope_cache = (
-            {}
-            if config.get("error")
-            else {"bank_account": config["bank_account"], "company": config["company"]}
-        )
-        return self._mollie_scope_cache
+        The ONE rule, shared by both writers and the duplicate check so they cannot drift
+        (#2694): the caller's values, else the company's ``is_default`` Bank Account, else
+        its first one. ``bank_account`` is None when the company has none.
+        """
+        if not company:
+            company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+                "Global Defaults", "default_company"
+            )
+        if not bank_account:
+            bank_account = frappe.db.get_value("Bank Account", {"company": company, "is_default": 1}, "name")
+            if not bank_account:
+                bank_account = frappe.db.get_value("Bank Account", {"company": company}, "name")
+        return company, bank_account
+
+    def _duplicate_scope(self, bank_account: Optional[str], company: Optional[str]) -> Dict:
+        """Where a Mollie import would land (see ``_resolve_import_target``); ``{}``
+        (unscoped, as before #2694) when the company has no Bank Account."""
+        company, bank_account = self._resolve_import_target(company, bank_account)
+        return {"bank_account": bank_account, "company": company} if bank_account else {}
 
     @staticmethod
     def _live_row_filters(id_field: str, mollie_id: str, scope: Dict) -> Dict:
@@ -802,7 +782,9 @@ class BulkTransactionImporter(MollieBaseClient):
             if mollie_payment_id:
                 filters.append(self._live_row_filters("custom_mollie_payment_id", mollie_payment_id, scope))
 
-            # Secondary check: amount, date, and reference combination
+            # Secondary check: amount, date, and reference combination. NOT account-scoped
+            # (#2694): the orchestrator/webhook rows this must match carry the payment id only
+            # as reference_number, on the Mollie account; scoping it imports a second copy.
             amount_filter = {}
             if transaction_data.get("deposit"):
                 amount_filter["deposit"] = transaction_data["deposit"]
@@ -817,7 +799,6 @@ class BulkTransactionImporter(MollieBaseClient):
                         "date": ["in", self._candidate_days(transaction_data)],
                         "reference_number": transaction_data["reference_number"],
                         "docstatus": ["!=", 2],  # Not cancelled
-                        **{k: v for k, v in scope.items() if v},
                     }
                 )
 
