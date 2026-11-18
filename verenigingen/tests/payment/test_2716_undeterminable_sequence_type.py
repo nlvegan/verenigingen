@@ -17,9 +17,13 @@ from frappe.model.qb_query import DatabaseQuery
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.payment.test_collection_run_not_lost_silently import (
+    ReleasesWhatTheBatcherCommitted,
+)
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.api import dd_batch_optimizer
+from verenigingen.verenigingen_payments.api import dd_batch_scheduler as sched
 from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
     create_mandate_usage_record,
 )
@@ -46,7 +50,10 @@ def _s2716_fail_usage_lookup_for(mandate_name):
     return patch.object(DatabaseQuery, "execute", _s2716_execute)
 
 
-class Test2716UndeterminableSequenceType(EnhancedTestCase):
+# `create_dd_batch_document` commits, which makes the whole fixture chain permanent; the mixin
+# removes the batches and usage rows first so the drain can delete the Members (the leak was
+# "This document can not be deleted right now as it's being modified by another user").
+class Test2716UndeterminableSequenceType(ReleasesWhatTheBatcherCommitted, EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -235,34 +242,130 @@ class Test2716UndeterminableSequenceType(EnhancedTestCase):
         self.assertIn(self.victim_invoice.name, str(ctx.exception))
         self.assertFalse(batch.invoices[0].sequence_type, "must not be filled with a guess")
 
-    def test_payment_retry_does_not_submit_a_guess(self):
-        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+    def _s2716_due_retry_record(self, retry_count=1):
         member = frappe.get_doc("Member", self.victim_mandate.member)
-        membership = frappe._dict(name=self._s2716_membership(self.victim_invoice))
         frappe.db.set_value("SEPA Mandate", self.victim_mandate.name, "used_for_memberships", 1)
         rec = frappe.new_doc("SEPA Payment Retry")
         rec.invoice = self.victim_invoice.name
         rec.member = member.name
         rec.original_amount = self.victim_invoice.outstanding_amount
-        rec.retry_count = 1
+        rec.retry_count = retry_count
         rec.status = "Scheduled"
         rec.next_retry_date = today()
-        rec.membership = membership.name
+        rec.membership = self._s2716_membership(self.victim_invoice)
         rec.insert()
         # The scenario factory parks every invoice in a Draft batch; the retry's
         # open-batch guard would answer before the code under test is reached.
         for parent in set(
-            frappe.get_all("Direct Debit Batch Invoice", filters={"invoice": self.victim_invoice.name}, pluck="parent")
+            frappe.get_all(
+                "Direct Debit Batch Invoice", filters={"invoice": self.victim_invoice.name}, pluck="parent"
+            )
         ):
             frappe.delete_doc("Direct Debit Batch", parent, force=1)
+        return rec
+
+    def _s2716_batch_rows(self):
+        return frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": self.victim_invoice.name},
+            fields=["parent", "sequence_type"],
+        )
+
+    def test_payment_retry_does_not_submit_a_guess(self):
+        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+        rec = self._s2716_due_retry_record()
         with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
             retry.execute_payment_retry(retry_record=rec.name)
+        # Batch first, so a red names the guessed batch, not the status.
+        self.assertEqual(self._s2716_batch_rows(), [], "a batch was created from a guessed SeqTp")
         rec.reload()
-        self.assertEqual(rec.status, "Failed")
-        self.assertEqual(frappe.db.count("Direct Debit Batch Invoice", {"invoice": self.victim_invoice.name}), 0)
+        # Opposite harm: the record is NOT given up (the sweep selects only Scheduled) and the
+        # attempt counts against the existing cap.
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertEqual(rec.retry_count, 2)
         comments = frappe.get_all(
             "Comment",
             filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
             pluck="content",
         )
-        self.assertTrue(any("sequence type" in c.lower() for c in comments), comments)
+        self.assertTrue(any(self.victim_invoice.name in c and "sequence type" in c.lower() for c in comments))
+
+    def test_payment_retry_transient_failure_then_next_sweep_ships_the_real_type(self):
+        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+        rec = self._s2716_due_retry_record()
+        with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
+            retry.execute_payment_retry(retry_record=rec.name)
+        self.assertEqual(self._s2716_batch_rows(), [])
+
+        # Next sweep (a later day): the lookup works now.
+        rec.db_set("last_retry_date", frappe.utils.add_days(today(), -1))
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            return_value="/files/dummy-sepa.xml",
+        ):
+            # Through the sweep, which selects only Scheduled records: a Failed one is lost.
+            retry.execute_scheduled_payment_retries()
+        rows = self._s2716_batch_rows()
+        self.assertEqual([r.sequence_type for r in rows], ["RCUR"], "victim's real type is RCUR")
+        rec.reload()
+        self.assertEqual(rec.status, "Retried")
+
+    def test_payment_retry_undeterminable_at_the_attempt_cap_escalates(self):
+        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+        cap = retry.PaymentRetryManager().retry_config["max_retries"]
+        rec = self._s2716_due_retry_record(retry_count=cap - 1)
+        with patch.object(retry.PaymentRetryManager, "send_escalation_notification"):
+            with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
+                retry.execute_payment_retry(retry_record=rec.name)
+        self.assertEqual(self._s2716_batch_rows(), [])
+        rec.reload()
+        self.assertEqual(rec.status, "Escalated")
+
+    def test_scheduler_reports_how_many_invoices_were_skipped(self):
+        """Every group undeterminable: the run must not read as 'no eligible invoices'."""
+        self.expectErrorLog(
+            "Error determining sequence type",
+            "SEPA Batch - Sequence Type Undeterminable",
+            "SEPA Batch Scheduler - Invoices Skipped (Sequence Type Undeterminable)",
+        )
+        row = {
+            "invoice": self.victim_invoice.name,
+            "membership": self._s2716_membership(self.victim_invoice),
+            "member": self.victim_mandate.member,
+            "member_name": "M",
+            "customer": self.victim_invoice.customer,
+            "posting_date": self.victim_invoice.posting_date,
+            "due_date": self.victim_invoice.due_date,
+            "amount": self.victim_invoice.grand_total,
+            "currency": self.victim_invoice.currency,
+            "iban": self.victim_mandate.iban,
+            "mandate_reference": self.victim_mandate.mandate_id,
+        }
+        before = frappe.utils.now()
+        with patch.object(sched, "is_batch_creation_day", return_value=True), patch.object(
+            sched, "should_skip_batch_creation", return_value=False
+        ), patch.object(sched, "get_scheduler_config", return_value={"min_invoices_per_batch": 1}), patch.object(
+            sched, "get_payments_settings", return_value=frappe._dict(enable_auto_batch_creation=1)
+        ), patch.object(
+            dd_batch_optimizer, "get_eligible_invoices_for_batching", return_value=[row]
+        ), _s2716_fail_usage_lookup_for(
+            self.victim_mandate.name
+        ):
+            result = dd_batch_optimizer.create_optimal_batches(target_date=today(), config={"min_invoices_per_batch": 1})
+            sched._daily_batch_optimization_impl()
+        self.assertEqual(result["batches_created"], 0)
+        self.assertEqual(result["undeterminable_skipped"], [self.victim_invoice.name])
+        self.assertEqual(result["total_invoices"], 1)
+        self.assertEqual(result["invoices_batched"], 0)
+        logs = frappe.get_all(
+            "Error Log",
+            filters={
+                "creation": [">=", before],
+                "method": "SEPA Batch Scheduler - Invoices Skipped (Sequence Type Undeterminable)",
+            },
+            pluck="error",
+        )
+        self.assertTrue(logs, "scheduler left no run-level record of the skipped invoice")
+        self.assertIn(self.victim_invoice.name, logs[0])
+        self.assertIn("1 of 1", logs[0])

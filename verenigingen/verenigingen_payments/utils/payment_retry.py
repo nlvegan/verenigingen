@@ -330,6 +330,31 @@ def _invoice_in_open_batch(invoice_name):
 DAILY_RETRY_SWEEP_LIMIT = 200
 
 
+def _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice_name, mandate_name):
+    """Skip this retry run without guessing a SeqTp, but do not give the retry up (#2716).
+
+    The lookup can fail transiently, so the record stays Scheduled for the next sweep
+    (`last_retry_date` = today keeps it from re-running today). It counts as an attempt
+    against the existing `max_retries` cap, so a persistent failure ends in the normal
+    escalation instead of looping forever.
+    """
+    from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+    BatchLoggingUtilities.record_undeterminable_sequence_type(None, invoice_name, mandate_name)
+    retry_doc.retry_count += 1
+    retry_doc.last_retry_date = today()
+    retry_doc.add_comment(
+        "Comment",
+        f"The SEPA sequence type (FRST/RCUR) of mandate {mandate_name} could not be determined for "
+        f"invoice {invoice_name}; no batch was created. Attempt {retry_doc.retry_count}. See the Error Log.",
+    )
+    if retry_doc.retry_count >= PaymentRetryManager().retry_config["max_retries"]:
+        PaymentRetryManager().escalate_payment_failure(retry_doc)
+        return
+    retry_doc.status = "Scheduled"
+    retry_doc.save()
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_payment_retry(retry_record=None):
@@ -416,19 +441,7 @@ def execute_payment_retry(retry_record=None):
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
         if sequence_info.get("error"):
-            # Undeterminable (#2716): a guessed SeqTp could be rejected by the bank, so submit
-            # no batch. Same terminal state and staff-visible comment as the no-mandate refusal.
-            from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
-
-            BatchLoggingUtilities.record_undeterminable_sequence_type(None, invoice.name, mandate.name)
-            retry_doc.last_retry_date = today()
-            retry_doc.status = "Failed"
-            retry_doc.add_comment(
-                "Comment",
-                "The SEPA sequence type (FRST/RCUR) of this mandate could not be determined; "
-                "no batch was created for this retry. See the Error Log for the cause.",
-            )
-            retry_doc.save()
+            _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice.name, mandate.name)
             return
         sequence_type = sequence_info["sequence_type"]
 

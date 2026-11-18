@@ -79,6 +79,7 @@ def create_optimal_batches(target_date=None, config=None):
     # request-level rollback discards it.
     batch_groups = []
     created_batches = []
+    undeterminable_invoices = []  # left out of every batch: sequence type undeterminable (#2716)
 
     try:
         # Step 1: Get all eligible invoices
@@ -100,7 +101,9 @@ def create_optimal_batches(target_date=None, config=None):
 
         # Step 4: Create actual DD batch documents
         for group_index, batch_group in enumerate(batch_groups):
-            batch_doc = create_dd_batch_document(batch_group, target_date, group_index + 1, batch_config)
+            batch_doc = create_dd_batch_document(
+                batch_group, target_date, group_index + 1, batch_config, skipped=undeterminable_invoices
+            )
             if batch_doc:  # None when every row's sequence type was undeterminable (#2716)
                 created_batches.append(batch_doc)
 
@@ -115,6 +118,8 @@ def create_optimal_batches(target_date=None, config=None):
             "batches_created": len(created_batches),
             "batch_names": [batch.name for batch in created_batches],
             "total_invoices": len(eligible_invoices),
+            "invoices_batched": sum(batch.entry_count for batch in created_batches),
+            "undeterminable_skipped": undeterminable_invoices,
             "optimization_report": optimization_report,
         }
 
@@ -744,13 +749,18 @@ def create_amount_optimized_batches(invoices, config):
     return batches
 
 
-def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
-    """Create actual SEPA Direct Debit Batch document with mandate usage tracking"""
+def create_dd_batch_document(batch_invoices, target_date, batch_number, config, skipped=None):
+    """Create actual SEPA Direct Debit Batch document with mandate usage tracking.
+
+    `skipped`, when given, collects the invoice names left out as undeterminable (#2716).
+    """
 
     # The scheme (batch_type) is CORE for Dutch core direct debit. The SEPA sequence type
     # (SeqTp) comes from each row's mandate usage. A row whose type cannot be determined
     # is left out of the batch, not guessed (#2716).
     determined, undeterminable = resolve_row_sequence_types(batch_invoices)
+    if skipped is not None:
+        skipped.extend(invoice.get("invoice") for invoice, _mandate in undeterminable)
     if not determined:
         # Nothing to collect: no batch to carry the error, so it goes to the Error Log only.
         for invoice, mandate_name in undeterminable:
