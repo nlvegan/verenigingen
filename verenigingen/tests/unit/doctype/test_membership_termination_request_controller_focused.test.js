@@ -143,6 +143,54 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 				controllerTest.testEvent('before_save');
 			}).not.toThrow();
 		});
+
+		// The tests below were ported from the dead test_membership_termination_request_controller.js
+		// (#1475): they asserted on window.* spies the controller never calls, so none of its 49 tests
+		// described real behaviour. These drive what the controller actually does.
+		it('should require a secondary approver once a disciplinary request is pending', () => {
+			controllerTest.mockForm.doc.termination_type = 'Expulsion';
+			controllerTest.mockForm.doc.disciplinary_documentation = 'Documented';
+			controllerTest.mockForm.doc.status = 'Pending';
+			controllerTest.mockForm.doc.secondary_approver = '';
+
+			expect(() => {
+				controllerTest.testEvent('before_save');
+			}).toThrow(/secondary approver is required/i);
+
+			controllerTest.mockForm.doc.secondary_approver = 'approver@example.com';
+			expect(() => {
+				controllerTest.testEvent('before_save');
+			}).not.toThrow();
+		});
+
+		it('should show and require disciplinary fields only for disciplinary types', () => {
+			const expectations = { Expulsion: true, 'Policy Violation': true, Voluntary: false, Deceased: false };
+
+			Object.entries(expectations).forEach(([type, disciplinary]) => {
+				const form = controllerTest.mockForm;
+				form.toggle_display.mockClear();
+				form.toggle_reqd.mockClear();
+				form.doc.termination_type = type;
+				controllerTest.testEvent('termination_type');
+
+				['disciplinary_documentation', 'secondary_approver'].forEach((field) => {
+					expect(form.toggle_display).toHaveBeenCalledWith(field, disciplinary);
+					expect(form.toggle_reqd).toHaveBeenCalledWith(field, disciplinary);
+				});
+			});
+		});
+
+		it('should default the termination date only when none is set', () => {
+			const form = controllerTest.mockForm;
+			form.doc.termination_date = '';
+			controllerTest.testEvent('termination_type');
+			expect(form.set_value).toHaveBeenCalledWith('termination_date', expect.any(String));
+
+			form.set_value.mockClear();
+			form.doc.termination_date = '2024-09-01';
+			controllerTest.testEvent('termination_type');
+			expect(form.set_value).not.toHaveBeenCalledWith('termination_date', expect.anything());
+		});
 	});
 
 	describe('Form State Management', () => {
