@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.collection_rows import (
     refuse_invoices_with_more_than_one_row,
 )
@@ -175,18 +176,22 @@ class SEPAMandateService:
                 sequence_type = sequence_info["sequence_type"]
 
                 cache_key = f"{mandate_name}:{invoice_name}"
-                self._sequence_cache[cache_key] = sequence_type
+                # A determination that fell back to a guess is not cached: this service is a
+                # process-wide singleton with no TTL, so the guess would stick (#2628).
+                if not sequence_info.get("error"):
+                    self._sequence_cache[cache_key] = sequence_type
                 results[cache_key] = sequence_type
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 # Log error but continue processing
                 frappe.log_error(
                     f"Error determining sequence type for mandate {mandate_name}, invoice {invoice_name}: {str(e)}",
                     "SEPA Mandate Service - Sequence Type Error",
                 )
-                # Default to RCUR for safety
+                # Default to RCUR for this call only; caching the guess would pin it (#2628)
                 cache_key = f"{mandate_name}:{invoice_name}"
-                self._sequence_cache[cache_key] = "RCUR"
                 results[cache_key] = "RCUR"
 
         return results

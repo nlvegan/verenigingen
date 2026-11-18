@@ -22,6 +22,9 @@ from verenigingen.utils.security.types import OperationType
 from verenigingen.verenigingen_payments.services.balance_transaction_processor import (
     BalanceTransactionProcessor,
 )
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+    get_bank_transaction_creator,
+)
 from verenigingen.verenigingen_payments.utils import bank_transaction_status
 
 
@@ -263,10 +266,11 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
         }
 
         # Check if Bank Transaction exists
-        existing_bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": transaction_id},
-            [
+        # Mollie bank account, live rows only (#2620): another account's row or a cancelled
+        # one must not be reported as this balance transaction's booking.
+        existing_bt = get_bank_transaction_creator().find_mollie_bank_transaction(
+            transaction_id,
+            fields=[
                 "name",
                 "date",
                 "deposit",
@@ -277,7 +281,6 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                 "currency",
                 "description",
             ],
-            as_dict=True,
         )
 
         if existing_bt:
@@ -550,6 +553,10 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
         # Fetch recent transactions from Mollie
         transactions = processor.balances_client.list_balance_transactions(balance_id=balance_id, limit=limit)
 
+        # Resolve the Mollie account once, not once per transaction (#2620)
+        creator = get_bank_transaction_creator()
+        mollie_config = creator.get_mollie_bank_account_config()
+
         # Process each transaction into ERPNext
         processed = 0
         already_exists = 0
@@ -558,7 +565,8 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
         for transaction in transactions:
             try:
                 # Check if already processed
-                existing = frappe.db.exists("Bank Transaction", {"reference_number": transaction.id})
+                # Mollie bank account, live rows only (#2620)
+                existing = creator.find_mollie_bank_transaction(transaction.id, config=mollie_config)
                 if existing:
                     already_exists += 1
                     continue

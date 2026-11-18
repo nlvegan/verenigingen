@@ -13,10 +13,13 @@ method produces concrete side effects that this suite asserts on REAL records:
     add a real Comment to a transaction document, and dispatches an alert email.
   * ``send_payment_entry_failure_alert`` / ``send_reconciliation_alert`` dispatch
     alert emails.
-  * ``_send_email_alert`` is gated on the ``accounts_managers_email`` hook. When
-    NO recipients are configured (the state on this site) it writes a
-    "No Alert Recipients Configured" Error Log and returns False; when recipients
-    ARE configured it calls the email service and returns its success flag.
+  * ``_send_email_alert`` takes recipients from the optional ``accounts_managers_email``
+    hook override, else from the key-first staff resolver (#2555). When NOBODY
+    resolves it writes a "No Alert Recipients Configured" Error Log and returns
+    False; when recipients ARE configured it calls the email service and returns
+    its success flag. The resolver path is covered by
+    ``test_payment_alert_recipients_2555``; here the resolver's "nobody" answer is
+    forced so these tests do not depend on which staff users the site holds.
 
 Infra boundaries that ARE mocked (each with an inline justification):
   * the OUTBOUND email transport — ``get_email_service().send_simple_email`` — is
@@ -24,10 +27,9 @@ Infra boundaries that ARE mocked (each with an inline justification):
     real success/failure plumbing without sending mail. Business logic (amounts,
     branch selection, Error Log / Comment writes) is NOT mocked.
 
-Recipients seam: the hook is empty on this site, so to drive the
-"recipients configured" branch the test sets the documented
-``svc._recipients_cache`` (the per-instance cache the production ``property``
-reads) rather than mutating global hooks / Single doctypes.
+Recipients seam: to drive the "recipients configured" branch the test sets the
+documented ``svc._recipients_cache`` (the per-instance cache behind the hook
+override ``property``) rather than mutating global hooks / Single doctypes.
 
 Base class: VereningingenTestCase (FrappeTestCase-derived, auto-rollback,
 runs as Administrator).
@@ -73,6 +75,14 @@ class PaymentAlertBase(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.svc = PaymentAlertService()
+        # Mock justified: forces the staff resolver's "nobody" answer (it depends on the site's users);
+        # the real resolver is exercised in test_payment_alert_recipients_2555.
+        resolver = patch(
+            "verenigingen.verenigingen_payments.api.sepa_batch_notifications.get_financial_admin_emails",
+            return_value=[],
+        )
+        resolver.start()
+        self.addCleanup(resolver.stop)
 
     # ---- helpers -----------------------------------------------------------
 
@@ -108,7 +118,7 @@ class TestFactory(PaymentAlertBase):
         self.assertIsInstance(svc, PaymentAlertService)
 
     def test_recipients_property_reads_hook_and_caches(self):
-        # On this site the accounts_managers_email hook is unset -> [].
+        # The hook override is unset here -> [] (no app defines it).
         fresh = PaymentAlertService()
         self.assertEqual(fresh.alert_recipients, frappe.get_hooks("accounts_managers_email") or [])
         # Second read is served from the per-instance cache.
@@ -132,7 +142,7 @@ class TestSendEmailAlertGating(PaymentAlertBase):
             )
             get_es.assert_not_called()
         self.assertFalse(result)
-        logs = self._error_logs_with("accounts_managers_email hook not configured")
+        logs = self._error_logs_with("no recipient is configured")
         self.assertTrue(any(ctx in log["error"] for log in logs))
 
     def test_recipients_configured_calls_email_and_returns_success(self):

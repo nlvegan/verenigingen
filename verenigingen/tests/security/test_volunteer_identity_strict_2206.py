@@ -153,3 +153,118 @@ class TestVolunteerIdentityStrict2206(EnhancedTestCase):
         teams = [t["team"] for t in result["data"]["team_details"]]
         self.assertEqual(teams, [team.name])
         self.assertEqual(result["data"]["active_teams"], 1)
+
+    # ---- #2461: the expense portal's resolver (performance_utils) ----------------------
+
+    def _expense_portal_record_as(self, user):
+        """Both entry points of the expense-portal chain: the session-bound wrapper and the
+        (60s-cached, keyed on the email argument) optimized lookup it delegates to."""
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
+            get_user_volunteer_record,
+        )
+        from verenigingen.utils.performance_utils import get_user_volunteer_record_optimized
+
+        original_user = frappe.session.user
+        frappe.set_user(user)
+        try:
+            return get_user_volunteer_record(), get_user_volunteer_record_optimized(user)
+        finally:
+            frappe.set_user(original_user)
+
+    def test_expense_portal_resolver_ignores_member_and_volunteer_email(self):
+        """#2461: Member.email AND Volunteer.email both equal the login, no Member.user and
+        no Volunteer.user -> no Volunteer (previously resolved by the JOIN on Member.email)."""
+        self.assertEqual(self._expense_portal_record_as(self.email_user), (None, None))
+
+    def test_expense_portal_resolver_ignores_volunteer_email_without_member(self):
+        """#2461: the second fallback (Volunteer.email) with no Member link at all."""
+        orphan = self.create_test_volunteer(member=None)
+        frappe.db.set_value("Volunteer", orphan.name, "email", self.nobody_user)
+        self.assertEqual(self._expense_portal_record_as(self.nobody_user), (None, None))
+
+    def test_expense_portal_resolver_resolves_member_user_link_with_member_fields(self):
+        """Control: Volunteer.member -> Member.user (Volunteer.user empty) still resolves,
+        with the member columns the portal reads."""
+        late_member = self.create_test_member()
+        late_volunteer = self.create_test_volunteer(member=late_member)
+        frappe.db.set_value("Member", late_member.name, "user", self.nobody_user, update_modified=False)
+        self.assertFalse(frappe.db.get_value("Volunteer", late_volunteer.name, "user"))
+
+        wrapper, optimized = self._expense_portal_record_as(self.nobody_user)
+        for record in (wrapper, optimized):
+            self.assertEqual(record["name"], late_volunteer.name)
+            self.assertEqual(record["member"], late_member.name)
+            self.assertEqual(record["member_name"], late_member.name)
+            self.assertTrue(record["volunteer_name"])
+
+    def test_expense_portal_resolver_resolves_volunteer_user_link_without_member(self):
+        """Control: a Volunteer linked ONLY by Volunteer.user, with no Member row at all,
+        resolves with member None (the LEFT JOIN) and does not raise."""
+        solo = self.create_test_volunteer(member=self.create_test_member())
+        frappe.db.set_value("Volunteer", solo.name, {"member": None, "user": self.nobody_user})
+        self.assertFalse(frappe.db.get_value("Volunteer", solo.name, "member"))
+
+        wrapper, optimized = self._expense_portal_record_as(self.nobody_user)
+        for record in (wrapper, optimized):
+            self.assertEqual(record["name"], solo.name)
+            self.assertIsNone(record["member"])
+            self.assertIsNone(record["member_name"])
+
+    def test_expense_portal_resolver_resolves_volunteer_user_link(self):
+        """Control: Volunteer.user alone is an explicit link (ruling)."""
+        frappe.db.set_value("Volunteer", self.email_volunteer.name, "user", self.email_user)
+        wrapper, optimized = self._expense_portal_record_as(self.email_user)
+        self.assertEqual(wrapper["name"], self.email_volunteer.name)
+        self.assertEqual(optimized["name"], self.email_volunteer.name)
+
+    # ---- #2461 sibling: get_user_chapter_memberships_optimized (same module) -----------
+
+    def _insert_chapter_member_row(self, member_name):
+        return frappe.get_doc(
+            {
+                "doctype": "Chapter Member",
+                "parent": self.chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "members",
+                "member": member_name,
+                "chapter_join_date": frappe.utils.today(),
+                "enabled": 1,
+                "status": "Active",
+            }
+        ).insert(ignore_permissions=True)
+
+    def _insert_board_seat_row(self, volunteer_name):
+        role = self.factory.ensure_chapter_role("Board Member").name
+        return frappe.get_doc(
+            {
+                "doctype": "Chapter Board Member",
+                "parent": self.chapter.name,
+                "parenttype": "Chapter",
+                "parentfield": "board_members",
+                "volunteer": volunteer_name,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            }
+        ).insert(ignore_permissions=True)
+
+    def test_chapter_memberships_ignore_member_email(self):
+        """Member.email == the login, no Member.user: neither the member nor the board
+        relationship of that Member is reported for the login."""
+        from verenigingen.utils.performance_utils import get_user_chapter_memberships_optimized
+
+        self._insert_chapter_member_row(self.email_member.name)
+        self._insert_board_seat_row(self.email_volunteer.name)
+        self.assertEqual(get_user_chapter_memberships_optimized(self.email_user), [])
+
+    def test_chapter_memberships_resolve_member_user_link(self):
+        """Control: the same two relationships ARE reported when Member.user is the login."""
+        from verenigingen.utils.performance_utils import get_user_chapter_memberships_optimized
+
+        self._insert_chapter_member_row(self.linked_member.name)
+        self._insert_board_seat_row(self.linked_volunteer.name)
+        rows = get_user_chapter_memberships_optimized(self.linked_user)
+        self.assertEqual(
+            sorted((r["chapter_name"], r["relationship_type"]) for r in rows),
+            sorted([(self.chapter.name, "member"), (self.chapter.name, "board_member")]),
+        )

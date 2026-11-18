@@ -1339,8 +1339,11 @@ def _donate_form_writers():
     return writers
 
 
+_DICT_METHOD_NAMES = frozenset(dir(dict))
+
+
 class _FormDataReadVisitor(_EnclosingFunctionVisitor):
-    """Collect ``form_data.get("key")`` / ``form_data["key"]`` reads."""
+    """Collect ``form_data.get("key")`` / ``form_data["key"]`` / ``form_data.key`` reads."""
 
     def __init__(self, rel):
         super().__init__(rel)
@@ -1369,6 +1372,62 @@ class _FormDataReadVisitor(_EnclosingFunctionVisitor):
             if key:
                 self._record(key, node.lineno)
         self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        # #2632: ``form_data.key`` is a read of ``key``. Dict methods
+        # (``.get``, ``.items``, ...) are not keys, whether called or not.
+        # A key named like a dict method would be a runtime bug on frappe._dict
+        # anyway, so skipping those names hides no real reader.
+        if (
+            isinstance(node.ctx, ast.Load)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "form_data"
+            and node.attr not in _DICT_METHOD_NAMES
+        ):
+            self._record(node.attr, node.lineno)
+        self.generic_visit(node)
+
+
+class TestFormDataReadVisitorSeesAttributeReads(unittest.TestCase):
+    """#2632: ``form_data.some_key`` is a read too; only ``.get`` / ``[...]``
+    used to be recorded, so an attribute read of a key no form posts was
+    invisible to the orphan check."""
+
+    @staticmethod
+    def _reads(source):
+        visitor = _FormDataReadVisitor("snippet.py")
+        visitor.visit(ast.parse(source))
+        return visitor.reads
+
+    def test_an_attribute_read_is_recorded(self):
+        self.assertIn("invented_key", self._reads("x = form_data.invented_key\n"))
+
+    def test_an_attribute_read_in_a_call_argument_is_recorded(self):
+        self.assertIn("donor_email", self._reads("f(form_data.donor_email)\n"))
+
+    def test_dict_method_calls_are_not_keys(self):
+        source = "a = form_data.get('k')\nb = form_data.items()\nc = form_data.keys()\nd = form_data.copy()\n"
+        reads = self._reads(source)
+        self.assertEqual(set(reads), {"k"})
+
+    def test_attribute_stores_and_deletes_are_not_reads(self):
+        self.assertEqual(self._reads("form_data.x = 1\ndel form_data.y\n"), {})
+
+    def test_attribute_reads_on_other_names_are_ignored(self):
+        self.assertEqual(self._reads("x = other.invented_key\ny = self.form_data.invented_key\n"), {})
+
+    def test_an_attribute_read_of_an_unposted_key_reddens_the_orphan_check(self):
+        """MUTANT. Feed the real orphan rule a reader that uses attribute
+        access for a key no form posts; it must be reported."""
+        reads = self._reads("x = form_data.zz_invented_unposted_key\n")
+        writers = _donate_form_writers()
+        orphans = {k for k in reads if k not in writers and k not in FORM_DATA_NOT_POSTED_BY_THE_BROWSER}
+        self.assertEqual(orphans, {"zz_invented_unposted_key"})
+
+    def test_an_attribute_read_of_a_posted_key_is_not_an_orphan(self):
+        reads = self._reads("x = form_data.subscription_interval\ny = form_data.anonymous\n")
+        self.assertEqual(set(reads), {"subscription_interval", "anonymous"})
+        self.assertTrue(set(reads) <= _donate_form_writers())
 
 
 class TestDonateFormKeysHaveWriters(unittest.TestCase):

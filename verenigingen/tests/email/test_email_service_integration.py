@@ -570,26 +570,6 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         mock_sendmail.assert_called_once()
         self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
 
-    def test_member_lifecycle_notification_flow(self):
-        """Test member lifecycle notification flow"""
-        # Mock justified: External Service - SMTP delivery, not business logic
-        with patch('frappe.sendmail') as mock_sendmail:
-            from verenigingen.events.subscribers.member_subscribers import handle_lifecycle_notifications
-
-            # Simulate member suspension event
-            event_data = {
-                "member": self.test_member.name,
-                "old_status": "Active",
-                "new_status": "Suspended"
-            }
-
-            # Call the event handler
-            handle_lifecycle_notifications("member_lifecycle_changed", event_data)
-
-            # Handler should complete without error
-            self.assertTrue(True)
-
-
 class TestPaymentNotificationIntegration(EnhancedTestCase):
     """Integration tests for payment notification system"""
 

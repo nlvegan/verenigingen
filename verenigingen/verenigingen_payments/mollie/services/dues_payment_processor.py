@@ -775,7 +775,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Check idempotency using centralized service
-            idempotency_check = self.bank_tx_creator.check_already_processed(
+            idempotency_check = self.bank_tx_creator.check_mollie_payment_processed(
                 payment_id,
                 check_payment_entry=True,  # Dual mode: check both Payment Entry and Bank Transaction
             )

@@ -163,7 +163,6 @@ verenigingen/events/subscribers/expense_history_subscriber.py::handle_expense_cl
 verenigingen/events/subscribers/expense_history_subscriber.py::handle_expense_claim_updated::1
 verenigingen/events/subscribers/expense_history_subscriber.py::handle_expense_payment_made::1
 verenigingen/events/subscribers/member_subscribers.py::handle_cache_invalidation::1
-verenigingen/events/subscribers/member_subscribers.py::handle_lifecycle_notifications::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_cancelled::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_events_batched::1
 verenigingen/events/subscribers/payment_history_subscriber.py::handle_invoice_submitted::1
@@ -363,7 +362,6 @@ verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryMa
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
 verenigingen/utils/membership_dues_integration.py::create_dues_schedule_from_application::1
 verenigingen/utils/membership_type_role_profile.py::assign_membership_type_role_profile::1
-verenigingen/utils/membership_type_role_profile.py::remove_membership_role_profile::1
 verenigingen/utils/migration/migration_audit_trail.py::MigrationAuditTrail._flush_to_file::1
 verenigingen/utils/migration/stock_migration_warehouse_fix.py::clean_duplicate_migration_warehouses::1
 verenigingen/utils/migration/stock_migration_warehouse_fix.py::get_or_create_migration_warehouse_fixed::1
@@ -536,8 +534,6 @@ verenigingen/verenigingen_payments/api/sepa_batch_notifications.py::test_notific
 verenigingen/verenigingen_payments/api/sepa_batch_ui.py::create_sepa_batch_validated::1
 verenigingen/verenigingen_payments/api/sepa_batch_ui_secure.py::create_sepa_batch_validated_secure::1
 verenigingen/verenigingen_payments/api/sepa_mandate_management.py::periodic_sepa_mandate_child_table_sync::1
-verenigingen/verenigingen_payments/api/sepa_reconciliation.py::parse_sepa_return_xml::3
-verenigingen/verenigingen_payments/api/sepa_reconciliation.py::reconcile_full_sepa_batch::3
 verenigingen/verenigingen_payments/api/settlement_processing.py::batch_process_recent_settlements::1
 verenigingen/verenigingen_payments/api/settlement_processing.py::get_settlement_status::1
 verenigingen/verenigingen_payments/api/settlement_processing.py::process_settlement_deposit::1

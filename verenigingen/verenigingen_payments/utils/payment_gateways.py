@@ -861,7 +861,7 @@ class SEPAGateway(PaymentGateway):
         if refusal:
             return refusal
 
-        iban = form_data.get("donor_iban", "").replace(" ", "").upper()
+        iban = (form_data.get("donor_iban") or "").replace(" ", "").upper()
 
         if not iban:
             return create_error_response("IBAN is required for SEPA payments")

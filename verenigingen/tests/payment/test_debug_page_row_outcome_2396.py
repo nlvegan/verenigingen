@@ -13,12 +13,15 @@ which this module borrows. Probe shortcuts, stated: the marker is written by the
 submitted row is reconciled through ERPNext's own journal-entry flow.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.tests.unit import test_zabbix_mollie_bank_transaction_metrics as zabbix_2088
 from verenigingen.verenigingen_payments.api import balance_transaction_processing as api
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import BankTransactionCreator
 from verenigingen.verenigingen_payments.utils import bank_transaction_status as bts
 
 
@@ -29,6 +32,12 @@ class TestDebugPageRowOutcome(BTRBase):
     def setUp(self):
         super().setUp()
         self.token = f"dbg2396{frappe.generate_hash(length=8)}"
+        # check_transaction_status looks the row up on the Mollie bank account (#2620);
+        # _baltr creates its rows on the shared EUR test account.
+        config = {"bank_account": self._eur_bank_account, "company": self.company}
+        patcher = patch.object(BankTransactionCreator, "get_mollie_bank_account_config", return_value=config)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _row(self, submitted, marker=None):
         bt = self._baltr(submitted=submitted)

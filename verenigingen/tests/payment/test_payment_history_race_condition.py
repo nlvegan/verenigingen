@@ -154,14 +154,18 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
         self.assertEqual(len(matching), 1, "Invoice should be added exactly once after dedup")
 
     def test_race_condition_exhausted_retries(self):
-        """Test behavior when an invoice never becomes available"""
+        """A missing invoice must not crash the flush or add an entry. The miss
+        enqueues a retry job (#2527); the enqueue is stubbed here because CI has no
+        RQ worker and a real enqueue would reach a worker running other code."""
         fake_invoice_name = "FAKE-INVOICE-NEVER-EXISTS"
 
         start_time = time.time()
 
-        # Queue + flush; the batch processor's retry should exhaust and log, not crash
-        self.test_member.add_invoice_to_payment_history(fake_invoice_name)
-        self._flush_and_reload()
+        # Mock justified: the RQ boundary; a real enqueue_after_commit job could
+        # outlive this test if anything committed.
+        with patch("frappe.enqueue"):
+            self.test_member.add_invoice_to_payment_history(fake_invoice_name)
+            self._flush_and_reload()
 
         execution_time = time.time() - start_time
 

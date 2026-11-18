@@ -388,7 +388,7 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         # that single collaborator so we don't need a fully account-wired PE.
         customer_id = "cst_dues_full"
         self._matched_member(customer_id)
-        self.processor.bank_tx_creator.check_already_processed = lambda *a, **k: {
+        self.processor.bank_tx_creator.check_mollie_payment_processed = lambda *a, **k: {
             "already_processed": True,
             "payment_entry": "PE-EXISTING-001",
             "bank_transaction": "BT-EXISTING-001",
@@ -404,7 +404,7 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
     def test_already_processed_legacy_payment_entry_only(self):
         customer_id = "cst_dues_legacy"
         self._matched_member(customer_id)
-        self.processor.bank_tx_creator.check_already_processed = lambda *a, **k: {
+        self.processor.bank_tx_creator.check_mollie_payment_processed = lambda *a, **k: {
             "already_processed": True,
             "payment_entry": "PE-LEGACY-001",
             "bank_transaction": None,

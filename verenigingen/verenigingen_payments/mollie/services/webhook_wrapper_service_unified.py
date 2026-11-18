@@ -31,7 +31,7 @@ from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key imp
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # Import custom exceptions
-from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
+from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError, is_payment_not_found
 
 # Import logging and monitoring utilities
 from ..utils import subscription_activation_reasons
@@ -55,6 +55,17 @@ def is_permanent_subscription_refusal(reason: Optional[str]) -> bool:
     by spelling (issue #353).
     """
     return reason in subscription_activation_reasons.PERMANENT_SUBSCRIPTION_ACTIVATION_REASONS
+
+
+def _respond_service_unavailable() -> None:
+    """Answer 503 with a real ``Retry-After`` HTTP header (#2487).
+
+    ``frappe.local.response[...]`` keys are serialised into the JSON body, never headers;
+    only ``frappe.local.response_headers`` reaches the wire. Whether Mollie honours the
+    header is not established; the 503 itself is what makes it retry.
+    """
+    frappe.local.response.http_status_code = 503
+    frappe.local.response_headers.set("Retry-After", "60")
 
 
 def _reversal_history_row(
@@ -462,7 +473,14 @@ class UnifiedWebhookWrapperService:
 
             # Fetch payment to classify it
             try:
-                payment = router.fetch_payment(payment_id)
+                try:
+                    payment = router.fetch_payment(payment_id)
+                except Exception as fetch_error:
+                    # Only the payment GET itself: a 404 from later classification or routing
+                    # (a customer, a subscription) says nothing about the payment id (#1805).
+                    if is_payment_not_found(fetch_error):
+                        return self._ack_unknown_payment(payment_id, start_time)
+                    raise
 
                 # PAYMENT PLAN PAYMENTS: finalize the installment and return
                 # BEFORE donation classification (whose "donation" keyword would
@@ -640,8 +658,7 @@ class UnifiedWebhookWrapperService:
                 record_operation_performance("unified_webhook_processing", duration, False)
 
                 # Set HTTP 503 status for service unavailability
-                frappe.local.response.http_status_code = 503
-                frappe.local.response["Retry-After"] = "60"  # Mollie should retry after 60 seconds
+                _respond_service_unavailable()
 
                 response = {
                     "status": "service_unavailable",
@@ -658,6 +675,10 @@ class UnifiedWebhookWrapperService:
                     }
 
                 return response
+
+            # A 404 (and nothing worse) from Mollie: answered like a known id (#1805).
+            if processing_state.payment_not_found:
+                return self._ack_unknown_payment(payment_id, start_time)
 
             # STEP 2: Handle based on unified state
             if processing_state.is_fully_processed():
@@ -683,6 +704,16 @@ class UnifiedWebhookWrapperService:
                 "payment_id": payment_id,
                 "duration_seconds": duration,
             }
+
+    def _ack_unknown_payment(self, payment_id: str, start_time: float) -> Dict[str, Any]:
+        """Answer a payment id Mollie 404s exactly as a known id (2xx, no Retry-After); alert staff."""
+        from .unknown_payment_ack import acknowledge_unknown_payment
+
+        duration = time.time() - start_time
+        record_operation_performance("unified_webhook_processing", duration, True)
+        result = acknowledge_unknown_payment(payment_id)
+        result["duration_seconds"] = duration
+        return result
 
     @staticmethod
     def _payment_reports_reversal(payment) -> bool:
@@ -731,11 +762,15 @@ class UnifiedWebhookWrapperService:
             return forward_result
 
         state = self.idempotency_manager.check_payment_processing_state(payment_id, include_mollie_api=True)
+        if state.payment_not_found and not (state.refund_check_failed or state.chargeback_check_failed):
+            # Mollie knew the id a moment ago (the router fetched it to classify it) and now 404s:
+            # the same permanent answer as in STEP 1 (#1805). The forward booking stands.
+            self._ack_unknown_payment(payment_id, time.time())
+            return forward_result
         if state.refund_check_failed or state.chargeback_check_failed:
             # Same designed degradation as STEP 1: say so and let Mollie retry. The
             # forward booking is idempotent, so the retry costs nothing.
-            frappe.local.response.http_status_code = 503
-            frappe.local.response["Retry-After"] = "60"
+            _respond_service_unavailable()
             return {
                 "status": "service_unavailable",
                 "message": "Mollie API unavailable - cannot verify refund/chargeback state",

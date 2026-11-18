@@ -5,7 +5,7 @@ Reusable service for creating Bank Transactions from various sources
 (Mollie payments, settlements, manual imports, etc.)
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe.utils import getdate
@@ -313,7 +313,11 @@ class BankTransactionCreator:
         )
 
     def _find_matching_bank_transaction(
-        self, reference_number: str, bank_account: str, company: Optional[str] = None
+        self,
+        reference_number: str,
+        bank_account: str,
+        company: Optional[str] = None,
+        fields: Optional[List[str]] = None,
     ) -> Optional["frappe._dict"]:
         """
         Find a non-cancelled Bank Transaction for this reference that belongs to
@@ -355,9 +359,62 @@ class BankTransactionCreator:
         return frappe.db.get_value(
             "Bank Transaction",
             filters,
-            ["name", "docstatus"],
+            fields or ["name", "docstatus"],
             as_dict=True,
         )
+
+    def find_mollie_bank_transaction(
+        self,
+        reference_number: str,
+        fields: Optional[List[str]] = None,
+        config: Optional[Dict[str, any]] = None,
+    ) -> Optional["frappe._dict"]:
+        """The live Bank Transaction for a Mollie reference ON THE MOLLIE BANK ACCOUNT.
+
+        ``reference_number`` is unique per bank account only (#1267), so a lookup by
+        reference alone can return another account's row or a cancelled one and call
+        this payment "already processed" (#2620, #2583). Returns ``name``/``docstatus``/
+        ``party``/``date`` (or ``fields``) of the match, or None -- also when the Mollie account cannot be
+        resolved, because then nothing could be created for it either.
+
+        ``config`` is an already-resolved ``get_mollie_bank_account_config()`` result: a
+        caller in a loop passes it so the account is validated once, not once per call.
+        """
+        config = config or self.get_mollie_bank_account_config()
+        if config.get("error"):
+            return None
+        return self._find_matching_bank_transaction(
+            reference_number,
+            config["bank_account"],
+            config["company"],
+            fields=fields or ["name", "docstatus", "party", "date"],
+        )
+
+    def find_mollie_bank_transactions(
+        self, reference_numbers: List[str], config: Optional[Dict[str, any]] = None
+    ) -> Dict[str, str]:
+        """Batch form of ``find_mollie_bank_transaction``: ``{reference_number: name}``.
+
+        Same scope (live row, Mollie bank account and company). A reference with several
+        live rows on that account maps to one of them.
+        """
+        if not reference_numbers:
+            return {}
+        config = config or self.get_mollie_bank_account_config()
+        if config.get("error"):
+            return {}
+        rows = frappe.get_all(
+            "Bank Transaction",
+            filters={
+                "reference_number": ["in", list(reference_numbers)],
+                "docstatus": ["!=", 2],
+                "bank_account": config["bank_account"],
+                "company": config["company"],
+            },
+            fields=["reference_number", "name"],
+            limit_page_length=0,
+        )
+        return {row.reference_number: row.name for row in rows}
 
     def _resolve_existing_bank_transaction(
         self, reference_number: str, bank_account: str, company: Optional[str] = None
@@ -436,7 +493,11 @@ class BankTransactionCreator:
             )
 
     def check_already_processed(
-        self, reference_number: str, check_payment_entry: bool = False
+        self,
+        reference_number: str,
+        check_payment_entry: bool = False,
+        bank_account: Optional[str] = None,
+        company: Optional[str] = None,
     ) -> Dict[str, any]:
         """
         Comprehensive idempotency check for payment processing.
@@ -447,6 +508,10 @@ class BankTransactionCreator:
         Args:
             reference_number: Payment/settlement/transaction reference ID
             check_payment_entry: If True, also checks for Payment Entry (default: False)
+            bank_account: Scope the Bank Transaction check to this bank account (and
+                ``company`` when given). reference_number is unique per bank account only
+                (#1267): without a scope another account's row counts as "processed" (#2620).
+            company: See ``bank_account``.
 
         Returns:
             dict: {
@@ -512,41 +577,49 @@ class BankTransactionCreator:
                     )
                     return result
 
-        # Check Bank Transaction
+        # Check Bank Transaction. Cancelled rows are filtered in the QUERY: fetching the
+        # newest row and testing its docstatus let a newer cancelled row hide an older
+        # live one (#2620). Cancelled documents can be reprocessed.
+        filters = {"reference_number": reference_number, "docstatus": ["!=", 2]}
+        if bank_account:
+            filters["bank_account"] = bank_account
+        if company:
+            filters["company"] = company
         existing_bt = frappe.db.get_all(
             "Bank Transaction",
-            filters={"reference_number": reference_number},
+            filters=filters,
             fields=["name", "docstatus"],
             limit=1,
         )
 
         if existing_bt:
             bt = existing_bt[0]
-            status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
-            status_text = status_map.get(bt.docstatus, "Unknown")
-
-            # Cancelled documents can be reprocessed
-            if bt.docstatus == 2:
-                frappe.logger().info(
-                    f"Found cancelled Bank Transaction {bt.name} for reference {reference_number}. "
-                    f"Allowing reprocessing."
-                )
-                # Return "not processed" result
-                return result
-            else:
-                # Draft or Submitted - already processed
-                result.update(
-                    {
-                        "already_processed": True,
-                        "bank_transaction": bt.name,
-                        "docstatus": bt.docstatus,
-                        "document_type": "Bank Transaction",
-                        "details": f"Bank Transaction {bt.name} already exists ({status_text})",
-                    }
-                )
-                return result
+            status_text = {0: "Draft", 1: "Submitted"}.get(bt.docstatus, "Unknown")
+            result.update(
+                {
+                    "already_processed": True,
+                    "bank_transaction": bt.name,
+                    "docstatus": bt.docstatus,
+                    "document_type": "Bank Transaction",
+                    "details": f"Bank Transaction {bt.name} already exists ({status_text})",
+                }
+            )
 
         return result
+
+    def check_mollie_payment_processed(
+        self, reference_number: str, check_payment_entry: bool = False
+    ) -> Dict[str, any]:
+        """``check_already_processed`` with the Bank Transaction check scoped to the Mollie
+        bank account (#2620). When that account cannot be resolved the check falls back to
+        the unscoped live-row lookup rather than raising (read-only callers)."""
+        config = self.get_mollie_bank_account_config()
+        scope = (
+            {}
+            if config.get("error")
+            else {"bank_account": config["bank_account"], "company": config["company"]}
+        )
+        return self.check_already_processed(reference_number, check_payment_entry, **scope)
 
     def get_mollie_bank_account_config(self) -> Dict[str, any]:
         """
