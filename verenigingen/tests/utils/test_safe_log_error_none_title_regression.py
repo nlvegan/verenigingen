@@ -58,11 +58,22 @@ _SAFE_LOG_ERROR_CLONES = {
 
 
 class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
+    def _drop_error_logs_when_done(self, **filters):
+        """Register the Error Log cleanup BEFORE the call under test, so a
+        failing assertion cannot leak rows (addCleanup runs on red too)."""
+
+        def drop():
+            for name in frappe.get_all("Error Log", filters=filters, pluck="name"):
+                frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
+
+        self.addCleanup(drop)
+
     def test_call_with_no_title_does_not_raise_and_records_both_fields(self):
         for name, helper in _SAFE_LOG_ERROR_CLONES.items():
             with self.subTest(helper=name):
                 marker = frappe.generate_hash(length=8)
                 message = f"PROBE-{marker} diagnostic content, no title supplied"
+                self._drop_error_logs_when_done(error=["like", f"%{marker}%"])
 
                 # The regression: this raised TypeError with title=None + a
                 # truthy message, for every clone, before the fix below.
@@ -82,7 +93,6 @@ class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
                 self.assertTrue(rows, f"{name}: no Error Log row written for a no-title call")
                 self.assertTrue(rows[0].method, f"{name}: title/method must not be empty/None")
                 self.assertIn(marker, rows[0].error or "", f"{name}: full message must be recorded")
-                frappe.delete_doc("Error Log", rows[0].name, force=True, ignore_permissions=True)
 
     def test_long_message_is_recorded_in_full_in_the_error_field(self):
         """#1138: the 100-char cut was only ever needed for the title slot
@@ -96,6 +106,7 @@ class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
                 title = f"Long message probe {marker}"
                 tail = f"TAIL-{marker}"
                 message = ("x" * 2000) + tail
+                self._drop_error_logs_when_done(method=title)
 
                 helper(message, title)
 
@@ -109,4 +120,3 @@ class TestSafeLogErrorNoneTitleRegression(EnhancedTestCase):
                 self.assertTrue(rows, f"{name}: no Error Log row written")
                 self.assertEqual(rows[0].method, title)
                 self.assertEqual(rows[0].error, message, f"{name}: message was truncated or altered")
-                frappe.delete_doc("Error Log", rows[0].name, force=True, ignore_permissions=True)
