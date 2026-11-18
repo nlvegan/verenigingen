@@ -293,6 +293,17 @@ class DirectDebitBatch(Document):
             # Get expected sequence type
             try:
                 expected_info = get_mandate_sequence_type(mandate_name, invoice.invoice)
+                if expected_info.get("error"):
+                    # Undeterminable (#2716): never compare with, or fill in, a guess.
+                    critical_errors.append(
+                        {
+                            "invoice": invoice.invoice,
+                            "issue": "Sequence type could not be determined (FRST/RCUR)",
+                            "mandate_reference": invoice.mandate_reference,
+                            "reason": expected_info.get("reason", ""),
+                        }
+                    )
+                    continue
                 expected_type = expected_info["sequence_type"]
 
                 # Compare with actual sequence type
