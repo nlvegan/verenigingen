@@ -22,7 +22,7 @@ PROBE = "zz_meta_probe_1935"
 class TestMetaCachesFollowCustomization1935(VereningingenTestCase):
     def _add_probe_field(self, doctype, fieldtype="Link", options="User"):
         # Custom Field DDL commits, so rollback cannot undo it: delete the row and drop the column.
-        self.addCleanup(self._remove_probe_field, doctype)
+        self.addCleanup(self._cleanup_probe_field, doctype)
         frappe.get_doc(
             {
                 "doctype": "Custom Field",
@@ -35,13 +35,16 @@ class TestMetaCachesFollowCustomization1935(VereningingenTestCase):
         ).insert()
 
     @staticmethod
-    def _remove_probe_field(doctype):
-        name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": PROBE})
-        if name:
-            frappe.delete_doc("Custom Field", name, force=True)
-        if frappe.db.has_column(doctype, PROBE):
-            frappe.db.sql_ddl(f"alter table `tab{doctype}` drop column `{PROBE}`")
-        frappe.clear_cache(doctype=doctype)
+    def _cleanup_probe_field(doctype):
+        # Named _cleanup_*: the order-dependence scanner exempts cleanup helpers' DDL commits.
+        try:
+            name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": PROBE})
+            if name:
+                frappe.delete_doc("Custom Field", name, force=True)
+        finally:
+            if frappe.db.has_column(doctype, PROBE):
+                frappe.db.sql_ddl(f"alter table `tab{doctype}` drop column `{PROBE}`")
+            frappe.clear_cache(doctype=doctype)
 
     def test_child_table_meta_sees_a_field_added_after_first_read(self):
         SafeMemberOptimizer.get_child_table_meta_cached("ToDo")
