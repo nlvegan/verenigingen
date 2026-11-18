@@ -490,18 +490,19 @@ def has_member_permission(doc, user=None, ptype=None):
     if not user:
         user = frappe.session.user
 
-    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it
-    if not has_unforged_owner(doc, user, ptype):
-        return False
-
     # Log for debugging
     frappe.logger().debug(f"Checking Member permissions for user {user} with roles {frappe.get_roles(user)}")
 
     user_roles = frappe.get_roles(user)
 
-    # Admin roles always have access
+    # Admin roles always have access: a forged owner claim cannot widen what they already hold, and
+    # a desk form on an unsaved Member posts owner=<self> legitimately (#2562)
     if _has_admin_access(user_roles):
         return True
+
+    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it
+    if not has_unforged_owner(doc, user, ptype):
+        return False
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
     service_result = _check_service_account_permission(user, "Member", ptype)
@@ -914,9 +915,18 @@ def _is_run_doc_method_dispatch():
     Those are the only routes that build a document from the CLIENT's dict and permission-check it.
     Elsewhere an unsaved document owned by the caller is server-made (``frappe.new_doc``, e.g. the
     check File.validate runs for an attachment on a form that is not saved yet), so it is legitimate."""
-    cmd = frappe.form_dict.get("cmd") or ""
+    cmd = str(frappe.form_dict.get("cmd") or "")  # str(): a client can post a non-string cmd
     path = getattr(getattr(frappe.local, "request", None), "path", None) or ""
     return cmd.rsplit(".", 1)[-1] == "run_doc_method" or path.rstrip("/").endswith("/run_doc_method")
+
+
+def _holds_unrestricted_permission(doctype, user, ptype):
+    """True if one of the user's DocPerm rows grants ``ptype`` WITHOUT ``if_owner`` (Frappe's own notion,
+    ``get_role_permissions``). Only an if_owner grant can be satisfied by posting an owner (#2562)."""
+    perms = frappe.permissions.get_role_permissions(frappe.get_meta(doctype), user)
+    ptype = ptype or "read"
+    # an if_owner-only grant still reads as perms[read] == 1 (list access), but is keyed in perms.if_owner
+    return bool(perms.get(ptype)) and ptype not in perms.get("if_owner", {})
 
 
 def has_unforged_owner(doc, user=None, ptype=None):
@@ -943,6 +953,8 @@ def has_unforged_owner(doc, user=None, ptype=None):
     if not hasattr(doc, "get"):  # a bare name or other non-document input: nothing was posted
         return True
     user = user or frappe.session.user
+    if _holds_unrestricted_permission(doc.get("doctype"), user, ptype):
+        return True  # a forged owner claim cannot widen a grant that is not if_owner
     claimed = (doc.get("owner") or "").lower()
     # `create` is the one verb a not-yet-stored document legitimately asks for (Document.insert sets
     # the owner itself). `__islocal` and `name` are NOT trusted: the client's posted dict controls both.

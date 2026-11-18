@@ -56,6 +56,8 @@ out={}
 try:
     attacker=user(f"forge-a-{tag}@test.invalid",["Verenigingen Volunteer","Verenigingen Member"])
     staff=user(f"forge-s-{tag}@test.invalid",["System Manager","Accounts User","Verenigingen Administrator"])
+    vstaff=user(f"forge-v-{tag}@test.invalid",["Verenigingen Staff"])
+    sysmgr=user(f"forge-m-{tag}@test.invalid",["System Manager"])
     camp=mk({"doctype":"Donation Campaign","campaign_name":"Forge "+tag,"campaign_type":"Other","status":"Active","start_date":"2026-01-01"})
     member=mk({"doctype":"Member","first_name":"Forge","last_name":tag,"email":f"fm-{tag}@test.invalid"}, ignore_customer_sync=True)
     mt=frappe.db.get_value("Membership Type",{}) or mk({"doctype":"Membership Type","membership_type_name":"Forge "+tag,"amount":10,"billing_period":"Annual"},ignore_mandatory=True,ignore_links=True).name
@@ -113,6 +115,11 @@ try:
                 "honest_foreign_v1":call(attacker,dt,name,m,"Administrator"),
                 "unknown_forged_v1":call(attacker,dt,name+"-nope",m,attacker["email"]),
                 "staff_v1":call(staff,dt,name,m,"Administrator")}
+    # F1: a desk form on a NOT-YET-SAVED doc posts owner=<self> with a new-<doctype>-xxx name or none
+    for who_label,who in (("vstaff",vstaff),("sysmgr",sysmgr),("staff",staff),("attacker",attacker)):
+        for dt,m in (("Member","get_current_membership_fee"),("Donation Campaign","get_recent_donations")):
+            for variant,extra in (("named",{"name":"new-"+dt.lower().replace(" ","-")+"-"+tag,"__islocal":1}),("nameless",{"name":None,"__islocal":1})):
+                out[f"unsaved.{who_label}.{dt}.{variant}"]=call(who,dt,extra["name"] or "x",m,who["email"],extra=extra)
 finally:
     frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")
     for dt,n in reversed(made):
@@ -186,6 +193,50 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         """Control: a real row exists and a blanket-access caller still gets a 200."""
         for key in ("Donation Campaign.get_recent_donations", "Member.get_current_membership_fee"):
             self.assertEqual(self.out[key]["staff_v1"], 200, key)
+
+    def test_staff_and_system_manager_can_run_methods_on_an_unsaved_form(self):
+        """F1 (review of #2729): a desk form on an unsaved doc posts owner=<self> plus a new-<doctype>-xxx
+        name or none. Unrestricted callers are served (develop answered 200) for all three doctypes'
+        guard; only an if_owner grant is refused. Probe shortcut: no row exists for these names, which is
+        exactly what an unsaved form is."""
+        for who in ("vstaff", "sysmgr", "staff"):
+            for doctype in ("Member", "Donation Campaign"):
+                for variant in ("named", "nameless"):
+                    if doctype == "Donation Campaign" and who != "staff":
+                        # Verenigingen Staff and a bare System Manager hold no Donation Campaign grant but the
+                        # role-All if_owner read, i.e. they are the forger's position: refusing is correct
+                        continue
+                    with self.subTest(who=who, doctype=doctype, variant=variant):
+                        self.assertEqual(self.out[f"unsaved.{who}.{doctype}.{variant}"], 200)
+
+    def test_a_plain_caller_forging_owner_on_an_unsaved_form_is_still_refused(self):
+        """Control with a real attacker (Volunteer + Member roles, if_owner grants only)."""
+        for doctype in ("Member", "Donation Campaign"):
+            for variant in ("named", "nameless"):
+                with self.subTest(doctype=doctype, variant=variant):
+                    self.assertEqual(self.out[f"unsaved.attacker.{doctype}.{variant}"], 403)
+
+    def test_a_user_without_member_write_cannot_attach_a_file_to_an_unsaved_member(self):
+        """Negative for the attach flow: the narrowing must not open it to everyone."""
+        email = f"nowrite-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
+        previous = frappe.session.user
+        frappe.set_user(user)
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc(
+                    {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "x",
+                     "is_private": 1, "attached_to_doctype": "Member",
+                     "attached_to_name": f"new-member-{frappe.generate_hash(length=6)}"}
+                ).insert()
+        finally:
+            frappe.set_user(previous)
+
+    def test_a_non_string_cmd_does_not_crash_the_dispatch_check(self):
+        """F3: form_dict is client-controlled; a list/int cmd must read as 'not run_doc_method'."""
+        for cmd in (["run_doc_method"], 5, {"a": 1}):
+            with self.subTest(cmd=cmd), self._dispatching_run_doc_method(cmd):
+                self.assertFalse(_is_run_doc_method_dispatch())
 
     def test_the_permission_layer_refuses_a_forged_owner_on_all_four_doctypes(self):
         """Membership was already refused on develop (its hook demands the caller's own member link),
