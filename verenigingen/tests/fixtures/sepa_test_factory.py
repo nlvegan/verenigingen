@@ -23,7 +23,10 @@ from frappe.model.document import Document
 from typing import Dict, List, Optional, Any
 import random
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestDataFactory
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    EnhancedTestDataFactory,
+    ensure_selling_price_list,
+)
 
 
 class SEPATestDataFactory(EnhancedTestDataFactory):
@@ -247,6 +250,10 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             "due_date": due_date,
             "status": status,
             "currency": kwargs.get("currency", "EUR"),
+            # Without a list erpnext defaults to the site's "Standard Selling" (INR on
+            # a fresh site) and fetches a live exchange rate, refused for non-System
+            # session users (#2766). Caller kwargs still override.
+            "selling_price_list": ensure_selling_price_list(kwargs.get("currency", "EUR")),
             "grand_total": grand_total,
             "outstanding_amount": grand_total if status in ["Unpaid", "Overdue"] else 0,
             **kwargs
