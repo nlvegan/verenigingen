@@ -465,6 +465,7 @@ COMMIT_EXEMPT verenigingen/doctype/member/test_member_id_manager.py::1  # order-
 COMMIT_EXEMPT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/mt940_import/test_mt940_import.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/vip_import/test_vip_import.py::6  # order-dep-exempt
+COMMIT_EXEMPT verenigingen_payments/ing_checkout/tests/test_mandate_api_ownership.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_customer_creation_concurrency.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_dues_payment_processor_coverage_sweep.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_payment_service_unit.py::1  # order-dep-exempt
