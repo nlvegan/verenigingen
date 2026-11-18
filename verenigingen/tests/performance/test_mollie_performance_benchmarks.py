@@ -39,36 +39,12 @@ from verenigingen.verenigingen_payments.utils.payment_gateways import (
 )
 import unittest
 
-
-# SQL-statement budgets for _process_subscription_payment, measured on a warmed
-# site (#2460): a paying call ran 233 statements, the first repeat 20 (it still
-# creates the Error Log / meta state for the unmatched path), later repeats 2.
-# Each budget leaves a little room for ERPNext drift but not for an extra query
-# per call to go unnoticed.
-PAYING_CALL_QUERY_BUDGET = 260
-FIRST_REPEAT_QUERY_BUDGET = 30
-REPEAT_CALL_QUERY_BUDGET = 4
-
-
-@contextmanager
-def _mollie_benchmark_sql_counter():
-    """Yield a list that collects every SQL statement run through frappe.db.sql.
-
-    Same hook as IntegrationTestCase.assertQueryCount, but it hands the list back
-    so a benchmark can print the count and assert on it afterwards.
-    """
-    queries = []
-    orig_sql = frappe.db.__class__.sql
-
-    def _sql_and_record(db, *args, **kwargs):
-        queries.append(str(args[0]) if args else "")
-        return orig_sql(db, *args, **kwargs)
-
-    frappe.db.__class__.sql = _sql_and_record
-    try:
-        yield queries
-    finally:
-        frappe.db.__class__.sql = orig_sql
+from verenigingen.tests.support.mollie_benchmark_sql_budget import (
+    FIRST_REPEAT_QUERY_BUDGET,
+    PAYING_CALL_QUERY_BUDGET,
+    REPEAT_CALL_QUERY_BUDGET,
+    run_counted_payment,
+)
 
 
 class PerformanceMetrics:
@@ -217,16 +193,6 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
         process = psutil.Process()
         return process.memory_info().rss / 1024 / 1024  # Convert to MB
         
-    def _run_counted_payment(self, gateway, member, customer, payment_id, subscription_id):
-        """Process one payment; return (result, elapsed_ms, sql_statement_count)."""
-        start_time = datetime.now()
-        with _mollie_benchmark_sql_counter() as queries:
-            result = _process_subscription_payment(
-                gateway, member.name, customer.name, payment_id, subscription_id
-            )
-        elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
-        return result, elapsed_ms, len(queries)
-
     def test_single_payment_processing_time(self):
         """Gate the WORK one webhook payment does (SQL statements, gateway calls).
 
@@ -242,12 +208,12 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
         # Warm-up on ANOTHER member's invoice, so table_columns / meta / settings
         # caches are filled before counting and the counted call is not the cold one.
         self._create_test_invoice(warm_customer, 50.00)
-        self._run_counted_payment(gateway, warm_member, warm_customer, "tr_single_warm", "sub_single_test")
+        run_counted_payment(gateway, warm_member, warm_customer, "tr_single_warm", "sub_single_test")
 
         # Real work path: the call that finds the open invoice and pays it.
         self._create_test_invoice(customer, 50.00)
         gateway.client.payments.get.reset_mock()
-        result, paying_ms, paying_queries = self._run_counted_payment(
+        result, paying_ms, paying_queries = run_counted_payment(
             gateway, member, customer, "tr_single_000", "sub_single_test"
         )
         self.metrics.record_processing_time(paying_ms)
@@ -258,7 +224,7 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
         repeat_queries = []
         repeat_times = []
         for i in range(1, 10):
-            _, elapsed_ms, query_count = self._run_counted_payment(
+            _, elapsed_ms, query_count = run_counted_payment(
                 gateway, member, customer, f"tr_single_{i:03d}", "sub_single_test"
             )
             repeat_queries.append(query_count)
@@ -498,7 +464,7 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
 
         # Warm caches once so the first batch is not charged for cold-cache queries.
         warm_member, warm_customer = self.test_members[0]
-        self._run_counted_payment(gateway, warm_member, warm_customer, "tr_degradation_warm", "sub_degradation_test")
+        run_counted_payment(gateway, warm_member, warm_customer, "tr_degradation_warm", "sub_degradation_test")
 
         batch_performance = []
 
@@ -510,7 +476,7 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
             for i in range(operations_per_batch):
                 member, customer = self.test_members[i % len(self.test_members)]
                 payment_id = f"tr_degradation_test_b{batch}_o{i:03d}"
-                _, op_time_ms, query_count = self._run_counted_payment(
+                _, op_time_ms, query_count = run_counted_payment(
                     gateway, member, customer, payment_id, "sub_degradation_test"
                 )
                 batch_times.append(op_time_ms)

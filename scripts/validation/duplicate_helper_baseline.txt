@@ -459,7 +459,6 @@ _membership_type::2
 _memorial_mutation::3
 _migration::2
 _mock_invoice::2
-_mollie_benchmark_sql_counter::2  # clone family, 1 near-identical pair(s)
 _mollie_payment::2
 _mr::2  # clone family, 1 near-identical pair(s)
 _new_batch::5  # clone family, 6 near-identical pair(s)
@@ -542,7 +541,6 @@ _rows::2
 _rows_for::3
 _run::10
 _run_case::2
-_run_counted_payment::2  # clone family, 1 near-identical pair(s)
 _run_import::2
 _run_webhook::2
 _safe_log_error::2
