@@ -11,13 +11,13 @@
 # GROW is a change to the enforcer's own detection rules, which must land in
 # the same commit as the regeneration.
 #
-# LOG (#1493, a detection-rule change, so growth is allowed): `_patch_targets` kept only
-# the last segment of a `patch.object` base, so `patch.object(frappe.db, "sql")` was
-# invisible to every 3-segment `frappe.db.<m>` rule. Fixed; it surfaced 75 DATABASE MOCK
-# findings. 31 were resolved in place with the new per-site `# Mock justified: <reason>`
-# marker (Tier 2 DATABASE MOCK only: fault injection and call-through spies; the comment
-# must sit ON the patch line or the line directly above, with a non-empty reason). The
-# other 44 findings / 33 keys (return-value fakes and whole-fake suites) are listed below.
+# LOG (#1493, a detection-rule change): `_patch_targets` kept only the last segment
+# of a `patch.object` base, so `patch.object(frappe.db, "sql")` was invisible to
+# every 3-segment `frappe.db.<m>` rule. Fixing it surfaced 75 DATABASE MOCK findings:
+# 31 are justified in place with the per-site `# Mock justified: <reason>` marker
+# (Tier 2 DATABASE MOCK only; fault injection and call-through spies; ON the patch
+# line or the line directly above, non-empty reason), and the other 44 findings
+# (33 keys: return-value fakes, whole-fake suites) are listed below.
 # Totals: 211 -> 255 findings, 192 -> 225 keys.
 #
 # UNDERSTATES the real debt: _check_all_mocks_blocked still honours an
