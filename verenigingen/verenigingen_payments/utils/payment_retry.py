@@ -415,6 +415,21 @@ def execute_payment_retry(retry_record=None):
         )
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        if sequence_info.get("error"):
+            # Undeterminable (#2716): a guessed SeqTp could be rejected by the bank, so submit
+            # no batch. Same terminal state and staff-visible comment as the no-mandate refusal.
+            from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+            BatchLoggingUtilities.record_undeterminable_sequence_type(None, invoice.name, mandate.name)
+            retry_doc.last_retry_date = today()
+            retry_doc.status = "Failed"
+            retry_doc.add_comment(
+                "Comment",
+                "The SEPA sequence type (FRST/RCUR) of this mandate could not be determined; "
+                "no batch was created for this retry. See the Error Log for the cause.",
+            )
+            retry_doc.save()
+            return
         sequence_type = sequence_info["sequence_type"]
 
         # Create single invoice batch for retry

@@ -101,7 +101,8 @@ def create_optimal_batches(target_date=None, config=None):
         # Step 4: Create actual DD batch documents
         for group_index, batch_group in enumerate(batch_groups):
             batch_doc = create_dd_batch_document(batch_group, target_date, group_index + 1, batch_config)
-            created_batches.append(batch_doc)
+            if batch_doc:  # None when every row's sequence type was undeterminable (#2716)
+                created_batches.append(batch_doc)
 
         # Step 5: Generate optimization report
         optimization_report = generate_optimization_report(eligible_invoices, created_batches, batch_config)
@@ -746,11 +747,19 @@ def create_amount_optimized_batches(invoices, config):
 def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
     """Create actual SEPA Direct Debit Batch document with mandate usage tracking"""
 
-    total_amount = sum(flt(inv["amount"]) for inv in batch_invoices)
+    # The scheme (batch_type) is CORE for Dutch core direct debit. The SEPA sequence type
+    # (SeqTp) comes from each row's mandate usage. A row whose type cannot be determined
+    # is left out of the batch, not guessed (#2716).
+    determined, undeterminable = resolve_row_sequence_types(batch_invoices)
+    if not determined:
+        # Nothing to collect: no batch to carry the error, so it goes to the Error Log only.
+        for invoice, mandate_name in undeterminable:
+            _record_undeterminable_sequence_type(None, invoice, mandate_name)
+        return None
 
-    # Determine the SEPA sequence type (SeqTp) from individual mandate usage.
-    # The scheme (batch_type) is CORE for Dutch core direct debit.
-    sequence_type = determine_sequence_type(batch_invoices)
+    batch_invoices = [invoice for invoice, _mandate, _info in determined]
+    total_amount = sum(flt(inv["amount"]) for inv in batch_invoices)
+    sequence_type = batch_sequence_type([info["sequence_type"] for _i, _m, info in determined])
 
     # Create batch document
     batch_doc = frappe.get_doc(
@@ -770,24 +779,16 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
     # Set flag for automated processing (affects validation behavior)
     batch_doc._automated_processing = True
 
+    for invoice, mandate_name in undeterminable:
+        _record_undeterminable_sequence_type(batch_doc, invoice, mandate_name)
+
     # Import mandate usage functions
     from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
         create_mandate_usage_record,
-        get_mandate_sequence_type,
     )
 
     # Add invoices to batch and create mandate usage records
-    for invoice in batch_invoices:
-        # The mandate that will be debited, not another of this member's (#605)
-        mandate_name = get_mandate_for_batch_row(invoice)
-
-        # Determine individual sequence type for this invoice
-        sequence_info = (
-            get_mandate_sequence_type(mandate_name, invoice.get("invoice"))
-            if mandate_name
-            else {"sequence_type": "FRST", "reason": "No mandate found, defaulting to FRST"}
-        )
-
+    for invoice, mandate_name, sequence_info in determined:
         batch_doc.append(
             "invoices",
             {
@@ -881,30 +882,55 @@ def determine_sequence_type(batch_invoices):
     CORE/B2B/COR1) is a separate concept.
     """
 
+    determined, _undeterminable = resolve_row_sequence_types(batch_invoices)
+    return batch_sequence_type([info["sequence_type"] for _i, _m, info in determined])
+
+
+def batch_sequence_type(row_types):
+    """Batch-level type: FRST if any row is FRST, else RCUR."""
+    # If batch contains any FRST payments, the entire batch is FRST
+    # This is important for SEPA pre-notification timing requirements
+    if "FRST" in row_types:
+        return "FRST"
+
+    # Default to recurring if all are RCUR or no sequence types found
+    return "RCUR"
+
+
+def resolve_row_sequence_types(batch_invoices):
+    """Split rows into (determined, undeterminable) (#2716).
+
+    `determined` is a list of (row, mandate_name, sequence_info). `undeterminable` is a
+    list of (row, mandate_name) for rows whose type could not be established: no Active
+    mandate to debit, or `get_mandate_sequence_type` fell back to a guess (its "error"
+    flag). Neither is guessed; the caller leaves them out of the batch.
+    """
     # Import here to avoid circular imports
     from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
         get_mandate_sequence_type,
     )
 
-    # Check individual mandate usage for each invoice
-    sequence_types = set()
-
+    determined = []
+    undeterminable = []
     for invoice in batch_invoices:
         # The mandate that will be debited, not another of this member's (#605)
         mandate_name = get_mandate_for_batch_row(invoice)
+        if not mandate_name:
+            undeterminable.append((invoice, None))
+            continue
 
-        if mandate_name:
-            # Determine sequence type for this specific mandate
-            sequence_info = get_mandate_sequence_type(mandate_name, invoice.get("invoice"))
-            sequence_types.add(sequence_info["sequence_type"])
+        sequence_info = get_mandate_sequence_type(mandate_name, invoice.get("invoice"))
+        if sequence_info.get("error"):
+            undeterminable.append((invoice, mandate_name))
+        else:
+            determined.append((invoice, mandate_name, sequence_info))
+    return determined, undeterminable
 
-    # If batch contains any FRST payments, the entire batch is FRST
-    # This is important for SEPA pre-notification timing requirements
-    if "FRST" in sequence_types:
-        return "FRST"
 
-    # Default to recurring if all are RCUR or no sequence types found
-    return "RCUR"
+def _record_undeterminable_sequence_type(batch_doc, invoice, mandate_name):
+    from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+    BatchLoggingUtilities.record_undeterminable_sequence_type(batch_doc, invoice.get("invoice"), mandate_name)
 
 
 # Backwards-compatible alias: this function historically determined what was
