@@ -305,6 +305,21 @@ def _resolve_name_under_dir(name: str, directory: Path) -> Path | None:
     return None
 
 
+def _dead_if_body_skipped(stmt: ast.AST) -> bool:
+    """True for `if TYPE_CHECKING:` / `if False:` -- the `body` never runs
+    (the `orelse` does). Same TYPE_CHECKING shape as `is_type_checking_guard`
+    in `verenigingen/tests/utils/barrel_init_ast.py`, plus the literal
+    `False` (#1570)."""
+    if not isinstance(stmt, ast.If):
+        return False
+    test = stmt.test
+    if isinstance(test, ast.Constant):
+        return test.value is False
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
 def _flatten_leaf_statements(stmts: list) -> list:
     """Every "leaf" statement in `stmts`, in source order, recursing into
     `if`/`try`/`with`/`for`/`while` bodies (`body`, `orelse`, `finalbody`,
@@ -323,6 +338,8 @@ def _flatten_leaf_statements(stmts: list) -> list:
             out.append(stmt)
             continue
         for field in ("body", "orelse"):
+            if field == "body" and _dead_if_body_skipped(stmt):
+                continue  # never runs; its orelse still does
             child = getattr(stmt, field, None)
             if isinstance(child, list):
                 out += _flatten_leaf_statements(child)
@@ -334,15 +351,39 @@ def _flatten_leaf_statements(stmts: list) -> list:
     return out
 
 
+def _function_bodies_in(node: ast.AST, skip: ast.AST | None = None) -> list:
+    """Flattened statements of every function body under `node` (excluding
+    `skip`'s own body)."""
+    out: list = []
+    for fn in ast.walk(node):
+        if fn is not skip and isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out += _flatten_leaf_statements(fn.body)
+    return out
+
+
 def _iter_scopes(tree: ast.AST):
-    """Every independent "scope" a sys.path hack could run in: the module
-    body, and the body of every function/method in the file (however deeply
-    nested in classes) -- each flattened and searched on its own, since a
-    sys.path call inside one function has no bearing on imports in another."""
-    yield tree.body
+    """Every independent "scope" a sys.path hack could run in, as
+    `(scope_body, bridged)`: the module body, and the body of every
+    function/method in the file (however deeply nested in classes).
+
+    `bridged` is the flattened statements of the OTHER scopes whose imports
+    a hack in this scope can legitimately serve (#1570): a module-level hack
+    serves every function in the file (`zabbix_integration.py`'s insert +
+    `_import_monitoring_functions` import), and a method's hack (typically
+    `setUpClass`) serves its sibling methods. A plain function's hack has no
+    bridge. Bridged imports are order-insensitive: a sibling method may run
+    before or after the hack's own method."""
+    yield tree.body, _function_bodies_in(tree)
+    in_class: dict = {}
+    for cls in ast.walk(tree):
+        if isinstance(cls, ast.ClassDef):
+            for method in cls.body:
+                if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    in_class[method] = cls
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            yield node.body
+            cls = in_class.get(node)
+            yield node.body, (_function_bodies_in(cls, skip=node) if cls else [])
 
 
 def _scripts_targets_from_syspath_hacks(
@@ -366,22 +407,15 @@ def _scripts_targets_from_syspath_hacks(
     matching `_scripts_targets_from_spec_from_file_location`'s convention for
     a target that was never created.
 
-    Two known limits, neither reachable by anything currently under
-    `verenigingen/tests/` (tracked in #1570, filed rather than fixed here): a
-    hack in one scope (module level, or a `setUpClass`) whose real import
-    lives in a DIFFERENT function/method is a scope split this scan does not
-    bridge, and fails loud for the wrong reason rather than resolving --
-    `verenigingen/monitoring/zabbix_integration.py`'s own module-level insert
-    + `_import_monitoring_functions`-body import is this shape, were it ever
-    in scan scope. And `if TYPE_CHECKING:` / `if False:` bodies are flattened
-    as ordinary live code -- a hack sitting in one of those with nothing
-    resolving would also fail loud despite never running.
-    `verenigingen/tests/utils/barrel_init_ast.py` already carries the
-    precedent for excluding such bodies, for a different scanner.
+    #1570: a module-level hack's candidates also include every function body
+    in the file, and a method's hack (`setUpClass`) also includes its sibling
+    methods (see `_iter_scopes`). `if TYPE_CHECKING:` / `if False:` bodies are
+    never flattened (see `_flatten_leaf_statements`), so a hack or import in
+    one is neither reported nor counted.
     """
     found: set[str] = set()
 
-    for scope_body in _iter_scopes(tree):
+    for scope_body, bridged in _iter_scopes(tree):
         flat = _flatten_leaf_statements(scope_body)
         for i, stmt in enumerate(flat):
             if not (isinstance(stmt, ast.Expr) and _is_sys_path_mutation_call(stmt.value)):
@@ -391,7 +425,7 @@ def _scripts_targets_from_syspath_hacks(
                 continue
 
             resolved_any = False
-            for candidate in flat[i + 1 :]:
+            for candidate in flat[i + 1 :] + bridged:
                 name = _bare_import_name(candidate)
                 if name is None:
                     continue
@@ -880,6 +914,136 @@ class TestSysPathHackAndImportlibDetection(unittest.TestCase):
             '_spec = importlib.util.spec_from_file_location("x", _PATH)\n'
         )
         self.assertEqual(found, set())
+
+
+class TestSysPathHackScopeSplitAndDeadBranches(TestSysPathHackAndImportlibDetection):
+    """#1570: the two shapes the same-scope flattened scan modelled wrongly,
+    each failing loud for the WRONG reason. Reuses the parent's fake
+    `scripts/` tree (inherited tests are skipped via the empty-list trick
+    below so they do not run twice)."""
+
+    _HACK = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+    )
+    _INSERT = 'sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))\n'
+
+    def test_module_level_hack_with_import_in_a_function_is_detected(self):
+        found = self._scan(
+            self._HACK
+            + self._INSERT
+            + "def _load():\n"
+            "    import widget_validator\n"
+            "    return widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_setupclass_hack_with_import_in_a_sibling_method_is_detected(self):
+        found = self._scan(
+            self._HACK
+            + "class T:\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            f"        {self._INSERT}"
+            "    def test_x(self):\n"
+            "        import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_control_module_hack_with_no_resolving_import_anywhere_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + self._INSERT
+                + "def _load():\n"
+                "    import totally_nonexistent_validator\n"
+            )
+
+    def test_control_setupclass_hack_with_no_resolving_import_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "class T:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                f"        {self._INSERT}"
+                "    def test_x(self):\n"
+                "        import totally_nonexistent_validator\n"
+            )
+
+    def test_control_plain_function_hack_does_not_borrow_an_unrelated_function_import(self):
+        """A hack inside a free function has no bridge: another function's
+        resolving import must not satisfy it (over-bridging would hide a
+        broken hack)."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "def a():\n"
+                f"    {self._INSERT}"
+                "def b():\n"
+                "    import widget_validator\n"
+            )
+
+    def test_hack_inside_type_checking_block_is_not_reported(self):
+        found = self._scan(
+            self._HACK
+            + "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            f"    {self._INSERT}"
+            "    import totally_nonexistent_validator\n"
+        )
+        self.assertEqual(found, set())
+
+    def test_hack_inside_if_false_block_is_not_reported(self):
+        found = self._scan(
+            self._HACK
+            + "if False:\n"
+            f"    {self._INSERT}"
+            "    import totally_nonexistent_validator\n"
+        )
+        self.assertEqual(found, set())
+
+    def test_import_inside_dead_block_does_not_satisfy_a_live_hack(self):
+        """The dead body's import must not count as a resolution candidate
+        either: a live hack whose only 'resolving' import sits in
+        `if TYPE_CHECKING:` serves nothing at runtime, so it fails loud."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "import typing\n"
+                + self._INSERT
+                + "if typing.TYPE_CHECKING:\n"
+                "    import widget_validator\n"
+            )
+
+    def test_else_branch_of_a_dead_if_is_still_live(self):
+        found = self._scan(
+            self._HACK
+            + "if False:\n"
+            "    pass\n"
+            "else:\n"
+            f"    {self._INSERT}"
+            "    import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_control_real_unresolved_hack_inside_a_live_if_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "import os\n"
+                "if os.name:\n"
+                f"    {self._INSERT}"
+                "    import totally_nonexistent_validator\n"
+            )
+
+
+# Do not re-run the parent's inherited tests under this subclass.
+for _inherited in [n for n in dir(TestSysPathHackAndImportlibDetection) if n.startswith("test_")]:
+    if _inherited not in TestSysPathHackScopeSplitAndDeadBranches.__dict__:
+        setattr(TestSysPathHackScopeSplitAndDeadBranches, _inherited, None)
+del _inherited
 
 
 class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):
