@@ -302,9 +302,9 @@ class TestRepeatedPaymentEntryFailureAlert(VereningingenTestCase):
         self.assertEqual(len(self._alert_log_rows()), 1)
 
     def test_a_failed_status_delivery_that_throws_never_alerts(self):
-        # Mock justified: fault injection. A failed/expired webhook normally cannot throw, so make
-        # its status write raise to reach the except branch with status != "paid".
-        # Mock justified: fault injection: the status write raises, to prove a throwing delivery never alerts
+        # A failed/expired webhook normally cannot throw, so make its status write raise to reach
+        # the except branch with status != "paid".
+        # Mock justified: fault injection, the status write raises to prove a throwing delivery never alerts
         with patch.object(frappe.db, "set_value", side_effect=frappe.ValidationError("injected")):
             for status in ("failed", "expired"):
                 for _ in range(PE_FAILURE_ALERT_THRESHOLD):

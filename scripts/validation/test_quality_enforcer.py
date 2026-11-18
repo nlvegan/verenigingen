@@ -761,12 +761,17 @@ class TestQualityEnforcer:
         """Database operation mocks (blocked in Tier 2 integration tests)."""
         valid = True
         justified = _db_mock_justifications(content)
+        # One marker covers ONE DB-mock finding (#1493 review): a second DB patch on
+        # the same marked line is REPORTED, so a return-value fake cannot hide
+        # beside a fault-injection marker.
+        marker_used = set()
         for line_num, target in self._matching_ast_targets(
             content, self.database_mock_targets
         ):
             if any(re.search(a, target, re.IGNORECASE) for a in self.allowed_config_mocks):
                 continue
-            if line_num in justified:
+            if line_num in justified and line_num not in marker_used:
+                marker_used.add(line_num)
                 continue
             self._record(
                 file_path,

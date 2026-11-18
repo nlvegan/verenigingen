@@ -887,6 +887,62 @@ class StructuralMockDetectionTest(unittest.TestCase):
         findings = _findings(self._JUST_HEAD + body)
         self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
 
+    def test_one_marker_covers_only_one_db_patch_on_its_line(self):
+        """Chosen: the EXTRA patch is reported (the marker is not refused), so a
+        return-value fake cannot hide beside a fault-injection marker."""
+        body = (
+            "    # Mock justified: fault injection\n"
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")), '
+            'patch.object(frappe.db, "exists", return_value=True):\n'
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_decorator_with_the_marker_directly_above_is_honoured(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            "def test_x(m):\n"
+            "    pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
+    def test_two_stacked_decorators_with_one_marker_report_the_second(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            '@patch.object(frappe.db, "exists", return_value=True)\n'
+            "def test_x(m, n):\n"
+            "    pass\n"
+        )
+        findings = _findings(src)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_multiline_patch_object_with_the_marker_above_its_first_line_is_honoured(self):
+        body = (
+            "    # Mock justified: fault injection\n"
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_marker_on_an_argument_line_is_not_honoured_and_reports_the_first_line(self):
+        body = (
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")  # Mock justified: fault injection\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 4)], [(f.kind, f.lineno) for f in findings])
+
     def test_a_justification_two_lines_away_does_not_count(self):
         body = (
             "    # Mock justified: fault injection\n"
