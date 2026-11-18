@@ -305,20 +305,19 @@ frappe.ui.form.on('Direct Debit Batch Invoice', {
 				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
 				callback(r) {
-					// A failure unwraps to null: say why, rather than leaving the row blank (#1220)
-					if (verenigingen.utils.isFailureResult(r.message)) {
+					// Unwrap OperationResult format
+					const data = unwrapOperationResult(r.message);
+					// A refusal (e.g. ambiguous or missing mandate) arrives as a normal 200
+					// {valid: false, error}. Without this check every field below was set to
+					// undefined, blanking the row with no explanation (#1220).
+					if (data && data.valid === false) {
 						frappe.msgprint({
 							title: __('Could not load mandate details'),
 							indicator: 'red',
-							message: frappe.utils.escape_html(
-								verenigingen.utils.getErrorMessage(r.message, __('Could not load mandate details'))
-							)
+							message: frappe.utils.escape_html(data.error || __('Could not load mandate details'))
 						});
 						return;
 					}
-
-					// Unwrap OperationResult format
-					const data = unwrapOperationResult(r.message);
 					if (data) {
 						frappe.model.set_value(cdt, cdn, 'iban', data.iban);
 						frappe.model.set_value(cdt, cdn, 'bic', data.bic);
@@ -537,20 +536,6 @@ function load_unpaid_invoices(frm) {
 				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.load_unpaid_invoices',
 				args: values,
 				callback(r) {
-					// A failed OperationResult unwraps to null, exactly like an empty
-					// result, so check for failure first: reporting it as "no invoices
-					// found" hid the real reason from the operator (#1220).
-					if (verenigingen.utils.isFailureResult(r.message)) {
-						frappe.msgprint({
-							title: __('Could not load unpaid invoices'),
-							indicator: 'red',
-							message: frappe.utils.escape_html(
-								verenigingen.utils.getErrorMessage(r.message, __('Could not load unpaid invoices'))
-							)
-						});
-						return;
-					}
-
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data && data.length > 0) {
@@ -616,6 +601,27 @@ function load_unpaid_invoices(frm) {
 					} else {
 						frappe.msgprint(__('No unpaid invoices found matching criteria'));
 					}
+				},
+				// load_unpaid_invoices is @handle_api_error-wrapped, so a validation failure is a
+				// real HTTP 400 carrying {message: {success: false, error: {message}}}. frappe's
+				// request.js never calls `callback` for a non-200, and has no 400 handler, so
+				// the failure reaches here as the xhr (a 417 hands over the parsed body; 403/500
+				// pass nothing and frappe has already shown its own dialog). Measured through
+				// the real WSGI app, 2026-11-18 (#1220).
+				error(xhr) {
+					const body = (xhr && xhr.responseJSON) || xhr;
+					if (!body || typeof body !== 'object') {
+						return;
+					}
+					const fallback = __('Could not load unpaid invoices');
+					const message = verenigingen.utils.isFailureResult(body.message)
+						? verenigingen.utils.getErrorMessage(body.message, fallback)
+						: verenigingen.utils.getHttpErrorMessage(body, fallback);
+					frappe.msgprint({
+						title: fallback,
+						indicator: 'red',
+						message: frappe.utils.escape_html(message)
+					});
 				}
 			});
 		}
@@ -673,18 +679,6 @@ function validate_mandates(frm) {
 			callback(r) {
 				processed++;
 				frappe.show_progress(__('Validating'), processed, frm.doc.invoices.length);
-
-				// A failure unwraps to null: mark the row Invalid with the server's reason
-				// instead of leaving it untouched and unexplained (#1220)
-				if (verenigingen.utils.isFailureResult(r.message)) {
-					frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
-					frappe.model.set_value(
-						inv.doctype,
-						inv.name,
-						'result_message',
-						verenigingen.utils.getErrorMessage(r.message, __('Mandate validation failed'))
-					);
-				}
 
 				// Unwrap OperationResult format
 				const data = unwrapOperationResult(r.message);
@@ -811,18 +805,6 @@ function process_returns_dialog(frm) {
 					file_type: 'pain.002'
 				},
 				callback(r) {
-					// A failure unwraps to null: keep the dialog open and say why (#1220)
-					if (verenigingen.utils.isFailureResult(r.message)) {
-						frappe.msgprint({
-							title: __('Could not process return file'),
-							indicator: 'red',
-							message: frappe.utils.escape_html(
-								verenigingen.utils.getErrorMessage(r.message, __('Could not process return file'))
-							)
-						});
-						return;
-					}
-
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {
