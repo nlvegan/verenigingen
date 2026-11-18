@@ -360,15 +360,15 @@ def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     idiom was structurally invisible to every rule built on it, including the
     database-mock and business-logic-mock bans.
 
-    Restricted to attribute chains rooted at the literal name `frappe` -- the
-    same base every pattern list in this file already keys its targets on --
-    so `self.x = y`, `doc.field = v`, a local variable, or any other object's
-    attribute is never a match; only a bare `import frappe as alias` (rare; one
-    call site app-wide, grepped) escapes this. A tuple/multi-target assignment
-    (`a = b = frappe.get_all`) reassigns `frappe.get_all`'s *value* to `a`/`b`,
-    not the other way around, so only `ast.Attribute` targets are considered --
-    an `ast.Name` target is a local binding, never a monkeypatch of `frappe`
-    itself.
+    Restricted to attribute chains rooted at `frappe` (or a local alias of it or of
+    a frappe submodule, `_frappe_root_aliases`) -- the same base every pattern list
+    in this file keys its targets on -- so `self.x = y`, `doc.field = v`, a local
+    variable, or any other object's attribute is never a match. An `ast.Name`
+    target is a local binding, never a monkeypatch of `frappe` itself.
+
+    #1576 closed seven further shapes: aliased roots (`from frappe import db as
+    fdb`, `import frappe as f`), `setattr(...)`, `monkeypatch.setattr(...)`,
+    annotated assignment, and tuple/list targets.
     """
     out: List[Tuple[int, str]] = []
     try:
@@ -376,17 +376,101 @@ def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     except (SyntaxError, ValueError):
         return out
 
+    roots = _frappe_root_aliases(tree)
+
+    def resolve(node) -> str:
+        """Dotted name with an aliased frappe root expanded, or "" if not frappe."""
+        dotted = _dotted_name(node)
+        if not dotted:
+            return ""
+        head, _, rest = dotted.partition(".")
+        if head not in roots:
+            return ""
+        return roots[head] + ("." + rest if rest else "")
+
+    def attribute_targets(target):
+        # `a.x, b.y = ...` / `[a.x, b.y] = ...` / `*a.x, = ...` (#1576)
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                yield from attribute_targets(elt)
+        elif isinstance(target, ast.Starred):
+            yield from attribute_targets(target.value)
+        elif isinstance(target, ast.Attribute):
+            yield target
+
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            # `frappe.get_all: object = x`; a bare annotation assigns nothing.
+            targets = [node.target]
+        elif isinstance(node, ast.Call):
+            target = _setattr_target(node, resolve)
+            if target:
+                out.append((node.lineno, target))
             continue
-        for target in node.targets:
-            if not isinstance(target, ast.Attribute):
-                continue
-            dotted = _dotted_name(target)
-            if dotted and dotted.split(".", 1)[0] == "frappe":
-                out.append((node.lineno, dotted))
+        else:
+            continue
+        for top in targets:
+            for target in attribute_targets(top):
+                dotted = resolve(target)
+                if dotted:
+                    out.append((node.lineno, dotted))
 
     return out
+
+
+def _frappe_root_aliases(tree) -> Dict[str, str]:
+    """Local names that stand for the frappe module or one of its submodules.
+
+    `frappe` itself always; `import frappe as f` -> f; `from frappe import db as
+    fdb` -> fdb is `frappe.db` (#1576). Mirrors `_patch_alias_names`. Scope-blind
+    on purpose and OVER-APPROXIMATING: an alias bound anywhere in the file counts
+    everywhere, even where the same name is rebound locally (`db = FakeConn()`).
+    That costs an occasional justifiable false positive; exempting rebound names
+    would instead let one `db = None` anywhere opt a whole file out of the guard.
+    """
+    roots = {"frappe": "frappe"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "frappe" or a.name.startswith("frappe."):
+                    if a.asname:
+                        roots[a.asname] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module == "frappe" or node.module.startswith("frappe."):
+                for a in node.names:
+                    if a.name != "*":
+                        roots[a.asname or a.name] = f"{node.module}.{a.name}"
+    return roots
+
+
+def _setattr_target(call, resolve) -> str:
+    """Dotted target of `setattr(base, "attr", v)` / `monkeypatch.setattr(...)`, or "".
+
+    `monkeypatch.setattr` also accepts a single dotted-string target
+    (`monkeypatch.setattr("frappe.get_all", v)`). A non-literal attribute name or
+    a base that is not frappe resolves to "" (a false negative, not a false positive).
+    """
+    func = call.func
+    is_builtin = isinstance(func, ast.Name) and func.id == "setattr"
+    is_pytest = (
+        isinstance(func, ast.Attribute) and func.attr == "setattr"
+        and _dotted_name(func.value) == "monkeypatch"
+    )
+    if not (is_builtin or is_pytest) or not call.args:
+        return ""
+    first = call.args[0]
+    if is_pytest and isinstance(first, ast.Constant) and isinstance(first.value, str):
+        head, _, rest = first.value.partition(".")
+        return first.value if head == "frappe" and rest else ""
+    if len(call.args) < 2:
+        return ""
+    attr = call.args[1]
+    base = resolve(first)
+    if base and isinstance(attr, ast.Constant) and isinstance(attr.value, str):
+        return f"{base}.{attr.value}"
+    return ""
 
 
 def counts_of(findings) -> Dict[str, int]:

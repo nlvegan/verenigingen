@@ -1114,6 +1114,162 @@ class StructuralMockDetectionTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# #1576: seven further monkeypatch shapes `_reassign_targets` could not see
+# --------------------------------------------------------------------------
+
+
+def _reassign_snippet(stmt: str, header: str = "") -> str:
+    return (
+        header
+        + "class TestThing:\n"
+        + "    def test_it(self):\n"
+        + f"        {stmt}\n"
+    )
+
+
+class ReassignEvasionShapesTest(unittest.TestCase):
+    """Each shape installs a policed Tier-2 database target without `patch()` or a
+    plain `frappe.x = y`. Every one must now be found (and, being a plain finding at
+    its own line, can be justified per site by the `# Mock justified:` marker)."""
+
+    def _assert_db_mock(self, stmt, header="", target=None):
+        src = _reassign_snippet(stmt, header)
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"), src)
+        if target:
+            self.assertIn(target, [t for _, t in tqe._reassign_targets(src)])
+
+    def test_shape1_from_import_submodule_alias(self):
+        self._assert_db_mock(
+            "fdb.get_value = lambda *a, **k: None",
+            "from frappe import db as fdb\n", "frappe.db.get_value")
+
+    def test_shape1b_from_import_submodule_without_alias(self):
+        self._assert_db_mock(
+            "db.get_value = lambda *a, **k: None",
+            "from frappe import db\n", "frappe.db.get_value")
+
+    def test_shape2_whole_module_alias(self):
+        self._assert_db_mock(
+            "f.get_all = lambda *a, **k: []", "import frappe as f\n", "frappe.get_all")
+
+    def test_shape3_setattr_on_module(self):
+        self._assert_db_mock(
+            'setattr(frappe, "get_all", lambda *a, **k: [])', "", "frappe.get_all")
+
+    def test_shape4_setattr_on_submodule(self):
+        self._assert_db_mock(
+            'setattr(frappe.db, "get_value", lambda *a, **k: None)', "", "frappe.db.get_value")
+
+    def test_shape5_annotated_assignment(self):
+        self._assert_db_mock(
+            "frappe.get_all: object = lambda *a, **k: []", "", "frappe.get_all")
+
+    def test_shape6_tuple_targets(self):
+        src = _reassign_snippet("frappe.get_all, frappe.db.sql = a, b")
+        self.assertEqual(
+            ["frappe.get_all", "frappe.db.sql"], [t for _, t in tqe._reassign_targets(src)])
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"))
+
+    def test_shape6b_list_and_starred_targets(self):
+        src = _reassign_snippet("[frappe.get_all, *frappe.db.sql] = a, b")
+        self.assertEqual(
+            ["frappe.get_all", "frappe.db.sql"], [t for _, t in tqe._reassign_targets(src)])
+
+    def test_shape7_pytest_monkeypatch_setattr(self):
+        self._assert_db_mock(
+            'monkeypatch.setattr(frappe, "get_all", lambda *a, **k: [])', "", "frappe.get_all")
+
+    def test_shape7b_pytest_monkeypatch_dotted_string(self):
+        self._assert_db_mock(
+            'monkeypatch.setattr("frappe.db.get_value", lambda *a, **k: None)',
+            "", "frappe.db.get_value")
+
+    # ---- controls: a legitimate reassignment must not be flagged ----
+
+    def _assert_clean(self, stmt, header="", resolves_nothing=True):
+        src = _reassign_snippet(stmt, header)
+        if resolves_nothing:
+            self.assertEqual([], tqe._reassign_targets(src), src)
+        self.assertEqual([], _kinds(src, "test_thing.py"), src)
+
+    def test_control_alias_of_a_non_frappe_module(self):
+        self._assert_clean("fdb.get_value = 1", "from other import db as fdb\n")
+        self._assert_clean("f.get_all = 1", "import other as f\n")
+
+    def test_control_unbound_alias_name_is_not_frappe(self):
+        self._assert_clean("fdb.get_value = 1")
+
+    def test_control_setattr_on_flags_local_and_self(self):
+        # frappe-rooted, so resolved -- but not a policed target
+        self._assert_clean('setattr(frappe.flags, "in_test", True)', resolves_nothing=False)
+        self._assert_clean('setattr(frappe.local, "form_dict", {})', resolves_nothing=False)
+        self._assert_clean('setattr(self, "get_all", [])')
+        self._assert_clean('setattr(doc, "get_all", [])')
+
+    def test_control_setattr_with_a_dynamic_attribute_name(self):
+        self._assert_clean("setattr(frappe, name, value)")
+
+    def test_control_monkeypatch_of_a_non_frappe_target(self):
+        self._assert_clean('monkeypatch.setattr(some_module, "get_all", x)')
+        self._assert_clean('monkeypatch.setattr("other.get_all", x)')
+        self._assert_clean('monkeypatch.setattr(os, "environ", {})')
+
+    def test_control_annotation_without_a_value_assigns_nothing(self):
+        self._assert_clean("frappe.get_all: object")
+
+    def test_control_annotated_and_tuple_non_frappe_and_unpoliced(self):
+        self._assert_clean("self.get_all: object = []")
+        self._assert_clean("self.a, local.get_all = 1, 2")
+        self._assert_clean("frappe.flags.a, frappe.local.b = 1, 2", resolves_nothing=False)
+
+    def test_control_a_receiver_merely_named_setattr_is_not_monkeypatch(self):
+        self._assert_clean('foo.setattr(frappe, "get_all", x)')
+
+    def test_control_a_relative_import_is_not_the_frappe_module(self):
+        self._assert_clean("db.get_value = 1", "from .frappe import db\n")
+
+    def test_control_a_lookalike_package_name_is_not_frappe(self):
+        self._assert_clean("fdb.get_value = 1", "from frappe_x import db as fdb\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x as fx\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x.sub as fx\n")
+
+    def test_an_aliased_submodule_import_resolves_to_that_submodule(self):
+        src = _reassign_snippet("u.get_all = x", "import frappe.utils as u\n")
+        self.assertEqual(["frappe.utils.get_all"], [t for _, t in tqe._reassign_targets(src)])
+
+    def test_an_alias_rebound_locally_is_still_flagged_by_design(self):
+        """Deliberate over-approximation: aliasing is file-wide. Exempting a name
+        rebound anywhere (`db = None`, a `db` argument) would let ONE such line opt
+        every real `db.get_value = ...` in the file out of the guard, so a fake
+        connection named like the alias costs a (justifiable) false positive instead."""
+        for body in ("db = FakeConn()\n        db.get_value = 1", "db.get_value = 1"):
+            src = _reassign_snippet(body, "from frappe import db\n")
+            self.assertIn("frappe.db.get_value", [t for _, t in tqe._reassign_targets(src)])
+        evaded = ("from frappe import db\n"
+                  "class TestThing:\n"
+                  "    def helper(self, db):\n"
+                  "        pass\n"
+                  "    def test_it(self):\n"
+                  "        db.get_value = 1\n")
+        self.assertIn("DATABASE MOCK", _kinds(evaded, "test_thing.py"))
+
+    def test_control_a_tuple_of_plain_names_is_a_local_binding(self):
+        self._assert_clean("get_all, sql = frappe.get_all, frappe.db.sql")
+
+    def test_control_unit_tier_still_allows_database_reassignment(self):
+        for stmt, header in (
+            ("fdb.get_value = 1", "from frappe import db as fdb\n"),
+            ('setattr(frappe, "get_all", x)', ""),
+        ):
+            src = _reassign_snippet(stmt, header)
+            self.assertNotIn("DATABASE MOCK", _kinds(src, "test_thing_unit.py"))
+
+    def test_a_business_logic_target_via_setattr_is_prohibited_in_any_tier(self):
+        src = _reassign_snippet('setattr(frappe, "get_doc_process_hook", x)')
+        self.assertIn("BUSINESS LOGIC MOCK PROHIBITED", _kinds(src, "test_thing_unit.py"))
+
+
+# --------------------------------------------------------------------------
 # #1542: manual monkeypatch reassignment (`module.attr = x`), not a patch() call
 # --------------------------------------------------------------------------
 
