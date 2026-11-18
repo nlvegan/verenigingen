@@ -13,7 +13,11 @@ The contract pinned here:
   a `dues_income_account` that belongs to it;
 * a class that wrote nothing still gets the harness default -- including when the site's
   ambient value is a real, different company (the control that stops "always keep what is
-  there" passing), a company that does not exist, or a value a previous TEST left behind.
+  there" passing) or a company that does not exist;
+* that holds IN SEQUENCE: `setUpClass` pins a common baseline and restores the site's value
+  in a class cleanup, so a class that chose a company and never restored it cannot make a
+  LATER class choosing the same company look ambient and get reverted (the first design
+  compared with whatever the Single held, and reverted T2 in "T1 chooses X, T2 chooses X").
 
 Each scenario drives a real `EnhancedTestCase` through `unittest`, because the defect is
 in how `setUp` treats the Single, not in the helper in isolation.
@@ -37,24 +41,33 @@ def _read_settings_pair_528():
     )
 
 
-def _run_case_528(case_class):
-    result = unittest.TestResult()
-    unittest.TestLoader().loadTestsFromTestCase(case_class).run(result)
-    return result
-
-
 class TestSettingsCompanyChosenByTheClassSurvives(unittest.TestCase):
     def setUp(self):
         self.original = _read_settings_pair_528()
         self.addCleanup(_write, *self.original)
         self.class_company = get_eur_test_company()
+        self.default = self._harness_default_528()
+        # Pin the preconditions instead of inheriting them from the site: the class company
+        # must differ from the default, and the ambient value is a THIRD company, so no
+        # outcome below can come from ambient state.
+        self.assertNotEqual(self.class_company, self.default)
+        others = frappe.get_all(
+            "Company",
+            filters={"name": ["not in", [self.class_company, self.default]]},
+            pluck="name",
+            order_by="name asc",
+        )
+        if not others:
+            self.skipTest("needs a third company to act as the ambient value")
+        self.third = others[0]
+        self._set_ambient_528(self.third)
 
-    def _observing_case(self, class_setup=None, body_a=None):
-        """A real EnhancedTestCase with two bodies that record what they see.
+    def _set_ambient_528(self, company):
+        _write(company, _read_settings_pair_528()[1])
+        self.assertEqual(_read_settings_pair_528()[0], company)
 
-        `class_setup` runs in setUpClass; `body_a` runs inside the first body, before
-        it records, to model a test that changes the company mid-test.
-        """
+    def _observing_case_528(self, name, class_setup=None, body_a=None):
+        """A real EnhancedTestCase with two bodies that record what they see."""
         seen = []
 
         class _Case(EnhancedTestCase):
@@ -73,34 +86,34 @@ class TestSettingsCompanyChosenByTheClassSurvives(unittest.TestCase):
             def test_b_second(inner):
                 seen.append(_read_settings_pair_528())
 
+        _Case.__name__ = name
         return _Case, seen
 
-    def _harness_default(self):
-        """What a class that configures nothing sees -- measured, not assumed."""
-        _write_setting("company", GHOST_COMPANY_528)
-        case, seen = self._observing_case()
-        result = _run_case_528(case)
+    def _class_chooses_528(self, company=None):
+        return lambda: _write_setting("company", company or self.class_company)
+
+    def _run_cases_528(self, *cases):
+        suite = unittest.TestSuite(unittest.TestLoader().loadTestsFromTestCase(c) for c in cases)
+        result = unittest.TestResult()
+        suite.run(result)
         self.assertEqual((result.errors, result.failures), ([], []))
-        default = seen[0][0]
-        self.assertTrue(default and frappe.db.exists("Company", default))
-        return default
+
+    def _harness_default_528(self):
+        """What a class that configures nothing sees -- measured, not assumed."""
+        case, seen = self._observing_case_528("Probe528")
+        self._run_cases_528(case)
+        company = seen[0][0]
+        self.assertTrue(company and frappe.db.exists("Company", company))
+        return company
 
     def test_a_company_written_in_setUpClass_is_seen_by_every_body(self):
-        default = self._harness_default()
-        self.assertNotEqual(
-            self.class_company,
-            default,
-            "precondition: the class company must differ from the harness default, or "
-            "this test cannot tell a kept value from an overwritten one",
-        )
-        case, seen = self._observing_case(class_setup=lambda: _write_setting("company", self.class_company))
-        result = _run_case_528(case)
-        self.assertEqual((result.errors, result.failures), ([], []))
+        case, seen = self._observing_case_528("T528", self._class_chooses_528())
+        self._run_cases_528(case)
         self.assertEqual([company for company, _ in seen], [self.class_company] * 2)
 
     def test_the_dues_income_account_follows_the_kept_company(self):
-        case, seen = self._observing_case(class_setup=lambda: _write_setting("company", self.class_company))
-        _run_case_528(case)
+        case, seen = self._observing_case_528("Inc528", self._class_chooses_528())
+        self._run_cases_528(case)
         accounts = [account for _, account in seen]
         self.assertEqual(len(accounts), 2)
         for account in accounts:
@@ -111,22 +124,49 @@ class TestSettingsCompanyChosenByTheClassSurvives(unittest.TestCase):
 
         An "always keep what is there" fix would keep it and fail here.
         """
-        default = self._harness_default()
-        _write_setting("company", self.class_company)
-        case, seen = self._observing_case()
-        result = _run_case_528(case)
-        self.assertEqual((result.errors, result.failures), ([], []))
-        self.assertEqual([company for company, _ in seen], [default] * 2)
+        case, seen = self._observing_case_528("Ctl528")
+        self._run_cases_528(case)
+        self.assertEqual([company for company, _ in seen], [self.default] * 2)
 
     def test_a_class_company_that_does_not_exist_does_not_stick(self):
-        default = self._harness_default()
-        case, seen = self._observing_case(class_setup=lambda: _write_setting("company", GHOST_COMPANY_528))
-        _run_case_528(case)
-        self.assertEqual([company for company, _ in seen], [default] * 2)
+        case, seen = self._observing_case_528("Ghost528", self._class_chooses_528(GHOST_COMPANY_528))
+        self._run_cases_528(case)
+        self.assertEqual([company for company, _ in seen], [self.default] * 2)
 
     def test_a_company_a_test_changed_mid_test_does_not_carry_into_the_next_test(self):
-        default = self._harness_default()
-        case, seen = self._observing_case(body_a=lambda: _write_setting("company", self.class_company))
-        result = _run_case_528(case)
-        self.assertEqual((result.errors, result.failures), ([], []))
-        self.assertEqual([company for company, _ in seen], [default])
+        case, seen = self._observing_case_528("Mid528", body_a=lambda: _write_setting("company", self.class_company))
+        self._run_cases_528(case)
+        self.assertEqual([company for company, _ in seen], [self.default])
+
+    def test_classes_in_sequence_each_see_what_they_chose(self):
+        """Shard composition: T1 chooses X, T2 chooses X, T3 nothing, T4 chooses X, then
+        a class that chose X and never restored it, then one that chooses nothing.
+
+        None of them restores anything itself. Under the first design T2 and T4 were
+        reverted because X had leaked into their class-start value.
+        """
+        t1, s1 = self._observing_case_528("Seq1_528", self._class_chooses_528())
+        t2, s2 = self._observing_case_528("Seq2_528", self._class_chooses_528())
+        t3, s3 = self._observing_case_528("Seq3_528")
+        t4, s4 = self._observing_case_528("Seq4_528", self._class_chooses_528())
+        leak, sl = self._observing_case_528("SeqLeak_528", self._class_chooses_528())
+        after, sa = self._observing_case_528("SeqAfter_528")
+        self._run_cases_528(t1, t2, t3, t4, leak, after)
+        chose = [self.class_company] * 2
+        self.assertEqual(
+            [[c for c, _ in s] for s in (s1, s2, s3, s4, sl, sa)],
+            [chose, chose, [self.default] * 2, chose, chose, [self.default] * 2],
+        )
+
+    def test_the_sites_value_is_back_after_the_classes_have_run(self):
+        case, _ = self._observing_case_528("Back528", self._class_chooses_528())
+        self._run_cases_528(case)
+        self.assertEqual(_read_settings_pair_528()[0], self.third)
+
+    def test_a_class_choosing_the_company_the_site_already_holds_keeps_it(self):
+        """Ambient == the class's choice (the DuesProcessorTestBase shape on a site that
+        an earlier module left on EUR)."""
+        self._set_ambient_528(self.class_company)
+        case, seen = self._observing_case_528("Same528", self._class_chooses_528())
+        self._run_cases_528(case)
+        self.assertEqual([company for company, _ in seen], [self.class_company] * 2)
