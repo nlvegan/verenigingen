@@ -495,14 +495,14 @@ def has_member_permission(doc, user=None, ptype=None):
 
     user_roles = frappe.get_roles(user)
 
-    # Admin roles always have access: a forged owner claim cannot widen what they already hold, and
-    # a desk form on an unsaved Member posts owner=<self> legitimately (#2562)
-    if _has_admin_access(user_roles):
-        return True
-
-    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it
+    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it.
+    # Unrestricted DocPerm holders (staff, System Manager) are let through inside the guard itself.
     if not has_unforged_owner(doc, user, ptype):
         return False
+
+    # Admin roles always have access
+    if _has_admin_access(user_roles):
+        return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
     service_result = _check_service_account_permission(user, "Member", ptype)
@@ -922,7 +922,12 @@ def _is_run_doc_method_dispatch():
 
 def _holds_unrestricted_permission(doctype, user, ptype):
     """True if one of the user's DocPerm rows grants ``ptype`` WITHOUT ``if_owner`` (Frappe's own notion,
-    ``get_role_permissions``). Only an if_owner grant can be satisfied by posting an owner (#2562)."""
+    ``get_role_permissions``). Only an if_owner grant can be satisfied by posting an owner (#2562).
+
+    Relies on the shape of Frappe's ``get_role_permissions``: ``perms[ptype]`` is 1 for ANY grant,
+    including an if_owner-only one, and ``perms["if_owner"]`` lists the ptypes granted only with
+    if_owner. Staff and a bare System Manager hold only an if_owner read on Donation Campaign, so
+    this returns False for them there and they still get 403 on a forged owner, by design."""
     perms = frappe.permissions.get_role_permissions(frappe.get_meta(doctype), user)
     ptype = ptype or "read"
     # an if_owner-only grant still reads as perms[read] == 1 (list access), but is keyed in perms.if_owner

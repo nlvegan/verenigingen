@@ -120,6 +120,22 @@ try:
         for dt,m in (("Member","get_current_membership_fee"),("Donation Campaign","get_recent_donations")):
             for variant,extra in (("named",{"name":"new-"+dt.lower().replace(" ","-")+"-"+tag,"__islocal":1}),("nameless",{"name":None,"__islocal":1})):
                 out[f"unsaved.{who_label}.{dt}.{variant}"]=call(who,dt,extra["name"] or "x",m,who["email"],extra=extra)
+    # Non-admin holders of a CUSTOM DocPerm on Donation Campaign. LAST on purpose: any Custom DocPerm row
+    # replaces the whole standard permission set for the doctype, so the callers above must have run.
+    # role_a: full read + write only with if_owner.  role_b: full read + write, no if_owner.
+    frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")  # call() destroyed the session
+    role_a="Forge A "+tag; role_b="Forge B "+tag
+    for r in (role_a, role_b):
+        mk({"doctype":"Role","role_name":r,"desk_access":1})
+    uno=user(f"forge-ro-{tag}@test.invalid",[role_a,"Verenigingen Volunteer","Verenigingen Member"]); uall=user(f"forge-rw-{tag}@test.invalid",[role_b,"Verenigingen Volunteer","Verenigingen Member"])
+    def perm_row(role, **rights):
+        return mk({"doctype":"Custom DocPerm","parent":"Donation Campaign","parenttype":"DocType","parentfield":"permissions","role":role,"permlevel":0,**rights})
+    perm_row(role_a, read=1); perm_row(role_a, write=1, if_owner=1); perm_row(role_b, read=1, write=1)
+    frappe.db.commit(); frappe.clear_cache()
+    for label,who in (("ifowner_write",uno),("unrestricted",uall)):
+        n=camp.name; m="get_recent_donations"
+        out[f"custom.{label}.v1"]=call(who,"Donation Campaign",n,m,who["email"])
+        out[f"custom.{label}.v2"]=call(who,"Donation Campaign",n,m,who["email"],v2=True)
 finally:
     frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")
     for dt,n in reversed(made):
@@ -208,6 +224,17 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
                         continue
                     with self.subTest(who=who, doctype=doctype, variant=variant):
                         self.assertEqual(self.out[f"unsaved.{who}.{doctype}.{variant}"], 200)
+
+    def test_a_non_admin_with_a_custom_docperm_is_judged_per_requested_ptype(self):
+        """Exercises `_holds_unrestricted_permission` on a NON-admin (review of 77f26d314). Both users hold a
+        Custom DocPerm on Donation Campaign with full read; the first has write only with if_owner, the
+        second full write. v1 run_doc_method asks read, v2 POST asks write. Mutants that reddened this:
+        checking "read" instead of the requested ptype (v2 forged write -> 200) and always-False (the
+        unrestricted holder 403)."""
+        self.assertEqual(self.out["custom.ifowner_write.v1"], 200)
+        self.assertEqual(self.out["custom.ifowner_write.v2"], 403)
+        self.assertEqual(self.out["custom.unrestricted.v1"], 200)
+        self.assertEqual(self.out["custom.unrestricted.v2"], 200)
 
     def test_a_plain_caller_forging_owner_on_an_unsaved_form_is_still_refused(self):
         """Control with a real attacker (Volunteer + Member roles, if_owner grants only)."""
