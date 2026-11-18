@@ -24,10 +24,15 @@ in how `setUp` treats the Single, not in the helper in isolation.
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_settings import (
+    _restore_mollie_clearing_account,
+    own_mollie_clearing_account,
+)
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.support.verenigingen_settings import _write, _write_setting
 
@@ -120,12 +125,36 @@ class TestSettingsCompanyChosenByTheClassSurvives(unittest.TestCase):
             self.assertEqual(frappe.db.get_value("Account", account, "company"), self.class_company)
 
     def test_a_class_that_writes_nothing_still_gets_the_default_over_a_real_ambient_company(self):
-        """The control: the ambient value is a REAL company that differs from the default.
+        """The control: a REAL ambient company (a third one) is in place when the class starts.
 
-        An "always keep what is there" fix would keep it and fail here.
+        The class sees the default, not the ambient company: setUpClass pins the baseline over
+        it, and a class that wrote nothing has nothing to keep. This does NOT discriminate
+        "keep whatever the Single holds in setUp" (that value is the pinned default by then);
+        `test_a_class_that_writes_nothing_gets_the_default_when_it_is_not_the_pinned_baseline`
+        and the no-baseline case below do.
         """
         case, seen = self._observing_case_528("Ctl528")
         self._run_cases_528(case)
+        self.assertEqual([company for company, _ in seen], [self.default] * 2)
+
+    def test_a_class_that_writes_nothing_gets_the_default_when_it_is_not_the_pinned_baseline(self):
+        """Pinned baseline (`_harness_company`) and default (`_get_test_company`) are different
+        companies here. A class that wrote nothing has the Single at the pinned baseline, which
+        must NOT count as chosen: ignoring the `current != pinned` comparison keeps the baseline
+        and the bodies would see it instead of the default."""
+        frappe.local.test_company_name = self.class_company
+        self.addCleanup(delattr, frappe.local, "test_company_name")
+        case, seen = self._observing_case_528("NotPinned528")
+        self._run_cases_528(case)
+        self.assertNotEqual(self.class_company, self.default)
+        self.assertEqual([company for company, _ in seen], [self.class_company] * 2)
+
+    def test_without_a_pinned_baseline_a_real_ambient_company_is_not_taken_as_chosen(self):
+        """`own_settings_company` returns None when no harness company exists. A real ambient
+        company then differs from "nothing", and must not be kept as the class's choice."""
+        with patch("verenigingen.tests.support.verenigingen_settings._harness_company", return_value=None):
+            case, seen = self._observing_case_528("NoBase528")
+            self._run_cases_528(case)
         self.assertEqual([company for company, _ in seen], [self.default] * 2)
 
     def test_a_class_company_that_does_not_exist_does_not_stick(self):
@@ -170,3 +199,25 @@ class TestSettingsCompanyChosenByTheClassSurvives(unittest.TestCase):
         case, seen = self._observing_case_528("Same528", self._class_chooses_528())
         self._run_cases_528(case)
         self.assertEqual([company for company, _ in seen], [self.class_company] * 2)
+
+    def test_a_class_scoped_mollie_clearing_pin_is_seen_by_the_bodies_and_restored_after(self):
+        """A class that points Mollie Settings at its own clearing account must hand the site's
+        value back: left behind, it reconfigured every later class's Mollie lookups (#528)."""
+        field = "mollie_clearing_account"
+        original = frappe.db.get_single_value("Mollie Settings", field)
+        self.addCleanup(_restore_mollie_clearing_account, original)
+        _restore_mollie_clearing_account("528 ambient clearing")  # set + commit the ambient value
+        seen = []
+
+        class _MollieCase(EnhancedTestCase):
+            @classmethod
+            def setUpClass(cls):
+                super().setUpClass()
+                own_mollie_clearing_account(cls, "528 class clearing")
+
+            def test_sees_the_pin(inner):
+                seen.append(frappe.db.get_single_value("Mollie Settings", field))
+
+        self._run_cases_528(_MollieCase)
+        self.assertEqual(seen, ["528 class clearing"])
+        self.assertEqual(frappe.db.get_single_value("Mollie Settings", field), "528 ambient clearing")

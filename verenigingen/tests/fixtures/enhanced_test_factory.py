@@ -6050,8 +6050,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         uncommitted loses it to the first tearDown rollback, as before.
         """
         current = frappe.db.get_value("Verenigingen Settings", None, "company")
-        at_class_start = getattr(type(self), "_settings_company_at_class_start", current)
-        if current and current != at_class_start and frappe.db.exists("Company", current):
+        pinned = getattr(type(self), "_settings_company_at_class_start", None)
+        # No pinned baseline (own_settings_company found no harness company): nothing to
+        # compare with, and "differs from nothing" would make every real ambient company
+        # look chosen by the class.
+        if not pinned:
+            return None
+        if current and current != pinned and frappe.db.exists("Company", current):
             return current
         return None
 
