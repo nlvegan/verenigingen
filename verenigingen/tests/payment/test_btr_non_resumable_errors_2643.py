@@ -89,6 +89,7 @@ def _on_sql(needle, error, *, only_call=None):
                 raise _exc(error)
         return real(query, *args, **kwargs)
 
+    # Mock justified: fault injection: raises the injected lock error for one matching statement only, every other statement runs for real
     return patch.object(frappe.db, "sql", sql)
 
 

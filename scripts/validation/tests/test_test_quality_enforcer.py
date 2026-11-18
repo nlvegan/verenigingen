@@ -732,8 +732,14 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # own_notification_keys. Baseline shrink committed with the code.
         # 213 -> 211 findings, 194 -> 192 keys (#2284): TestSecureDocumentOperationAuthorization's
         # two BUSINESS LOGIC MOCK findings went with its rewrite onto real users and roles.
-        self.assertEqual(211, len(self.findings), "finding count moved")
-        self.assertEqual(192, len(tqe.counts_of(self.findings)), "key count moved")
+        # 211 -> 255 findings, 192 -> 225 keys (#1493): `patch.object(frappe.db, "sql")`
+        # resolved to "db.sql" (only the base's last segment was kept), so every
+        # 3-segment `frappe.db.<m>` rule missed it. 75 findings surfaced; 31 sites
+        # (fault injection and call-through spies) now carry a per-site
+        # `# Mock justified: <reason>` marker, and 44 findings / 33 keys (return-value
+        # fakes, whole-fake suites) were baselined. See the baseline file's header.
+        self.assertEqual(255, len(self.findings), "finding count moved")
+        self.assertEqual(225, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
@@ -794,6 +800,176 @@ class StructuralMockDetectionTest(unittest.TestCase):
             "        pass\n"
         )
         self.assertIn("DATABASE MOCK", _kinds(src))
+
+    def test_patch_object_on_a_dotted_base_is_detected(self):
+        """#1493: `patch.object(frappe.db, "exists")` resolved to "db.exists" (only the
+        base's LAST segment was kept), so every 3-segment `frappe.db.<m>` rule missed it.
+        Each spelling of the base below must produce a DATABASE MOCK finding.
+        """
+        for base_expr in ("frappe.db", "mod.frappe.db"):
+            src = (
+                "from unittest.mock import patch\n"
+                "import frappe\n"
+                "def test_x():\n"
+                f'    with patch.object({base_expr}, "exists"):\n'
+                "        pass\n"
+            )
+            self.assertIn("DATABASE MOCK", _kinds(src), base_expr)
+
+    def test_patch_object_target_keeps_the_full_dotted_base(self):
+        """Control for the above: the resolved target itself, not just the finding."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.db, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertEqual([(4, "frappe.db.exists")], tqe._patch_targets(src))
+
+    def test_patch_object_on_an_unrelated_dotted_base_is_not_detected(self):
+        """Control: the longer target must not turn into a substring match."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.dbx, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
+    # ---- #1493: per-site `# Mock justified:` marker for Tier 2 DATABASE MOCK ----
+
+    _JUST_HEAD = (
+        "from unittest.mock import patch\n"
+        "import frappe\n"
+        "def test_x():\n"
+    )
+
+    def _db_kinds(self, body: str):
+        return _kinds(self._JUST_HEAD + body)
+
+    def test_a_trailing_justification_suppresses_its_own_site(self):
+        body = (
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")):'
+            "  # Mock justified: fault injection, a real outage cannot be staged\n"
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_justification_on_the_line_directly_above_counts(self):
+        body = (
+            "    # Mock justified: fault injection, a real outage cannot be staged\n"
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")):\n'
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_justification_covers_only_its_own_site(self):
+        body = (
+            '    with patch.object(frappe.db, "sql"):  # Mock justified: spy, calls through\n'
+            "        pass\n"
+            '    with patch.object(frappe.db, "exists"):\n'
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 6)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_justification_above_cannot_be_borrowed_by_the_next_patch_line(self):
+        """#1601 shape: the comment-only line justifies the line directly below it,
+        not the patch line after that, and a TRAILING comment on a patch line does
+        not reach down to the next line either."""
+        body = (
+            '    with patch.object(frappe.db, "sql"):  # Mock justified: spy\n'
+            '        with patch.object(frappe.db, "exists"):\n'
+            "            pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_one_marker_covers_only_one_db_patch_on_its_line(self):
+        """Chosen: the EXTRA patch is reported (the marker is not refused), so a
+        return-value fake cannot hide beside a fault-injection marker."""
+        body = (
+            "    # Mock justified: fault injection\n"
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")), '
+            'patch.object(frappe.db, "exists", return_value=True):\n'
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_decorator_with_the_marker_directly_above_is_honoured(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            "def test_x(m):\n"
+            "    pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
+    def test_two_stacked_decorators_with_one_marker_report_the_second(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            '@patch.object(frappe.db, "exists", return_value=True)\n'
+            "def test_x(m, n):\n"
+            "    pass\n"
+        )
+        findings = _findings(src)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_multiline_patch_object_with_the_marker_above_its_first_line_is_honoured(self):
+        body = (
+            "    # Mock justified: fault injection\n"
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_marker_on_an_argument_line_is_not_honoured_and_reports_the_first_line(self):
+        body = (
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")  # Mock justified: fault injection\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 4)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_justification_two_lines_away_does_not_count(self):
+        body = (
+            "    # Mock justified: fault injection\n"
+            "    x = 1\n"
+            '    with patch.object(frappe.db, "sql"):\n'
+            "        pass\n"
+        )
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_an_empty_reason_is_refused(self):
+        for comment in ("# Mock justified:", "# Mock justified:   "):
+            body = (
+                f'    with patch.object(frappe.db, "sql"):  {comment}\n'
+                "        pass\n"
+            )
+            self.assertIn("DATABASE MOCK", self._db_kinds(body), comment)
+
+    def test_marker_text_inside_a_string_does_not_count(self):
+        body = (
+            '    with patch.object(frappe.db, "sql", return_value="# Mock justified: x"):\n'
+            "        pass\n"
+        )
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_an_unmarked_site_is_still_reported(self):
+        body = '    with patch.object(frappe.db, "sql"):\n        pass\n'
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
 
     def test_a_lookalike_name_is_not_detected(self):
         """Suffix anchoring must not degrade into a substring match.

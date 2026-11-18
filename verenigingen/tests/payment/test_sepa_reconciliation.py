@@ -1779,6 +1779,7 @@ def _681_sql_raising_on_for_update(error, needle="FOR UPDATE"):
             raise error
         return real_sql(query, *args, **kwargs)
 
+    # Mock justified: fault injection: raises the injected error for the FOR UPDATE statement only, every other statement runs for real
     return patch.object(frappe.db, "sql", _sql)
 
 
@@ -1889,12 +1890,14 @@ class TestNonResumableErrorsEscapeTheBatchReconciliation681(ReconBase):
             fields=["name", "invoice", "amount", "member", "member_name", "idx"],
         )
         for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            # Mock justified: fault injection: injected deadlock / lock wait in the phase-one lookup, which cannot be staged on a live DB
             with patch.object(frappe.db, "get_value", side_effect=factory()):
                 with self.assertRaises(cls):
                     recon._validate_batch_reconciliation(items, bt)
 
     def test_a_deadlock_in_the_phase_one_lookup_escapes_reconcile_full_sepa_batch(self):
         _, batch, bt = self._batch("R681ValFull")
+        # Mock justified: fault injection: injected deadlock in the phase-one lookup, which cannot be staged on a live DB
         with patch.object(frappe.db, "get_value", side_effect=_deadlock()):
             with self.assertRaises(frappe.QueryDeadlockError):
                 recon.reconcile_full_sepa_batch(bt, batch)
@@ -1961,6 +1964,7 @@ class TestNonResumableErrorsEscapeTheBatchReconciliation681(ReconBase):
             filters={"parent": batch.name},
             fields=["name", "invoice", "amount", "member", "member_name", "idx"],
         )
+        # Mock justified: fault injection control: an ordinary lookup failure (ValueError), to prove it is still collected per item
         with patch.object(frappe.db, "get_value", side_effect=ValueError("ordinary lookup failure")):
             errors = recon._validate_batch_reconciliation(items, bt)
         self.assertEqual(len(errors), 1)

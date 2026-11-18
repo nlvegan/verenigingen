@@ -292,11 +292,12 @@ def _patch_targets(content: str) -> List[Tuple[int, str]]:
             # on the attribute still matches.
             parts = []
             if node.args:
-                first = node.args[0]
-                parts.append(
-                    first.id if isinstance(first, ast.Name)
-                    else first.attr if isinstance(first, ast.Attribute) else ""
-                )
+                # The FULL dotted chain, not its last segment (#1493):
+                # patch.object(frappe.db, "exists") must give "frappe.db.exists",
+                # or every 3-segment `frappe.db.<m>` rule misses it. A suffix-
+                # anchored rule still matches a longer prefix, so a one-segment
+                # base (SomeClass) resolves exactly as before.
+                parts.append(_dotted_name(node.args[0]))
             if len(node.args) > 1:
                 parts.append(_target_of(node.args[1]))
             target = ".".join(x for x in parts if x)
@@ -322,6 +323,32 @@ def _dotted_name(node) -> str:
         base = _dotted_name(node.value)
         return f"{base}.{node.attr}" if base else ""
     return ""
+
+
+def _db_mock_justifications(content: str) -> dict:
+    """line -> reason for every `# Mock justified: <reason>` comment that may
+    exempt a Tier 2 DATABASE MOCK site (#1493).
+
+    Stricter than the Tier 3 window (#1601: a comment within 3 lines of an
+    unrelated reassignment exempted it). Here a comment counts only for the
+    line it is ON (trailing) or, when it is a comment-only line, for the line
+    IMMEDIATELY BELOW it, and only with a NON-EMPTY reason. Real COMMENT
+    tokens only, so the text inside a string never counts.
+    """
+    out = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(content).readline):
+            if tok.type != tokenize.COMMENT:
+                continue
+            m = re.match(r"#\s*Mock justified:\s*(\S.*)$", tok.string)
+            if not m:
+                continue
+            row = tok.start[0]
+            comment_only = tok.line.strip().startswith("#")
+            out[row + 1 if comment_only else row] = m.group(1).strip()
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return {}
+    return out
 
 
 def _reassign_targets(content: str) -> List[Tuple[int, str]]:
@@ -404,6 +431,15 @@ def write_baseline(path: Path, counts: Dict[str, int]) -> None:
         "# finding go away; fix the test instead. The one legitimate reason it may",
         "# GROW is a change to the enforcer's own detection rules, which must land in",
         "# the same commit as the regeneration.",
+        "#",
+        "# LOG (#1493, a detection-rule change): `_patch_targets` kept only the last segment",
+        "# of a `patch.object` base, so `patch.object(frappe.db, \"sql\")` was invisible to",
+        "# every 3-segment `frappe.db.<m>` rule. Fixing it surfaced 75 DATABASE MOCK findings:",
+        "# 31 are justified in place with the per-site `# Mock justified: <reason>` marker",
+        "# (Tier 2 DATABASE MOCK only; fault injection and call-through spies; ON the patch",
+        "# line or the line directly above, non-empty reason), and the other 44 findings",
+        "# (33 keys: return-value fakes, whole-fake suites) are listed below.",
+        "# Totals: 211 -> 255 findings, 192 -> 225 keys.",
         "#",
         "# UNDERSTATES the real debt: _check_all_mocks_blocked still honours an",
         "# unpoliced escape hatch (`# Mock justified:` / `# External service` /",
@@ -724,10 +760,18 @@ class TestQualityEnforcer:
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
         """Database operation mocks (blocked in Tier 2 integration tests)."""
         valid = True
+        justified = _db_mock_justifications(content)
+        # One marker covers ONE DB-mock finding (#1493 review): a second DB patch on
+        # the same marked line is REPORTED, so a return-value fake cannot hide
+        # beside a fault-injection marker.
+        marker_used = set()
         for line_num, target in self._matching_ast_targets(
             content, self.database_mock_targets
         ):
             if any(re.search(a, target, re.IGNORECASE) for a in self.allowed_config_mocks):
+                continue
+            if line_num in justified and line_num not in marker_used:
+                marker_used.add(line_num)
                 continue
             self._record(
                 file_path,
@@ -738,6 +782,8 @@ class TestQualityEnforcer:
                 f"  -> Database operations must not be mocked in integration tests\n"
                 f"  -> Use real database operations with Enhanced Test Factory\n"
                 f"  -> Move to tests/unit/ if testing isolated service logic\n"
+                f"  -> Fault injection / call-through spy only: `# Mock justified: <reason>`\n"
+                f"     on this line or the line directly above (non-empty reason)\n"
                 f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
             )
             valid = False
