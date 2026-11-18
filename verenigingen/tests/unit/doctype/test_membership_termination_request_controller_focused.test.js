@@ -163,8 +163,25 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			}).not.toThrow();
 		});
 
+		it('should not require a secondary approver while the request is still a draft (control)', () => {
+			controllerTest.mockForm.doc.termination_type = 'Expulsion';
+			controllerTest.mockForm.doc.disciplinary_documentation = 'Documented';
+			controllerTest.mockForm.doc.status = 'Draft';
+			controllerTest.mockForm.doc.secondary_approver = '';
+
+			expect(() => {
+				controllerTest.testEvent('before_save');
+			}).not.toThrow();
+		});
+
 		it('should show and require disciplinary fields only for disciplinary types', () => {
-			const expectations = { Expulsion: true, 'Policy Violation': true, Voluntary: false, Deceased: false };
+			const expectations = {
+				Expulsion: true,
+				'Policy Violation': true,
+				'Disciplinary Action': true,
+				Voluntary: false,
+				Deceased: false
+			};
 
 			Object.entries(expectations).forEach(([type, disciplinary]) => {
 				const form = controllerTest.mockForm;
