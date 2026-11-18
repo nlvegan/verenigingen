@@ -117,13 +117,34 @@ def update_employee_with_user(employee_name, user_id):
 
 
 def _find_employee_of_members_user(volunteer_doc):
-    """The Employee whose user_id is the volunteer's member's user, if any."""
+    """The reusable Employee whose user_id is the volunteer's member's user, if any.
+
+    A Left/Inactive/Suspended Employee is not reusable: it is not someone who can file
+    expenses (#2802), so the volunteer falls through to the HR-gated create path.
+    """
     member_user = (
         frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
     )
     if not member_user:
         return None
-    return frappe.db.get_value("Employee", {"user_id": member_user}, "name")
+    return frappe.db.get_value("Employee", {"user_id": member_user, "status": "Active"}, "name")
+
+
+def _find_own_employee_of_session_user(volunteer_doc):
+    """The caller's OWN reusable Employee: member's user is the session user (#2802).
+
+    "Own" needs BOTH Employee.user_id == Member.user AND Member.user == session user, so a
+    non-staff caller can never link someone else's Employee. Returns None for a volunteer
+    that already has a live employee_id (that path is unchanged and stays behind the guard).
+    """
+    if volunteer_doc.employee_id and frappe.db.exists("Employee", volunteer_doc.employee_id):
+        return None
+    member_user = (
+        frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
+    )
+    if not member_user or member_user != frappe.session.user:
+        return None
+    return _find_employee_of_members_user(volunteer_doc)
 
 
 def _link_volunteer_to_employee(volunteer_doc, employee_id):
@@ -135,6 +156,13 @@ def _link_volunteer_to_employee(volunteer_doc, employee_id):
 def create_employee_for_approved_volunteer(volunteer_doc):
     """Create employee for volunteer when membership is approved - SECURE VERSION with proper permissions"""
     try:
+        # A volunteer may link their OWN existing Employee without Employee-create
+        # permission (#2802 ruling). Creating a new Employee below stays HR-gated.
+        own_employee = _find_own_employee_of_session_user(volunteer_doc)
+        if own_employee:
+            _link_volunteer_to_employee(volunteer_doc, own_employee)
+            return own_employee
+
         # Validate current user has permission to create employees
         if not frappe.has_permission("Employee", "create"):
             frappe.logger().warning(
@@ -217,17 +245,28 @@ def create_employee_for_approved_volunteer(volunteer_doc):
 
         frappe.logger().info(f"Created employee {employee_id} for volunteer {volunteer_doc.name}")
 
-        # Create user if needed and link to employee
-        if volunteer_doc.email:
-            user_id = create_user_for_volunteer(volunteer_doc)
-            if user_id and employee_id:
-                update_employee_with_user(employee_id, user_id)
-
+        _create_and_link_user_after_employee(volunteer_doc, employee_id)
         return employee_id
 
     except Exception as e:
         safe_log_error(f"Error creating employee for approved volunteer {volunteer_doc.name}: {str(e)}")
         return None
+
+
+def _create_and_link_user_after_employee(volunteer_doc, employee_id):
+    """The user step runs after the Employee is created AND linked: its failure must not
+    be reported as a failure to create the Employee (#2802). Log it and carry on."""
+    if not volunteer_doc.email:
+        return
+    try:
+        user_id = create_user_for_volunteer(volunteer_doc)
+        if user_id:
+            update_employee_with_user(employee_id, user_id)
+    except Exception as e:
+        frappe.log_error(
+            title=f"User step failed after linking Employee {employee_id}"[:140],
+            message=f"Volunteer {volunteer_doc.name}: {e}\n{frappe.get_traceback()}",
+        )
 
 
 @frappe.whitelist()
