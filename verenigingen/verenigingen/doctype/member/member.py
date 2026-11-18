@@ -938,7 +938,7 @@ def create_user(doc: str | dict = None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_organization_user(
-    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email=True
+    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email: bool = True
 ):
     """Create an organization user account for a member.
 
