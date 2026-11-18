@@ -109,7 +109,12 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
 
     def test_portal_volunteer_links_their_own_employee_via_the_first_expense(self):
         own = self._employee_for_2802(self.portal_user, via_save=True)
-        self.assertIn("Employee", frappe.get_roles(self.portal_user), "real save must grant the role")
+        # Read the role row from the DB, not frappe.get_roles (cache-guard: no cached permission
+        # reads before the user switch below).
+        self.assertTrue(
+            frappe.db.exists("Has Role", {"parent": self.portal_user, "role": "Employee"}),
+            "real save must grant the role",
+        )
         before = set(frappe.get_all("Employee", pluck="name"))
         frappe.set_user(self.portal_user)
         self.assertFalse(frappe.has_permission("Employee", "create"), "fixture user must be a portal user")
