@@ -245,28 +245,17 @@ def create_employee_for_approved_volunteer(volunteer_doc):
 
         frappe.logger().info(f"Created employee {employee_id} for volunteer {volunteer_doc.name}")
 
-        _create_and_link_user_after_employee(volunteer_doc, employee_id)
+        # Create user if needed and link to employee
+        if volunteer_doc.email:
+            user_id = create_user_for_volunteer(volunteer_doc)
+            if user_id and employee_id:
+                update_employee_with_user(employee_id, user_id)
+
         return employee_id
 
     except Exception as e:
         safe_log_error(f"Error creating employee for approved volunteer {volunteer_doc.name}: {str(e)}")
         return None
-
-
-def _create_and_link_user_after_employee(volunteer_doc, employee_id):
-    """The user step runs after the Employee is created AND linked: its failure must not
-    be reported as a failure to create the Employee (#2802). Log it and carry on."""
-    if not volunteer_doc.email:
-        return
-    try:
-        user_id = create_user_for_volunteer(volunteer_doc)
-        if user_id:
-            update_employee_with_user(employee_id, user_id)
-    except Exception as e:
-        frappe.log_error(
-            title=f"User step failed after linking Employee {employee_id}"[:140],
-            message=f"Volunteer {volunteer_doc.name}: {e}\n{frappe.get_traceback()}",
-        )
 
 
 @frappe.whitelist()

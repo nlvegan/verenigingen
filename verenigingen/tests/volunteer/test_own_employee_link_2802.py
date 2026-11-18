@@ -68,8 +68,13 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
         self.factory.track_document("User", user.name, priority=0)
         return user.name
 
-    def _employee_for_2802(self, user, *, status="Active", employee_name=None):
+    def _employee_for_2802(self, user, *, status="Active", employee_name=None, via_save=False):
         employee = self._make_employee(name_hint="Own2802Emp")
+        if via_save:
+            # real save: HRMS grants the Employee role to the user, as in production
+            employee.user_id = user
+            employee.save()
+            return employee
         values = {"user_id": user, "status": status}
         if employee_name:
             values["employee_name"] = employee_name
@@ -103,7 +108,8 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
     # -- the ruling ---------------------------------------------------------------
 
     def test_portal_volunteer_links_their_own_employee_via_the_first_expense(self):
-        own = self._employee_for_2802(self.portal_user)
+        own = self._employee_for_2802(self.portal_user, via_save=True)
+        self.assertIn("Employee", frappe.get_roles(self.portal_user), "real save must grant the role")
         before = set(frappe.get_all("Employee", pluck="name"))
         frappe.set_user(self.portal_user)
         self.assertFalse(frappe.has_permission("Employee", "create"), "fixture user must be a portal user")
@@ -117,12 +123,30 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertEqual(self._linked_2802(), own.name)
         self.assertEqual(set(frappe.get_all("Employee", pluck="name")), before, "no Employee created")
         self.assertNotIn(_REFUSAL, str(result.error_message or ""))
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.data.employee, own.name)
+        self.assertTrue(frappe.db.exists("Expense Claim", result.data.name), "the claim was filed")
 
     def test_member_user_that_is_not_the_session_user_is_not_linked(self):
         # staff-on-behalf / impersonation shape: the member's user owns an Employee, but
         # the caller is a different portal user without Employee create
         self._employee_for_2802(self.portal_user)
         caller = self._portal_user_2802("caller")
+        frappe.set_user(caller)
+        try:
+            result = create_employee_for_approved_volunteer(self.volunteer)
+        finally:
+            frappe.set_user(self._runner_2802)
+
+        self.assertIsNone(result)
+        self.assertFalse(self._linked_2802())
+
+    def test_callers_own_employee_is_not_linked_to_a_volunteer_of_another_members_user(self):
+        # "own" has TWO halves: Employee.user_id == Member.user AND Member.user == session
+        # user. Here the caller owns an Active Employee, but the volunteer's member belongs to
+        # a DIFFERENT user, so a check on Employee.user_id == session user alone would link it.
+        caller = self._portal_user_2802("caller")
+        self._employee_for_2802(caller)
         frappe.set_user(caller)
         try:
             result = create_employee_for_approved_volunteer(self.volunteer)
@@ -200,26 +224,25 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
 
     # -- item 2: a late failure after the link is written -------------------------
 
-    def test_a_failing_user_step_after_the_link_still_returns_the_employee(self):
-        from unittest import mock
-
+    def test_a_user_step_that_really_fails_after_the_link_keeps_the_employee(self):
+        # a REAL failure, no mock: the volunteer's email belongs to a user who already has
+        # another Employee, so HRMS refuses update_employee_with_user's save (it returns
+        # False inside its own handler) after the new Employee is created and linked
+        self.expectErrorLog("Error updating employee")
+        taken_user = self._portal_user_2802("taken")
+        taken_employee = self._employee_for_2802(taken_user, via_save=True)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "email", taken_user, update_modified=False)
+        self.volunteer.reload()
         before = set(frappe.get_all("Employee", pluck="name"))
-        with mock.patch(
-            "verenigingen.utils.employee_user_link.create_user_for_volunteer",
-            side_effect=RuntimeError("user step boom"),
-        ):
-            employee_id = create_employee_for_approved_volunteer(self.volunteer)
+        employee_id = create_employee_for_approved_volunteer(self.volunteer)
         self._track_new_employees_2802(before)
 
         self.assertTrue(employee_id)
+        self.assertNotEqual(employee_id, taken_employee.name)
         self.assertEqual(self._linked_2802(), employee_id)
-        logged = frappe.get_all(
-            "Error Log",
-            filters={"error": ["like", "%user step boom%"]},
-            pluck="name",
-            limit=1,
+        self.assertFalse(
+            frappe.db.get_value("Employee", employee_id, "user_id"), "the user step failed for real"
         )
-        self.assertTrue(logged, "the failed user step must be logged, not swallowed")
 
     # -- existence oracle ---------------------------------------------------------
 
