@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model.qb_query import DatabaseQuery
-from frappe.utils import today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment.test_collection_run_not_lost_silently import (
@@ -271,34 +271,89 @@ class Test2716UndeterminableSequenceType(ReleasesWhatTheBatcherCommitted, Enhanc
             fields=["parent", "sequence_type"],
         )
 
+    _S2716_RETRY_TITLE = "SEPA Batch - Sequence Type Undeterminable"
+
+    def _s2716_retry_comments(self, rec):
+        return frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
+            pluck="content",
+        )
+
+    def _s2716_error_log_count(self):
+        return frappe.db.count("Error Log", {"method": self._S2716_RETRY_TITLE})
+
+    def _s2716_make_due_again(self, rec):
+        rec.db_set("last_retry_date", frappe.utils.add_days(today(), -1))
+        rec.db_set("next_retry_date", today())
+
     def test_payment_retry_does_not_submit_a_guess(self):
-        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+        """Ruling 2: our own lookup failure is not the member's failed attempt."""
+        self.expectErrorLog("Error determining sequence type", self._S2716_RETRY_TITLE)
         rec = self._s2716_due_retry_record()
+        logs_before = self._s2716_error_log_count()
         with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
             retry.execute_payment_retry(retry_record=rec.name)
         # Batch first, so a red names the guessed batch, not the status.
         self.assertEqual(self._s2716_batch_rows(), [], "a batch was created from a guessed SeqTp")
         rec.reload()
-        # Opposite harm: the record is NOT given up (the sweep selects only Scheduled) and the
-        # attempt counts against the existing cap.
+        # The record is NOT given up (the sweep selects only Scheduled) and NOT charged.
         self.assertEqual(rec.status, "Scheduled")
-        self.assertEqual(rec.retry_count, 2)
-        comments = frappe.get_all(
-            "Comment",
-            filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
-            pluck="content",
-        )
+        self.assertEqual(rec.retry_count, 1, "an undeterminable skip must not count as an attempt")
+        # Pushed out on the normal schedule (retry_intervals keyed on retry_count), not tomorrow.
+        manager = retry.PaymentRetryManager()
+        interval = manager.retry_config["retry_intervals"][
+            min(rec.retry_count, len(manager.retry_config["retry_intervals"]) - 1)
+        ]
+        self.assertGreater(getdate(rec.next_retry_date), getdate(today()))
+        self.assertGreaterEqual(getdate(rec.next_retry_date), getdate(add_days(today(), interval)))
+        self.assertEqual(rec.next_retry_date, manager.calculate_next_retry_date(rec))
+        comments = self._s2716_retry_comments(rec)
         self.assertTrue(any(self.victim_invoice.name in c and "sequence type" in c.lower() for c in comments))
+        self.assertEqual(self._s2716_error_log_count(), logs_before + 1, "one visible error per skip")
+
+    def test_payment_retry_not_due_again_on_the_next_sweep_day(self):
+        """The skipped record must not be selected by the very next daily sweep."""
+        self.expectErrorLog("Error determining sequence type", self._S2716_RETRY_TITLE)
+        rec = self._s2716_due_retry_record()
+        with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
+            retry.execute_payment_retry(retry_record=rec.name)
+        due = frappe.get_all(
+            "SEPA Payment Retry",
+            filters={"status": "Scheduled", "next_retry_date": ["<=", add_days(today(), 1)]},
+            pluck="name",
+        )
+        self.assertNotIn(rec.name, due)
+
+    def test_payment_retry_second_call_the_same_day_is_a_no_op(self):
+        self.expectErrorLog("Error determining sequence type", self._S2716_RETRY_TITLE)
+        rec = self._s2716_due_retry_record()
+        with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
+            retry.execute_payment_retry(retry_record=rec.name)
+            rec.reload()
+            snapshot = (rec.retry_count, rec.status, rec.next_retry_date, rec.last_retry_date, rec.modified)
+            comments = len(self._s2716_retry_comments(rec))
+            logs = self._s2716_error_log_count()
+            # Due again by date, so ONLY the same-day guard can stop the second call.
+            rec.db_set("next_retry_date", today(), update_modified=False)
+            retry.execute_payment_retry(retry_record=rec.name)
+        rec.reload()
+        self.assertEqual(len(self._s2716_retry_comments(rec)), comments, "second call added a comment")
+        self.assertEqual(self._s2716_error_log_count(), logs, "second call wrote another Error Log row")
+        self.assertEqual(
+            (rec.retry_count, rec.status, rec.last_retry_date, rec.modified),
+            (snapshot[0], snapshot[1], snapshot[3], snapshot[4]),
+        )
 
     def test_payment_retry_transient_failure_then_next_sweep_ships_the_real_type(self):
-        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+        self.expectErrorLog("Error determining sequence type", self._S2716_RETRY_TITLE)
         rec = self._s2716_due_retry_record()
         with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
             retry.execute_payment_retry(retry_record=rec.name)
         self.assertEqual(self._s2716_batch_rows(), [])
 
-        # Next sweep (a later day): the lookup works now.
-        rec.db_set("last_retry_date", frappe.utils.add_days(today(), -1))
+        # The next due sweep (a later day, record due again): the lookup works now.
+        self._s2716_make_due_again(rec)
         with patch(
             "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
             "sepa_xml_service.generate_sepa_xml_for_batch",
@@ -311,16 +366,21 @@ class Test2716UndeterminableSequenceType(ReleasesWhatTheBatcherCommitted, Enhanc
         rec.reload()
         self.assertEqual(rec.status, "Retried")
 
-    def test_payment_retry_undeterminable_at_the_attempt_cap_escalates(self):
-        self.expectErrorLog("Error determining sequence type", "SEPA Batch - Sequence Type Undeterminable")
+    def test_payment_retry_repeated_undeterminable_skips_never_escalate(self):
+        self.expectErrorLog("Error determining sequence type", self._S2716_RETRY_TITLE)
         cap = retry.PaymentRetryManager().retry_config["max_retries"]
+        # One short of the cap: the old behaviour (count the skip) would escalate on the first.
         rec = self._s2716_due_retry_record(retry_count=cap - 1)
-        with patch.object(retry.PaymentRetryManager, "send_escalation_notification"):
+        with patch.object(retry.PaymentRetryManager, "escalate_payment_failure") as escalate:
             with _s2716_fail_usage_lookup_for(self.victim_mandate.name):
-                retry.execute_payment_retry(retry_record=rec.name)
+                for _ in range(cap + 1):
+                    retry.execute_payment_retry(retry_record=rec.name)
+                    self._s2716_make_due_again(rec)
+        escalate.assert_not_called()
         self.assertEqual(self._s2716_batch_rows(), [])
         rec.reload()
-        self.assertEqual(rec.status, "Escalated")
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertEqual(rec.retry_count, cap - 1)
 
     def test_scheduler_reports_how_many_invoices_were_skipped(self):
         """Every group undeterminable: the run must not read as 'no eligible invoices'."""
