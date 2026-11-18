@@ -3350,18 +3350,44 @@ class CoreFactoryCleanupCommitMakesDeletesDurableTest(unittest.TestCase):
             "cleanup(commit=True) did not survive a later rollback (#842)",
         )
 
-    def test_committing_after_the_rollback_leaks_no_bystander(self):
-        """Ordering contract: rollback first, then cleanup(commit=True) (as #489)."""
-        victim = self._create_committed_territory_842("zzcore-842-order-victim")
-        bystander = _territory("zzcore-842-order-bystander")  # uncommitted
-        self.created.append(("Territory", bystander.name))
-        factory = self._create_tracking_core_factory_842(victim.name)
+    def test_converted_teardowns_run_super_before_cleanup_commit(self):
+        """Ordering contract (#489/#842): `cleanup(commit=True)` only AFTER `super().tearDown()`.
 
-        frappe.db.rollback()
-        factory.cleanup(commit=True)
+        The commit is connection-wide; before the base teardown's rollback it would make
+        every other uncommitted row permanent. Source-order check on the two converted
+        tearDowns, since the ordering is a property of the CALLERS, not of the factory.
+        """
+        import ast
+        import os
 
-        self.assertFalse(frappe.db.exists("Territory", bystander.name))
-        self.assertFalse(frappe.db.exists("Territory", victim.name))
+        path = os.path.join(os.path.dirname(__file__), "payment", "test_payment_history_scalability.py")
+        with open(path) as handle:
+            tree = ast.parse(handle.read())
+
+        checked = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.FunctionDef) and node.name == "tearDown"):
+                continue
+            super_line = commit_line = None
+            for call in ast.walk(node):
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+                    continue
+                if call.func.attr == "cleanup" and any(
+                    kw.arg == "commit" and getattr(kw.value, "value", None) is True for kw in call.keywords
+                ):
+                    commit_line = call.lineno
+                if (
+                    call.func.attr == "tearDown"
+                    and isinstance(call.func.value, ast.Call)
+                    and getattr(call.func.value.func, "id", None) == "super"
+                ):
+                    super_line = call.lineno
+            if commit_line is not None:
+                self.assertIsNotNone(super_line, "a commit=True tearDown must call super().tearDown()")
+                self.assertLess(super_line, commit_line, f"tearDown at line {node.lineno}: commit before super")
+                checked.append(node.lineno)
+
+        self.assertEqual(2, len(checked), "control: expected exactly the two converted tearDowns")
 
 
 class _BorrowedChapterFixture:
