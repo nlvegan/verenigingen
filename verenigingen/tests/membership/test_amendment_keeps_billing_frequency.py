@@ -193,6 +193,8 @@ class TestAmendmentKeepsBillingFrequency(ScheduleFrequencyFixtureMixin, Verening
         return MollieSubscriptionSyncService(client=object())
 
     def test_paused_member_fee_change_keeps_the_schedule_interval_2507(self):
+        """Defensive coverage: the real flow cannot leave a Paused schedule at sync time for a
+        Fee Change (a non-pure one replaces it with an Active schedule; a pure one is refused)."""
         # Annual, so the "1 month" fallback is visibly wrong.
         self.old_schedule.billing_frequency = "Annual"
         self.old_schedule.save()
@@ -201,13 +203,51 @@ class TestAmendmentKeepsBillingFrequency(ScheduleFrequencyFixtureMixin, Verening
         self.assertEqual(self._mollie_interval(amendment), "12 months")
 
     def test_paused_member_type_change_keeps_the_schedule_interval_2507(self):
-        # Target template is Quarterly; the member (Paused) stays Monthly.
+        """Real order: pause through DuesScheduleLifecycleService.pause_schedule FIRST, then
+        apply the real type change. The in-place path leaves the schedule Paused, with the new
+        rate and the member's own frequency (Monthly, not the target template's Quarterly)."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            DuesScheduleLifecycleService,
+        )
+
+        DuesScheduleLifecycleService().pause_schedule(self._member_live_schedule(), "test pause 2507")
         amendment, other = self._type_change()
         self.assertEqual(self._template_frequency(other.name), "Quarterly")
-        self._pause_live_schedule()
+        schedule = frappe.get_doc("Membership Dues Schedule", self.old_schedule.name)
+        self.assertEqual(schedule.status, "Paused", "fixture: real flow keeps the schedule Paused")
+        self.assertEqual(schedule.membership_type, other.name)
         self.assertEqual(self._mollie_interval(amendment), "1 month")
 
+    def test_member_holding_active_and_paused_schedules_gets_the_active_one_2507(self):
+        """Wrong fix: returning get_active_or_paused_schedule alone picks the Paused row
+        (get_value orders creation DESC, so the Paused row is made the NEWER one).
+
+        Probe shortcut: the doctype refuses a second live schedule per member, so the pair is
+        built by pausing the original (real service), inserting a copy, then swapping the two
+        statuses with db.set_value."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            DuesScheduleLifecycleService,
+        )
+
+        DuesScheduleLifecycleService().pause_schedule(self._member_live_schedule(), "test pause 2507")
+        other = frappe.copy_doc(self.old_schedule)
+        other.schedule_name = f"{self.old_schedule.schedule_name}-second-2507"
+        other.status = "Active"
+        other.billing_frequency = "Annual"
+        other.dues_rate = float(self.old_schedule.dues_rate) + 11
+        other.insert()
+        self.track_doc("Membership Dues Schedule", other.name)
+        frappe.db.set_value("Membership Dues Schedule", self.old_schedule.name, "status", "Active")
+        frappe.db.set_value("Membership Dues Schedule", other.name, "status", "Paused")
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", other.name, "billing_frequency"), "Annual"
+        )
+        found = self._paused_sync_service()._get_membership_dues_schedule(self.member.name)
+        self.assertEqual(found.name, self.old_schedule.name)
+        self.assertEqual(found.status, "Active")
+
     def test_paused_member_interval_change_takes_the_amount_from_the_schedule_2507(self):
+        """Defensive coverage: Billing Interval Change is unimplemented/refused in the real flow."""
         schedule = self._pause_live_schedule()
         # Stand-in input doc: only the two fields the Billing Interval Change branch reads.
         amendment = frappe._dict(amendment_type="Billing Interval Change", new_billing_interval="Annual")
