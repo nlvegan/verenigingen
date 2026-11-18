@@ -37,7 +37,8 @@ class BatchProcessingService:
             batch_doc: Direct Debit Batch document
 
         Returns:
-            Number of successfully processed invoices
+            Number of invoices collected by THIS call (rows already Successful
+            are skipped and not counted; the batch status still counts them)
 
         Raises:
             frappe.ValidationError: If batch is not in correct state
@@ -57,8 +58,17 @@ class BatchProcessingService:
             frappe.throw(_("SEPA file must be generated before marking invoices as paid"))
 
         success_count = 0
+        already_collected = 0
 
         for invoice_item in batch_doc.invoices:
+            # #2573: a row is set Successful only after its Payment Entry was created
+            # (same transaction), so Successful means "this batch already collected it".
+            # Re-entering would make ERPNext reject the duplicate and overwrite the row
+            # (and the batch) as Failed although the Payment Entry exists.
+            if invoice_item.status == "Successful":
+                already_collected += 1
+                continue
+
             try:
                 # Get the invoice
                 invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
@@ -98,11 +108,13 @@ class BatchProcessingService:
                 )
 
         # Update batch status (persisted via db_set, see above).
-        self._update_batch_status_after_processing(batch_doc, success_count)
+        self._update_batch_status_after_processing(batch_doc, success_count + already_collected)
 
         # Log results. batch_log is not allow_on_submit either, so persist via db_set.
         BatchLoggingUtilities.add_to_document_batch_log(
-            batch_doc, f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
+            batch_doc,
+            f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
+            + (f" ({already_collected} already collected, skipped)" if already_collected else ""),
         )
         batch_doc.db_set("batch_log", batch_doc.batch_log, update_modified=False)
 
