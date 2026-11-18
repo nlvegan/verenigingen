@@ -444,7 +444,6 @@ COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/wsgi_http_session.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # order-dep-exempt
-COMMIT_EXEMPT tests/test_harness_drain_registration_order_ledger.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_drains_survive_setup_failure.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
 COMMIT_EXEMPT tests/test_member_import_cleanup_engine.py::4  # order-dep-exempt
