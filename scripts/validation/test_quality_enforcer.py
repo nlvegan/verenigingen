@@ -292,11 +292,12 @@ def _patch_targets(content: str) -> List[Tuple[int, str]]:
             # on the attribute still matches.
             parts = []
             if node.args:
-                first = node.args[0]
-                parts.append(
-                    first.id if isinstance(first, ast.Name)
-                    else first.attr if isinstance(first, ast.Attribute) else ""
-                )
+                # The FULL dotted chain, not its last segment (#1493):
+                # patch.object(frappe.db, "exists") must give "frappe.db.exists",
+                # or every 3-segment `frappe.db.<m>` rule misses it. A suffix-
+                # anchored rule still matches a longer prefix, so a one-segment
+                # base (SomeClass) resolves exactly as before.
+                parts.append(_dotted_name(node.args[0]))
             if len(node.args) > 1:
                 parts.append(_target_of(node.args[1]))
             target = ".".join(x for x in parts if x)

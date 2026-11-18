@@ -795,6 +795,43 @@ class StructuralMockDetectionTest(unittest.TestCase):
         )
         self.assertIn("DATABASE MOCK", _kinds(src))
 
+    def test_patch_object_on_a_dotted_base_is_detected(self):
+        """#1493: `patch.object(frappe.db, "exists")` resolved to "db.exists" (only the
+        base's LAST segment was kept), so every 3-segment `frappe.db.<m>` rule missed it.
+        Each spelling of the base below must produce a DATABASE MOCK finding.
+        """
+        for base_expr in ("frappe.db", "mod.frappe.db"):
+            src = (
+                "from unittest.mock import patch\n"
+                "import frappe\n"
+                "def test_x():\n"
+                f'    with patch.object({base_expr}, "exists"):\n'
+                "        pass\n"
+            )
+            self.assertIn("DATABASE MOCK", _kinds(src), base_expr)
+
+    def test_patch_object_target_keeps_the_full_dotted_base(self):
+        """Control for the above: the resolved target itself, not just the finding."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.db, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertEqual([(4, "frappe.db.exists")], tqe._patch_targets(src))
+
+    def test_patch_object_on_an_unrelated_dotted_base_is_not_detected(self):
+        """Control: the longer target must not turn into a substring match."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.dbx, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
     def test_a_lookalike_name_is_not_detected(self):
         """Suffix anchoring must not degrade into a substring match.
 
