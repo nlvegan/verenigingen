@@ -35,9 +35,12 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
         for name, make in _FAULTS.items():
             with self.subTest(fault=name):
                 err = make()
+                before = _envelope_1190_error_log_rows("svc_1190 Error")
                 with self.assertRaises(NON_RESUMABLE_DB_ERRORS) as ctx:
                     handle_service_error(err, "svc_1190", "op")
                 self.assertIs(ctx.exception, err)
+                # Deliberate: no Error Log write on the transaction the server just destroyed.
+                self.assertEqual(_envelope_1190_error_log_rows("svc_1190 Error"), before)
 
     def test_execute_operation_propagates_the_original_object(self):
         for name, make in _FAULTS.items():
@@ -54,7 +57,9 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
                 self.assertEqual(svc.get_metrics()["errors"], 1)
 
     def test_execute_with_transaction_propagates_and_still_rolls_back(self):
-        member = self.create_test_member(first_name="Env1190", last_name="Svc", email="env1190@verenigingen-test.nl")
+        member = self.create_test_member(
+            first_name="Env1190", last_name="Svc", email="env1190@verenigingen-test.nl"
+        )
         original_email = frappe.db.get_value("Member", member.name, "email")
         for name, make in _FAULTS.items():
             with self.subTest(fault=name):
@@ -62,7 +67,13 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
                 svc = StatefulService(f"stateful_1190_{name}")
 
                 def write_then_fail():
-                    frappe.db.set_value("Member", member.name, "email", "env1190.changed@verenigingen-test.nl", update_modified=False)
+                    frappe.db.set_value(
+                        "Member",
+                        member.name,
+                        "email",
+                        "env1190.changed@verenigingen-test.nl",
+                        update_modified=False,
+                    )
                     raise err
 
                 with self.assertRaises(NON_RESUMABLE_DB_ERRORS) as ctx:
@@ -77,7 +88,9 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
         The fault is injected at the frame that really inserts the Customer, below
         create_customer_for_member's savepoint and below the service's handler.
         """
-        member = self.create_test_member(first_name="EnvReal1190", last_name="Svc", email="envreal1190@verenigingen-test.nl")
+        member = self.create_test_member(
+            first_name="EnvReal1190", last_name="Svc", email="envreal1190@verenigingen-test.nl"
+        )
         # create_test_member auto-creates a Customer; detach it so the service reaches the insert.
         for customer in frappe.get_all("Customer", filters={"member": member.name}, pluck="name"):
             frappe.db.set_value("Customer", customer, "member", None, update_modified=False)
@@ -93,7 +106,6 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
                     raise err
 
                 approval_payments.insert_customer_with_duplicate_retry = _fail
-                self.expectErrorLog()
                 with self.assertRaises(NON_RESUMABLE_DB_ERRORS):
                     CustomerHandlingService().create_customer_for_member(member, suppress_messages=True)
 
