@@ -24,6 +24,10 @@ STATUS_MAIL = (
     "verenigingen.services.member.lifecycle.member_status_notification_service."
     "MemberStatusNotificationService._send_email"
 )
+STATUS_MAIL_JOB = (
+    "verenigingen.services.member.lifecycle.member_status_notification_service."
+    "send_status_change_notification_job"
+)
 
 
 class TestMemberStatusEventOldValue(VereningingenTestCase):
@@ -126,8 +130,20 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
 
     def test_status_mail_context_names_the_previous_status(self):
         sent = []
+        jobs = []
+        real_enqueue = frappe.enqueue
+
+        def capture_status_mail_job(*args, **kwargs):
+            # The mail is queued for after the commit (#2735); the job is run by hand below.
+            if kwargs.get("method") == STATUS_MAIL_JOB:
+                return jobs.append(kwargs)
+            return real_enqueue(*args, **kwargs)
+
         with patch(STATUS_MAIL, side_effect=lambda **kw: sent.append(kw["context"])):
-            self._save(status="Suspended")
+            with patch("frappe.enqueue", capture_status_mail_job):
+                self._save(status="Suspended")
+            for job in jobs:
+                frappe.call(job["method"], **{k: job[k] for k in ("member_name", "old_status", "new_status")})
         self.assertEqual(len(sent), 1, sent)
         self.assertEqual((sent[0]["old_status"], sent[0]["new_status"]), ("Active", "Suspended"))
 
