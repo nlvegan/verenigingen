@@ -35,7 +35,7 @@ from verenigingen.tests.support.wsgi_http_session import (
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
-SAFE_CALLS = {"prepare_background_import", "cbool", "cint", "is_dry_run", "is_confirmed", "int", "bool", "safe_int", "sbool"}
+SAFE_CALLS = {"prepare_background_import", "cbool", "cint", "is_dry_run", "is_confirmed", "int", "safe_int", "sbool"}
 
 # "module:qualname" -> parameters fixed by #2448 (a bare ``if`` on a string flag). Parameters that were
 # already annotated on develop are not listed (the census never flagged them: see the class guard).
@@ -172,6 +172,7 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
             "@frappe.whitelist()\ndef annotated(force: bool = False):\n    return helper(force=force)\n\n"
             "@frappe.whitelist()\ndef converted(force=False):\n    force = cbool(force)\n    return helper(force)\n\n"
             "@frappe.whitelist()\ndef safe_callee(force=False):\n    return helper(cbool(force))\n\n"
+            "@frappe.whitelist()\ndef bool_wrapped(force=False):\n    return helper(bool(force))\n\n"
             "@frappe.whitelist()\ndef compared(force=False):\n    return force in [True, 1]\n\n"
             "@frappe.whitelist()\ndef echoed(force=False):\n    return {\"force\": force}\n\n"
             "@frappe.whitelist()\ndef unused(force=False):\n    return 1\n\n"
@@ -179,7 +180,13 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
         )
         self.assertEqual(
             unguarded_bool_flags(source, passthrough=True),
-            [("bad", "force"), ("bad_positional", "force"), ("compared", "force"), ("echoed", "force")],
+            [
+                ("bad", "force"),
+                ("bad_positional", "force"),
+                ("bool_wrapped", "force"),  # bool("false") is True: not a conversion
+                ("compared", "force"),
+                ("echoed", "force"),
+            ],
         )
         self.assertEqual(unguarded_bool_flags(source), [])  # the bare-test census alone cannot see them
 
