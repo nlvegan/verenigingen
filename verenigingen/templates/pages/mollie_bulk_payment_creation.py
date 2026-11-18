@@ -175,7 +175,11 @@ def validate_csv_members(
         # Prefetch all members referenced in the CSV in a single query, instead of
         # issuing one frappe.db.get_value() lookup per row (N+1 for large CSVs).
         customer_ids = list(
-            {row.get("customer_id", "").strip() for row in all_rows if row.get("customer_id", "").strip()}
+            {
+                (row.get("customer_id") or "").strip()
+                for row in all_rows
+                if (row.get("customer_id") or "").strip()
+            }
         )
         members_by_customer_id = {}
         if customer_ids:
@@ -194,7 +198,7 @@ def validate_csv_members(
                 members_by_customer_id.setdefault(m.mollie_customer_id, []).append(m)
 
         for row in all_rows:
-            customer_id = row.get("customer_id", "").strip()
+            customer_id = (row.get("customer_id") or "").strip()
             if not customer_id:
                 continue
 

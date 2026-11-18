@@ -6129,23 +6129,22 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return uom_name
 
     def _ensure_selling_price_list(self, currency="EUR"):
-        """Return a selling Price List name, preferring ERPNext's 'Standard Selling'."""
-        if frappe.db.exists("Price List", "Standard Selling"):
+        """Return an enabled selling Price List IN `currency` (#2766).
+
+        A list in another currency (a fresh site's 'Standard Selling' is INR) makes
+        erpnext fetch a live exchange rate on insert, which it refuses unless the
+        session user is a System User -- so the invoice depended on whatever user an
+        earlier module left behind. Shared master data: never drained.
+        """
+        if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
             return "Standard Selling"
-        existing = frappe.db.get_value("Price List", {"selling": 1}, "name")
-        if existing:
-            return existing
-        price_list = frappe.get_doc(
-            {
-                "doctype": "Price List",
-                "price_list_name": "Standard Selling",
-                "selling": 1,
-                "currency": currency,
-            }
-        )
-        price_list.insert(ignore_permissions=True)
-        self._track_test_document("Price List", price_list.name, priority=0)
-        return price_list.name
+        name = f"Test Selling {currency}"
+        if not frappe.db.exists("Price List", name):
+            with suspend_insert_capture():
+                frappe.get_doc(
+                    {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
+                ).insert(ignore_permissions=True)
+        return name
 
     def create_test_user(self, email, roles=None, **kwargs):
         """Create a test user with specified roles"""

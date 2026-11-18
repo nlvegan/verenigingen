@@ -122,54 +122,6 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         )
 
 
-def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False, **kwargs):
-    """
-    Handle notifications for member lifecycle changes.
-
-    Sends appropriate communications for status transitions like Active -> Suspended.
-
-    Args:
-        event_name: Name of the event being handled
-        event_data: Event data dictionary
-        is_bulk_import: Flag passed from main process indicating bulk import mode
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
-
-        # Skip during bulk imports
-        if should_skip_for_bulk(is_bulk_import):
-            return
-        member_name = event_data.get("member")
-        old_status = event_data.get("old_status")
-        new_status = event_data.get("new_status")
-
-        if not member_name:
-            return
-
-        member = get_doc_if_exists("Member", member_name, "lifecycle notification")
-        if not member:
-            return
-
-        if not _member_state_still_holds(member, event_name, event_data):
-            return
-
-        # Send lifecycle-specific notifications
-        if new_status == "Suspended":
-            _send_member_status_notification(member, "suspension")
-        elif new_status == "Quit":
-            _send_member_status_notification(member, "termination")
-
-        frappe.logger("events").info(
-            f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
-        )
-
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to send lifecycle notification: {str(e)}", "Member Lifecycle Notification Error"
-        )
-
-
 def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kwargs):
     """
     Handle cache invalidation for member lifecycle changes.
@@ -258,12 +210,20 @@ def _send_member_status_notification(member, notification_type):
                 f"{notification_type.capitalize()} notification sent to {member.email}"
             )
         else:
-            frappe.logger("events").warning(
-                f"Failed to send {notification_type} notification: {'; '.join(result.errors)}"
+            # Error Log, not frappe.logger(): a bare logger is dropped (level + file-only handlers)
+            frappe.log_error(
+                title="Member Status Notification Failed",
+                message=(
+                    f"Failed to send {notification_type} notification for {member.name}: "
+                    f"{'; '.join(result.errors or [])}"
+                ),
             )
 
     except Exception as e:
-        frappe.logger("events").error(f"Failed to send {notification_type} notification: {str(e)}")
+        frappe.log_error(
+            title="Member Status Notification Failed",
+            message=f"Failed to send {notification_type} notification for {member.name}: {str(e)}",
+        )
 
 
 def _send_lifecycle_notification(member, old_status, new_status):

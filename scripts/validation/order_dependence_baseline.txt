@@ -307,7 +307,7 @@ COMMIT verenigingen_payments/mollie/tests/test_webhook_wrapper_unified_sweep.py:
 COMMIT verenigingen_payments/tests/test_direct_debit_batch_refactoring.py::2  # order-dependence
 COMMIT verenigingen_payments/tests/test_sepa_xml_compliance.py::2  # order-dependence
 COMMIT_EXEMPT e_boekhouden/doctype/e_boekhouden_migration/test_e_boekhouden_migration.py::1  # order-dep-exempt
-COMMIT_EXEMPT mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::1  # order-dep-exempt
+COMMIT_EXEMPT mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings.py::2  # order-dep-exempt
 COMMIT_EXEMPT mijnrood_sync/doctype/mijnrood_sync_settings/test_mijnrood_sync_settings_remote.py::1  # order-dep-exempt
 COMMIT_EXEMPT mijnrood_sync/services/event_application/test_dispatcher.py::1  # order-dep-exempt
 COMMIT_EXEMPT mijnrood_sync/services/event_application/test_sync_services.py::2  # order-dep-exempt

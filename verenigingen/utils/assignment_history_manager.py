@@ -25,7 +25,7 @@ class AssignmentHistoryManager(BaseHistoryManager):
     RECURSION_FLAG = "_updating_assignment_history"
 
     @staticmethod
-    def refresh_volunteer_status(volunteer_id: str) -> None:
+    def refresh_volunteer_status(volunteer_id: str, ignore_links: bool = False) -> None:
         """Re-derive Volunteer.status after the assignment rows changed (#705).
 
         THIS IS THE WHOLE POINT OF #705. Assignments are written through
@@ -39,6 +39,10 @@ class AssignmentHistoryManager(BaseHistoryManager):
         what dispatches Volunteer.on_update, which is where the role-profile resync
         hangs (#688). A db_set here would move the status silently and leave the
         role profile stale -- the same defect in a new costume.
+
+        ``ignore_links``: only for a volunteer whose history still names a Chapter that no
+        longer exists (an orphan board row, #2607); the save would refuse that entry as a
+        broken link whatever its status.
         """
         volunteer = frappe.get_doc("Volunteer", volunteer_id)
         before = volunteer.status
@@ -69,6 +73,7 @@ class AssignmentHistoryManager(BaseHistoryManager):
         # reuses the per-document flag _check_auto_activation already honours, and the
         # flag's own comment already gives this reasoning.
         volunteer.flags.bulk_member_operations = True
+        volunteer.flags.ignore_links = ignore_links
 
         # ignore_permissions: JUSTIFIED. This is a system-owned derivation, not a
         # user edit -- the status is a pure function of assignment rows that were

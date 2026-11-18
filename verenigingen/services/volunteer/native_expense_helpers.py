@@ -273,7 +273,7 @@ def _volunteers_fed_by_chapter(chapter_name, stale_users):
             AND (
                 v.member IN (
                     SELECT cm.member FROM `tabChapter Member` cm
-                    WHERE cm.parent = %(chapter)s AND cm.enabled = 1
+                    WHERE cm.parent = %(chapter)s AND cm.enabled = 1 AND cm.status = 'Active'
                 )
                 OR v.name IN (
                     SELECT tm.volunteer FROM `tabTeam Member` tm

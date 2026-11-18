@@ -453,7 +453,7 @@ class PeriodicDonationAgreement(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def cancel_agreement(self, reason=None, send_email=False):
+    def cancel_agreement(self, reason=None, send_email: bool = False):
         """Cancel the agreement
 
         Args:

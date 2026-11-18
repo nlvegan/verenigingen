@@ -42,13 +42,15 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
         from_date = add_months(today(), -months_back)
 
         # Query native Expense Claims for this employee
-        expense_claims = frappe.get_all(
+        # get_list, not get_all: only claims the caller may list (#1819)
+        expense_claims = frappe.get_list(
             "Expense Claim",
             filters={
                 "employee": volunteer_doc.employee_id,
                 "posting_date": [">=", from_date],
             },
             fields=["total_claimed_amount", "total_sanctioned_amount", "status", "docstatus"],
+            limit_page_length=0,
         )
 
         total_submitted = 0
@@ -103,12 +105,16 @@ def get_volunteer_expense_summary(volunteer_name):
 
         # Count recent expenses from native Expense Claims
         if volunteer_doc.employee_id:
-            recent_count = frappe.db.count(
-                "Expense Claim",
-                filters={
-                    "employee": volunteer_doc.employee_id,
-                    "posting_date": [">=", recent_date],
-                },
+            recent_count = len(
+                frappe.get_list(
+                    "Expense Claim",
+                    filters={
+                        "employee": volunteer_doc.employee_id,
+                        "posting_date": [">=", recent_date],
+                    },
+                    pluck="name",
+                    limit_page_length=0,
+                )
             )
 
         # Add recent count to stats

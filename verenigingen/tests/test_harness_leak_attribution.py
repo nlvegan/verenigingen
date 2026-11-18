@@ -3771,6 +3771,11 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
     `_drain_tracked_documents`) delete through `_remove_drained_record`, and
     `Company` is deliberately NOT in `DRAIN_EXEMPT_DOCTYPES`.
 
+    hrms `version-16` fixed its half upstream in a2fc57c64 (release 16.54.0,
+    2026-11-17): `Expense Claim Account` is now in `company_data_to_be_ignored`, so
+    `handle_linked_docs` deletes these rows in `on_trash`. Older hrms installs
+    (this bench's included) still strand them, so the sweep stays.
+
     The company here is built WITHOUT a chart of accounts and the stranded row is
     written by hand. Deliberate: creating the row is hrms's business and does not
     happen on this bench at all (the local hrms predates the function), while what
@@ -4071,9 +4076,14 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
         deletes the row successfully, so an unconditional sweep stays green
         across the whole module (measured -- it does).
 
-        `update_naming_series` is the real step immediately before
-        `delete_from_table`, so patching it lands the raise on the near side of
-        the row removal; the control below asserts exactly that.
+        The raise is injected at `check_permission_and_not_submitted`, the step
+        BEFORE `on_trash`, so nothing but the sweep can remove the seeded row.
+        It used to be injected at `update_naming_series`, AFTER `on_trash`. That
+        stopped working when hrms `version-16` (a2fc57c64, release 16.54.0) added
+        `Expense Claim Account` to `company_data_to_be_ignored`: hrms's Company
+        `on_trash` (`handle_linked_docs`) now deletes the row itself, so it was
+        gone with the Company still alive and the test went red on every
+        merge-queue run, whatever the PR.
         """
         self._create_company()
         self._strand_the_row_hrms_would_have_written()
@@ -4081,12 +4091,17 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
         self.assertTrue(seeded, "sanity check: the seed must actually have stranded a row")
 
         with mock.patch(
-            "frappe.model.delete_doc.update_naming_series",
+            "frappe.model.delete_doc.check_permission_and_not_submitted",
             side_effect=RuntimeError("pre-removal step failed"),
-        ):
-            with self.assertRaises(RuntimeError):
+        ) as pre_removal_step:
+            with self.assertRaisesRegex(RuntimeError, "pre-removal step failed"):
                 _probe()._remove_drained_record("Company", self.company)
 
+        self.assertTrue(
+            pre_removal_step.called,
+            "control: the raise must come from the patched step (before on_trash), "
+            "not from somewhere else in the delete",
+        )
         self.assertTrue(
             frappe.db.exists("Company", self.company),
             "control: the raise has to land BEFORE the row was removed, or this "
